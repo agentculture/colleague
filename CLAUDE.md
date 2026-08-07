@@ -79,6 +79,14 @@ minds. The architecture, part by part:
 - **Talking to one teammate (senses front door)** — senses answers non-repo turns
   FIRST via a **deterministic** classifier (`colleague/frontdoor.py`,
   ambiguous→cortex); anything touching the repo → cortex, the ONLY repo actor. Doc: `talking-to-one-teammate.md`.
+- **Session streaming + narration + speak-only + pin hygiene** — senses replies
+  stream into the conversation (`colleague/senses_stream.py` extractor, owned-line
+  transient paints, containment); cortex/worker activity narrates at boundary
+  beats as `<<higher self thought>>` / `<subconscious thought/actions>`
+  (display-only, NEVER model context); `--speak`//`speak` speaks replies while
+  the operator types (default off, mic gate untouched); a stale model pin
+  same-role-refreshes loudly (main seat only) onto `TaskResult.warnings` + a
+  doctor membership probe. Doc: `session-streaming-voice.md`.
 - **Memory (best-colleague R1)** — recall-before / remember-after every run (eidetic) onto `TaskResult.memory`; triple-gated; isolated runs target the OPERATOR repo. Doc: `memory.md`.
 - **Finish recovery + grounded reads (R2)** — the loop recovers
   literal-markup/thin/meta finishes (#248/#231) onto `TaskResult.finish_recovered`;
@@ -267,9 +275,12 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   `CliError`. The four reserved meta-verbs (`doctor`/`overview`/`learn`/`explain`)
   stay colleague-owned via the legacy-parser shim in `main()`. Doc: `cli-on-agentfront.md`.
 - **The vLLM adapter only touches the OpenAI surface** — retargeting any
-  OpenAI-compatible server must stay a config change, never a code change. ONE
-  carve-out: the `/tokenize` endpoint for exact token counting, which degrades
-  gracefully (`None` on error), so a server without it stays a config change.
+  OpenAI-compatible server must stay a config change, never a code change. TWO
+  carve-outs, both graceful-degrade so a server without them stays a config
+  change: the `/tokenize` endpoint for exact token counting (`None` on error),
+  and — only when lobes is ARMED — the call-time stale-pin refresh's one
+  same-role lookup against the gateway (c11/h8; lobes unarmed = the original
+  error surfaces unchanged, zero non-OpenAI calls).
 - **Hook commands run as subprocesses, never imported.** `colleague/hooks.py` uses
   `subprocess.run` (shell=True) in the repo working dir; command templates are
   Markdown text, never executed. No code path opens a socket or forks a daemon.

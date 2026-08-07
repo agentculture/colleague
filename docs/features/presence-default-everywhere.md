@@ -24,7 +24,7 @@ beyond it.
 Senses gets its own bounded *agentic loop* (`colleague/senses_loop.py`
 `SensesLoopDriver`). It is what makes this the fourth increment rather than a
 deepening — but it is sanctionable because its "tools" are a **curated,
-coordination-only** move surface, never repo tools. The six enumerated moves
+coordination-only** move surface, never repo tools. The seven enumerated moves (`narrate` joined in the session-streaming arc, display-only)
 (`colleague/senses_moves.py`):
 
 | Move | Meaning |
@@ -46,7 +46,7 @@ writes, parsed from an ordinary **tools-off** completion
 (`make_complete(senses_config, tools=[])`). `senses_moves.py` imports neither
 `subprocess` nor any `ToolExecutor` and constructs no tool schema — pinned by an
 AST-precise boundary test. The `SensesMoveExecutor` refuses any move name outside
-the enumerated six (a hallucinated move degrades to a recorded no-op, never
+the enumerated seven (a hallucinated move degrades to a recorded no-op, never
 raises), so widening the surface requires a new re-spec at the router-exclusion
 line.
 

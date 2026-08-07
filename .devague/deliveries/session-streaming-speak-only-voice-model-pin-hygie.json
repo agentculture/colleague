@@ -1,0 +1,78 @@
+{
+  "plan_slug": "session-streaming-speak-only-voice-model-pin-hygie",
+  "schema_version": 1,
+  "created": "2026-08-06T15:06:38Z",
+  "updated": "2026-08-07T03:44:13Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t9 call-time refresh warning names 'call-time-404' as its source instead of re-deriving the original pinning layer (flag/env/config.json) \u2014 the engine's complete() scope has no repo_path/env snapshot to re-derive it from; resolution-time attribution is exact",
+      "task_ref": "t9",
+      "reason": "re-threading the resolution-time source through EngineConfig would special-case three-tier (worker seat has no pin rung); the honest simpler label names HOW staleness was detected",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d2",
+      "what": "the builtin _DEFAULT_MODEL in colleague/config.py:66 is itself the stale 'sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP' id \u2014 discovered during t10 integration; no plan task covers refreshing it, yet it is the repo-side half of 'fix the models issues' (a bare vllm-openai run without env/config/lobes 404s out of the box)",
+      "task_ref": "t10",
+      "reason": "updating it to the currently served cortex id (unsloth/Qwen3.6-27B-NVFP4) touches 14 references across 8 test files \u2014 done as an integrator commit within this arc",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t1 reassigned from colleague (27B cortex) to the main agent mid-wave: the colleague run hung client-side after step 7 \u2014 process alive, rig healthy (2ms /v1/models, fresh completions fine), but heartbeat feed + stderr frozen 22+ min, past the raised 600s request timeout; SIGTERM'd per #222, WIP tests salvaged from its branch",
+      "task_ref": "t1",
+      "reason": "GPU-serialized wave cannot wait indefinitely and t2 depends on t1; the split-plan model column changes (colleague -> fable main), the task contract is unchanged",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "c2 names three streaming surfaces (direct-answer / talk / speak-back) but the senses reply envelopes differ per surface: front-door moves carry a 'text' key (extractor's target), run_senses_talk replies carry 'answer', and speak-back is plain text with no envelope \u2014 talk-lane streaming would decline to zero display deltas today (clean fallback, h2 intact)",
+      "task_ref": "t2",
+      "reason": "fixed in-arc: EnvelopeStream gains a target-field parameter (integrator commit) and the t3 rendering task arms field='answer' for the talk lane and raw pass-through for envelope-less speak-back",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "live event during t11's run: t9's call-time refresh fired on a DEEPTHINK call \u2014 muse (Gemma-4-31B, advertised-but-not-loaded, the known lobes lingering-advert bug) filled deepthink, its 404 was mislabeled 'cortex model' and refreshed to the cortex id, crossing roles muse->cortex against h8's same-role rule",
+      "task_ref": "t9",
+      "reason": "complete() computes the seat as worker-or-cortex and never verifies whose model 404'd; fix in-arc: call-time refresh arms for the MAIN seat only (matching c8/c11's 'MAIN model' language) \u2014 deepthink/senses replaced configs disarm it and keep their own degrade paths",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky"
+    },
+    {
+      "id": "d6",
+      "what": "t14's planning vehicle changed: 'colleague plan run' walled on BOTH minds \u2014 the 35B worker's proposal output failed claim-parsing ('no claims could be parsed'), and the 27B (plan-mode's tuned target) ran past a 10-minute window without reaching its first checkpoint; pivot to Colleague authoring docs/BUILD-PLAN.md via its healthy 35B tool loop, operator-gated as the split plan",
+      "task_ref": "t14",
+      "reason": "the essence of t14 (Colleague authors ideas/design/plan/code; operator guides + gates) is preserved \u2014 only the CLI vehicle changed; deepthink muse-fallback degrade worked correctly during the attempt",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d7",
+      "what": "t14's Colleague-authored 20-task build plan had no integration/composition task: all 20 gated green as modules while TickLoop's phases stayed b2-era stubs \u2014 the assembled game emitted empty observations and never terminated (found by the real bot-pairing proof, 3.6M hollow ticks). b21 (integration) added and dispatched to Colleague",
+      "task_ref": "t14",
+      "reason": "unit gates prove modules, not composition; the end-to-end task (b20) proved determinism of the HOLLOW loop \u2014 behavior-level e2e was missing from the plan's acceptance ladder",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    }
+  ]
+}

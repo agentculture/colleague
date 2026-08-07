@@ -759,6 +759,36 @@ def _read_wav(soundfile_module: Any, wav: Any) -> tuple[Any, int]:
     return soundfile_module.read(wav)
 
 
+def _decode_and_play(
+    sounddevice_module: Any,
+    soundfile_module: Any,
+    wav: Any,
+    config: "Optional[RealtimeConfig]",
+) -> bool:
+    """The session-FREE playback core (task t8): decode *wav* and play it
+    through *sounddevice_module*, resolving the output device from
+    ``config.output_device`` exactly as before the split. Holds NO half-duplex
+    gate — that concern belongs to a caller with a live mic session to
+    protect (:func:`play_wav_bytes`); a caller with no session (speak-only,
+    :func:`play_wav_bytes_local`) has no mic to guard, so there is nothing to
+    mute. Degrade-never-raise: any playback error prints ONE
+    ``colleague: ...`` stderr notice and returns ``False``, never raises.
+    """
+    device_value = config.output_device if config is not None else None
+    try:
+        data, samplerate = _read_wav(soundfile_module, wav)
+        device = _resolve_device(sounddevice_module, device_value, kind="output")
+        sounddevice_module.play(data, samplerate, device=device)
+        sounddevice_module.wait()
+        return True
+    except Exception as exc:  # noqa: BLE001 - degrade-never-raise
+        _notice(
+            f"realtime playback failed (output_device={device_value!r}, "
+            f"{type(exc).__name__}) — falling back to the turn-based path"
+        )
+        return False
+
+
 def play_wav_bytes(
     session: RealtimeSession,
     wav: Any,
@@ -779,7 +809,9 @@ def play_wav_bytes(
 
     Device resolves from ``config.output_device`` (see :func:`_resolve_device`)
     — absent/``None`` config resolves to the ``sounddevice`` library's own
-    default output device.
+    default output device. The decode+resolve+play mechanics live in the
+    session-free :func:`_decode_and_play` (task t8 split); this function's own
+    job is exactly the half-duplex gate around that core.
 
     Degrade-never-raise, ADDITIVE (mirrors ``colleague.voice_devices.play``):
     a missing ``[voice]`` extra, a bad/missing device, or any playback error
@@ -795,7 +827,6 @@ def play_wav_bytes(
             "falling back to the turn-based path"
         )
         return False
-    device_value = config.output_device if config is not None else None
     # TOCTOU note: between reading ``session.muted`` and ``session.mute()``
     # a PortAudio callback could forward at most ONE already-in-flight frame
     # (~1.7ms of audio at 24kHz int16 blocks) — far below the server VAD's
@@ -804,17 +835,34 @@ def play_wav_bytes(
     already_muted = session.muted
     session.mute()
     try:
-        data, samplerate = _read_wav(soundfile, wav)
-        device = _resolve_device(sounddevice, device_value, kind="output")
-        sounddevice.play(data, samplerate, device=device)
-        sounddevice.wait()
-        return True
-    except Exception as exc:  # noqa: BLE001 - degrade-never-raise
-        _notice(
-            f"realtime playback failed (output_device={device_value!r}, "
-            f"{type(exc).__name__}) — falling back to the turn-based path"
-        )
-        return False
+        return _decode_and_play(sounddevice, soundfile, wav, config)
     finally:
         if not already_muted:
             session.unmute()
+
+
+def play_wav_bytes_local(
+    wav: Any,
+    config: "Optional[RealtimeConfig]" = None,
+) -> bool:
+    """Play a WAV (raw bytes or a path) through ``sounddevice`` with NO voice
+    session and NO half-duplex gate (task t8: the speak-only lane).
+
+    Speak-only never arms a mic (c7/c27 stand untouched), so there is no
+    capture stream to protect and nothing to mute/unmute — this is exactly
+    :func:`play_wav_bytes` minus the gate, sharing the identical
+    decode+device-resolve+play core (:func:`_decode_and_play`) and the
+    identical degrade-never-raise contract: a missing ``[voice]`` extra or any
+    playback error prints ONE ``colleague: ...`` stderr notice and returns
+    ``False``, never raises. Device resolution is unchanged — still
+    ``config.output_device`` (absent/``None`` → sounddevice's own default).
+    """
+    try:
+        sounddevice, soundfile = _import_sounddevice_and_soundfile()
+    except CliError as exc:
+        _notice(
+            f"realtime playback unavailable ({exc}, {exc.remediation}) — "
+            "falling back to the turn-based path"
+        )
+        return False
+    return _decode_and_play(sounddevice, soundfile, wav, config)

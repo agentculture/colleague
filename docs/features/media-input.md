@@ -217,7 +217,7 @@ per-model budget seam outside the mode-profile overlay today.
 ### Default stays at 48 000
 
 The built-in default context budget remains **48 000 tokens** for the 27B main
-model (`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`). No source code change is
+model (`unsloth/Qwen3.6-27B-NVFP4`). No source code change is
 required — the default is a constant in `colleague/config.py` and the per-model
 overlay seam is purely data-driven (JSON files in `.colleague/`).
 

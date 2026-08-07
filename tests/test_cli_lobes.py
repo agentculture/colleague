@@ -32,7 +32,7 @@ from colleague.lobes import LobesRoles, RoleInfo
 _ENV_VAR = "COLLEAGUE_LOBES_URL"
 
 _CORTEX = RoleInfo(
-    model="sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP",
+    model="unsloth/Qwen3.6-27B-NVFP4",
     endpoint="http://localhost:8000",
     path="/v1/chat/completions",
     context=131072,

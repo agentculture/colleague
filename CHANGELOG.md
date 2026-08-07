@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.0] - 2026-08-06
+
+### Added
+
+- Session streaming: senses replies render incrementally into the conversation
+  (fence-tolerant JSON-envelope extractor `colleague/senses_stream.py`,
+  owned-line transient paints, mid-stream containment with partial-render +
+  marker); session cortex turns run streamed so per-read timeouts reset.
+- Narration: senses-authored `<<higher self thought>>` (cortex) and
+  `<subconscious thought/actions>` (three-tier worker) lines at boundary
+  beats — user-display only, machine-checked out of every model context.
+- Speak-only voice lane: `--speak` / `/speak` (default off) speaks senses
+  replies through a voice-session-free playback path; the mic gate (c27)
+  untouched.
+- Model-pin hygiene: same-role stale-pin refresh at resolution + call time
+  (main seat only, `EngineConfig.refresh_seat`), structured warnings on
+  `TaskResult.warnings` (omit-when-empty), and a doctor `model_membership`
+  probe; gateway fetches send the resolved Bearer key.
+- Live proof runner `tools/live_proofs/session_streaming_proof.py` (t12).
+
+### Fixed
+
+- `_DEFAULT_MODEL` refreshed from the stale `sakamakismile` id to the served
+  cortex id (#371); a muse-discovered deepthink 404 no longer cross-role
+  refreshes onto the cortex model (#375); front-door replies speak under
+  speak-only (found by the live proof).
+
 ## [1.54.0] - 2026-08-06
 
 ### Added

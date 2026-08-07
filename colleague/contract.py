@@ -1473,6 +1473,14 @@ class TaskResult:
     the loop alongside the ``capacity_warning`` deferral note, so chain
     accounting and artifact consumers never string-match prose. ``False`` is
     OMITTED from the artifact (a non-deferring run stays byte-identical)."""
+    warnings: list[dict[str, str]] = field(default_factory=list)
+    """Structured stale-pin refresh warnings folded into the run artifact (t11).
+    Each entry is a plain dict with keys ``role``, ``stale_id``, ``source``,
+    ``refreshed_id``, ``point`` — mirroring
+    :class:`~colleague.lobes.ModelRefreshWarning.to_dict``. Always serialized
+    (like ``steps``), so a background/one-shot artifact is greppable with no TTY
+    (h21). An artifact written before this field still loads with
+    ``warnings == []`` (back-compat)."""
     lint_report: Optional[LintReport] = None
     """The lint pre-finish gate's report, or ``None`` when linting did not run
     (disabled, or no linters configured). Like destination/capacity_decision,
@@ -1661,6 +1669,11 @@ class TaskResult:
         # today (honesty conditions c8/h8).  This intentionally deviates from
         # the convention used by command/pr_url/etc. which always emit their
         # key even as null; only these two new keys get omit-when-None treatment.
+        # warnings (t11) likewise omits-when-empty: a run with no stale-pin
+        # refresh serializes byte-identical to the pre-feature shape; a run
+        # WITH one carries the greppable key (h21).
+        if self.warnings:
+            d["warnings"] = list(self.warnings)
         if self.destination is not None:
             d["destination"] = self.destination
         if self.announcement is not None:
@@ -1844,6 +1857,7 @@ class TaskResult:
             ),
             config_events=_coerce_config_events(data.get("config_events")),
             config_digest=data.get("config_digest"),
+            warnings=list(data.get("warnings", [])),
         )
 
 

@@ -38,6 +38,8 @@ from colleague.presence import UpdateCadence, should_update
 from colleague.senses_loop import (
     BOUNDARY_CADENCE_TICK,
     BOUNDARY_OPERATOR_INPUT,
+    NARRATION_LABEL,
+    WORKER_NARRATION_LABEL,
     LoopTurn,
     SensesLoopDriver,
     SensesMoveExecutor,
@@ -76,6 +78,13 @@ class PresenceIO:
       else ``None``.
     - ``feed_tail()`` — the recent flight-feed tail to ground a boundary.
     - ``task_state()`` — a short run snapshot (step / phase / last tool).
+    - ``delta_tail()`` — a WINDOWED excerpt of the acting mind's live streamed
+      output (ssv t6 — cortex narration), captured by the front's ``on_delta``
+      callback as pure buffering (never a completion, c23). Threaded into each
+      boundary as :attr:`~colleague.senses_loop.BoundaryContext.delta_tail` so
+      the beat can author a ``narrate`` move. The default returns ``""`` — a
+      front that doesn't capture deltas (watched/foreground/talk) stays
+      byte-identical and its beats never render narration.
     - ``narrate(line)`` — OPTIONAL text-to-speech narration of a rendered
       presence line (ack / update / reply — task t12, decision c17). The
       default is a no-op, so an unwired front stays byte-identical. A front
@@ -97,16 +106,18 @@ class PresenceIO:
     feed_tail: Callable[[], Any] = lambda: ""
     task_state: Callable[[], Any] = lambda: None
     narrate: Callable[[str], None] = _noop_narrate
+    delta_tail: Callable[[], str] = lambda: ""
 
 
 def build_presence_executor(io: PresenceIO) -> SensesMoveExecutor:
-    """Bind the six coordination callbacks to *io* (task t6).
+    """Bind the coordination callbacks to *io* (task t6).
 
     ``dispatch_to_cortex`` / ``guide_cortex`` / ``read_flight`` perform the real
     IO side-effects; ``reply_to_operator`` / ``clarify`` are no-ops here because
     the ENGINE renders their operator-facing text from the move's chat entry (so
-    a reply is displayed exactly once). ``wait`` defaults to a no-op inside the
-    executor.
+    a reply is displayed exactly once). ``wait`` and ``narrate`` default to
+    no-ops inside the executor (narration, like a reply, is rendered by the
+    engine from the turn — ssv t6 — never by an executor callback).
     """
     return SensesMoveExecutor(
         dispatch_to_cortex=io.dispatch_to_cortex,
@@ -255,6 +266,9 @@ class PresenceEngine:
             feed_tail=self._io.feed_tail(),
             packet=self._packet,
             task_state=self._io.task_state(),
+            # Cortex-narration input (ssv t6): the front's windowed live-output
+            # excerpt, prompt-input for this one beat only (c14 — never history).
+            delta_tail=str(self._io.delta_tail() or ""),
         )
 
     def _history(self) -> "Optional[list[dict[str, str]]]":
@@ -284,6 +298,24 @@ class PresenceEngine:
             if text:
                 self._io.render(f"senses: {text}")
                 self._narrate(text)
+        narration = str(getattr(turn, "narration", None) or "").strip()
+        if narration:
+            # Cortex narration (ssv t6, c12/h9): senses-authored, rendered on the
+            # SAME feed-line surface as presence lines but under the verbatim
+            # narration label — never the ``senses:`` prefix, so the operator can
+            # always tell narration from senses' own replies. Display only: it is
+            # rendered here and stored nowhere (the driver never absorbed it, and
+            # the tts ``narrate`` seam is deliberately NOT fired for it — voice
+            # narrating a per-boundary stream description would be noise, and the
+            # voice lane's cadence is the presence lines'). In three-tier mode
+            # (ssv t7, c13/h10) the acting seat is the WORKER, so the beat is
+            # describing worker activity — the label swaps to the subconscious
+            # one, selected HERE at render time from the config's three-tier
+            # state (mirroring the ``→ worker:`` relay target below); neither
+            # label ever enters a model-bound prompt, and the selection changes
+            # nothing about routing or authority.
+            label = WORKER_NARRATION_LABEL if self._three_tier else NARRATION_LABEL
+            self._io.render(f"{label} {narration}")
         if turn.injection is not None:
             relay = str(turn.injection.get("text") or "").strip()
             if relay:

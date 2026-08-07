@@ -112,7 +112,7 @@ else an install hint.
 | `--repo PATH` | Target repo (default: `.`). |
 | `--base BRANCH` | Base for the `review` diff (default: `main`). |
 | `--engine NAME` | Backend plugin (default: `$COLLEAGUE_ENGINE` or `vllm-openai`). |
-| `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`). |
+| `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `unsloth/Qwen3.6-27B-NVFP4`). |
 | `--base-url URL` | OpenAI base URL (default: `$COLLEAGUE_BASE_URL` or `http://localhost:8001/v1`). |
 | `--max-steps N` | Loop step budget (default: 20). `explore`/`review` select colleague's own native **`explore`**/**`review`** mode profile (`colleague/profiles.py`, applied via `colleague work --mode`) instead of a wrapper-side override — today that profile defaults to 30, since read-only mapping fans out across more files. An explicit `--max-steps N` always overrides the profile's default, in either direction. If the resolved `colleague` predates `--mode` (a stale install on `PATH`), the wrapper falls back to the old caller-side `--max-steps 30` + reserved-steps behavior so it keeps working. |
 | `--apply` | (`write`) apply the change in place (work branch) instead of previewing. |

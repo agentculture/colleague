@@ -9,7 +9,12 @@ model — the structural sibling of :func:`colleague.deepthink.run_deepthink`:
 
 - :func:`senses_engine_config` builds the :class:`~colleague.config.EngineConfig`
   a senses call should run against (``None`` when no senses config is declared) —
-  the exact twin of :func:`colleague.deepthink.deepthink_engine_config`.
+  the exact twin of :func:`colleague.deepthink.deepthink_engine_config`. It NEVER
+  inherits the parent config's ``on_delta`` (plan task t2) — a senses call streams
+  only when the caller explicitly arms ``senses_engine_config(config, on_delta=...)``,
+  typically with :func:`make_senses_display_delta`, which decodes a streamed
+  JSON-move envelope into display text incrementally via
+  :class:`~colleague.senses_stream.EnvelopeStream`.
 - :func:`run_senses_intake` perceives the operator's request into a structured
   :class:`~colleague.contract.ContextPacket`. The packet's ``original`` field is
   set to the caller's input **verbatim** — never from the model output — so the
@@ -93,6 +98,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, cast
 
 from colleague import media, registry
@@ -100,6 +106,7 @@ from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import ContextPacket, SensesRecord
 from colleague.plan.cli_driver import _extract_json_object, robust_simple_complete
+from colleague.senses_stream import EnvelopeStream
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from colleague.engine import Engine
@@ -132,6 +139,21 @@ _FIDELITY_CLAUSE = (
     "Answer the current message from the current result first; background "
     "knowledge never replaces it."
 )
+
+#: Per-surface display-streaming envelope keys (d4/#374, ssv task t3). Senses
+#: reply envelopes are key-inconsistent across surfaces: the coordination
+#: loop's moves carry ``"text"`` (:class:`~colleague.senses_stream.
+#: EnvelopeStream`'s default), while :func:`run_senses_frontdoor` and
+#: :func:`run_senses_talk` both reply ``{"answer": ...}`` (each parses with
+#: ``required_key="answer"`` below), and :func:`run_senses_speakback` replies
+#: are BARE PROSE — no envelope at all, so a speak-back caller arms a raw
+#: pass-through ``on_delta`` (the raw deltas ARE the display text), never the
+#: extractor. These constants bind each surface's STREAMING field to the SAME
+#: key its parser requires, in this one module, so the two can never drift —
+#: arming the wrong key would never raise, it would just silently never
+#: stream (the extractor withholds everything and fails only at ``finish()``).
+FRONTDOOR_STREAM_FIELD = "answer"
+TALK_STREAM_FIELD = "answer"
 
 #: Fixed invocation-point labels recorded on each :class:`SensesRecord`.
 INTAKE_POINT = "senses-intake"
@@ -215,7 +237,9 @@ _FRONTDOOR_SYSTEM_PROMPT = (
 )
 
 
-def senses_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
+def senses_engine_config(
+    config: EngineConfig, *, on_delta: Optional[Callable[[str], None]] = None
+) -> Optional[EngineConfig]:
     """Build the :class:`EngineConfig` a senses call should run against.
 
     Returns ``None`` when *config* carries no senses declaration
@@ -230,6 +254,23 @@ def senses_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
     This is the exact twin of
     :func:`colleague.deepthink.deepthink_engine_config`; the loop-wiring task
     (t6) calls it once to build the config it hands to the run functions below.
+
+    ``on_delta`` streaming (plan task t2): the returned config's ``on_delta``
+    is ALWAYS *on_delta* as given — ``None`` by default — NEVER *config*'s own
+    ``on_delta``. Before this parameter existed, ``dataclasses.replace`` copied
+    every field it didn't explicitly override, so a senses call silently
+    inherited whatever delta sink the PARENT (cortex) completion happened to
+    be armed with; that sink expects the cortex model's raw prose, not a
+    senses reply, and a session surface arming cortex streaming had no way to
+    say "not this one" for senses. A caller that wants the senses call ITSELF
+    to stream now arms it explicitly by passing its own ``on_delta`` — see
+    :func:`make_senses_display_delta` for the adapter that turns a raw
+    per-chunk callback into one that decodes and forwards a JSON-move
+    envelope's display text incrementally (:mod:`colleague.senses_stream`).
+    Arming here is what makes the engine's EXISTING streamed-vs-blocking
+    decision (``colleague.engines.vllm_openai._make_complete``: streaming iff
+    ``config.on_delta is not None``) take the streamed path for this call —
+    no engine code changes needed.
     """
     sc = config.senses
     if sc is None:
@@ -242,11 +283,64 @@ def senses_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
         dataclasses.replace(
             config,
             model=sc.model,
+            refresh_seat=None,
             base_url=sc.base_url,
             api_key=sc.api_key,
             context_budget_tokens=sc.context_budget,
+            on_delta=on_delta,
         ),
     )
+
+
+def make_senses_display_delta(
+    on_display_delta: Callable[[str], None], *, field: str = "text"
+) -> Callable[[str], None]:
+    """Build a raw ``on_delta`` callback that decodes a senses completion's
+    streamed JSON-move envelope incrementally, forwarding display text to
+    *on_display_delta* as it is decoded (plan task t2).
+
+    The returned callable is meant to be armed as ``EngineConfig.on_delta``
+    (via :func:`senses_engine_config`'s ``on_delta`` parameter) — the engine
+    then feeds it the model's RAW per-chunk text as the completion streams
+    (``colleague.engines.vllm_openai._make_complete``'s existing streamed
+    path; unchanged by this task). Each raw chunk is fed through ONE
+    :class:`~colleague.senses_stream.EnvelopeStream`, extracting the
+    envelope's ``"text"`` field value incrementally — fence markers, braces,
+    keys, and the closing quote/brace/fence are withheld, exactly as
+    :class:`EnvelopeStream` documents.
+
+    State (the ``EnvelopeStream`` instance) is carried in the closure across
+    calls, since ``on_delta`` fires once per RAW chunk over the life of a
+    SINGLE completion — build a FRESH adapter per completion (per
+    :func:`senses_engine_config` call), never share one across turns.
+
+    Never raises into the engine's read loop — the ``on_delta`` contract
+    ``colleague.engines.vllm_openai._emit_delta`` already relies on.
+    ``EnvelopeStream.feed`` itself never raises (see its own docstring);
+    once the stream is judged hopeless (``.failed`` — e.g. a malformed reply,
+    or a plain-text reply with no JSON envelope at all, such as
+    :func:`run_senses_speakback`'s), forwarding simply STOPS for the rest of
+    that completion. The caller's own fallback to a whole-reply render (a
+    later task) decides what to show instead — this adapter's only job is to
+    decode-and-forward or go quiet, never to raise and never to guess at
+    content it never validated.
+
+    *on_display_delta* itself may raise (a rendering sink) — swallowed here,
+    mirroring ``_emit_delta``'s "a raising sink must never break the run"
+    convention.
+    """
+    stream = EnvelopeStream(field=field)
+
+    def on_delta(chunk: str) -> None:
+        if stream.failed:
+            return
+        piece = stream.feed(chunk)
+        if not piece:
+            return
+        with suppress(Exception):
+            on_display_delta(piece)
+
+    return on_delta
 
 
 def _coerce_confidence(value: Any) -> float:

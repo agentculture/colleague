@@ -99,7 +99,7 @@ class TestInputLineLeg:
 
 
 class TestSelfKnowledgeLeg:
-    IDS = ["sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"]
+    IDS = ["unsloth/Qwen3.6-27B-NVFP4"]
 
     def test_skips_when_mind_unreachable(self):
         status, _ = classify_at_home_check(

@@ -70,7 +70,7 @@ from colleague.artifact import write as _write_artifact
 from colleague.attribution import cortex_working_line, senses_line
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands import work as _work_mod
-from colleague.cli._commands._input_line import OwnedInputLine
+from colleague.cli._commands._input_line import OwnedInputLine, transient_paint
 from colleague.cli._commands._session_input import CYCLE_MODE, supports_raw_mode
 from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import _resolve_chain_arming
@@ -110,7 +110,10 @@ from colleague.presence import (
 )
 from colleague.presence_engine import PresenceEngine, PresenceIO, build_presence_executor
 from colleague.senses import (
+    FRONTDOOR_STREAM_FIELD,
+    TALK_STREAM_FIELD,
     UPDATE_POINT,
+    make_senses_display_delta,
     run_senses_intake,
     run_senses_speakback,
     run_senses_talk,
@@ -160,6 +163,13 @@ _SUGGESTION_PREFIXES = ("Safest next:", "⚠ Safest next:")
 #: no usable ack (talking-to-one arc, t6 / h2): it acknowledges receipt and the
 #: hand-off to cortex ONLY — never a fabricated understanding of the request.
 _ACK_DISPATCH_NOTICE = "taking your request to cortex now."
+
+#: Streaming containment marker (ssv task t5, covers c25/h20): the ONE legible
+#: line printed when a senses stream died mid-reply AFTER at least one
+#: transient paint — matches the session's existing ``error:`` line style
+#: (grep for ``f"error: {exc}"`` elsewhere in this module) so a live-tty
+#: operator recognizes it as the same class of notice, not a new vocabulary.
+_STREAM_CUT_MARKER = "error: senses stream cut mid-reply — showing partial text"
 
 #: The Session panel's goal item id (spec R3 / plan t9 / #256) — the running
 #: work item's instruction, so the operator always sees WHAT is being driven.
@@ -211,6 +221,17 @@ _VOICE_UNAVAILABLE_LINE = (
     "voice · unavailable · no realtime endpoint resolved — staying on the typed lane"
 )
 
+#: Speak-only lane (task t8) state lines — the SAME label·state·consequence
+#: honesty grammar ``_VOICE_STATE_LINES`` uses. Only two states: speak-only has
+#: no mic to mute/degrade, so there is no ``muted``/``degraded`` distinction to
+#: draw — just an honest on/off.
+_SPEAK_STATE_LINES: dict[str, str] = {
+    "off": "speak · off · /speak (or --speak) to hear senses replies spoken aloud",
+    "on": "speak · on · senses replies play as audio — mic stays off, no realtime session",
+}
+#: The ONE honest notice for ``/speak`` when no tts endpoint resolved.
+_SPEAK_UNAVAILABLE_LINE = "speak · unavailable · no tts endpoint resolved — staying text-only"
+
 
 def _reply_text_from_turns(turns: object) -> str:
     """Join the operator-facing text of a senses agentic loop's returned turns.
@@ -221,6 +242,14 @@ def _reply_text_from_turns(turns: object) -> str:
     ``chat_entry`` carrying ``text`` (ack/clarify) or ``answer`` (a talk reply).
     Mirrors :meth:`PresenceEngine._render_turn`'s own extraction so the spoken
     text is exactly what was displayed. Tolerant of ``None`` / a bare list.
+
+    Replies-only scope (task t8, risk r1 / open q4): a ``MOVE_NARRATE`` turn
+    (the '<<higher self thought>>' narration) carries NO ``chat_entry`` at all
+    — see :meth:`~colleague.senses_loop.SensesLoopDriver._build_turn`, where
+    narration rides ``LoopTurn.narration`` instead, deliberately never stored
+    as a chat entry — so it is already excluded here structurally, never
+    spoken. Widening speech to include narration later is a ONE-LINE change:
+    also join ``getattr(turn, "narration", None)`` in the loop below.
     """
     parts: list[str] = []
     for turn in turns or []:
@@ -340,6 +369,15 @@ def _resolve_selection(
     return task, command_name
 
 
+#: Trailing window of raw cortex-delta text retained for senses narration
+#: (ssv t6, spec assumption c24: ~500-1000 chars). The excerpt handed to a
+#: boundary beat is bounded HERE at fold time (``fold_delta``'s width) and
+#: again loop-side against senses' own context budget (``_window_text`` in
+#: ``SensesLoopDriver._build_prompt``) — a long cortex turn never blows
+#: senses' context.
+_NARRATION_DELTA_CHARS = 800
+
+
 class _WorkSink:
     """Progress sink for an in-session work item: fold each step into the session's
     one shared :class:`CockpitState` and (on the dynamic ANSI tier) redraw live.
@@ -383,20 +421,33 @@ class _WorkSink:
 
     @property
     def wants_delta_stream(self) -> bool:
-        """Whether this sink should receive live-generation deltas (task t6).
+        """Whether this sink should arm the engine's ``on_delta`` seam (task t6,
+        extended by t4/ssv, covers c19/h16).
 
-        Only the session's dynamic ANSI tier ever redraws per sink call
-        (``sess.emit()`` in `__call__`, below) — off that tier a delta fold
-        would be computed and then never displayed until the next work
-        item's idle render, so leaving the seam unarmed there costs nothing
-        and keeps a piped/``--json``/Markdown session's ``EngineConfig.on_delta``
-        at its byte-identical default (``None`` — see the arming site,
-        ``execute_work`` in ``colleague/cli/_commands/work.py``). ``getattr``
-        degrades a bare state-holder (no ``view`` attribute at all, the
-        pattern several other guards below already use) to ``False`` — never
-        armed by accident.
+        Originally gated on the session's dynamic ANSI tier (the only tier
+        that redraws per sink call, ``sess.emit()`` in ``__call__`` below) —
+        but the seam has a SECOND job besides live display: arming it flips
+        the engine onto its incrementally-consumed streamed request path
+        (``config.on_delta is not None`` is the ONLY blocking-vs-streaming
+        decision, ``colleague/engines/vllm_openai.py``'s ``_make_complete``),
+        whose PER-READ socket timeout resets on every chunk instead of once
+        for the whole completion. A long session turn on a slow model can hit
+        the SAME request timeout a quick one comfortably clears — leaving the
+        seam unarmed off the ANSI tier was silently costing that survival, not
+        "nothing" as originally documented. Every session cortex turn now
+        arms the seam regardless of render tier; the VISIBLE redraw stays
+        ANSI-only inside ``on_delta``/``__call__`` below (unchanged) — a
+        piped/``--json``/Markdown session still computes-but-never-shows a
+        live tail, and its own frame output stays byte-identical (proven by
+        ``tests/test_cockpit_delta_tail.py``'s
+        ``test_session_markdown_tier_now_arms_deltas_but_never_redraws_them``).
+        ``getattr`` degrades a bare state-holder (no ``view`` attribute at
+        all, the pattern several other guards below already use) to
+        ``False`` — never armed by accident against a test double that never
+        declared a view tier at all. No new CLI flag: this is a resolution
+        change, not an opt-in.
         """
-        return getattr(self._session, "view", None) == "ansi"
+        return getattr(self._session, "view", None) is not None
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         sess = self._session
@@ -470,22 +521,38 @@ class _WorkSink:
 
     def on_delta(self, chunk: str) -> None:
         """Fold ONE streamed text delta onto the session's live STATUS surface
-        (feels-alive arc, task t6).
+        (feels-alive arc, task t6; extended off the ANSI tier by t4/ssv).
 
-        Only ever CALLED when `wants_delta_stream` was `True` at arming time
-        (the dynamic ANSI tier — see the arming site in `execute_work`,
-        ``colleague/cli/_commands/work.py``), so this always redraws — the
-        ``sess.view == "ansi"`` check below is a defensive mirror of
-        `__call__`'s own gate, not a second arming decision. Accumulates
-        *chunk* into the current turn's `DeltaTail` and, throttled to at most
-        once per `DELTA_REPAINT_THRESHOLD` accumulated characters, folds the
+        Called whenever `wants_delta_stream` was `True` at arming time — now
+        EVERY session tier (t4/ssv), not only the dynamic ANSI one, since
+        arming has a job beyond display: it flips the engine onto its
+        per-read-timeout-resetting streamed path (see `wants_delta_stream`'s
+        docstring). The redraw itself stays ANSI-gated: ``sess.view ==
+        "ansi"`` below is the REAL arming decision for the visible frame — a
+        Markdown/``--json`` tier still folds *chunk* into `DeltaTail` and
+        `sess.state.status` (cheap, pure computation) but never calls
+        `sess.emit()`, so its own output is unaffected. Accumulates *chunk*
+        into the current turn's `DeltaTail` and, throttled to at most once
+        per `DELTA_REPAINT_THRESHOLD` accumulated characters, folds the
         sanitized tail onto ``sess.state.status`` via the SAME `fold_phase`
-        a phase notice uses and redraws exactly one frame. Never creates a
-        work step and never touches the conversation feed (the #206
-        invariant, held identically to `__call__`'s phase-notice branch).
+        a phase notice uses and (ANSI only) redraws exactly one frame. Never
+        creates a work step and never touches the conversation feed (the
+        #206 invariant, held identically to `__call__`'s phase-notice branch).
         Cleared by the very next `__call__`.
+
+        Cortex narration capture (ssv t6, c23): every chunk ALSO folds into the
+        session's windowed narration buffer (`_fold_cortex_delta`) — BEFORE the
+        display throttle below, so the buffer never misses sub-threshold text.
+        Buffering is the ONLY thing that happens here: no senses completion is
+        ever issued inside this callback (it would stall the stream read), and
+        no thread is spawned — the boundary beats read the buffer later.
+        `getattr` keeps the sink usable against a bare state-holder in tests
+        (its documented contract), like the guards in `__call__`.
         """
         sess = self._session
+        fold_narration = getattr(sess, "_fold_cortex_delta", None)
+        if fold_narration is not None:
+            fold_narration(chunk)
         self._delta = fold_delta(self._delta, chunk)
         if not should_repaint_delta(self._delta):
             return
@@ -496,6 +563,101 @@ class _WorkSink:
 
     def close(self) -> None:  # called by execute_work on every exit path
         return None
+
+
+def _stdout_is_tty() -> bool:
+    """Whether stdout is a genuine terminal (module-level so tests can seam it).
+
+    Gates the UNOWNED live-TTY paint path in :meth:`_Session._senses_stream_sink`:
+    a ``--tui``-forced ANSI session piped somewhere must still arm nothing —
+    a transient paint into a pipe would change piped output (h12)."""
+    try:
+        return bool(sys.stdout.isatty())
+    except Exception:  # noqa: BLE001 - a stdout without isatty is not a TTY
+        return False
+
+
+class _SensesStreamPainter:
+    """Throttled in-place painter for ONE growing ``senses: …`` line (ssv t3).
+
+    The conversation-surface twin of the cockpit's status DeltaTail: display
+    deltas (decoded by :func:`colleague.senses.make_senses_display_delta`, or
+    fed raw for speak-back's bare-prose replies) fold through the SAME pure
+    machinery — :func:`fold_delta` / :func:`should_repaint_delta` /
+    :func:`mark_delta_rendered`, the count-based cadence, the sanitized
+    single-line window — but paint the CONVERSATION surface instead of the
+    status line: a transient row repaint (:func:`transient_paint` — CR +
+    erase-line + text, NO newline) sized to the terminal row, on exactly the
+    row the reply's final whole-line render will overwrite. The FINAL rendered
+    line never comes from here — the existing blocking-path code prints it
+    (``_log`` + ``print_above`` / the full-frame redraw), erasing the last
+    transient paint in place — so a declined extractor or a mid-stream failure
+    simply means fewer (or zero) paints and the turn renders whole at the end
+    exactly as today (full containment is task t5).
+
+    All writes are MAIN-THREAD (``on_delta`` fires inside the blocking senses
+    completion's streamed read loop) and go through the owned-line seam: with
+    the owned input line armed, the paint is its lock-protected
+    :meth:`OwnedInputLine.stream_paint` (never interleaves with the reader
+    thread's echo); otherwise (a front-door / speak-back turn on the genuine
+    live colour TTY, where no work line owns the bottom row) the same
+    :func:`transient_paint` sequence writes to stdout directly. Build a FRESH
+    painter per senses turn (per :meth:`_Session._senses_stream_sink` call) —
+    the fold state is per-reply, exactly like the extractor it feeds from.
+
+    Never raises into the engine's read loop: the paint body is suppressed
+    (mirroring ``_emit_delta``'s raising-sink convention), and the fold path
+    is pure computation. Never touches ``sess.state`` — no status fold, no
+    conversation line, no step count (the #206 invariant; the cockpit
+    DeltaTail's CORTEX-delta → STATUS behavior is untouched by construction).
+    """
+
+    def __init__(self, session: "_Session") -> None:
+        self._session = session
+        self._tail = DeltaTail()
+        #: Paints performed — the AC1 measurement seam (>= 2 on a real PTY).
+        #: Doubles as the t5 "did I paint anything this turn" signal: a
+        #: caller degrading this turn checks ``paints > 0`` before finalizing
+        #: partial text, rather than a fresh flag re-deriving the same fact.
+        self.paints = 0
+
+    @property
+    def painted_text(self) -> str:
+        """The current display tail — task t5's smallest seam.
+
+        Whatever text this painter has folded so far (:func:`fold_delta`'s
+        trailing window), whether or not a repaint has actually reached the
+        screen yet (the cadence throttles WRITES, not the fold — see
+        :meth:`on_display_delta`). The session's mid-stream-death
+        containment reads this to finalize the partial reply as a real line
+        when the completion degrades after painting occurred — the ONE
+        piece of painter state that wasn't already exposed (``paints`` above
+        already answers "did I paint anything").
+        """
+        return self._tail.text
+
+    def on_display_delta(self, piece: str) -> None:
+        """Fold ONE display delta; repaint at the cockpit's own cadence."""
+        # Size the trailing window to the terminal row (label + margin off),
+        # so the line genuinely GROWS until the row fills, then keeps the
+        # freshest tail — the same trailing-window rule as the status stream,
+        # sized to this surface. Floor of 16 keeps a degenerate width sane.
+        width = max(16, detect_width() - len(senses_line("")) - 2)
+        self._tail = fold_delta(self._tail, piece, width=width)
+        if not should_repaint_delta(self._tail):
+            return
+        self._tail = mark_delta_rendered(self._tail)
+        self._paint(senses_line(self._tail.text))
+
+    def _paint(self, text: str) -> None:
+        with contextlib.suppress(Exception):  # a raising sink never breaks the run
+            line = self._session._owned_line
+            if line is not None:
+                line.stream_paint(text)
+            else:
+                sys.stdout.write(transient_paint(text))
+                sys.stdout.flush()
+            self.paints += 1
 
 
 def _default_plan(*, repo: Path, engine_name: str, request: str, config: EngineConfig) -> str:
@@ -692,6 +854,20 @@ class _Session:
         self._voice_unavailable_noticed = False
         self._last_talk_reply = ""
 
+        # Speak-only lane (task t8): TTS-speaks each senses REPLY while the
+        # operator only types — no mic, no realtime session, no half-duplex
+        # gate (there is no capture stream to protect). Independent of the
+        # voice lane above: ``_speak_only`` is the ONLY writer of this state
+        # (the ``--speak`` flag, set post-construction by ``run_session``, or a
+        # ``/speak`` toggle, :meth:`_toggle_speak`) — no config default,
+        # profile, or mode ever touches it (h18/c22: this attribute is not
+        # part of ``EngineConfig``/config.json resolution at all, structurally
+        # ruling that out). Default OFF → byte-identical to today.
+        # :meth:`_speak_reply`'s own gate — (a live voice session) OR
+        # (``_speak_only``) — decides whether a reply actually gets spoken;
+        # c7/c27 stand untouched: NOTHING here ever arms the mic or stt.
+        self._speak_only = False
+
         # Middle-manager presence lane (talking-to-one arc, t6): the session-side
         # record of this work line's ack/update exchanges (folded onto
         # ``TaskResult.senses`` at finalize) plus the proactive-update cadence
@@ -713,6 +889,14 @@ class _Session:
         # also fire off-TTY (the c19 pin-break). ``None`` for the beats/off rung
         # and every unarmed surface → byte-identical.
         self._presence_engine: Optional[PresenceEngine] = None
+        # Cortex narration buffer (ssv t6): a windowed tail of the running work
+        # item's raw streamed deltas, folded by `_WorkSink.on_delta` via
+        # `_fold_cortex_delta` (pure buffering — never a completion, c23) and
+        # read by the presence engine's boundary beats through
+        # `PresenceIO.delta_tail` so senses can author '<<higher self thought>>'
+        # narration. Reset per work line (`_reset_presence_lane`); pure state —
+        # an unarmed session folds it silently and renders nothing (h19).
+        self._cortex_delta_tail = DeltaTail()
         self._update_cadence = cadence_from_env(os.environ)
         self._updates_sent = 0
         self._update_last_step = 0
@@ -1829,13 +2013,19 @@ class _Session:
 
     # ── cortex/senses split (t8) ─────────────────────────────────────────────
 
-    def _senses_engine(self):
+    def _senses_engine(self, *, on_delta: Optional[Callable[[str], None]] = None):
         """Return ``(senses_config, engine)`` for a senses call, or ``None``.
 
         ``None`` when no senses model is resolved (byte-identical) or the engine
         cannot be loaded — the caller then proceeds cortex-only. Both intake and
-        speak-back go through this one seam."""
-        senses_config = senses_engine_config(self.config)
+        speak-back go through this one seam.
+
+        ``on_delta`` (ssv t3) arms display streaming for THIS call's completion
+        (forwarded verbatim to :func:`senses_engine_config`, which never
+        inherits the parent's sink — t2). Default ``None`` keeps every caller
+        that doesn't name it — intake, clarify, proactive updates, the
+        presence-engine build — on the blocking path, byte-identical."""
+        senses_config = senses_engine_config(self.config, on_delta=on_delta)
         if senses_config is None:
             return None
         try:
@@ -1843,6 +2033,70 @@ class _Session:
         except Exception:  # noqa: BLE001 - an unloadable engine → proceed cortex-only
             return None
         return senses_config, engine
+
+    def _senses_stream_sink(self) -> Optional[_SensesStreamPainter]:
+        """The ssv-t3 arming decision, in ONE place: a fresh painter — senses
+        display streaming arms — ONLY on a live colour-TTY conversation
+        surface. Two qualifying shapes: the owned input line is armed (a
+        mid-run talk turn — paints ride its lock-protected ``stream_paint``),
+        or the genuine live ANSI loop is between prompts on a real stdout TTY
+        (a front-door / speak-back turn — paints write the same transient
+        sequence to stdout). Everything else — piped, ``--json``, the
+        Markdown tier, a scripted/direct-construction session — returns
+        ``None``: ``on_delta`` stays unarmed, the engine takes its blocking
+        path, and output stays byte-identical to today (h12)."""
+        if self.view != "ansi" or self.json_mode:
+            return None
+        if self._owned_line is not None:
+            return _SensesStreamPainter(self)
+        if self._live and _stdout_is_tty():
+            return _SensesStreamPainter(self)
+        return None
+
+    def _finalize_cut_stream(self, painter: Optional[_SensesStreamPainter]) -> bool:
+        """Contain a senses turn whose stream died mid-reply (ssv task t5,
+        covers c25/h20) — the turn seam every streamed surface degrades
+        through.
+
+        When *painter* already painted at least one transient row THIS turn
+        (``painter.paints > 0``), the partial text it holds
+        (:attr:`_SensesStreamPainter.painted_text`) is finalized as a REAL
+        line (:meth:`_log` — a newline-terminated conversation entry, never
+        overwritten by a later transient paint) followed by the ONE legible
+        marker line (:data:`_STREAM_CUT_MARKER`), printed via :meth:`_error`
+        — the session's EXISTING ``error:`` seam/prefix, reused verbatim,
+        never a new one. This is how a streamed reply that never finished is
+        contained: the operator sees exactly what senses had said so far,
+        plus an honest note that it was cut short — never a traceback, and
+        never silently replaced by an unrelated canned fallback message.
+
+        The caller decides WHEN to call this — typically ``degraded and
+        painter is not None`` — reusing the run function's own ``degraded``
+        signal, which is itself derived from the engine's stream-
+        completeness accounting (a missing terminal frame / finish_reason
+        surfaces as an exception the run function's own try/except already
+        degrades into that flag, colleague/engines/vllm_openai.py's
+        ``_StreamIncomplete`` chief among the shapes). This function never
+        re-derives completeness itself, only acts on what's already known.
+
+        Returns ``True`` when it fired (the caller then skips ITS OWN
+        generic fallback-answer render for this turn — the partial text +
+        marker already said everything there is to say). Returns ``False``
+        — a strict no-op — when nothing was ever painted (``painter is
+        None`` or ``painter.paints == 0``): the caller's existing
+        fallback-text render stays byte-identical to before this task (the
+        golden, no-streaming path).
+
+        Never raises: a rendering hiccup here must never crash the turn or
+        let a traceback escape (AC1) — suppressed exactly like every other
+        painter write in this module.
+        """
+        if painter is None or painter.paints == 0:
+            return False
+        with contextlib.suppress(Exception):
+            self._log(senses_line(painter.painted_text))
+            self._error(_STREAM_CUT_MARKER)
+        return True
 
     def _prepare_senses(self, task: Task, is_free_text: bool):
         """Run senses intake for a free-text work line; return ``(mode, record)``.
@@ -1905,11 +2159,29 @@ class _Session:
         # engine for it, and record the route even if the engine can't load.
         if classify_frontdoor(text) == CORTEX:
             return cortex_frontdoor_outcome()
-        pair = self._senses_engine()
+        # Display streaming (ssv t3): on a live colour TTY the direct answer
+        # renders as ONE growing `senses:` line while it generates. The
+        # front-door reply carries its text under "answer" (the same key
+        # run_senses_frontdoor's parser requires — FRONTDOOR_STREAM_FIELD
+        # binds them), decoded incrementally by the t2 extractor adapter.
+        painter = self._senses_stream_sink()
+        # Kwarg passed ONLY when armed (the _dispatch_work lineage_kwargs
+        # idiom): the unarmed path keeps the exact zero-arg call shape strict
+        # test doubles already pin.
+        stream_kwargs = (
+            {
+                "on_delta": make_senses_display_delta(
+                    painter.on_display_delta, field=FRONTDOOR_STREAM_FIELD
+                )
+            }
+            if painter is not None
+            else {}
+        )
+        pair = self._senses_engine(**stream_kwargs)
         if pair is None:
             return None
         senses_config, engine = pair
-        return run_frontdoor(
+        outcome = run_frontdoor(
             text,
             senses_config=senses_config,
             make_complete=engine.make_complete,
@@ -1925,6 +2197,15 @@ class _Session:
             config=self.config,
             gateway_url=resolve_lobes_gateway_url(self.repo),
         )
+        # Streaming containment (task t5): a degraded front-door turn already
+        # falls through to cortex with NO senses-direct render at all (by
+        # design — an unanswerable/ambiguous turn defers to cortex, c19) —
+        # but a partial paint from BEFORE the degrade must still be
+        # finalized, or the next redraw silently wipes it with no
+        # explanation. A strict no-op when nothing painted this turn.
+        if outcome.degraded:
+            self._finalize_cut_stream(painter)
+        return outcome
 
     def _render_senses_direct(self, text: str, outcome) -> None:
         """Speak senses' direct answer to a non-repo turn — NO cortex work item.
@@ -1939,6 +2220,11 @@ class _Session:
         self._log(f"→ senses: {text}")
         self._log(senses_line(outcome.answer or ""))
         self._history_append("senses", outcome.answer or "")
+        # Speak-only / voice speak-back (ssv t8 + t12 proof C): the front door
+        # is the most common conversational turn, and it rendered silently —
+        # only the talk lane spoke. Same single seam, same admission gate
+        # (no-op unless /speak, --speak, or a live voice session).
+        self._speak_reply(outcome.answer or "")
         # A senses-direct turn produces NO work item / TaskResult, so its exchange
         # must NOT accumulate in the per-work-item `_senses_chat` buffer (which is
         # reset per work line and folded into a work item's artifact) — that would
@@ -1965,6 +2251,33 @@ class _Session:
         # The senses agentic loop is rebuilt per work line in _begin_talk_lane
         # (loop rung) and cleared here so one line's loop never leaks to the next.
         self._presence_engine = None
+        # The cortex narration buffer resets per work line too (ssv t6) — a
+        # stale excerpt from the previous run must never feed a new line's beat.
+        self._cortex_delta_tail = DeltaTail()
+
+    def _fold_cortex_delta(self, chunk: str) -> None:
+        """Fold ONE raw cortex delta chunk into the narration buffer (ssv t6).
+
+        PURE state (c23): sanitize + append + keep the trailing
+        :data:`_NARRATION_DELTA_CHARS` window (the cockpit's own ``fold_delta``,
+        wider window). Called from ``_WorkSink.on_delta`` — inside cortex's
+        streaming read — so it must never issue a completion, render, block, or
+        raise; any failure keeps the previous tail (narration is presentation,
+        never control)."""
+        try:
+            self._cortex_delta_tail = fold_delta(
+                self._cortex_delta_tail, chunk, width=_NARRATION_DELTA_CHARS
+            )
+        except Exception:  # nosec B110 # noqa: BLE001 - capture must never disturb the stream
+            pass
+
+    def _cortex_delta_excerpt(self) -> str:
+        """The windowed live-output excerpt a boundary beat narrates from (ssv t6).
+
+        Read by the presence engine (``PresenceIO.delta_tail``) at each boundary;
+        prompt-input for that one beat only — never accumulated into senses'
+        history (c14)."""
+        return self._cortex_delta_tail.text
 
     def _history_append(self, role: str, text: str) -> None:
         """Append one exchange to the session-lifetime rolling history (t7/c11).
@@ -2268,6 +2581,10 @@ class _Session:
                 task_state=self._talk_task_state,
                 dispatch_to_cortex=lambda _i: None,  # the session runs cortex itself
                 poll_operator_input=lambda: None,  # the session polls stdin itself
+                # Cortex narration (ssv t6): the boundary beat reads the windowed
+                # live-output excerpt _WorkSink.on_delta buffered — display-only
+                # narration renders through the same `render` seam above.
+                delta_tail=self._cortex_delta_excerpt,
             )
             driver = SensesLoopDriver(
                 senses_config=senses_config,
@@ -2363,7 +2680,15 @@ class _Session:
         Voice turns (realtime-speech arc, t5) drain HERE too — at the SAME poll
         boundary a typed line is consumed — into the identical handler + a spoken
         reply (:meth:`_drain_voice_transcripts`), so there is ONE senses-talk
-        path. A no-op unless the voice lane armed."""
+        path. A no-op unless the voice lane armed.
+
+        A TYPED line dispatched here (either branch below) also rides
+        :meth:`_dispatch_talk_line` (task t8) rather than calling
+        :meth:`_handle_talk_input` bare — so the speak-only lane's spoken
+        reply fires for a typed turn exactly as it does for a voice-originated
+        one, gated by :meth:`_speak_reply`'s own admission check ((a live
+        voice session) OR speak-only on) — a cheap no-op when neither is
+        armed."""
         if not self._talk_active:
             return
         self._drain_voice_transcripts()
@@ -2374,7 +2699,7 @@ class _Session:
                 except IndexError:
                     break
                 with contextlib.suppress(Exception):
-                    self._handle_talk_input(text)
+                    self._dispatch_talk_line(text)
             return
         try:
             ready, _, _ = select.select([sys.stdin], [], [], 0)
@@ -2390,7 +2715,7 @@ class _Session:
         if not text:
             return
         with contextlib.suppress(Exception):
-            self._handle_talk_input(text)
+            self._dispatch_talk_line(text)
 
     def _handle_talk_input(self, text: str) -> None:
         """Route one operator line typed mid-run: ``/say FILE`` transcribes audio
@@ -2401,6 +2726,23 @@ class _Session:
                 return
             text = transcript
         self._talk_senses(text)
+
+    def _dispatch_talk_line(self, text: str) -> None:
+        """Route one operator-submitted line — typed (either :meth:`_poll_talk_lane`
+        branch) or a drained voice transcript (:meth:`_drain_voice_transcripts`)
+        — through :meth:`_handle_talk_input`, then speak the rendered reply
+        (task t8).
+
+        Resets ``_last_talk_reply`` FIRST so a turn that produces no new
+        answer (e.g. a failed ``/say``) never re-speaks a stale reply left
+        over from the previous turn. :meth:`_speak_reply` is the single
+        admission gate for whether anything actually plays — (a live voice
+        session) OR (the speak-only toggle, ``_speak_only``) — so calling it
+        here unconditionally, from every dispatch site, is a safe, cheap
+        no-op whenever neither channel is armed (the h18 default-off floor)."""
+        self._last_talk_reply = ""
+        self._handle_talk_input(text)
+        self._speak_reply(self._last_talk_reply)
 
     def _talk_transcribe(self, path: str) -> Optional[str]:
         """Transcribe an audio FILE to text via the stt role (``/say``). Degrades to
@@ -2450,7 +2792,25 @@ class _Session:
             if self.view == "ansi":
                 self.emit()
             return
-        pair = self._senses_engine()
+        # Display streaming (ssv t3): a mid-run talk reply grows in place above
+        # the owned input line while it generates (the talk reply carries its
+        # text under "answer" — TALK_STREAM_FIELD binds the streaming key to
+        # run_senses_talk's own required_key). The final rendered line still
+        # comes from the unchanged whole-reply path below (`_log` + emit),
+        # which erases the last transient paint in place.
+        painter = self._senses_stream_sink()
+        # Kwarg passed ONLY when armed (the _dispatch_work lineage_kwargs
+        # idiom) — the unarmed path keeps the exact zero-arg call shape.
+        stream_kwargs = (
+            {
+                "on_delta": make_senses_display_delta(
+                    painter.on_display_delta, field=TALK_STREAM_FIELD
+                )
+            }
+            if painter is not None
+            else {}
+        )
+        pair = self._senses_engine(**stream_kwargs)
         if pair is None:
             return
         senses_config, engine = pair
@@ -2466,10 +2826,22 @@ class _Session:
         )
         if record is None:
             return
-        self._last_talk_reply = record["answer"]
+        # Streaming containment (task t5): a completion that degraded AFTER
+        # painting at least one transient row finalizes that partial text +
+        # the cut-stream marker (below) instead of the generic fallback
+        # answer — the reply the operator already watched streaming in is
+        # never silently replaced by an unrelated canned message ("senses is
+        # unavailable right now."). A turn that never streamed (painter
+        # unarmed, or armed but nothing painted yet) takes the unchanged
+        # fallback-answer path — byte-identical to before this task.
+        cut = bool(record["degraded"]) and self._finalize_cut_stream(painter)
+        self._last_talk_reply = (
+            painter.painted_text if cut and painter is not None else record["answer"]
+        )
         self._history_append("operator", text)
-        self._history_append("senses", record["answer"])
-        self._log(f"senses: {record['answer']}")
+        self._history_append("senses", self._last_talk_reply)
+        if not cut:
+            self._log(f"senses: {record['answer']}")
         with contextlib.suppress(Exception):
             flight.append_chat(
                 self.repo,
@@ -2639,21 +3011,44 @@ class _Session:
                 break
             if not text:
                 continue
-            self._last_talk_reply = ""
             with contextlib.suppress(Exception):
-                self._handle_talk_input(text)  # THE identical typed-input handler
-            self._speak_reply(self._last_talk_reply)
+                self._dispatch_talk_line(text)  # THE identical typed-input + speak path
 
     def _speak_reply(self, text: str) -> None:
-        """Speak senses' just-rendered reply through the EXISTING batch TTS lane
-        (:func:`colleague.voice.synthesize`) + local playback
-        (:func:`realtime.play_wav_bytes`, which HOLDS the half-duplex gate for the
-        playback duration so the mic never re-hears the speaker).
+        """Speak senses' just-rendered REPLY text through the EXISTING batch TTS
+        lane (:func:`colleague.voice.synthesize`) + local playback.
 
-        ADDITIVE, degrade-never-raise: no reply / no voice session / no ``tts``
-        configured / a synth or playback failure all leave the already-rendered
-        TEXT byte-identical — audio never affects the text path."""
-        if not text or self._voice_session is None:
+        Admission gate (task t8, h5): **(a live voice session) OR (the
+        speak-only toggle, ``_speak_only``)** — either channel can arm spoken
+        playback of a reply; with neither armed this is a fast no-op, so a
+        default session (both off, h18) never imports ``colleague.voice``,
+        never touches the filesystem, never calls out. c7/c27 stand
+        untouched: nothing in this method ever constructs a realtime session
+        or starts capture — it only *plays*.
+
+        Replies-only (risk r1 / open q4): *text* is whatever the caller
+        rendered as senses' reply — never narration, ack, or a presence/status
+        line. The loop rung already narrows this at the source
+        (:func:`_reply_text_from_turns` excludes narration structurally; see
+        its docstring for the documented one-line widening spot); this method
+        trusts its caller and speaks *text* verbatim.
+
+        Playback path: with a live voice session, :func:`realtime.play_wav_bytes`
+        HOLDS the half-duplex mute gate for the duration (there is a mic to
+        protect from re-hearing the speaker). With speak-only alone — no
+        session, no mic, nothing to mute — playback rides the session-free
+        :func:`realtime.play_wav_bytes_local` instead (task t8's split): same
+        device resolution (``RealtimeConfig.output_device``, absent/``None``
+        falling back to the default output device), same
+        degrade-never-raise contract, no gate.
+
+        ADDITIVE, degrade-never-raise (h17): no reply / neither channel armed /
+        no ``tts`` configured / a synth or playback failure all leave the
+        already-rendered TEXT byte-identical — audio never affects the text
+        path, and nothing here ever raises."""
+        if not text:
+            return
+        if self._voice_session is None and not self._speak_only:
             return
         voice_cfg = getattr(self.config, "voice", None)
         tts_model = getattr(voice_cfg, "tts_model", None) if voice_cfg is not None else None
@@ -2675,9 +3070,11 @@ class _Session:
             )
             if wav is None:
                 return  # synth degraded — the text reply already stands, nothing to play
-            realtime.play_wav_bytes(
-                self._voice_session, str(wav), getattr(self.config, "realtime", None)
-            )
+            realtime_cfg = getattr(self.config, "realtime", None)
+            if self._voice_session is not None:
+                realtime.play_wav_bytes(self._voice_session, str(wav), realtime_cfg)
+            else:
+                realtime.play_wav_bytes_local(str(wav), realtime_cfg)
         except Exception:  # nosec B110 # noqa: BLE001 - additive and degrade-never-raise
             pass
 
@@ -2725,6 +3122,33 @@ class _Session:
         self._render_voice_state()
         return self._voice_state_line()
 
+    # ── speak-only lane (task t8) ─────────────────────────────────────────
+
+    def _speak_available(self) -> bool:
+        """Whether a genuinely dialable tts endpoint resolved.
+
+        Speak-only needs ONLY ``tts_model`` — NEVER ``stt`` (c7: the mic wall
+        stands untouched) and never realtime availability (speak-only has no
+        session to dial in the first place)."""
+        voice_cfg = getattr(self.config, "voice", None)
+        return bool(getattr(voice_cfg, "tts_model", None)) if voice_cfg is not None else False
+
+    def _toggle_speak(self) -> str:
+        """``/speak`` — the speak-only opt-in toggle (task t8), returning a
+        confirmation string the ``_slash`` dispatcher logs.
+
+        TTS-speaks each senses REPLY while the operator only types — no mic,
+        no realtime session, no half-duplex gate (see :meth:`_speak_reply`).
+        Independent of ``/voice``/``--voice``: flips exactly ONE piece of
+        state, ``_speak_only`` (default OFF, h18/c22 — this toggle plus
+        ``--speak`` are its ONLY writers). No tts resolved → one honest
+        notice through the SAME label·state·consequence line seam
+        ``/voice`` uses, and stays off (never raises)."""
+        if not self._speak_available():
+            return _SPEAK_UNAVAILABLE_LINE
+        self._speak_only = not self._speak_only
+        return _SPEAK_STATE_LINES["on" if self._speak_only else "off"]
+
     def _end_voice_lane(self) -> None:
         """Tear down the voice lane on work-item / session exit (or a mid-capture
         interrupt), within bounded joins. Stops mic capture
@@ -2763,7 +3187,17 @@ class _Session:
         The raw cortex summary on ``result.summary`` is never mutated (the artifact
         keeps it, acceptance 1); only the displayed line is shaped."""
         shaped, speakback_record = None, None
-        pair = self._senses_engine()
+        # Display streaming (ssv t3): speak-back replies are BARE PROSE — no
+        # JSON envelope — so the raw deltas ARE the display text: arm the
+        # painter's sink directly (a raw pass-through), never the extractor.
+        # The owned line is already disarmed here (work-item exit), so paints
+        # take the live-TTY stdout path; the shaped whole-line render below is
+        # unchanged either way.
+        painter = self._senses_stream_sink()
+        # Kwarg passed ONLY when armed — the unarmed path keeps the exact
+        # zero-arg call shape strict test doubles already pin.
+        stream_kwargs = {"on_delta": painter.on_display_delta} if painter is not None else {}
+        pair = self._senses_engine(**stream_kwargs)
         if pair is not None:
             senses_config, engine = pair
             shaped, speakback_record = run_senses_speakback(
@@ -3039,6 +3473,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         ("voice", "interactive"),
     ),
     SlashSpec(
+        "speak",
+        "",
+        "toggle speak-only playback of senses replies (no mic) — needs tts",
+        "runtime",
+        ("voice", "interactive"),
+    ),
+    SlashSpec(
         "learn-from",
         "<source> [name…]",
         "learn skills from a peer (e.g. claude) into .colleague/skills/",
@@ -3268,6 +3709,16 @@ def _act_voice(s: "_Session", rest: list[str]) -> str:
     return s._toggle_voice()
 
 
+def _act_speak(s: "_Session", rest: list[str]) -> str:
+    """``/speak`` — the speak-only opt-in toggle (task t8): TTS-speaks each
+    senses REPLY while the operator only types.
+
+    Delegates to :meth:`_Session._toggle_speak`. Independent of ``/voice`` —
+    never arms the mic or stt (c7 stands untouched). No tts resolved is one
+    honest line, no dial — never raises."""
+    return s._toggle_speak()
+
+
 def _act_learn_from(s: "_Session", rest: list[str]) -> str:
     """Learn skills from a peer in-session via the real ``learn-from`` verb.
 
@@ -3291,6 +3742,7 @@ _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "pr": _act_pr,
     "attach": _act_attach,
     "voice": _act_voice,
+    "speak": _act_speak,
     "learn-from": _act_learn_from,
 }
 
@@ -3402,6 +3854,10 @@ def run_session(
     # preference; capture still only starts when a work item's talk lane begins
     # AND the colour-TTY + senses + realtime gate passes. Unset → byte-identical.
     session._voice_wanted = bool(getattr(args, "voice", False))
+    # Speak-only lane opt-in (task t8, h18/c22): --speak is the ONE other
+    # writer of ``_speak_only`` besides ``/speak`` — no config default,
+    # profile, or mode ever sets it. Unset → byte-identical (default OFF).
+    session._speak_only = bool(getattr(args, "speak", False))
     return session.run(input_fn)
 
 
@@ -3487,6 +3943,17 @@ def _configure_session_parser(p: argparse.ArgumentParser) -> None:
             "colour TTY + senses armed + a resolved realtime endpoint; /voice "
             "toggles it live. The mic is NEVER hot without this flag or /voice "
             "(c27); realtime unavailable is one honest notice. (realtime-speech arc)"
+        ),
+    )
+    p.add_argument(
+        "--speak",
+        action="store_true",
+        help=(
+            "Opt in to the speak-only lane: senses' reply plays as audio after "
+            "each turn while you only type — no mic, no realtime session (c7 "
+            "stands: this NEVER arms the mic or stt). Needs a resolved tts "
+            "endpoint; /speak toggles it live. Default OFF. (speak-only lane, "
+            "task t8)"
         ),
     )
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")

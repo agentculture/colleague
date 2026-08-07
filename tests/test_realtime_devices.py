@@ -464,3 +464,95 @@ def test_play_wav_bytes_accepts_a_path(monkeypatch, tmp_path) -> None:
 
     assert ok is True
     assert fake_sf.read_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# play_wav_bytes_local (task t8, speak-only lane): the SESSION-FREE playback
+# path — no half-duplex gate to hold (no mic session exists), same
+# decode/device-resolve/play mechanics and the same degrade-never-raise
+# contract as play_wav_bytes.
+# ---------------------------------------------------------------------------
+
+
+def test_play_wav_bytes_local_needs_no_session_object(monkeypatch) -> None:
+    """The whole point: playback succeeds with NOTHING session-shaped passed
+    in at all — no mute/unmute call exists to make since there is no gate."""
+    fake_sf = _FakeSoundfileModule()
+    fake_sd = _RecordingSounddeviceModule()
+    monkeypatch.setattr(realtime, "_import_sounddevice_and_soundfile", lambda: (fake_sd, fake_sf))
+
+    ok = realtime.play_wav_bytes_local(b"RIFF....WAVEdata")
+
+    assert ok is True
+    assert fake_sd.play_calls == [("PCM-DATA", 24000, None)]
+    assert fake_sd.wait_calls == 1
+
+
+def test_play_wav_bytes_local_resolves_output_device_same_as_gated_variant(
+    monkeypatch,
+) -> None:
+    """Device selection is unaffected by dropping the gate: config.output_device
+    still resolves through the identical _resolve_device seam."""
+    fake_sf = _FakeSoundfileModule()
+    fake_sd = _RecordingSounddeviceModule(devices=_THIS_MACHINE_DEVICES)
+    monkeypatch.setattr(realtime, "_import_sounddevice_and_soundfile", lambda: (fake_sd, fake_sf))
+    config = RealtimeConfig(
+        available=True, ws_url="ws://x/v1/realtime", api_key="", output_device="NVIDIA"
+    )
+
+    ok = realtime.play_wav_bytes_local(b"RIFF....WAVEdata", config)
+
+    assert ok is True
+    assert len(fake_sd.play_calls) == 1
+    # the resolved device index/name (whatever _resolve_device picked for
+    # "NVIDIA") is neither None nor the literal config string.
+    assert fake_sd.play_calls[0][2] is not None
+    assert fake_sd.play_calls[0][2] != "NVIDIA"
+
+
+def test_play_wav_bytes_local_bad_output_device_degrades_with_one_notice(
+    monkeypatch, capsys
+) -> None:
+    config = RealtimeConfig(
+        available=True,
+        ws_url="ws://x/v1/realtime",
+        api_key="",
+        output_device="nonexistent-speaker",
+    )
+    fake_sf = _FakeSoundfileModule()
+    fake_sd = _RecordingSounddeviceModule(devices=[])  # no devices -> name never matches
+    monkeypatch.setattr(realtime, "_import_sounddevice_and_soundfile", lambda: (fake_sd, fake_sf))
+
+    ok = realtime.play_wav_bytes_local(b"RIFF....WAVEdata", config)
+
+    assert ok is False
+    assert fake_sd.play_calls == []
+    err = capsys.readouterr().err
+    assert err.count("colleague:") == 1
+    assert "nonexistent-speaker" in err
+
+
+def test_play_wav_bytes_local_soundfile_read_failure_degrades(monkeypatch, capsys) -> None:
+    fake_sf = _FakeSoundfileModule(fail=ValueError("bad wav"))
+    fake_sd = _RecordingSounddeviceModule()
+    monkeypatch.setattr(realtime, "_import_sounddevice_and_soundfile", lambda: (fake_sd, fake_sf))
+
+    ok = realtime.play_wav_bytes_local(b"not-a-real-wav")
+
+    assert ok is False
+    assert fake_sd.play_calls == []
+    err = capsys.readouterr().err
+    assert err.count("colleague:") == 1
+
+
+def test_play_wav_bytes_local_accepts_a_path(monkeypatch, tmp_path) -> None:
+    wav_path = tmp_path / "reply.wav"
+    wav_path.write_bytes(b"RIFF....WAVEdata")
+    fake_sf = _FakeSoundfileModule()
+    fake_sd = _RecordingSounddeviceModule()
+    monkeypatch.setattr(realtime, "_import_sounddevice_and_soundfile", lambda: (fake_sd, fake_sf))
+
+    ok = realtime.play_wav_bytes_local(wav_path)
+
+    assert ok is True
+    assert fake_sf.read_calls == 1

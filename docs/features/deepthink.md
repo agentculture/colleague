@@ -39,7 +39,7 @@ chain: `COLLEAGUE_DEEPTHINK_*` env (legacy `CONVERTIBLE_DEEPTHINK_*` honored)
   "base_url": "http://localhost:8002/v1",          // main: e.g. Gemma 4
   "model": "google/gemma-4-27b-it",
   "deepthink": {
-    "model": "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP",
+    "model": "unsloth/Qwen3.6-27B-NVFP4",
     "base_url": "http://localhost:8001/v1",         // defaults to the MAIN base_url
     "api_key": "…",                                  // defaults to the MAIN api_key
     "context_budget": 48000                          // tokens; default 48000 (64K-sized)

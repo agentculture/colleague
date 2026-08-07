@@ -22,7 +22,7 @@ rig**, with a commit+date stamp per feature so staleness is detectable.
 | Field | Value |
 |-------|-------|
 | Provider `base_url` | `http://localhost:8001/v1` |
-| Model | `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` |
+| Model | `unsloth/Qwen3.6-27B-NVFP4` |
 | Readiness check | `colleague doctor --probe` (must report `provider_reachable` + `provider_model_available` → passed) |
 
 A served model that exposes tool calling is required: the vLLM rig must run with
@@ -138,7 +138,7 @@ A live work item was run against the reference rig to measure output timing:
 Task: "Read README.md and summarize it in one sentence."
 Repo: Throwaway tmp repo (/tmp/t1-baseline-repo-1783696181)
 Provider: vllm-openai at http://localhost:8001/v1
-Cortex model: sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP (Qwen 27B)
+Cortex model: unsloth/Qwen3.6-27B-NVFP4 (Qwen 27B)
 Senses model: coolthor/gemma-4-12B-it-NVFP4A16 (Gemma 4 12B, via lobes)
 Rig reachability: PASSED (provider_reachable + provider_model_available)
 ```
@@ -618,7 +618,7 @@ now validated live (or live + cited-deterministic where the model adds no signal
   degraded no-op (the lint fix-turn precedent) instead of failing.
 - **VALIDATED live — `bf6cf2d` · 2026-07-02.** The rig now serves multiple
   models on one endpoint, so the dual pair ran as main =
-  `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (tool-calling verified) +
+  `unsloth/Qwen3.6-27B-NVFP4` (tool-calling verified) +
   deepthink = `coolthor/gemma-4-12B-it-NVFP4A16` (tools-off bare completion —
   a deepthink target needs no tool parser). `COLLEAGUE_DUAL_E2E=1
   COLLEAGUE_DEEPTHINK_MODEL=coolthor/gemma-4-12B-it-NVFP4A16 uv run pytest
@@ -645,7 +645,7 @@ now validated live (or live + cited-deterministic where the model adds no signal
   the mechanism rows above are what this validates.
 - **Cross-machine retarget PROVEN (partial) — 2026-07-17, two-machines-two-minds
   arc A (t3).** Deepthink retargeted to **Gemma-4-31B on thor** via the lobes
-  gateway's `muse` proxy: main = `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`
+  gateway's `muse` proxy: main = `unsloth/Qwen3.6-27B-NVFP4`
   (spark), deepthink = `nvidia/Gemma-4-31B-IT-NVFP4` (thor,
   `hosted_by http://thor.tail0be7e0.ts.net:8000`, proxied at the gateway
   origin `http://localhost:8001/v1` — same endpoint string as main, so the
@@ -861,7 +861,7 @@ and the scenario SKIPs rather than fabricating a pass.
 **The rig now serves the rebalanced stack.** The 2026-07-03 live gateway
 probe (`LOBES_LIVE_FINDINGS.md`, gateway `http://localhost:8001`) confirmed
 `GET /capabilities` reports BOTH roles `ready`+`loaded`:
-`cortex` = `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` @ 131072 (128K),
+`cortex` = `unsloth/Qwen3.6-27B-NVFP4` @ 131072 (128K),
 `senses` = `coolthor/gemma-4-12B-it-NVFP4A16` @ 32768 (32K, `mtp: true` —
 multimodal). This is the stack task t13's livecheck scenario needs to run
 live rather than SKIP — a rig without it should still report SKIP with a
@@ -973,7 +973,7 @@ closes #304).
 
 **✅ LIVE-PROVEN 2026-07-08 on the real rig — and it closes the #66 gap.** The
 gateway (`http://localhost:8001`) now serves a **tool-calling cortex**:
-`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` returns real `tool_calls`
+`unsloth/Qwen3.6-27B-NVFP4` returns real `tool_calls`
 (`finish_reason: "tool_calls"`) for a `list_dir`/`edit_file` request — the
 standing #66 "rig has no tool-calling backend" gap that made prior cortex-loop
 proofs SKIP is **closed**. Senses is `coolthor/gemma-4-12B-it-NVFP4A16`. Both
@@ -1029,7 +1029,7 @@ Reproduce:
 
 ```bash
 RIG=http://localhost:8001/v1
-COLLEAGUE_BASE_URL=$RIG COLLEAGUE_MODEL=sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP \
+COLLEAGUE_BASE_URL=$RIG COLLEAGUE_MODEL=unsloth/Qwen3.6-27B-NVFP4 \
 COLLEAGUE_SENSES_BASE_URL=$RIG COLLEAGUE_SENSES_MODEL=coolthor/gemma-4-12B-it-NVFP4A16 \
 COLLEAGUE_ENGINE=vllm-openai COLLEAGUE_SENSES_UPDATE_STEPS=2 \
   uv run colleague work "Add a docstring to the greet function." --repo <repo> --no-pr --json
@@ -1039,7 +1039,7 @@ COLLEAGUE_ENGINE=vllm-openai COLLEAGUE_SENSES_UPDATE_STEPS=2 \
 ## 2026-07-10 — Feels-alive arc live proofs (t9)
 
 Rig: lobes gateway at `http://localhost:8001` serving cortex
-`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`, senses
+`unsloth/Qwen3.6-27B-NVFP4`, senses
 `coolthor/gemma-4-12B-it-NVFP4A16`, embedder `Qwen/Qwen3-Embedding-0.6B`.
 Baseline (t1, same day, above): a 13.62s full turn whose longest silent gap
 was 4.43s.
@@ -1139,7 +1139,7 @@ PY
 
 Rig: lobes gateway `:8001` (Bearer-authed), realtime bridge with server VAD
 (silero) + parakeet stt + chatterbox tts; cortex
-`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`, senses
+`unsloth/Qwen3.6-27B-NVFP4`, senses
 `coolthor/gemma-4-12B-it-NVFP4A16`. Audio: the **physical Reachy Mini USB
 mic** captured via the pipewire layer (`COLLEAGUE_REALTIME_INPUT_DEVICE=
 pipewire` — see the honest limits), stimuli and replies played aloud through

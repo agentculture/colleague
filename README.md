@@ -103,7 +103,7 @@ release). The runtime ships:
   - `mock` — deterministic and networkless; the CI workhorse.
   - `vllm-openai` — drives any **OpenAI-compatible** `/v1/chat/completions`
     endpoint with tool calling. The built-in default model is
-    `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (an NVFP4 Qwen3 checkpoint on a
+    `unsloth/Qwen3.6-27B-NVFP4` (an NVFP4 Qwen3 checkpoint on a
     vLLM server — what `doctor` checks for); any tool-calling model works.
 - **Git/PR handoff** — branch → commit → push → `gh pr create`, gated so
   `--no-pr` (or no remote) stays a local commit and CI never pushes.
@@ -303,7 +303,7 @@ uv run colleague work "fix the typo in the README title" \
 
 Configuration resolves in the order: explicit flag → `COLLEAGUE_*` env →
 `OPENAI_*` env → default. The built-in default `--model` is
-`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`; the example above overrides it with
+`unsloth/Qwen3.6-27B-NVFP4`; the example above overrides it with
 `--model` to match the server you started. Because the adapter only touches the
 OpenAI surface, pointing `--base-url` at any compatible server (llama.cpp, an
 OpenAI proxy) needs no code change.

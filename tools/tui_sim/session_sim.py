@@ -34,7 +34,7 @@ from .filmstrip import DEFAULT_WIDTH, FrameT
 
 #: The model the demo session advertises — the real reference-rig model name, so
 #: the status line reads exactly like a live session header.
-DEMO_MODEL = "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
+DEMO_MODEL = "unsloth/Qwen3.6-27B-NVFP4"
 
 
 def _noop_work(**_kwargs):  # pragma: no cover - never invoked in a sim

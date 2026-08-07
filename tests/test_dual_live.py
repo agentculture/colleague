@@ -21,7 +21,7 @@ Run it (with a live dual-model rig up) like::
     COLLEAGUE_DUAL_E2E=1 \\
     COLLEAGUE_BASE_URL=http://localhost:8000/v1 \\
     COLLEAGUE_MODEL=google/gemma-4 \\
-    COLLEAGUE_DEEPTHINK_MODEL=sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP \\
+    COLLEAGUE_DEEPTHINK_MODEL=unsloth/Qwen3.6-27B-NVFP4 \\
     COLLEAGUE_DEEPTHINK_BASE_URL=http://localhost:8001/v1 \\
     uv run pytest tests/test_dual_live.py -v -s
 

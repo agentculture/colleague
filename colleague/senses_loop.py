@@ -68,6 +68,7 @@ from colleague.senses_moves import (
     MOVE_CLARIFY,
     MOVE_DISPATCH_TO_CORTEX,
     MOVE_GUIDE_CORTEX,
+    MOVE_NARRATE,
     MOVE_READ_FLIGHT,
     MOVE_REPLY_TO_OPERATOR,
     MOVE_WAIT,
@@ -94,10 +95,32 @@ DEFAULT_LOOP_CAP = 2
 
 #: A move that concludes a boundary (nothing more to do this turn). ``read_flight``
 #: and ``guide_cortex`` are NON-terminal — senses reads/guides then may reply,
-#: bounded by the cap.
+#: bounded by the cap. ``narrate`` is terminal (ssv t6, c23): a narration IS the
+#: boundary's beat, so one boundary never issues a second completion for it —
+#: the completion count stays exactly one per narrated boundary beat.
 _TERMINAL_MOVES = frozenset(
-    {MOVE_DISPATCH_TO_CORTEX, MOVE_REPLY_TO_OPERATOR, MOVE_CLARIFY, MOVE_WAIT}
+    {MOVE_DISPATCH_TO_CORTEX, MOVE_REPLY_TO_OPERATOR, MOVE_CLARIFY, MOVE_WAIT, MOVE_NARRATE}
 )
+
+#: The verbatim user-facing narration label (ssv t6, c12/h9) — rendered by the
+#: presence engine ahead of a ``narrate`` move's senses-authored text, on the
+#: SAME feed-line surface presence lines use. Deliberately distinct from the
+#: ``senses:`` prefix so the operator can always tell narration from senses'
+#: own conversational replies (h9). This literal must NEVER be fed into any
+#: model-bound prompt or stored on any artifact-bound record (c14/h11) — it is
+#: display vocabulary only.
+NARRATION_LABEL = "<<higher self thought>>"
+
+#: The three-tier sibling of :data:`NARRATION_LABEL` (ssv t7, c13/h10). In
+#: three-tier mode the acting seat is the WORKER (worker acts / senses relays /
+#: cortex configures), so a ``narrate`` move describes worker activity — the
+#: presence engine picks this label over the higher-self one at RENDER time,
+#: from the config's three-tier state, mirroring its ``→ worker:`` relay-target
+#: selection. Same discipline as NARRATION_LABEL (c14/h11): this literal must
+#: NEVER be fed into any model-bound prompt or stored on any artifact-bound
+#: record — display vocabulary only. Choosing it changes NOTHING about routing
+#: or authority: narrate stays terminal + display-only either way.
+WORKER_NARRATION_LABEL = "<subconscious thought/actions>"
 
 #: Honest fixed acknowledgment when a dispatch move authored no operator-facing
 #: ``ack`` — mirrors the session's ``_ACK_DISPATCH_NOTICE`` (never a fabricated
@@ -157,6 +180,15 @@ class BoundaryContext:
     _enforce_fidelity`), falling back to the raw ``worker_answer`` on a
     fidelity failure. ``None`` (the default) is byte-identical to before this
     field existed.
+
+    ``delta_tail`` (ssv t6 — cortex narration) is a WINDOWED excerpt of the
+    acting mind's live streamed output, captured by the front's ``on_delta``
+    callback (buffering only — never a completion, c23) and handed to the beat
+    as prompt-input for THIS boundary only: it is never accumulated into
+    senses' history (stateless per beat, c14), and the assembled prompt is
+    still windowed against senses' own budget. ``""`` (the default) is
+    byte-identical to before this field existed and disables the ``narrate``
+    move's rendering (nothing to describe).
     """
 
     kind: str
@@ -165,6 +197,7 @@ class BoundaryContext:
     packet: Optional[ContextPacket] = None
     task_state: Any = None
     worker_answer: Optional[str] = None
+    delta_tail: str = ""
 
 
 @dataclass
@@ -176,6 +209,12 @@ class LoopTurn:
     clarify), else ``None``. ``injection`` is a ``{text, at, source}`` guidance
     dict for ``guide_cortex``, else ``None``. ``read_flight`` / ``wait`` carry
     neither — a record alone.
+
+    ``narration`` (ssv t6) is a ``narrate`` move's senses-authored text —
+    USER-DISPLAY ONLY (c14/h11): :meth:`SensesLoopDriver._absorb` deliberately
+    never stores it (no chat entry, no injection, nothing artifact-bound), the
+    presence engine renders it labeled and nothing else consumes it. ``None``
+    for every other move.
     """
 
     move: str
@@ -185,6 +224,7 @@ class LoopTurn:
     outcome: Any = None
     refused: bool = False
     degraded: bool = False
+    narration: Optional[str] = None
 
 
 def _feed_to_text(feed: Any) -> str:
@@ -402,6 +442,26 @@ class SensesLoopDriver:
         except Exception:
             return None, time.monotonic() - start, None, True, False
 
+    @staticmethod
+    def _boundary_steering(boundary: BoundaryContext) -> str:
+        """Boundary-aware steering preamble (surfaced by the live rig proof):
+        at a cadence tick / feed change the operator did NOT speak and cortex
+        is ALREADY working the dispatched task — senses must narrate progress,
+        never re-dispatch (a smaller senses model otherwise re-picks
+        dispatch_to_cortex every boundary and the operator only ever hears
+        the dispatch notice instead of real progress)."""
+        if boundary.kind == BOUNDARY_OPERATOR_INPUT:
+            return (
+                "The operator just spoke. If this is a new task, dispatch it to cortex; "
+                "if it is a question or guidance about the running work, reply or guide."
+            )
+        return (
+            "Cortex is ALREADY working on the dispatched task (no new operator message). "
+            "Narrate its current progress to the operator with reply_to_operator, grounded "
+            "in the recent feed below — or wait if nothing new has happened. Do NOT dispatch "
+            "again and do NOT invent progress."
+        )
+
     def _build_prompt(
         self,
         boundary: BoundaryContext,
@@ -411,25 +471,7 @@ class SensesLoopDriver:
         counter = self._count_tokens if self._count_tokens is not None else count_tokens_chars
         budget = self._senses_config.context_budget_tokens  # type: ignore[union-attr]
 
-        parts: "list[str]" = []
-        # Boundary-aware steering (surfaced by the live rig proof): at a cadence
-        # tick / feed change the operator did NOT speak and cortex is ALREADY
-        # working the dispatched task — so senses must narrate progress, never
-        # re-dispatch. Without this, a smaller senses model re-picks
-        # dispatch_to_cortex every boundary and the operator only ever hears the
-        # dispatch notice instead of real progress.
-        if boundary.kind == BOUNDARY_OPERATOR_INPUT:
-            parts.append(
-                "The operator just spoke. If this is a new task, dispatch it to cortex; "
-                "if it is a question or guidance about the running work, reply or guide."
-            )
-        else:
-            parts.append(
-                "Cortex is ALREADY working on the dispatched task (no new operator message). "
-                "Narrate its current progress to the operator with reply_to_operator, grounded "
-                "in the recent feed below — or wait if nothing new has happened. Do NOT dispatch "
-                "again and do NOT invent progress."
-            )
+        parts: "list[str]" = [self._boundary_steering(boundary)]
         if boundary.operator_input:
             parts.append(f"Operator's live message (verbatim): {boundary.operator_input}")
         pkt = boundary.packet
@@ -450,6 +492,23 @@ class SensesLoopDriver:
             parts.append(
                 "Current result from the acting mind (answer from this "
                 f"first): {boundary.worker_answer}"
+            )
+        if boundary.delta_tail:
+            # Cortex narration input (ssv t6, c12/h9): a windowed excerpt of the
+            # acting mind's live streamed output — prompt-input for THIS beat
+            # only (never folded into history, c14). The narrate steering rides
+            # here, gated on the excerpt's presence, so a boundary with nothing
+            # to describe never prompts senses toward an invented narration.
+            # NOTE (h11): no rendered-label literal in this wording — this text
+            # is model-bound.
+            parts.append(
+                "Live output from the acting mind — a raw, windowed excerpt of "
+                f"what it is generating RIGHT NOW: {boundary.delta_tail}"
+            )
+            parts.append(
+                "You may use the narrate move to describe, in your OWN words, "
+                "what this live output shows the acting mind doing — never copy "
+                "or relabel the raw output itself."
             )
         if scratch:
             taken = "; ".join(f"{move}->{outcome}" for move, outcome in scratch)
@@ -513,29 +572,9 @@ class SensesLoopDriver:
         if result.refused:
             return LoopTurn(move=move, record=record, refused=True)
 
-        chat_entry: "Optional[dict[str, Any]]" = None
-        injection: "Optional[dict[str, Any]]" = None
-
-        if move == MOVE_DISPATCH_TO_CORTEX:
-            raw_ack = str(move_obj.get("ack") or "").strip()
-            ack = raw_ack or _DISPATCH_ACK_NOTICE
-            chat_entry = {"kind": "ack", "text": ack, "fixed": not raw_ack, "at": at}
-        elif move == MOVE_REPLY_TO_OPERATOR:
-            text = str(move_obj.get("text") or "").strip()
-            # Structural relay fidelity (task t2): when the boundary carries a
-            # worker answer, the DISPLAYED text must contain it verbatim —
-            # enforced here in code, never left to the prompt alone.
-            text = self._apply_fidelity(text, boundary, history, record)
-            # kind omitted → implied "talk" (t3 mapping), the flight-talk shape.
-            chat_entry = {"message": boundary.operator_input or "", "answer": text, "at": at}
-        elif move == MOVE_CLARIFY:
-            question = str(move_obj.get("question") or "").strip()
-            chat_entry = {"kind": "clarify", "role": "senses", "text": question, "at": at}
-        elif move == MOVE_GUIDE_CORTEX:
-            guidance = str(move_obj.get("guidance") or "").strip()
-            injection = {"text": guidance, "at": at, "source": "senses-loop"}
-        # MOVE_READ_FLIGHT / MOVE_WAIT → record only, no operator-facing entry.
-
+        chat_entry, injection, narration = self._move_effects(
+            move, move_obj, boundary, history, record, at
+        )
         return LoopTurn(
             move=move,
             record=record,
@@ -543,7 +582,58 @@ class SensesLoopDriver:
             injection=injection,
             outcome=result.outcome,
             degraded=record.degraded,
+            narration=narration,
         )
+
+    def _move_effects(
+        self,
+        move: str,
+        move_obj: "dict[str, Any]",
+        boundary: BoundaryContext,
+        history: "Optional[list[dict[str, str]]]",
+        record: SensesRecord,
+        at: float,
+    ) -> "tuple[Optional[dict[str, Any]], Optional[dict[str, Any]], Optional[str]]":
+        """The operator-facing effects of one move (S3776 extraction of
+        ``_build_turn``'s ladder): ``(chat_entry, injection, narration)``.
+        ``MOVE_READ_FLIGHT`` / ``MOVE_WAIT`` -> record only, all three None."""
+        if move == MOVE_DISPATCH_TO_CORTEX:
+            raw_ack = str(move_obj.get("ack") or "").strip()
+            ack = raw_ack or _DISPATCH_ACK_NOTICE
+            return {"kind": "ack", "text": ack, "fixed": not raw_ack, "at": at}, None, None
+        if move == MOVE_REPLY_TO_OPERATOR:
+            text = str(move_obj.get("text") or "").strip()
+            # Structural relay fidelity (task t2): when the boundary carries a
+            # worker answer, the DISPLAYED text must contain it verbatim —
+            # enforced here in code, never left to the prompt alone.
+            text = self._apply_fidelity(text, boundary, history, record)
+            # kind omitted -> implied "talk" (t3 mapping), the flight-talk shape.
+            return {"message": boundary.operator_input or "", "answer": text, "at": at}, None, None
+        if move == MOVE_CLARIFY:
+            question = str(move_obj.get("question") or "").strip()
+            return {"kind": "clarify", "role": "senses", "text": question, "at": at}, None, None
+        if move == MOVE_GUIDE_CORTEX:
+            guidance = str(move_obj.get("guidance") or "").strip()
+            return None, {"text": guidance, "at": at, "source": "senses-loop"}, None
+        if move == MOVE_NARRATE:
+            return None, None, self._narration_text(move_obj, boundary)
+        return None, None, None
+
+    @staticmethod
+    def _narration_text(move_obj: "dict[str, Any]", boundary: BoundaryContext) -> "Optional[str]":
+        """Cortex narration (ssv t6, c12/c14/h9): senses-AUTHORED description
+        of the acting mind's live output — USER-DISPLAY ONLY, carried on
+        ``LoopTurn.narration`` which ``_absorb`` deliberately never stores:
+        no chat entry (artifact-bound), no injection, no history. Without a
+        live-output excerpt at this boundary there is nothing to describe,
+        so the move degrades to record-only — a narration then would be
+        invention (h9), and on a front whose render surface persists (the
+        watched run's flight chat) an excerpt-less narrate could otherwise
+        leak a narration line into an artifact-bound channel (h11)."""
+        text = str(move_obj.get("text") or "").strip()
+        if text and str(boundary.delta_tail or "").strip():
+            return text
+        return None
 
     def _apply_fidelity(
         self,
@@ -581,6 +671,10 @@ class SensesLoopDriver:
         return final_text
 
     def _absorb(self, turn: LoopTurn) -> None:
+        # ``turn.narration`` is deliberately NOT absorbed (ssv t6, c14/h11):
+        # narration is user-display only — it never lands in the driver's chat /
+        # injections (both artifact-bound) nor anywhere a model prompt reads.
+        # Only the text-free record (point ``senses-loop:narrate``) is kept.
         self.records.append(turn.record)
         if turn.chat_entry is not None:
             self.chat.append(turn.chat_entry)

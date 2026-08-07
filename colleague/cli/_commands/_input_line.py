@@ -71,6 +71,21 @@ _START_SETTLE_SECONDS = 0.1
 _READ_POLL_SECONDS = 0.05
 
 
+def transient_paint(text: str) -> str:
+    """The in-place row repaint sequence for ONE growing stream line (ssv t3).
+
+    ``CR + erase-line + text`` with NO trailing newline: repeated writes
+    repaint the SAME terminal row with a fuller prefix, and the row's final
+    owner (a :meth:`OwnedInputLine.print_above`, a full-frame redraw) starts
+    with its own CR/erase or clear-home, so a transient paint is always
+    superseded in place — never duplicated, never left behind. Kept as the
+    ONE formatting seam so the owned line's lock-protected
+    :meth:`OwnedInputLine.stream_paint` and the session's unowned live-TTY
+    fallback write byte-identical sequences.
+    """
+    return f"{_CR}{_ERASE_LINE}{text}"
+
+
 def _default_interrupt() -> None:
     """Default Ctrl-C handler: raise SIGINT in this process (the main thread)."""
     os.kill(os.getpid(), signal.SIGINT)
@@ -215,6 +230,26 @@ class OwnedInputLine:
             # Erase the current input line, print the text + newline, then repaint
             # the prompt and the operator's in-progress buffer below it.
             self._write(f"{_CR}{_ERASE_LINE}{text}\n{self._prompt}{self._pending}")
+            self._flush()
+
+    def stream_paint(self, text: str) -> None:
+        """Repaint a growing in-progress line IN PLACE on the input row (ssv t3).
+
+        Unlike :meth:`print_above` there is no newline and no prompt repaint —
+        repeated calls redraw the SAME row with a fuller prefix (the
+        :func:`transient_paint` sequence), and the reply's final
+        :meth:`print_above` then erases the row, prints the authoritative
+        whole line, and repaints the prompt + pending buffer below it. Fired
+        on the MAIN thread (the engine's streamed read loop runs inside the
+        blocking senses completion); the shared lock keeps a paint from ever
+        interleaving with the reader thread's echo path. Disarmed → a strict
+        no-op: the whole-reply render path is unchanged, so a degraded line
+        never gains stray control sequences.
+        """
+        if not self._armed:
+            return
+        with self._lock:
+            self._write(transient_paint(text))
             self._flush()
 
     def _plain_write(self, text: str) -> None:

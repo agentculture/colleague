@@ -116,6 +116,7 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
     engines,
     environment,
     identity,
+    model_membership,
     organs,
     otel,
     provider,
@@ -140,6 +141,7 @@ CHECK_GROUPS: List[CheckGroup] = [
     environment.checks,
     stale_refs.checks,
     organs.checks,
+    model_membership.checks,
     three_tier.checks,
 ]
 
@@ -147,7 +149,9 @@ CHECK_GROUPS: List[CheckGroup] = [
 #: ``.colleague/config.json`` / repo-relative state); every other group is a
 #: bare zero-arg callable. Kept as an explicit set (not a signature probe) so
 #: the aggregator's dispatch stays simple and testable.
-_REPO_AWARE_GROUPS = frozenset({provider.checks, organs.checks, three_tier.checks})
+_REPO_AWARE_GROUPS = frozenset(
+    {provider.checks, organs.checks, model_membership.checks, three_tier.checks}
+)
 
 
 def diagnose(probe: bool = False, repo_path=None) -> dict:
@@ -199,5 +203,8 @@ def diagnose(probe: bool = False, repo_path=None) -> dict:
         # Three-tier worker readiness (plan task t10): opt-in probe of the
         # worker seat — role, dialability, tool-calling, model-id match.
         checks.extend(three_tier.probe_checks(repo_path=repo_path))
+        # Model-membership probe (plan task t10): verify the configured MAIN
+        # model id against the provider's /v1/models list.
+        checks.extend(model_membership.probe_checks(repo_path=repo_path))
     healthy = not any(c["severity"] == "error" and not c["passed"] for c in checks)
     return {"healthy": healthy, "checks": checks}

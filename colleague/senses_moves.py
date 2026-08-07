@@ -17,7 +17,7 @@ callbacks.
 Two pieces:
 
 - The **move protocol** — :data:`MOVE_SCHEMA` / :data:`MOVES` enumerate the
-  six coordination moves senses may take, in exactly ONE place.
+  seven coordination moves senses may take, in exactly ONE place.
   :func:`build_moves_instruction` renders that schema into prompt text (the
   form a caller feeds to a tools-off completion — mirroring
   :mod:`colleague.senses`'s ``tools=[]`` completions, which this module never
@@ -65,6 +65,10 @@ MOVE_REPLY_TO_OPERATOR = "reply_to_operator"
 MOVE_CLARIFY = "clarify"
 #: Do nothing this turn.
 MOVE_WAIT = "wait"
+#: Describe, in senses' OWN words, what the acting mind's live output shows it
+#: doing (ssv t6 — cortex narration). Display-only presentation: the loop core
+#: renders it labeled and never records/absorbs its text (c14/h11).
+MOVE_NARRATE = "narrate"
 
 #: The single source of truth for the coordination move protocol: for each
 #: move, the positional parameter names the executor extracts from the parsed
@@ -105,6 +109,20 @@ MOVE_SCHEMA: "dict[str, dict[str, Any]]" = {
         "params": (),
         "description": "do nothing this turn",
         "example": {"move": MOVE_WAIT},
+    },
+    # NOTE (h11): this description deliberately never spells the rendered
+    # narration label — build_moves_instruction() feeds this text into every
+    # senses completion's messages, and a narrated run's model-bound messages
+    # arrays must contain zero narration-line text (c14).
+    MOVE_NARRATE: {
+        "params": ("text",),
+        "description": (
+            "describe, in your own words, what the acting mind's live output "
+            "excerpt shows it doing right now — display-only narration for the "
+            "operator; never copy the raw output, and only when a live-output "
+            "excerpt is present in the context"
+        ),
+        "example": {"move": MOVE_NARRATE, "text": "..."},
     },
 }
 
@@ -213,6 +231,11 @@ class SensesMoveExecutor:
     - ``clarify(question: str)`` — ask the operator a clarifying question.
     - ``wait()`` — optional; defaults to a no-op when omitted, since "do
       nothing" needs no caller-supplied behavior.
+    - ``narrate(text: str)`` — optional; defaults to a no-op when omitted.
+      Narration is presentation the CALLER's engine renders from the parsed
+      move (:class:`colleague.senses_loop.LoopTurn` carries the text
+      display-only), so — like ``wait`` — an executor built without a
+      ``narrate=`` binding executes it cleanly rather than refusing.
 
     :meth:`execute` is the ONLY entry point. It NEVER raises: an unknown move
     name (outside :data:`MOVES`) or an enumerated move with no callback bound
@@ -230,6 +253,7 @@ class SensesMoveExecutor:
         reply_to_operator: Optional[MoveCallback] = None,
         clarify: Optional[MoveCallback] = None,
         wait: Optional[MoveCallback] = None,
+        narrate: Optional[MoveCallback] = None,
     ) -> None:
         self._handlers: "dict[str, Optional[MoveCallback]]" = {
             MOVE_DISPATCH_TO_CORTEX: dispatch_to_cortex,
@@ -240,6 +264,11 @@ class SensesMoveExecutor:
             # "wait" needs no caller-supplied behavior; default it to a no-op
             # so an omitted `wait=` is a normal clean execution, not a refusal.
             MOVE_WAIT: wait if wait is not None else (lambda: None),
+            # "narrate" likewise: the ENGINE renders the narration text from
+            # the turn (display-only, ssv t6) — the callback has no real job,
+            # so an executor built before the narration arc still executes it
+            # cleanly instead of refusing.
+            MOVE_NARRATE: narrate if narrate is not None else (lambda _text: None),
         }
 
     def execute(self, move_obj: "dict[str, Any]") -> MoveResult:
