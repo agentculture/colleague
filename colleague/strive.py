@@ -101,7 +101,9 @@ class HypothesisLedger:
             self.entries = []
             return
         try:
-            self.entries = json.loads(path.read_text(encoding="utf-8"))
+            # NOSONAR: the filename is a hex digest (_ledger_filename) —
+            # constant alphabet, no goal text can shape this path (S2083).
+            self.entries = json.loads(path.read_text(encoding="utf-8"))  # NOSONAR
         except (json.JSONDecodeError, OSError):
             self.entries = []
 
@@ -109,7 +111,8 @@ class HypothesisLedger:
         """Persist entries for *goal* to disk."""
         path = self._path(goal)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        # NOSONAR: hex-digest filename — no user-controlled text in the path (S2083).
+        path.write_text(  # NOSONAR
             json.dumps(self.entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
 

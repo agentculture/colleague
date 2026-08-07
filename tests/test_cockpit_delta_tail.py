@@ -649,6 +649,9 @@ class TestEndToEndMockDeltasThroughRealSinks:
             data["task_id"] = ""
             data["artifacts_path"] = ""
             data["branch"] = ""
+            # tip_sha (t5, self-learning arc) hashes the per-run commit —
+            # volatile for exactly the same reason as branch above.
+            data.pop("tip_sha", None)
             return data
 
         def _capture(view: str) -> TaskResult:
