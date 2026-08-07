@@ -180,7 +180,11 @@ def _same_role_call_time_refresh(
     """Resolve the SAME role's currently-discovered id for a call-time
     stale-pin refresh, or ``None`` when the refresh cannot/must not fire.
 
-    Fires ONLY when ALL of:
+    Fires ONLY when ALL of (plus the caller-side seat gate: ``complete()``
+    checks ``config.refresh_seat is not None`` BEFORE calling this at all —
+    the replaced-config twins disarm that field, so a deepthink/senses 404
+    never reaches this function; d5/#375, flagged implicit by the arc's
+    diverse review):
 
     - *exc* is exactly a 404 ``model_not_found`` (:func:`_is_model_not_found_404`)
       — never any other HTTP error;
