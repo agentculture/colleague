@@ -2247,6 +2247,72 @@ def _maybe_recall_memory(ctx: _Work) -> None:
     }
 
 
+def _resolve_distill_fn(ctx: _Work) -> Callable[..., Any] | None:
+    """The effective distillation seam: injected fn, else author-built child fn.
+
+    Production wiring (t16): when from_config resolved an author and no
+    explicit fn was injected, the detaching fn is built HERE so the child
+    targets the durable memory repo (never a reaped isolation worktree).
+    Lazy import — distill.py pulls background/memory and must not load for
+    memory-less runs. ``None`` = the rung-1 floor.
+    """
+    if ctx.distill_fn is not None:
+        return ctx.distill_fn
+    if ctx.distill_author is None or not ctx.memory_distill:
+        return None
+    with suppress(Exception):
+        from colleague import distill as _distillmod
+
+        author = ctx.distill_author
+        return _distillmod.make_distill_fn(
+            _memory_repo(ctx),
+            getattr(author, "model", None),
+            getattr(author, "base_url", ""),
+            getattr(author, "api_key", ""),
+        )
+    return None
+
+
+def _distill_pass(
+    ctx: _Work,
+    result: TaskResult,
+    request_head: str,
+    text: str,
+    metadata: dict[str, Any],
+) -> tuple[str, dict[str, int] | None]:
+    """Run the rung-2 distillation attempt; return (text, counters).
+
+    Mutates *metadata* with the honest outcome state: ``validated`` (lesson
+    folded, origin=model), ``detached`` (the background child owns the outcome
+    — never conflated with a sync refusal, the t16 composition seam), or
+    ``no-lesson-extracted``. No seam / knob off returns *text* unchanged with
+    ``None`` counters — the rung-1 floor.
+    """
+    distill_fn = _resolve_distill_fn(ctx)
+    if distill_fn is None or not ctx.memory_distill:
+        return text, None
+    counts = {"attempts": 1, "validated": 0}
+    raw: Any = None
+    with suppress(Exception):
+        raw = distill_fn(result, request_head)
+    if raw is None and getattr(distill_fn, "detached", False):
+        metadata["distill"] = "detached"
+        return text, counts
+    lesson = _lessonsmod.parse_lesson_json(raw)
+    verdict = _lessonsmod.validate_lesson(lesson if lesson is not None else raw)
+    if lesson is not None and verdict.allowed:
+        counts["validated"] = 1
+        text += (
+            f" Lesson (origin=model): cause: {lesson['cause']} — "
+            f"lesson: {lesson['lesson']} — next time: {lesson['next_delta']}."
+        )
+        metadata["distill"] = "validated"
+        metadata["lesson_origin"] = "model"
+    else:
+        metadata["distill"] = "no-lesson-extracted"
+    return text, counts
+
+
 def _maybe_remember_lesson(ctx: _Work) -> None:
     """Remember-after (spec R1 / plan t2): one deterministic lesson per work item.
 
@@ -2271,46 +2337,7 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     # spec c9/h9); anything else leaves the rung-1 record standing with the
     # honest no-lesson-extracted marker. No seam / knob off = rung-1 floor,
     # byte-identical (spec c16/h13, c29/h24) — counters appear only when armed.
-    distill_counts: dict[str, int] | None = None
-    distill_fn = ctx.distill_fn
-    if distill_fn is None and ctx.distill_author is not None and ctx.memory_distill:
-        # Production wiring (t16): from_config resolved an author; the
-        # detaching fn is built HERE so the child targets the durable memory
-        # repo (never a reaped isolation worktree). Lazy import — distill.py
-        # pulls background/memory and must not load for memory-less runs.
-        with suppress(Exception):
-            from colleague import distill as _distillmod
-
-            author = ctx.distill_author
-            distill_fn = _distillmod.make_distill_fn(
-                _memory_repo(ctx),
-                getattr(author, "model", None),
-                getattr(author, "base_url", ""),
-                getattr(author, "api_key", ""),
-            )
-    if distill_fn is not None and ctx.memory_distill:
-        distill_counts = {"attempts": 1, "validated": 0}
-        raw: Any = None
-        with suppress(Exception):
-            raw = distill_fn(result, request_head)
-        if raw is None and getattr(distill_fn, "detached", False):
-            # The background child owns the outcome (validate-then-upsert +
-            # marker); validated stays honest-at-return. Never conflated with
-            # a sync refusal (t16 — the t9/t10 composition seam).
-            metadata["distill"] = "detached"
-        else:
-            lesson = _lessonsmod.parse_lesson_json(raw)
-            verdict = _lessonsmod.validate_lesson(lesson if lesson is not None else raw)
-            if lesson is not None and verdict.allowed:
-                distill_counts["validated"] = 1
-                text += (
-                    f" Lesson (origin=model): cause: {lesson['cause']} — "
-                    f"lesson: {lesson['lesson']} — next time: {lesson['next_delta']}."
-                )
-                metadata["distill"] = "validated"
-                metadata["lesson_origin"] = "model"
-            else:
-                metadata["distill"] = "no-lesson-extracted"
+    text, distill_counts = _distill_pass(ctx, result, request_head, text, metadata)
     record = _memorymod.build_lesson_record(result.task_id, text, metadata)
     recorded = False
     with suppress(Exception):

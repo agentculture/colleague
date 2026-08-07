@@ -155,7 +155,7 @@ def read_outcome_status(marker_path: Path) -> str | None:
     """Read the outcome status from *marker_path*, or ``None`` if absent/corrupt."""
     try:
         data = json.loads(marker_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None
     if not isinstance(data, dict):
         return None
@@ -217,13 +217,11 @@ def _build_child_argv(
     repo_path: str | Path,
     task_id: str,
     author_model: str,
-    author_base_url: str,
-    author_api_key: str,
 ) -> list[str]:
     """Build the argv for the distillation child process.
 
-    The child re-invokes the colleague CLI with a distillation subcommand,
-    passing the artifact path and author credentials via env vars.
+    The child re-invokes the module entry ``python -m colleague.distill``;
+    author credentials ride the child env (:func:`_child_env`), never argv.
     """
     return [
         sys.executable,
@@ -279,7 +277,7 @@ def detach_distill_child(
         The distillation author's API key.
     """
     try:
-        argv = _build_child_argv(repo_path, task_id, author_model, author_base_url, author_api_key)
+        argv = _build_child_argv(repo_path, task_id, author_model)
         child_env = _child_env(author_base_url, author_api_key)
         return background.spawn_background(
             repo_path,
@@ -441,7 +439,7 @@ def _find_artifact(repo_path: str | Path, task_id: str) -> Path | None:
         and "-correction-capture" not in p.name
         and ".distill" not in p.name
     ]
-    return sorted(candidates)[0] if candidates else None
+    return min(candidates) if candidates else None
 
 
 def _compose_child_prompt(artifact: dict[str, Any]) -> str:
@@ -473,8 +471,9 @@ def _compose_child_prompt(artifact: dict[str, Any]) -> str:
 
 def child_main(argv: list[str] | None = None) -> int:
     """The detached distillation child: read artifact → ONE completion →
-    validate-then-upsert → outcome marker. Exit 0 always (outcomes ride the
-    marker, never the exit code — the parent never waits anyway)."""
+    validate-then-upsert → outcome marker. The exit code is informational only
+    (0 done/nothing-to-do, 1 failed/dead) — outcomes ride the marker; the
+    parent never waits or reads it."""
     import argparse
 
     parser = argparse.ArgumentParser(prog="colleague-distill-child")
@@ -512,11 +511,12 @@ def child_main(argv: list[str] | None = None) -> int:
             lesson = {k: str(parsed[k]) for k in ("cause", "lesson", "next_delta")}
             upsert_lesson(args.repo, args.task_id, lesson)
             write_outcome_marker(marker, status="done", lesson=lesson)
-        else:
-            write_outcome_marker(marker, status="failed", reason=verdict.reason)
+            return 0
+        write_outcome_marker(marker, status="failed", reason=verdict.reason)
+        return 1
     except Exception as exc:  # the marker IS the honest failure channel
         write_outcome_marker(marker, status="dead", reason=str(exc)[:300])
-    return 0
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover - the detached child entry

@@ -727,6 +727,44 @@ def _write_correction_capture(repo_path: str | Path, task_id: str, outcome: dict
         pass
 
 
+def _capture_precondition_reason(result: Any) -> Optional[str]:
+    """The honest skip reason when a capture precondition is missing, else None."""
+    if result is None:
+        return "no artifact found for this work item"
+    if not result.pr_url:
+        return "artifact carries no pr_url (no PR opened / not handed off)"
+    if not result.tip_sha:
+        return "artifact carries no tip_sha (handoff produced no commit)"
+    return None
+
+
+def _capture_hunks_as_lessons(repo_path: str | Path, result: Any, outcome: dict[str, Any]) -> None:
+    """Resolve the merge, diff the tip, store one code-lesson per hunk (t12)."""
+    changed_files = list(result.changed_files or [])
+    merge_sha = correction.resolve_merge_commit(repo_path, result.pr_url)
+    diff_record = correction.capture_correction_diff(
+        repo_path, result.tip_sha, merge_sha, changed_files
+    )
+    if not diff_record.ok:
+        outcome["reason"] = diff_record.note or "correction diff unavailable"
+        return
+    stored = 0
+    for hunk in diff_record.hunks.values():
+        lesson = correction.build_code_lesson(hunk)
+        lesson_record = memorymod.build_code_lesson_record(
+            area=lesson.area or lesson.file_path,
+            convention=lesson.convention or f"correction on {lesson.file_path}",
+            evidence=lesson.evidence,
+            confidence=memorymod.Confidence.low,
+        )
+        if memorymod.remember(repo_path, lesson_record):
+            stored += 1
+    outcome["outcome"] = CAPTURE_FIRED
+    outcome["hunks_captured"] = len(diff_record.hunks)
+    outcome["lessons_stored"] = stored
+    outcome["reason"] = f"captured {len(diff_record.hunks)} hunk(s), stored {stored} lesson(s)"
+
+
 def maybe_capture_correction(repo_path: str | Path, task_id: str) -> dict[str, Any]:
     """Best-effort correction-diff capture for one work item (t12, c18/h15).
 
@@ -770,38 +808,11 @@ def maybe_capture_correction(repo_path: str | Path, task_id: str) -> dict[str, A
             return existing  # already captured — idempotent short-circuit, no re-fire
 
         result = read_artifact(repo_path, task_id)
-        if result is None:
-            outcome["reason"] = "no artifact found for this work item"
-        elif not result.pr_url:
-            outcome["reason"] = "artifact carries no pr_url (no PR opened / not handed off)"
-        elif not result.tip_sha:
-            outcome["reason"] = "artifact carries no tip_sha (handoff produced no commit)"
+        reason = _capture_precondition_reason(result)
+        if reason is not None:
+            outcome["reason"] = reason
         else:
-            changed_files = list(result.changed_files or [])
-            merge_sha = correction.resolve_merge_commit(repo_path, result.pr_url)
-            diff_record = correction.capture_correction_diff(
-                repo_path, result.tip_sha, merge_sha, changed_files
-            )
-            if not diff_record.ok:
-                outcome["reason"] = diff_record.note or "correction diff unavailable"
-            else:
-                stored = 0
-                for hunk in diff_record.hunks.values():
-                    lesson = correction.build_code_lesson(hunk)
-                    lesson_record = memorymod.build_code_lesson_record(
-                        area=lesson.area or lesson.file_path,
-                        convention=lesson.convention or f"correction on {lesson.file_path}",
-                        evidence=lesson.evidence,
-                        confidence=memorymod.Confidence.low,
-                    )
-                    if memorymod.remember(repo_path, lesson_record):
-                        stored += 1
-                outcome["outcome"] = CAPTURE_FIRED
-                outcome["hunks_captured"] = len(diff_record.hunks)
-                outcome["lessons_stored"] = stored
-                outcome["reason"] = (
-                    f"captured {len(diff_record.hunks)} hunk(s), stored {stored} lesson(s)"
-                )
+            _capture_hunks_as_lessons(repo_path, result, outcome)
     except Exception as exc:  # noqa: BLE001 - a capture failure must never block/fail the grade
         outcome["outcome"] = CAPTURE_FAILED
         outcome["reason"] = f"correction capture failed: {exc}"

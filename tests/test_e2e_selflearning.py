@@ -78,7 +78,7 @@ def _roundtrip_eidetic(bin_dir: Path, store: Path) -> None:
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
 
 
-@pytest.fixture()
+@pytest.fixture
 def learn_repo(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
     repo = tmp_path / "repo"
     (repo / ".eidetic" / "memory").mkdir(parents=True)
@@ -227,7 +227,8 @@ def test_resolve_distill_author_from_config_precedence() -> None:
         lobes_gateway_url = "http://gw:1"
 
     author = resolve_distill_author_from_config(_CfgDeepthink())
-    assert author is not None and author.model == "muse-model"
+    assert author is not None
+    assert author.model == "muse-model"
 
     class _CfgLobes:
         deepthink = None
@@ -237,7 +238,8 @@ def test_resolve_distill_author_from_config_precedence() -> None:
         lobes_gateway_url = "http://gw:1"
 
     author = resolve_distill_author_from_config(_CfgLobes())
-    assert author is not None and author.model == "cortex-model"
+    assert author is not None
+    assert author.model == "cortex-model"
 
     class _CfgBare:
         deepthink = None
@@ -303,6 +305,7 @@ def test_strive_cli_dispatch_runs_real_episode_in_worktree(tmp_path: Path) -> No
         capture_output=True,
         text=True,
     )
-    assert show.returncode == 0 and ".colleague/worktrees" in show.stdout
+    assert show.returncode == 0
+    assert ".colleague/worktrees" in show.stdout
     # And the operator tree is untouched (no worktree residue).
     assert not (repo / ".colleague" / "worktrees" / "strive-make-the-seed-grow").exists()

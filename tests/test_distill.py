@@ -226,7 +226,8 @@ class TestDetachDistillChild:
             # (the t17 live probe caught the original `-m colleague distill`
             # argv pointing at a CLI verb that never existed — a dead child).
             assert argv[0] == sys.executable
-            assert "-m" in argv and "colleague.distill" in argv
+            assert "-m" in argv
+            assert "colleague.distill" in argv
 
 
 # ===========================================================================

@@ -314,10 +314,12 @@ class TestWriteFeedbackAutoTrigger:
 
         assert record.rating == 5
         loaded = feedback.read_feedback(tmp_path, "t1")
-        assert loaded is not None and loaded.rating == 5
+        assert loaded is not None
+        assert loaded.rating == 5
 
         outcome = feedback.read_correction_capture(tmp_path, "t1")
-        assert outcome is not None and outcome["outcome"] == feedback.CAPTURE_FAILED
+        assert outcome is not None
+        assert outcome["outcome"] == feedback.CAPTURE_FAILED
 
     def test_sidecar_never_pollutes_list_work_items(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -458,7 +460,8 @@ class TestCaptureUncapturedPredecessor:
         monkeypatch.setattr(correction_mod, "resolve_merge_commit", _boom)
 
         outcome = feedback.capture_uncaptured_predecessor(tmp_path)  # must not raise
-        assert outcome is not None and outcome["outcome"] == feedback.CAPTURE_FAILED
+        assert outcome is not None
+        assert outcome["outcome"] == feedback.CAPTURE_FAILED
 
 
 # ---------------------------------------------------------------------------

@@ -45,47 +45,58 @@ def _scan_distill_markers(repo_path: str | Path) -> tuple[int, int]:
     repo = Path(repo_path)
     attempts = 0
     validated = 0
-    marker_stems: set[str] = set()
 
     for dirname in (".colleague", ".convertible"):
         adir = repo / dirname
         if not adir.is_dir():
             continue
-        try:
-            for marker in adir.glob("*.distill.json"):
-                before = attempts
-                attempts, validated = _count_marker(marker, attempts, validated)
-                if attempts > before:
-                    marker_stems.add(marker.name[: -len(".distill.json")])
-        except OSError:
-            pass  # unreadable dir — skip silently
-        # The live probe's lesson (t17): a child that dies BEFORE its first
-        # marker write is invisible to a marker-only scan — the exact
-        # armed-not-alive hole (h23). The launching artifact's own
-        # ``memory.distill_attempts`` is the spawn-side truth, so artifacts
-        # whose stem has NO marker contribute their attempt counts here
-        # (their ``distill_validated`` too, covering the sync seam path).
-        try:
-            for artifact in adir.glob("*.json"):
-                name = artifact.name
-                if (
-                    name.endswith(".distill.json")
-                    or name.endswith("-correction-capture.json")
-                    or name[: -len(".json")] in marker_stems
-                ):
-                    continue
-                attempts, validated = _count_artifact(artifact, attempts, validated)
-        except OSError:
-            pass
+        attempts, validated = _scan_dir(adir, attempts, validated)
 
     return attempts, validated
+
+
+def _scan_dir(adir: Path, attempts: int, validated: int) -> tuple[int, int]:
+    """Scan one artifact dir: markers first, then marker-less artifacts.
+
+    The live probe's lesson (t17): a child that dies BEFORE its first marker
+    write is invisible to a marker-only scan — the exact armed-not-alive hole
+    (h23). The launching artifact's own ``memory.distill_attempts`` is the
+    spawn-side truth, so artifacts whose stem has NO marker contribute their
+    counters here (``distill_validated`` too, covering the sync seam path).
+    """
+    marker_stems: set[str] = set()
+    try:
+        for marker in adir.glob("*.distill.json"):
+            before = attempts
+            attempts, validated = _count_marker(marker, attempts, validated)
+            if attempts > before:
+                marker_stems.add(marker.name[: -len(".distill.json")])
+    except OSError:
+        pass  # unreadable dir — skip silently
+    try:
+        for artifact in adir.glob("*.json"):
+            if _artifact_excluded(artifact.name, marker_stems):
+                continue
+            attempts, validated = _count_artifact(artifact, attempts, validated)
+    except OSError:
+        pass
+    return attempts, validated
+
+
+def _artifact_excluded(name: str, marker_stems: set[str]) -> bool:
+    """True when *name* is a sidecar, a marker, or already counted via its marker."""
+    return (
+        name.endswith(".distill.json")
+        or name.endswith("-correction-capture.json")
+        or name[: -len(".json")] in marker_stems
+    )
 
 
 def _count_artifact(artifact: Path, attempts: int, validated: int) -> tuple[int, int]:
     """Fold one marker-less artifact's spawn-side distill counters in."""
     try:
         data = json.loads(artifact.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+    except (OSError, ValueError):
         return attempts, validated
     if not isinstance(data, dict):
         return attempts, validated
@@ -109,7 +120,7 @@ def _count_marker(marker: Path, attempts: int, validated: int) -> tuple[int, int
     """
     try:
         data = json.loads(marker.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+    except (OSError, ValueError):
         return attempts, validated  # corrupt — skip
 
     if not isinstance(data, dict):

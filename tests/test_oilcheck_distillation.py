@@ -295,18 +295,19 @@ class TestCheckShape:
         assert len(ids) == len(set(ids)), f"duplicate ids: {ids}"
         for c in result:
             assert set(c) == _CHECK_KEYS, f"bad shape: {c}"
-            assert isinstance(c["id"], str) and c["id"]
+            assert isinstance(c["id"], str)
+            assert c["id"]
             assert isinstance(c["passed"], bool)
             assert c["severity"] in {"error", "warning", "info"}
             if c["passed"]:
                 assert c["remediation"] == ""
 
     def test_checks_never_raises(self, tmp_path: Path) -> None:
-        """checks() must never raise, even with a broken repo path."""
-        try:
-            result = checks(repo_path="/nonexistent/path/xyz")
-        except Exception as exc:  # pragma: no cover
-            pytest.fail(f"checks() raised unexpectedly: {exc}")
+        """checks() must never raise, even with a broken repo path.
+
+        A raise here fails the test naturally — no wrapper needed.
+        """
+        result = checks(repo_path="/nonexistent/path/xyz")
         assert isinstance(result, list)
 
 
