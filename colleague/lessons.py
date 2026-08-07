@@ -15,6 +15,7 @@ When validation fails the caller records the honest
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 #: Maximum allowed length for each lesson field (characters).
@@ -170,3 +171,49 @@ def validate_lesson(lesson: object) -> LessonVerdict:
         )
 
     return LessonVerdict(True)
+
+
+# ---------------------------------------------------------------------------
+# Raw-text extraction — the distillation seam's parse half (t9)
+# ---------------------------------------------------------------------------
+
+
+def parse_lesson_json(text: object) -> dict | None:
+    """Tolerantly extract the first balanced JSON object from raw model text.
+
+    A served model wraps JSON in prose or a ``` fence; this walks the text for
+    the first balanced ``{...}`` that parses as a JSON object and returns it
+    as a dict. Anything else — no JSON, truncated JSON, a non-object payload,
+    non-string input — returns ``None`` (the caller's ``validate_lesson``
+    then refuses it as a whole). Pure stdlib, never raises.
+    """
+    if not isinstance(text, str):
+        return None
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_str = False
+        esc = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[start : i + 1])
+                    except ValueError:
+                        break
+                    return obj if isinstance(obj, dict) else None
+        start = text.find("{", start + 1)
+    return None

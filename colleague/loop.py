@@ -54,6 +54,7 @@ from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lint as _lint
 from colleague import media
+from colleague import lessons as _lessonsmod
 from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
@@ -789,6 +790,9 @@ class _Work:
     # strict no-op, byte-identical to the pre-memory loop.
     memory_enabled: bool = False
     memory_root: str | None = None
+    # Rung-2 distillation seam + kill switch (t9) — see ContextControls.
+    memory_distill: bool = True
+    distill_fn: Callable[..., Any] | None = None
     # Embedder env overrides (S2, task t19): forwarded from
     # ``ContextControls.embed_env``; merged into the eidetic subprocess env by
     # ``colleague/memory.py`` (operator-set env vars always win). ``{}``
@@ -2257,11 +2261,31 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     # the failure substance (incompletion, error, refresh warnings) rides
     # the record deterministically.
     text = _memorymod.compose_lesson_text(result, request_head)
-    record = _memorymod.build_lesson_record(
-        result.task_id,
-        text,
-        {"topic": "colleague-work-lesson", "status": result.status},
-    )
+    metadata: dict[str, Any] = {"topic": "colleague-work-lesson", "status": result.status}
+    # Rung 2 (t9): ONE gated distillation attempt through the injectable seam.
+    # The lesson rides the record ONLY when it schema-validates (anti-fabrication,
+    # spec c9/h9); anything else leaves the rung-1 record standing with the
+    # honest no-lesson-extracted marker. No seam / knob off = rung-1 floor,
+    # byte-identical (spec c16/h13, c29/h24) — counters appear only when armed.
+    distill_counts: dict[str, int] | None = None
+    if ctx.distill_fn is not None and ctx.memory_distill:
+        distill_counts = {"attempts": 1, "validated": 0}
+        raw: Any = None
+        with suppress(Exception):
+            raw = ctx.distill_fn(result, request_head)
+        lesson = _lessonsmod.parse_lesson_json(raw)
+        verdict = _lessonsmod.validate_lesson(lesson if lesson is not None else raw)
+        if lesson is not None and verdict.allowed:
+            distill_counts["validated"] = 1
+            text += (
+                f" Lesson (origin=model): cause: {lesson['cause']} — "
+                f"lesson: {lesson['lesson']} — next time: {lesson['next_delta']}."
+            )
+            metadata["distill"] = "validated"
+            metadata["lesson_origin"] = "model"
+        else:
+            metadata["distill"] = "no-lesson-extracted"
+    record = _memorymod.build_lesson_record(result.task_id, text, metadata)
     recorded = False
     with suppress(Exception):
         recorded = _memorymod.remember(
@@ -2273,6 +2297,11 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     if result.memory is None:
         result.memory = {}
     result.memory["lesson_recorded"] = bool(recorded)
+    if distill_counts is not None:
+        # The armed-is-not-alive counter (spec c28/h23): a seam that never
+        # validates is visible as attempts>0, validated=0 on every artifact.
+        result.memory["distill_attempts"] = distill_counts["attempts"]
+        result.memory["distill_validated"] = distill_counts["validated"]
 
 
 def _read_heavy_zero_write(ctx: _Work) -> bool:
@@ -2770,6 +2799,15 @@ class ContextControls:
     # variable (see ``colleague/memory.py``). ``{}`` (the default) is a strict
     # no-op — byte-identical to pre-S2 behavior.
     embed_env: dict[str, str] = field(default_factory=dict)
+    # Rung-2 lesson distillation (self-learning t9). ``distill_fn`` is the
+    # injectable seam — a callable ``(result, request_head) -> raw model text``
+    # whose output is parsed + schema-validated (colleague/lessons.py) before a
+    # lesson may ride the remember-after record. ``None`` (the default) is the
+    # rung-1 floor: byte-identical record, no counters (spec c16/h13). The
+    # ``memory_distill`` knob is the independent kill switch (spec c29/h24) —
+    # off = byte-identical rung-1 even with a seam present.
+    memory_distill: bool = True
+    distill_fn: Callable[..., Any] | None = None
     # Test-integrity gate (#203): when truthy (the default) the runtime runs the
     # mirror-detection heuristic on the changed files after the loop and records the
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
@@ -2864,6 +2902,7 @@ class ContextControls:
             lint_fix_retries=config.lint_fix_retries,
             coherence=bool(getattr(config, "coherence", True)),
             memory=config.memory,
+            memory_distill=bool(getattr(config, "memory_distill", True)),
             memory_root=getattr(config, "memory_root", None),
             embed_env=dict(getattr(config, "embed_env", None) or {}),
             testintegrity=config.testintegrity,
@@ -4421,6 +4460,8 @@ def run(
         coherence_enabled=bool(_context.coherence),
         memory_enabled=bool(_context.memory),
         memory_root=_context.memory_root,
+        memory_distill=bool(_context.memory_distill),
+        distill_fn=_context.distill_fn,
         embed_env=dict(_context.embed_env or {}),
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
