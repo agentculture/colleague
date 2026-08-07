@@ -616,19 +616,24 @@ class SensesLoopDriver:
             guidance = str(move_obj.get("guidance") or "").strip()
             return None, {"text": guidance, "at": at, "source": "senses-loop"}, None
         if move == MOVE_NARRATE:
-            # Cortex narration (ssv t6, c12/c14/h9): senses-AUTHORED description
-            # of the acting mind's live output — USER-DISPLAY ONLY, carried on
-            # ``LoopTurn.narration`` which ``_absorb`` deliberately never stores:
-            # no chat entry (artifact-bound), no injection, no history. Without a
-            # live-output excerpt at this boundary there is nothing to describe,
-            # so the move degrades to record-only — a narration then would be
-            # invention (h9), and on a front whose render surface persists (the
-            # watched run's flight chat) an excerpt-less narrate could otherwise
-            # leak a narration line into an artifact-bound channel (h11).
-            text = str(move_obj.get("text") or "").strip()
-            if text and str(boundary.delta_tail or "").strip():
-                return None, None, text
+            return None, None, self._narration_text(move_obj, boundary)
         return None, None, None
+
+    @staticmethod
+    def _narration_text(move_obj: "dict[str, Any]", boundary: BoundaryContext) -> "Optional[str]":
+        """Cortex narration (ssv t6, c12/c14/h9): senses-AUTHORED description
+        of the acting mind's live output — USER-DISPLAY ONLY, carried on
+        ``LoopTurn.narration`` which ``_absorb`` deliberately never stores:
+        no chat entry (artifact-bound), no injection, no history. Without a
+        live-output excerpt at this boundary there is nothing to describe,
+        so the move degrades to record-only — a narration then would be
+        invention (h9), and on a front whose render surface persists (the
+        watched run's flight chat) an excerpt-less narrate could otherwise
+        leak a narration line into an artifact-bound channel (h11)."""
+        text = str(move_obj.get("text") or "").strip()
+        if text and str(boundary.delta_tail or "").strip():
+            return text
+        return None
 
     def _apply_fidelity(
         self,

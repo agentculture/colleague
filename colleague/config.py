@@ -2887,7 +2887,11 @@ class EngineConfig:
                 file_model,
                 lobes_gateway_url,
                 lobes_roles,
-                api_key=resolved_api_key,
+                # The wire-format placeholder is NOT a credential: sending
+                # "Bearer EMPTY" can turn an otherwise-OK anonymous
+                # /v1/models fetch into a 401 on a strict gateway and
+                # silently skip this rung (Qodo review, PR #381).
+                api_key=("" if resolved_api_key == _DEFAULT_API_KEY else resolved_api_key),
             )
         resolved_context_budget_tokens = int(
             _pick(

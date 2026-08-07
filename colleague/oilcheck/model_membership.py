@@ -30,6 +30,7 @@ import urllib.error
 import urllib.request
 
 from colleague.config import (
+    _DEFAULT_API_KEY,
     _DEFAULT_MODEL,
     EngineConfig,
     _merged_config_json,
@@ -71,19 +72,27 @@ def _resolve_model_source(repo_path=None) -> tuple[str, str]:
             pass
 
     # 4. Lobes discovery
-    gateway = resolve_lobes_gateway_url(repo_path)
-    if gateway is not None:
-        try:
-            from colleague import lobes as _lobes
-
-            roles = _lobes.resolve_roles(gateway)
-            if roles is not None and getattr(roles.cortex, "model", None):
-                return roles.cortex.model, "lobes discovery (cortex role)"
-        except Exception:  # nosec B110 - degrade gracefully; source detection is advisory
-            pass
+    discovered = _lobes_cortex_model(repo_path)
+    if discovered is not None:
+        return discovered, "lobes discovery (cortex role)"
 
     # 5. Built-in default
     return _DEFAULT_MODEL, "builtin default"
+
+
+def _lobes_cortex_model(repo_path=None) -> "str | None":
+    """The lobes-discovered cortex model id, or None (advisory, never raises)."""
+    gateway = resolve_lobes_gateway_url(repo_path)
+    if gateway is None:
+        return None
+    try:
+        from colleague import lobes as _lobes
+
+        roles = _lobes.resolve_roles(gateway)
+        model = getattr(roles.cortex, "model", None) if roles is not None else None
+        return model or None
+    except Exception:  # nosec B110 - degrade gracefully; source detection is advisory
+        return None
 
 
 def checks(repo_path=None) -> list[dict]:
@@ -157,7 +166,7 @@ def _probe_checks(repo_path=None) -> list[dict]:
         request = urllib.request.Request(url, method="GET")
         # An authed rig 401s an anonymous /models GET and this probe would
         # skip (live-proven 2026-08-06) — send the resolved key when present.
-        if config.api_key:
+        if config.api_key and config.api_key != _DEFAULT_API_KEY:
             request.add_header("Authorization", f"Bearer {config.api_key}")
         with urllib.request.urlopen(  # nosec B310 - operator-configured endpoint
             request, timeout=_PROBE_TIMEOUT

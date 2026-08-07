@@ -499,3 +499,39 @@ def test_senses_twin_disarms_the_refresh_seat() -> None:
     s_cfg = senses_engine_config(cfg)
     assert s_cfg is not None
     assert s_cfg.refresh_seat is None
+
+
+def test_complete_persists_the_refreshed_id_across_completions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Qodo review (PR #381): after a call-time refresh, later completions
+    start from the refreshed id — no repeated 404->refresh round-trips."""
+    call_log: list[dict] = []
+
+    def fake_urlopen(request: object, timeout: float = 0):  # noqa: ANN001
+        payload = json.loads(request.data.decode("utf-8"))
+        call_log.append(payload)
+        if payload["model"] == _STALE_ID:
+            raise _model_not_found_error(request.full_url, _STALE_ID)
+        return _OkResponse(_ok_message("ok"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    from colleague import lobes as lobes_mod
+
+    monkeypatch.setattr(
+        lobes_mod,
+        "resolve_roles",
+        lambda _url: LobesRoles(cortex=_role(_FRESH_ID), senses=_role("senses/model")),
+    )
+
+    cfg = EngineConfig.resolve(base_url="http://x/v1", model=_STALE_ID)
+    cfg = dataclasses.replace(cfg, lobes_gateway_url="http://gateway.example")
+
+    complete = VllmOpenAIEngine()._make_complete(cfg, tools=[])
+    complete([{"role": "user", "content": "one"}])
+    complete([{"role": "user", "content": "two"}])
+
+    # First call: stale then refreshed; second call: refreshed ONLY.
+    assert [c["model"] for c in call_log] == [_STALE_ID, _FRESH_ID, _FRESH_ID]
+    assert cfg.model == _FRESH_ID

@@ -335,10 +335,7 @@ class TestCheckShape:
             raise RuntimeError("unexpected")
 
         monkeypatch.setattr("urllib.request.urlopen", _boom)
-        try:
-            result = probe_checks()
-        except Exception as exc:  # pragma: no cover
-            pytest.fail(f"probe_checks() raised unexpectedly: {exc}")
+        result = probe_checks()  # a raise here fails the test naturally
         assert isinstance(result, list)
 
 

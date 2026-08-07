@@ -870,6 +870,12 @@ class VllmOpenAIEngine(Engine):
                 refreshed_id = _same_role_call_time_refresh(config, role_name, exc)
                 if refreshed_id is None:
                     raise
+                # Persist the refresh (Qodo review, PR #381): later
+                # completions rebuild their payload from ``config.model`` —
+                # leaving the stale id there would re-404 + re-refresh on
+                # EVERY subsequent turn (and re-append a warning each time),
+                # with success depending on lobes staying reachable.
+                config.model = refreshed_id
                 payload["model"] = refreshed_id
                 return _invoke()
 

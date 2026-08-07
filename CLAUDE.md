@@ -275,9 +275,12 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   `CliError`. The four reserved meta-verbs (`doctor`/`overview`/`learn`/`explain`)
   stay colleague-owned via the legacy-parser shim in `main()`. Doc: `cli-on-agentfront.md`.
 - **The vLLM adapter only touches the OpenAI surface** — retargeting any
-  OpenAI-compatible server must stay a config change, never a code change. ONE
-  carve-out: the `/tokenize` endpoint for exact token counting, which degrades
-  gracefully (`None` on error), so a server without it stays a config change.
+  OpenAI-compatible server must stay a config change, never a code change. TWO
+  carve-outs, both graceful-degrade so a server without them stays a config
+  change: the `/tokenize` endpoint for exact token counting (`None` on error),
+  and — only when lobes is ARMED — the call-time stale-pin refresh's one
+  same-role lookup against the gateway (c11/h8; lobes unarmed = the original
+  error surfaces unchanged, zero non-OpenAI calls).
 - **Hook commands run as subprocesses, never imported.** `colleague/hooks.py` uses
   `subprocess.run` (shell=True) in the repo working dir; command templates are
   Markdown text, never executed. No code path opens a socket or forks a daemon.

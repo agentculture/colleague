@@ -154,9 +154,7 @@ class EnvelopeStream:
         state = self._state
         if state == _FAILED:
             return
-        if state == _VALUE_START:
-            self._begin_value(ch, out)
-        elif state == _TEXT:
+        if state == _TEXT:
             self._read_text(ch, out)
         else:
             self._HANDLERS[state](self, ch)
@@ -250,7 +248,6 @@ class EnvelopeStream:
             opener = self._container.pop() if self._container else ""
             if (opener, ch) not in (("{", "}"), ("[", "]")):
                 self._fail(f"mismatched container close {ch!r}")
-            return
         # ':' separators and scalar characters inside the container are
         # consumed as skip.
 
@@ -267,7 +264,7 @@ class EnvelopeStream:
             return
         self._key.append(ch)
 
-    def _begin_value(self, ch: str, out: list[str]) -> None:
+    def _begin_value(self, ch: str) -> None:
         if ch in _WS:
             return
         is_text = "".join(self._key) == self._field and not self._text_done
@@ -359,6 +356,7 @@ class EnvelopeStream:
         _JSON_START: _st_json_start,
         _SCAN: _scan,
         _KEY: _read_key,
+        _VALUE_START: _begin_value,
         _POST_KEY: _st_post_key,
         _STRING: _read_string,
         _SCALAR: _read_scalar,
