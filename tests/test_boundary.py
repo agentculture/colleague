@@ -1059,3 +1059,64 @@ def test_no_colleague_module_imports_cultureagent() -> None:
         "cultureagent imported in colleague source — this creates a cycle since "
         "cultureagent depends on colleague (colleague#291 boundary c8):\n" + "\n".join(violations)
     )
+
+
+# ---------------------------------------------------------------------------
+# STRUCTURAL — eidetic verb allow-list pinned (plan t19, spec c10/h10/c11/h11).
+# The memory module exposes exactly two verbs: recall and remember.  No other
+# eidetic verb (export, delete, search, …) may be reachable from any module
+# in the package.  This test proves the allow-list is a frozenset of exactly
+# those two strings.
+# ---------------------------------------------------------------------------
+
+
+def test_memory_allowed_verbs_is_pinned_frozenset() -> None:
+    """ALLOWED_VERBS is a frozenset containing exactly {recall, remember} — c10/h10.
+
+    The constant must be a frozenset (immutable, hashable) so it cannot be
+    mutated at runtime, and its contents must match the spec exactly.
+    """
+    from colleague.memory import ALLOWED_VERBS
+
+    assert isinstance(ALLOWED_VERBS, frozenset), (
+        "ALLOWED_VERBS must be a frozenset (immutable) — " f"got {type(ALLOWED_VERBS).__name__}"
+    )
+    assert ALLOWED_VERBS == frozenset({"recall", "remember"}), (
+        f"ALLOWED_VERBS must be exactly frozenset({{'recall', 'remember'}}), "
+        f"got {ALLOWED_VERBS!r}"
+    )
+
+
+def test_memory_allowed_verbs_contains_recall() -> None:
+    """'recall' is in the allow-list — the search verb is reachable."""
+    from colleague.memory import ALLOWED_VERBS
+
+    assert "recall" in ALLOWED_VERBS
+
+
+def test_memory_allowed_verbs_contains_remember() -> None:
+    """'remember' is in the allow-list — the store verb is reachable."""
+    from colleague.memory import ALLOWED_VERBS
+
+    assert "remember" in ALLOWED_VERBS
+
+
+def test_memory_allowed_verbs_excludes_export() -> None:
+    """'export' is NOT in the allow-list — no data-export verb is reachable."""
+    from colleague.memory import ALLOWED_VERBS
+
+    assert "export" not in ALLOWED_VERBS
+
+
+def test_memory_allowed_verbs_excludes_delete() -> None:
+    """'delete' is NOT in the allow-list — no destructive verb is reachable."""
+    from colleague.memory import ALLOWED_VERBS
+
+    assert "delete" not in ALLOWED_VERBS
+
+
+def test_memory_allowed_verbs_excludes_search() -> None:
+    """'search' is NOT in the allow-list — only 'recall' is the search verb."""
+    from colleague.memory import ALLOWED_VERBS
+
+    assert "search" not in ALLOWED_VERBS
