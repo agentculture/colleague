@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.56.1] - 2026-08-07
+
+### Added
+
+- #387 proof-session evidence: live-testing row 34 (self-taught warm-vs-cold, outcome FALSIFYING per the confirmed bar — lesson specificity named as the operative variable), row-32 benchmark-exists note, the memory.md self-taught counterpoint, the prove-self-learning-387 spec/plan/delivery artifacts, and issues #388/#389
+
+### Fixed
+
+- recall() now parses the eidetic >= 0.13 --json envelope ({query, mode, truncated, items}) alongside the legacy bare-list shape — every armed run had been silently recording recalled=0 (#389; caught live in the #387 proof session, regression test pins both shapes)
+
 ## [1.56.0] - 2026-08-07
 
 ### Added
