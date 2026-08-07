@@ -135,6 +135,35 @@ Because read-only probes don't move `last`, prefer grading a probe by the
 `task_id` it printed (or `ask-colleague feedback list`); `ask-colleague feedback last`
 grades the most recent **write**.
 
+### Seamless auto-trigger: correction capture (plan t12, c18/h15)
+
+The ROI loop closes on itself. A code-lesson (what got corrected — a diff hunk,
+not a summary) shouldn't need an operator to remember to ask for it, so
+`colleague/feedback.py` fires `maybe_capture_correction` from TWO triggers, both
+built on `colleague/correction.py`'s merge-commit resolution + scoped diff and
+`colleague/memory.py`'s `build_code_lesson_record` + `remember`:
+
+1. **Grade time** — `feedback record`/`write_feedback` checks the graded work
+   item's own artifact; when it carries BOTH `pr_url` and `tip_sha`, a
+   correction-diff capture fires automatically, right after the grade lands.
+2. **Work start** — `execute_work` runs a best-effort, read-only-first check
+   (`find_uncaptured_predecessor`) for the repo's last work item; when it looks
+   like an uncaptured merged predecessor (both facts present, no prior FIRED
+   capture), `capture_uncaptured_predecessor` fires the same capture for it —
+   colleague's own action as the trigger, not just an operator command.
+
+**Never blocks, always observable.** ANY missing fact, or ANY exception
+anywhere in the capture chain, yields a non-raising `"skipped"`/`"failed"`
+outcome (never `"fired"`) with a `reason` — a capture failure can only ever be
+recorded, never take back a grade or stop a work item from starting. Every
+outcome is persisted as a sidecar JSON file beside the work item's artifact,
+`.colleague/<task_id>-correction-capture.json` (read back via
+`colleague.feedback.read_correction_capture`) — a hyphen, not a dot, right
+after the task id, so `find_artifact`'s glob never mistakes it for the real
+result artifact. A capture that already recorded `"fired"` short-circuits on a
+later call (idempotent — a re-grade or a second work-start check is a cheap
+no-op, no re-resolution/re-diff/re-remember).
+
 ## Reading ROI off one work item
 
 ```bash
@@ -162,3 +191,9 @@ artifact plus its feedback record, with no external data.
   sub-results into a parent total is a parked follow-up.
 - Reasoning **text** is not persisted in v0 — only its char/byte length (size +
   privacy). Persisting the full chain-of-thought is a parked follow-up.
+- The correction-capture auto-trigger (t12) fires **best-effort**: it needs
+  `gh` (merge-commit resolution) and the `eidetic` CLI (lesson storage) on
+  `PATH`; either being absent degrades to an honest `"skipped"`/`"failed"`
+  sidecar, never a crash. It fires unconditionally on every `write_feedback`
+  call and every `execute_work` start — cheap when the gating facts
+  (`pr_url`/`tip_sha`) are absent (the common case), but not opt-out-able yet.
