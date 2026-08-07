@@ -13,6 +13,8 @@ Pure stdlib (``json``); the only colleague imports are the native plan types.
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from typing import Any, Callable
 
 from colleague.context import classify_degradable
@@ -590,8 +592,39 @@ def _fill_honesty(acc: _ClaimAcc, simple: SimpleComplete) -> None:
         _try_fill_honesty(acc, simple, system, user)
 
 
+def _persist_raw_capture(chunks: list[str], repo_path: str | None, plan_id: str) -> str:
+    """Persist the raw model text from a failed claims proposal for post-mortem
+    diagnosis (#376): once the clean ``ValueError`` below surfaces, the model's
+    actual (format-mismatched) output would otherwise be gone for good.
+
+    Writes under the plan artifact directory (``<repo_path>/.colleague/plan/``,
+    the same directory :mod:`colleague.plan.checkpoint` persists checkpoints
+    to) when *repo_path* is known. When it isn't -- or the write itself fails --
+    the raw text goes to stderr instead, never silently dropped. Returns the
+    location string to embed in the raised error message.
+    """
+    text = "\n\n--- next chunk ---\n\n".join(chunks) if chunks else "(no model output received)"
+    if repo_path is not None:
+        capture_dir = Path(repo_path) / ".colleague" / "plan"
+        capture_path = capture_dir / f"{plan_id}-claims-raw-capture.txt"
+        try:
+            capture_dir.mkdir(parents=True, exist_ok=True)
+            capture_path.write_text(text, encoding="utf-8")
+            return str(capture_path)
+        except OSError:
+            pass  # fall through to the stderr fallback below
+    print(
+        "plan mode: total claim-parse failure; raw model output follows:\n" + text,
+        file=sys.stderr,
+    )
+    return "stderr"
+
+
 def make_propose_claims(
     simple: SimpleComplete,
+    *,
+    repo_path: str | None = None,
+    plan_id: str = "plan",
 ) -> Callable[[str], tuple[list[Claim], list[HonestyCondition]]]:
     """Build a ``propose_claims(request)`` seam backed by *simple*.
 
@@ -601,26 +634,40 @@ def make_propose_claims(
     2. Requirement claims + honesty conditions, conditioned on call-1 results.
 
     A failing or empty chunk is tolerated (skipped), never aborting the stage.
+    A TOTAL failure (zero claims parsed) persists every raw chunk the model
+    returned this invocation via :func:`_persist_raw_capture` before raising --
+    *repo_path*/*plan_id* locate the plan's artifact dir (#376 diagnosability).
     """
 
     def propose_claims(request: str) -> tuple[list[Claim], list[HonestyCondition]]:
         acc = _ClaimAcc()
+        raw_chunks: list[str] = []
+
+        def _capture(system_prompt: str, user_prompt: str) -> str:
+            text = simple(system_prompt, user_prompt)
+            raw_chunks.append(text)
+            return text
 
         # --- Call 1: mandatory kinds ---
-        _try_absorb(acc, simple, CLAIMS_MANDATORY_SYSTEM_PROMPT, request)
+        _try_absorb(acc, _capture, CLAIMS_MANDATORY_SYSTEM_PROMPT, request)
 
         # --- Call 2: requirements + honesty, conditioned on call-1 ---
         if acc.claims:
             context = "Already-proposed claims:\n" + "\n".join(
                 f"- [{c.kind}] {c.text}" for c in acc.claims
             )
-            _try_absorb(acc, simple, CLAIMS_REQUIREMENTS_SYSTEM_PROMPT, context)
+            _try_absorb(acc, _capture, CLAIMS_REQUIREMENTS_SYSTEM_PROMPT, context)
 
         # A partial failure (one bad chunk) is tolerated above, but a TOTAL
         # failure (no claims parsed at all) must still surface the clean
-        # "unusable plan proposal" error, never a silent empty frame.
+        # "unusable plan proposal" error, never a silent empty frame. Persist
+        # the raw text first so a model-format mismatch stays diagnosable.
         if not acc.claims:
-            raise ValueError("no claims could be parsed from the model output")
+            location = _persist_raw_capture(raw_chunks, repo_path, plan_id)
+            raise ValueError(
+                "no claims could be parsed from the model output "
+                f"(raw proposal text captured at {location})"
+            )
 
         # --- Call 3+: dedicated honesty pass (the #215 fix) ---
         # The combined call above reliably drops honesty on a weak model; recover
