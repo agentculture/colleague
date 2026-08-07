@@ -596,6 +596,11 @@ def test_boundary_sanctioned_lists_unchanged() -> None:
             "colleague/coherence.py",
             "colleague/livecheck.py",
             "colleague/experiment.py",
+            # self-learning arc: strive.py runs the operator-supplied measure
+            # command (approval-gated, t14); correction.py shells git/gh for
+            # the integrator-correction diff (t7) — reasons in test_boundary.py.
+            "colleague/strive.py",
+            "colleague/correction.py",
         }
     )
     # colleague/realtime.py joined this list under the realtime-speech arc
