@@ -793,6 +793,10 @@ class _Work:
     # Rung-2 distillation seam + kill switch (t9) — see ContextControls.
     memory_distill: bool = True
     distill_fn: Callable[..., Any] | None = None
+    # The from_config-resolved distillation author (t16): when set and no
+    # explicit distill_fn was injected, the remember seam builds the detaching
+    # child fn against the durable memory repo. None = rung-1 floor.
+    distill_author: Any | None = None
     # Embedder env overrides (S2, task t19): forwarded from
     # ``ContextControls.embed_env``; merged into the eidetic subprocess env by
     # ``colleague/memory.py`` (operator-set env vars always win). ``{}``
@@ -2268,23 +2272,45 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     # honest no-lesson-extracted marker. No seam / knob off = rung-1 floor,
     # byte-identical (spec c16/h13, c29/h24) — counters appear only when armed.
     distill_counts: dict[str, int] | None = None
-    if ctx.distill_fn is not None and ctx.memory_distill:
+    distill_fn = ctx.distill_fn
+    if distill_fn is None and ctx.distill_author is not None and ctx.memory_distill:
+        # Production wiring (t16): from_config resolved an author; the
+        # detaching fn is built HERE so the child targets the durable memory
+        # repo (never a reaped isolation worktree). Lazy import — distill.py
+        # pulls background/memory and must not load for memory-less runs.
+        with suppress(Exception):
+            from colleague import distill as _distillmod
+
+            author = ctx.distill_author
+            distill_fn = _distillmod.make_distill_fn(
+                _memory_repo(ctx),
+                getattr(author, "model", None),
+                getattr(author, "base_url", ""),
+                getattr(author, "api_key", ""),
+            )
+    if distill_fn is not None and ctx.memory_distill:
         distill_counts = {"attempts": 1, "validated": 0}
         raw: Any = None
         with suppress(Exception):
-            raw = ctx.distill_fn(result, request_head)
-        lesson = _lessonsmod.parse_lesson_json(raw)
-        verdict = _lessonsmod.validate_lesson(lesson if lesson is not None else raw)
-        if lesson is not None and verdict.allowed:
-            distill_counts["validated"] = 1
-            text += (
-                f" Lesson (origin=model): cause: {lesson['cause']} — "
-                f"lesson: {lesson['lesson']} — next time: {lesson['next_delta']}."
-            )
-            metadata["distill"] = "validated"
-            metadata["lesson_origin"] = "model"
+            raw = distill_fn(result, request_head)
+        if raw is None and getattr(distill_fn, "detached", False):
+            # The background child owns the outcome (validate-then-upsert +
+            # marker); validated stays honest-at-return. Never conflated with
+            # a sync refusal (t16 — the t9/t10 composition seam).
+            metadata["distill"] = "detached"
         else:
-            metadata["distill"] = "no-lesson-extracted"
+            lesson = _lessonsmod.parse_lesson_json(raw)
+            verdict = _lessonsmod.validate_lesson(lesson if lesson is not None else raw)
+            if lesson is not None and verdict.allowed:
+                distill_counts["validated"] = 1
+                text += (
+                    f" Lesson (origin=model): cause: {lesson['cause']} — "
+                    f"lesson: {lesson['lesson']} — next time: {lesson['next_delta']}."
+                )
+                metadata["distill"] = "validated"
+                metadata["lesson_origin"] = "model"
+            else:
+                metadata["distill"] = "no-lesson-extracted"
     record = _memorymod.build_lesson_record(result.task_id, text, metadata)
     recorded = False
     with suppress(Exception):
@@ -2643,6 +2669,21 @@ class Spawns:
     batch: Callable | None = None
 
 
+def _resolve_distill_author_safe(config: Any) -> Any | None:
+    """Resolve the rung-2 distillation author from *config*, never raising (t16).
+
+    Lazy-imports :mod:`colleague.distill` (which pulls background/memory) so a
+    memory-less direct ``run`` caller loads nothing extra; any failure is the
+    rung-1 floor (``None``), degrade-never-raise like every memory seam.
+    """
+    try:
+        from colleague import distill as _distillmod
+
+        return _distillmod.resolve_distill_author_from_config(config)
+    except Exception:
+        return None
+
+
 @dataclass(frozen=True)
 class ContextControls:
     """Optional context-window-management knobs injected into :func:`run`.
@@ -2808,6 +2849,11 @@ class ContextControls:
     # off = byte-identical rung-1 even with a seam present.
     memory_distill: bool = True
     distill_fn: Callable[..., Any] | None = None
+    # The resolved distillation author (t16) — set by from_config via
+    # ``distill.resolve_distill_author_from_config`` (deepthink > armed-lobes
+    # main > None). Only consulted when ``distill_fn`` is None; the remember
+    # seam builds the detaching child fn lazily against the memory repo.
+    distill_author: Any | None = None
     # Test-integrity gate (#203): when truthy (the default) the runtime runs the
     # mirror-detection heuristic on the changed files after the loop and records the
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
@@ -2903,6 +2949,7 @@ class ContextControls:
             coherence=bool(getattr(config, "coherence", True)),
             memory=config.memory,
             memory_distill=bool(getattr(config, "memory_distill", True)),
+            distill_author=_resolve_distill_author_safe(config),
             memory_root=getattr(config, "memory_root", None),
             embed_env=dict(getattr(config, "embed_env", None) or {}),
             testintegrity=config.testintegrity,
@@ -4462,6 +4509,7 @@ def run(
         memory_root=_context.memory_root,
         memory_distill=bool(_context.memory_distill),
         distill_fn=_context.distill_fn,
+        distill_author=_context.distill_author,
         embed_env=dict(_context.embed_env or {}),
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,

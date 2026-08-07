@@ -346,4 +346,45 @@ def make_distill_fn(
             pass  # never block the run
         return None
 
+    # The loop's remember seam distinguishes a detached (child-owned) outcome
+    # from a sync no-lesson refusal by this marker (t16): a detached seam
+    # records ``distill: detached`` — the child + outcome marker own the
+    # eventual validated/failed state, and the artifact's validated count is
+    # honest-at-return, never a false ``no-lesson-extracted``.
+    distill_fn.detached = True  # type: ignore[attr-defined]
     return distill_fn
+
+
+def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
+    """Resolve the distillation author from a resolved config ALONE (t16).
+
+    The config-only twin of :func:`resolve_distill_author` for the
+    ``ContextControls.from_config`` seam, which has no ``LobesRoles`` object —
+    by resolution time the lobes rung has already collapsed into the config:
+    an ARMED gateway leaves ``config.lobes_gateway_url`` set and the MAIN
+    model already resolved FROM the cortex role. Precedence (c16/c32):
+
+    1. deepthink/muse target (``config.deepthink.model``) — the stronger
+       reasoner authors the lesson in dual-model mode;
+    2. the armed-lobes main model (cortex-resolved) when
+       ``config.lobes_gateway_url`` is set;
+    3. ``None`` — the rung-1 floor (byte-identical record, no counters).
+    """
+    dt = getattr(config, "deepthink", None)
+    if dt is not None:
+        dt_model = getattr(dt, "model", None)
+        if dt_model and isinstance(dt_model, str) and dt_model.strip():
+            return DistillAuthor(
+                model=dt_model.strip(),
+                base_url=getattr(dt, "base_url", None) or getattr(config, "base_url", "") or "",
+                api_key=getattr(dt, "api_key", None) or getattr(config, "api_key", "") or "",
+            )
+    if getattr(config, "lobes_gateway_url", None):
+        model = getattr(config, "model", "") or ""
+        if model:
+            return DistillAuthor(
+                model=model,
+                base_url=getattr(config, "base_url", "") or "",
+                api_key=getattr(config, "api_key", "") or "",
+            )
+    return None

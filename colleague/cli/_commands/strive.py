@@ -61,16 +61,29 @@ def _strive_run(
     attempts: int,
     measure_cmd: str,
     engine: str | None = None,
+    repo: str = ".",
 ) -> dict:
-    """Run strive for *goal* with *attempts* bounded attempts."""
-    from colleague import registry
+    """Run strive for *goal* with *attempts* bounded attempts.
+
+    The acting leg is REAL (t16): every attempt dispatches one work episode
+    via ``Engine.work`` inside a single per-run episode worktree (branch
+    ``sub/strive-<goal-slug>``), so attempts accumulate in one workspace and
+    the measure command scores exactly the tree the attempts produced — never
+    the operator tree. The worktree is removed at the end; the branch (with a
+    final WIP commit when the attempts changed anything) survives for
+    inspection.
+    """
+    from colleague import registry, worktrees
+    from colleague.config import EngineConfig
+    from colleague.contract import Task
+    from colleague.slug import slugify
     from colleague.strive import drive_strive
 
     if engine is None:
         engine = resolve_engine(None)
 
     try:
-        registry.load(engine)  # fail fast on an unloadable engine before any attempt
+        eng = registry.load(engine)
     except Exception as exc:
         raise CliError(
             EXIT_USER_ERROR,
@@ -78,21 +91,49 @@ def _strive_run(
             "see 'colleague backends list'",
         ) from exc
 
+    config = EngineConfig().resolve(repo_path=repo)
+    child_id = f"strive-{slugify(goal, max_len=32)}"
+    try:
+        wt_path = worktrees.worktree_add(repo, child_id)
+    except Exception as exc:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"cannot create the strive episode worktree: {exc}",
+            "strive needs a git repo (pass --repo)",
+        ) from exc
+
     def _dispatch(goal: str, attempt: int, delta: str, hypothesis: str) -> None:
-        """Dispatch one attempt via the work-dispatch seam.
-
-        v1 stub (t13): records the declared delta/hypothesis; the real
-        per-attempt work-episode dispatch is wired by the integration task
-        (the measure scoring in drive_strive is already real).
-        """
+        """Run one REAL work episode for this attempt, in the episode worktree."""
         emit_diagnostic(f"attempt {attempt}: delta={delta!r}, hypothesis={hypothesis!r}")
+        text = f"Strive attempt {attempt} toward the goal: {goal}."
+        if delta:
+            text += f" Declared delta for this attempt: {delta}."
+        else:
+            text += " No applicable prior lesson; this is a fresh hypothesis."
+        if hypothesis:
+            text += f" Hypothesis under test: {hypothesis}."
+        task = Task.new(wt_path, text)
+        eng.work(task, config)
 
-    result = drive_strive(
-        goal=goal,
-        attempts=attempts,
-        measure_cmd=measure_cmd,
-        dispatch=_dispatch,
-    )
+    try:
+        result = drive_strive(
+            goal=goal,
+            attempts=attempts,
+            measure_cmd=measure_cmd,
+            dispatch=_dispatch,
+            worktree_path=wt_path,
+        )
+    finally:
+        # Preserve whatever the attempts produced on the branch, then reap the
+        # worktree — the branch is the durable episode record.
+        try:
+            worktrees.commit_all(wt_path, f"strive: attempts toward {goal!r}")
+        except Exception:
+            pass
+        try:
+            worktrees.worktree_remove(repo, child_id, delete_branch=False)
+        except Exception:
+            pass
     return result
 
 
@@ -131,6 +172,7 @@ def cmd_strive_run(args: argparse.Namespace) -> int:
         attempts=attempts,
         measure_cmd=measure_cmd,
         engine=engine,
+        repo=getattr(args, "repo", ".") or ".",
     )
 
     emit_result(
@@ -177,6 +219,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         default=None,
         help="Backend engine to use (default: resolved from config).",
     )
+    run.add_argument(
+        "--repo",
+        default=".",
+        help="Repository the strive episodes run against (default: cwd).",
+    )
     run.add_argument("--json", action="store_true", help=JSON_HELP)
     run.set_defaults(json=False)
     run.set_defaults(func=cmd_strive_run)
@@ -190,7 +237,9 @@ def register(sub: argparse._SubParsersAction) -> None:
 def register_into(app) -> None:
     """Register the strive verb onto the agentfront App registry."""
     app.tool(
-        lambda goal, attempts=3, measure_cmd=None: _strive_run(goal, attempts, measure_cmd),
+        lambda goal, attempts=3, measure_cmd=None, repo=".": _strive_run(
+            goal, attempts, measure_cmd, repo=repo
+        ),
         name="strive",
         description="Bounded-attempt hypothesis-driven iteration toward a goal.",
         doc="# strive\nBounded-attempt hypothesis-driven iteration: drives attempts "
