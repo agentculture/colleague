@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from colleague.policy import Policy
+
 #: Canonical ledger keys — every record must have exactly these.
 _LEADER_KEYS: frozenset[str] = frozenset(
     {
@@ -173,21 +175,80 @@ def _normalize(hypothesis: str) -> str:
     return re.sub(r"\s+", " ", hypothesis.strip().lower())
 
 
-def _run_measure_cmd(cmd: str) -> tuple[int, str]:
-    """Run a measure command and return (returncode, stdout)."""
+def _extract_score(returncode: int, output: str) -> float:
+    """Extract a numeric score from measure output.
+
+    Returns the last number found in *output* (int or float). When no number
+    is found, falls back to *returncode* as the score.
+
+    This is the scoring contract: score = exit code or last printed number.
+    """
+    numbers = re.findall(r"-?\d+\.?\d*", output)
+    if numbers:
+        try:
+            return float(numbers[-1])
+        except ValueError:
+            pass
+    return float(returncode)
+
+
+def _run_measure_cmd(
+    cmd: str,
+    policy: Policy | None = None,
+    cwd: str | Path | None = None,
+) -> tuple[int, str, bool]:
+    """Run a measure command, routing through the approval-gate policy.
+
+    The measure command routes through the same ``check_run_command`` policy
+    gate as ``run_command`` — same policy gate, not a sandbox. When the
+    ``run_command`` section is absent from the policy (no ``approvals.json``
+    or empty policy), the command runs normally (absent-file default unchanged).
+
+    Parameters
+    ----------
+    cmd:
+        Shell command string to execute.
+    policy:
+        Approval policy to gate the command. When ``None``, defaults to an
+        empty (no-op) policy.
+    cwd:
+        Working directory for the subprocess — should be the episode worktree
+        path, never the operator tree.
+
+    Returns
+    -------
+    A tuple of ``(returncode, stdout, denied)`` where ``denied`` is ``True``
+    when the policy gate blocked execution.
+
+    .. warning::
+        This is a **policy gate, not a sandbox**. It only inspects the first
+        shell token, so it is trivially bypassable by ``sh -c '...'``, pipes,
+        command substitution, shell expansion, or an absolute path to a
+        renamed binary. It exists to encode operator *intent*, not to contain
+        a hostile process. Real isolation is explicitly out of v0 scope.
+    """
+    if policy is None:
+        policy = Policy()
+
+    # Route through the same approval-gate check as run_command.
+    verdict = policy.check_run_command(cmd)
+    if not verdict.allowed:
+        return -1, verdict.reason, True
+
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B602 - shell by design; trusted operator env (D2)
             cmd,
             shell=True,
             capture_output=True,
             text=True,
             timeout=300,
+            cwd=str(cwd) if cwd else None,
         )
-        return result.returncode, result.stdout.strip()
+        return result.returncode, result.stdout.strip(), False
     except subprocess.TimeoutExpired:
-        return -1, ""
+        return -1, "", False
     except OSError as exc:
-        return -1, str(exc)
+        return -1, str(exc), False
 
 
 def drive_strive(
@@ -198,15 +259,25 @@ def drive_strive(
     dispatch: Callable[[str, int, str, str], None],
     ledger_dir: str | None = None,
     novelty_stall_k: int = DEFAULT_NOVELTY_STALL_K,
+    policy: Policy | None = None,
+    worktree_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Drive bounded attempts toward a goal via the episode machinery.
 
     For each attempt:
     1. The dispatch callable proposes a delta and hypothesis.
     2. The delta declaration is recorded BEFORE the measure command runs.
-    3. The measure command runs and produces a score.
+    3. The measure command runs inside the episode worktree and produces a score.
     4. The result (supported/refuted) is determined from the score.
     5. The ledger entry is persisted.
+
+    The measure command routes through the same ``check_run_command`` policy
+    gate as ``run_command`` (same policy gate, not a sandbox). When the
+    ``run_command`` section is absent from the policy, the command runs
+    normally (absent-file default unchanged).
+
+    The measure subprocess runs inside *worktree_path* (the episode worktree),
+    never the operator tree.
 
     An attempt with no delta or new hypothesis is recorded as exactly that —
     empty strings, never fabricated progress.
@@ -231,6 +302,12 @@ def drive_strive(
         Directory for ledger persistence (default: ``.colleague/strive``).
     novelty_stall_k:
         Consecutive refuted threshold for novelty stall detection.
+    policy:
+        Approval policy to gate the measure command. When ``None``, defaults
+        to an empty (no-op) policy.
+    worktree_path:
+        Working directory for the measure subprocess — the episode worktree.
+        When ``None``, the measure runs in the current working directory.
 
     Returns
     -------
@@ -280,30 +357,30 @@ def drive_strive(
         # Now dispatch the attempt.
         dispatch(goal, attempt_num, delta, hypothesis)
 
-        # Run the measure command.
-        returncode, output = _run_measure_cmd(measure_cmd)
+        # Run the measure command — routed through the policy gate, in the
+        # episode worktree cwd.
+        returncode, output, denied = _run_measure_cmd(measure_cmd, policy=policy, cwd=worktree_path)
 
         # Determine score and result.
-        score = 0.0
-        if returncode == 0:
-            try:
-                score = float(output) if output else 0.0
-            except ValueError:
-                score = 1.0  # command succeeded but didn't return a number
-
-        # Simple heuristic: score > 0 = supported, else refuted.
-        # A failing measure command is refuted.
-        if returncode != 0:
+        if denied:
+            score = 0.0
             test_result = "refuted"
-        elif score > 0:
-            test_result = "supported"
+            cause = f"measure denied by policy: {output}"
         else:
-            test_result = "refuted"
+            score = _extract_score(returncode, output)
+            # A failing measure command is refuted.
+            if returncode != 0:
+                test_result = "refuted"
+            elif score > 0:
+                test_result = "supported"
+            else:
+                test_result = "refuted"
+            cause = f"measure returned {returncode}: {output[:100]}"
 
         # Update the declaration entry in place with the actual result.
         entry["score"] = score
         entry["result"] = test_result
-        entry["cause"] = f"measure returned {returncode}: {output[:100]}"
+        entry["cause"] = cause
         ledger.save(goal)
 
         result["ledger_entries"].append(entry)
