@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.56.0] - 2026-08-07
+
+### Added
+
+- **Self-learning arc** (spec `docs/specs/2026-08-07-self-learning-arc.md`, the
+  ninth sanctioned increment): rung-2 lesson distillation at remember time —
+  schema-validated cause→lesson→next-delta (`colleague/lessons.py`), author
+  resolved BY ROLE (deepthink/muse > armed-lobes main > rung-1 floor), a
+  bounded detached child (`colleague/distill.py`) with outcome markers,
+  `distill_attempts`/`distill_validated` alive-counters on `TaskResult.memory`,
+  an independent kill switch (`COLLEAGUE_MEMORY_DISTILL`), and a doctor
+  distillation check group (`colleague/oilcheck/distillation.py`).
+- **Rung-1 completion (#379)**: `compose_lesson_text` folds lint-gate fixes,
+  test-integrity findings, and affected-tests failures verbatim-bounded.
+- **`colleague strive`** — the necessity loop (#377): bounded attempts with a
+  schema-enforced hypothesis ledger (refuse-whole), delta declared BEFORE
+  execution, novelty stalls recorded honestly, the measure command
+  approval-gated and run in the episode worktree, and REAL per-attempt work
+  episodes via `Engine.work` on `sub/strive-<goal-slug>`;
+  `chain.CONTINUABLE_REASONS` pinned unchanged.
+- **Repo-anchored code-lessons (#378 core)**: `build_code_lesson_record`
+  (distinct id namespace, verbatim evidence, bounded confidence), the
+  integrator-correction diff teacher (`colleague/correction.py` — tip SHA vs
+  the PR's squash commit scoped to `changed_files`, honest no-diff records;
+  `TaskResult.tip_sha` persisted at handoff), and the seamless auto-trigger
+  lane (grade-time + work-start capture, observable sidecar, never blocks the
+  grade).
+- **Feedback author provenance**: operator vs cortex records side by side;
+  cortex-authored records are excluded from `feedback export` by default
+  (`--include-cortex-authored` opts in) so a model grading its own work never
+  silently trains itself.
+- **Plan-mode diagnosability + the 35B (#376)**: a total claim-parse failure
+  persists the raw proposal text before raising; the previously-failing 35B
+  invocation now reruns to a parsed, converged frame (live-verified).
+- Behavior-level e2e (`tests/test_e2e_selflearning.py`): a deliberately failed
+  run's record teaches a second run — content asserted verbatim (#380 lesson:
+  an explicit integration task + behavior e2e gate).
+
 ## [1.55.1] - 2026-08-07
 
 ### Fixed
