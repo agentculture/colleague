@@ -83,6 +83,31 @@ class TestRecallHappyPath:
         assert len(result) == 1
         assert result[0]["id"] == "1"
 
+    def test_recall_parses_eidetic_013_envelope(self, tmp_path: Path, monkeypatch) -> None:
+        """eidetic >= 0.13 wraps results: {query, mode, truncated, items}.
+
+        The pre-0.13 bare-list shape stays accepted (the test above); this
+        pins the envelope shape so recall never silently degrades to
+        recalled=0 again (caught live in the #387 proof session).
+        """
+        script = tmp_path / "eidetic"
+        script.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "recall" ]; then\n'
+            '  echo \'{"query":"q","mode":"hybrid","truncated":false,'
+            '"items":[{"id":"env-1","content":"wrapped"}]}\'\n'
+            "fi\n",
+            encoding="utf-8",
+        )
+        script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+        result = memory_mod.recall(tmp_path, "test query", top_k=3)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["id"] == "env-1"
+
     def test_recall_passes_correct_argv(self, tmp_path: Path, monkeypatch) -> None:
         _make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
