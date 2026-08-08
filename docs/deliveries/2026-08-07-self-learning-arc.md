@@ -121,7 +121,7 @@ against their confirmed acceptance criteria.
 | The 35B plan-mode parse failure (#376) no longer reproduces; raw capture stands as the net | high | ledger row 30 · `converged: True, plan items: 5, exit 0` |
 | `strive` drives real episodes, approval-gated, with an honest ledger | high | `tests/test_e2e_selflearning.py::test_strive_cli_dispatch_runs_real_episode_in_worktree` · `tests/test_strive.py` (26) + `tests/test_strive_measure.py` |
 | Cortex-authored feedback cannot silently become training data | high | `tests/test_feedback_export.py` (default-exclusion pins) |
-| Learning ON reduces integrator-correction volume (#378) | unverified | ablation recorded as pending recipe (ledger row 32) — not claimed |
+| Learning ON reduces integrator-correction volume (#378) | **falsified** (2026-08-08 run) | ledger row 32: ON 57 vs OFF 38 correction lines on the full 8-task benchmark — equal-or-worse per the c20 bar; class-level transfer observed but the volume claim fails; evidence in docs/experiments/2026-08-08-prove-self-learning-387-arms/ |
 | Recall measurably reduces strive attempts-to-success (#377) | unverified | ablation recorded as pending recipe (ledger row 33) — not claimed |
 
 ## Remaining Work / Follow-up
