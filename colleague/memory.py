@@ -396,9 +396,14 @@ def build_code_lesson_record(
     digest = hashlib.sha256(content.encode()).hexdigest()[:12]
     record_id = f"code-lesson-{digest}"
 
+    # The eidetic CLI rejects any record missing id/text/type (#392) — the
+    # searchable body composes the three lesson facts verbatim.
+    text = f"Code lesson ({area}): {convention}\nEvidence: {evidence}"
+
     return {
         "id": record_id,
         "type": "code-lesson",
+        "text": text,
         "area": area,
         "convention": convention,
         "evidence": evidence,

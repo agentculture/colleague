@@ -47,6 +47,29 @@ class TestCodeLessonType:
         assert record["type"] != "work-lesson"
 
 
+class TestCodeLessonTextKey:
+    """The record carries the eidetic-required 'text' body (#392): the CLI
+    rejects any record missing id/text/type, so a text-less record means every
+    code-lesson remember fails and the correction-diff lane stores nothing."""
+
+    def test_record_has_nonempty_text(self) -> None:
+        record = build_code_lesson_record(
+            area="src/main.js",
+            convention="latch discrete key presses so CLI taps span physics frames",
+            evidence="@@ -24,10 +24,16 @@ const MIN_HOLD_MS = 120;",
+        )
+        assert record["text"].strip()
+
+    def test_text_carries_area_convention_and_evidence(self) -> None:
+        record = build_code_lesson_record(
+            area="src/main.js",
+            convention="latch discrete key presses",
+            evidence="MIN_HOLD_MS = 120",
+        )
+        for fragment in ("src/main.js", "latch discrete key presses", "MIN_HOLD_MS = 120"):
+            assert fragment in record["text"]
+
+
 # ---------------------------------------------------------------------------
 # AC2 — ID namespace never collides with work-lesson-<task_id>
 # ---------------------------------------------------------------------------
