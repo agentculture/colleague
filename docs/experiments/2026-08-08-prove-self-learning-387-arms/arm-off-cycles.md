@@ -1,6 +1,6 @@
 # OFF-arm per-task cycle records (consolidated)
 
-All tasks: COLLEAGUE_MEMORY=0, EIDETIC_DATA_DIR=<arm-off>/.eidetic/memory,
+All tasks: COLLEAGUE_MEMORY=0, EIDETIC_DATA_DIR=`<arm-off>`/.eidetic/memory,
 byte-identical briefs, same frozen correction rules (0438ec4) + rubric,
 memory:null verified on every artifact. Verifier evidence files (per task:
 console lenses, state extracts, screenshots, press logs) in the session

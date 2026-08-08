@@ -7,7 +7,7 @@
   on continued_from + the grade's chain_episodes
 - model: unsloth/Qwen3.6-35B-A3B-NVFP4 all legs (WorkStats verbatim)
 - memory: recall fired each leg (leg 1: 1 record/141 chars from the g1 lessons)
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/2 (opened by handoff
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/2> (opened by handoff
   itself under --base master) → squash d74fef6
 - verification (subagent, live browser): 3/3 acceptance PASS — level renders
   from levels/level1.json (5 platforms/2 walls/exit marker, fixed ortho

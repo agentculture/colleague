@@ -4,7 +4,7 @@
   records/1570 chars — the compounding store incl. g3's latch code-lesson) →
   2c07759d0da9 (ok, 42 steps, PR #4)
 - model: unsloth/Qwen3.6-35B-A3B-NVFP4 both legs
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/4 → squash 1092baa
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/4> → squash 1092baa
 - verification (subagent): HUD hearts + zero-error invariant PASS; Space jump
   DEAD at runtime — worker keyed the input map on 'Space' but browsers deliver
   e.key ' ' (24 y-samples across 3 press attempts all grounded; ArrowRight

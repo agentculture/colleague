@@ -4,8 +4,8 @@ Template: ~/git/transformer @ 15eb0b9 (c30ca2c + pre-arm state.lastError
 amendment; docs/correction-rules.md frozen at 0438ec4, untouched).
 Scaffold commit 5e60888 built ONCE in staging, pushed to both remotes:
 
-- ON:  https://github.com/OriNachum/transformer-arm-on  @ 5e60888
-- OFF: https://github.com/OriNachum/transformer-arm-off @ 5e60888
+- ON:  <https://github.com/OriNachum/transformer-arm-on>  @ 5e60888
+- OFF: <https://github.com/OriNachum/transformer-arm-off> @ 5e60888
 
 h21: identical BY CONSTRUCTION — same commit SHA both arms;
 `diff -r --exclude=.git` over the two clones: EMPTY (verified).
@@ -26,5 +26,5 @@ store (reproduced: fresh copy, "work item finished" recall -> items: []).
 PROTOCOL RULE for t7/t8: every colleague dispatch AND every grading command
 runs with EIDETIC_DATA_DIR=<that arm's>/.eidetic/memory exported first.
 Env otherwise identical across arms: WEBGLASS_ALLOW_UNSANDBOXED=1,
-WEBGLASS_POLICY_PROFILE=<arm>/.colleague/webglass-profile.json,
+WEBGLASS_POLICY_PROFILE=`<arm>`/.colleague/webglass-profile.json,
 COLLEAGUE_TIMEOUT=300, pinned COLLEAGUE_MODEL (35B worker).

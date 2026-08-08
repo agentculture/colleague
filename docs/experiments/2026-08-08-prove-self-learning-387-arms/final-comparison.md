@@ -22,8 +22,8 @@ a real PR + squash merge + immediate grade, every capture sidecar fired.
 | chain legs | 16 | 16 (incl. one 0-step flap casualty) |
 | duration (reported, NEVER load-bearing) | 26,806 s | 19,892 s |
 
-The ON arm required MORE integrator-correction lines than the OFF arm. The
-#378 success signal ("learning ON reduces integrator-correction volume") is
+The ON arm required MORE integrator-correction lines than the OFF arm.
+The #378 success signal ("learning ON reduces integrator-correction volume") is
 **falsified on this run**. Secondary metrics are near-parity.
 
 ## Purity + arming evidence (read from artifacts, not assumed)

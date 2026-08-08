@@ -2,7 +2,7 @@
 
 - work: SINGLE leg (first since g1) — bb96109618f2, ok, 46 steps, PR #6;
   recall 5 records / 3149 chars (heaviest injection; 3 code-lessons riding)
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/6 → squash 089821d
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/6> → squash 089821d
 - verification (subagent): criteria 1+3 PASS with exact-value evidence (door
   pushout plateau 20.750 = door.x − HERO_W/2 to 3 decimals; plate→d1 flip in
   the walk log; mesh visibly changed in screenshots); criterion 2 FUNCTIONAL

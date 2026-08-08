@@ -2,7 +2,7 @@
 
 - work: task c1535160e16a, status ok, 19 steps, model unsloth/Qwen3.6-35B-A3B-NVFP4 (WorkStats verbatim)
 - memory: recalled=0 (cold store — honest), lesson_recorded=true, distill child detached
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/1 → squash cea2396
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/1> → squash cea2396
   (instrument intervention, recorded: handoff's gh pr create failed on the
   --base default 'main' vs the arm's 'master'; the integrator opened the PR for
   the worker's own untouched branch/tip 6558e8c and recorded pr_url post-hoc;

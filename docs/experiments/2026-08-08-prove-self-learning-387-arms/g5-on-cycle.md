@@ -3,7 +3,7 @@
 - work: 2-leg chain — 38c4147310f7 (budget-exhausted, 55 steps; recall 5
   records/2333 chars — largest injection, both code-lessons riding) →
   db91431b5ee2 (ok, 36 steps, PR #5)
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/5 → squash 2d2dedb
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/5> → squash 2d2dedb
 - **TRANSFER EVIDENCE (the arc's key observation so far): both stored
   code-lessons applied UNPROMPTED** — 'x' → 'KeyX' normalization symmetric
   with the inherited space fix, AND a KeyX slot in the MIN_HOLD_MS latch dict,

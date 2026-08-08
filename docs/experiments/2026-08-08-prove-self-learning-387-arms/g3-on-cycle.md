@@ -4,7 +4,7 @@
   honest incomplete) → 3f4f3623ef41 (--continue, budget-exhausted at 47) →
   aea233c7fd8b (--continue, ok, 41 steps, handoff PR #3)
 - model: unsloth/Qwen3.6-35B-A3B-NVFP4 all legs
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/3 → squash 486dfc3
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/3> → squash 486dfc3
 - verification (subagent, live browser): criteria 1+4 PASS (hero primitives +
   emissive eyes standing under gravity; page_errors [], lastError null);
   criteria 2+3 FAIL on the pre-committed 4-press probe — discrete CLI

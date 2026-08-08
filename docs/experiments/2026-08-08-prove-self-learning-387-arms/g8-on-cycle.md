@@ -2,7 +2,7 @@
 
 - work: SINGLE leg — c21ce9e98352, ok, 33 steps, PR #8; recall 5 records /
   3531 chars
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/8 → squash 9990665
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/8> → squash 9990665
 - verification (subagent, 50 evidence files): ALL FIVE criteria PASS — win
   screen by exit-AABB (extract screen:'won'), lose + R-restart both proven by
   extract, TIMED playthrough boot→won in 35.9s (route: plate→d1, guard
@@ -19,7 +19,7 @@
   claim was syntax-only (NEBULA pattern — the invariant held but was unproven
   at delivery)
 
-# ON ARM COMPLETE — totals
+## ON ARM COMPLETE — totals
 
 | task | corr. lines | grade | capture |
 |------|------------|-------|---------|

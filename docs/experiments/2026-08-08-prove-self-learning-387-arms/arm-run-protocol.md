@@ -2,7 +2,7 @@
 
 ## Env contract (identical both arms; only COLLEAGUE_MEMORY and the arm path differ)
 
-```
+```text
 COLLEAGUE_MODEL=unsloth/Qwen3.6-35B-A3B-NVFP4          # the worker, pinned (t1 recipe)
 COLLEAGUE_DEEPTHINK_MODEL=unsloth/Qwen3.6-27B-NVFP4    # distill author pinned to SERVED
 COLLEAGUE_DEEPTHINK_BASE_URL=http://localhost:8001/v1  # cortex (row-31 round-4 recipe;

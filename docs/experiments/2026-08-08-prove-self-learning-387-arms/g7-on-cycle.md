@@ -3,7 +3,7 @@
 - work: 3-leg chain — b3401df3209e (cut at 54) → e198eb328c06 (cut at 65;
   narrated completion without handoff; two approval-gate denials on ls probes
   recorded) → fda803f1302c (ok, 26 steps, PR #7)
-- PR: https://github.com/OriNachum/transformer-arm-on/pull/7 → squash 07c2293
+- PR: <https://github.com/OriNachum/transformer-arm-on/pull/7> → squash 07c2293
 - verification (subagent, 56 evidence files): engage/chase/defeat/death and
   the zero-error invariant genuinely worked end-to-end; three named-criterion
   failures — (C1) enemy never patrols (edge-only targetVx; byte-identical
