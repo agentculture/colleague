@@ -1,0 +1,22 @@
+== ON per-task (legs | steps | turns | dur_s | corr_lines | grade) ==
+g1: legs=1 steps=20 turns=14 dur=112s corr=0 grade=5
+g2: legs=3 steps=96 turns=76 dur=7328s corr=0 grade=5
+g3: legs=3 steps=137 turns=116 dur=6189s corr=10 grade=3
+g4: legs=2 steps=93 turns=68 dur=1753s corr=17 grade=3
+g5: legs=2 steps=91 turns=68 dur=1726s corr=1 grade=3
+g6: legs=1 steps=46 turns=36 dur=825s corr=2 grade=3
+g7: legs=3 steps=145 turns=100 dur=7828s corr=27 grade=3
+g8: legs=1 steps=33 turns=25 dur=1045s corr=0 grade=5
+TOTAL ON: steps=661 turns=503 dur=26806s corr=57 mean_grade=3.75
+
+== OFF per-task (legs | steps | turns | dur_s | corr_lines | grade) ==
+g1: legs=1 steps=27 turns=22 dur=163s corr=0 grade=5
+g2: legs=1 steps=22 turns=18 dur=417s corr=2 grade=3
+g3: legs=4 steps=195 turns=155 dur=6935s corr=0 grade=5
+g4: legs=3 steps=75 turns=59 dur=3788s corr=11 grade=3
+g5: legs=2 steps=73 turns=61 dur=1391s corr=9 grade=3
+g6: legs=2 steps=69 turns=61 dur=1790s corr=12 grade=2
+g7: legs=2 steps=92 turns=79 dur=4511s corr=0 grade=5
+g8: legs=1 steps=48 turns=38 dur=897s corr=4 grade=4
+TOTAL OFF: steps=601 turns=493 dur=19892s corr=38 mean_grade=3.75
+
