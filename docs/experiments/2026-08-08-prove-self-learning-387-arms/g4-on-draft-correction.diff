@@ -1,0 +1,35 @@
+# DRAFT correction for g4 (NOT applied) — rule 1: minimal to criteria 1+2 only.
+# Defect: jump keyed to e.key === 'Space', but the space bar dispatches
+# KeyboardEvent.key === ' ' (code === 'Space'); Playwright emits spec-correct
+# events, so the jump branch is unreachable. Normalizing ' ' -> 'Space' in the
+# two listeners makes criteria 1 and 2 reachable with the existing physics
+# (apex 1.225 u = 2.45 platform-heights; airtime 0.70 s) and makes the
+# existing fall-damage/respawn code (hero.js:177-196) runtime-reachable.
+--- a/src/main.js
++++ b/src/main.js
+@@ -42,16 +42,18 @@
+ window.addEventListener('keydown', (e) => {
+-  if (keys.hasOwnProperty(e.key)) {
+-    keys[e.key] = true;
+-    keyHeldUntil[e.key] = performance.now() + MIN_HOLD_MS;
++  const k = e.key === ' ' ? 'Space' : e.key;
++  if (keys.hasOwnProperty(k)) {
++    keys[k] = true;
++    keyHeldUntil[k] = performance.now() + MIN_HOLD_MS;
+     e.preventDefault();
+   }
+ });
+
+ window.addEventListener('keyup', (e) => {
+-  if (keys.hasOwnProperty(e.key)) {
+-    const remaining = keyHeldUntil[e.key] - performance.now();
+-    if (remaining > 0) setTimeout(() => { keys[e.key] = false; }, remaining);
+-    else keys[e.key] = false;
++  const k = e.key === ' ' ? 'Space' : e.key;
++  if (keys.hasOwnProperty(k)) {
++    const remaining = keyHeldUntil[k] - performance.now();
++    if (remaining > 0) setTimeout(() => { keys[k] = false; }, remaining);
++    else keys[k] = false;
+     e.preventDefault();
+   }
+ });
