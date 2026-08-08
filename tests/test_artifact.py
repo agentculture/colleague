@@ -81,6 +81,21 @@ def test_find_artifact_resolves_bare_and_slugged(tmp_path: Path) -> None:
     assert find_artifact(tmp_path, "missing") is None
 
 
+def test_find_artifact_ignores_distill_sidecar(tmp_path: Path) -> None:
+    """The rung-2 distill sidecar (<id>.<slug>.distill.json) sorts BEFORE the
+    slugged artifact (<id>.<slug>.json) and must never shadow it (#391)."""
+    out = tmp_path / ".colleague"
+    write(TaskResult(task_id="slug3", status=OK, stats=WorkStats(request="build the level")), out)
+    (out / "slug3.build-the-level.distill.json").write_text(
+        '{"status": "done"}\n', encoding="utf-8"
+    )
+    found = find_artifact(tmp_path, "slug3")
+    assert found is not None and found.name == "slug3.build-the-level.json"
+    # A lone distill sidecar must not resolve as an artifact either.
+    (out / "slug3.build-the-level.json").unlink()
+    assert find_artifact(tmp_path, "slug3") is None
+
+
 def test_find_artifact_ignores_feedback_file_and_unsafe_id(tmp_path: Path) -> None:
     out = tmp_path / ".colleague"
     out.mkdir()

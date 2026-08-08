@@ -154,7 +154,9 @@ def find_artifact(repo_path: str | Path, task_id: str) -> Optional[Path]:
     name (``<task_id>.<slug>.json``) across the new ``.colleague/`` dir then the
     legacy ``.convertible/`` dir, so a work item recorded under either scheme stays
     findable. The work item's own ``<task_id>.feedback.json`` is never mistaken for
-    its artifact. Returns ``None`` for an unsafe (traversal) id.
+    its artifact, and the rung-2 ``<task_id>.<slug>.distill.json`` sidecar (which
+    sorts before the artifact) is excluded the same way (#391). Returns ``None``
+    for an unsafe (traversal) id.
     """
     if not _is_safe_segment(task_id):
         return None
@@ -165,7 +167,8 @@ def find_artifact(repo_path: str | Path, task_id: str) -> Optional[Path]:
         matches = sorted(
             p
             for p in directory.glob(f"{glob.escape(task_id)}.*.json")
-            if p.is_file() and not p.name.endswith(".feedback.json")
+            if p.is_file()
+            and not p.name.endswith((".feedback.json", ".distill.json"))
         )
         if matches:
             return matches[0]
