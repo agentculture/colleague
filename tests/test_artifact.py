@@ -81,6 +81,40 @@ def test_find_artifact_resolves_bare_and_slugged(tmp_path: Path) -> None:
     assert find_artifact(tmp_path, "missing") is None
 
 
+def test_find_artifact_ignores_distill_sidecar(tmp_path: Path) -> None:
+    """The rung-2 distill sidecar (<id>.<slug>.distill.json) sorts BEFORE the
+    slugged artifact (<id>.<slug>.json) and must never shadow it (#391)."""
+    out = tmp_path / ".colleague"
+    write(TaskResult(task_id="slug3", status=OK, stats=WorkStats(request="build the level")), out)
+    (out / "slug3.build-the-level.distill.json").write_text(
+        '{"status": "done"}\n', encoding="utf-8"
+    )
+    found = find_artifact(tmp_path, "slug3")
+    assert found is not None
+    assert found.name == "slug3.build-the-level.json"
+    # An orphaned sidecar (its artifact deleted) resolves by NAME — only the
+    # shape guard downstream rejects it (see read_artifact test below): the
+    # name alone cannot distinguish it from a legitimate slug-"distill"
+    # artifact, and shadowing the latter would lose real work items.
+    (out / "slug3.build-the-level.json").unlink()
+    orphan = find_artifact(tmp_path, "slug3")
+    assert orphan is not None
+    assert read_artifact(tmp_path, "slug3") is None  # not a TaskResult shape
+
+
+def test_find_artifact_resolves_a_distill_slugged_artifact(tmp_path: Path) -> None:
+    """A request that slugifies to exactly "distill" names its artifact
+    <id>.distill.json — the sidecar exclusion must not eat it (#391 review)."""
+    out = tmp_path / ".colleague"
+    write(TaskResult(task_id="slug4", status=OK, stats=WorkStats(request="Distill!")), out)
+    found = find_artifact(tmp_path, "slug4")
+    assert found is not None
+    assert found.name == "slug4.distill.json"
+    result = read_artifact(tmp_path, "slug4")
+    assert result is not None
+    assert result.task_id == "slug4"
+
+
 def test_find_artifact_ignores_feedback_file_and_unsafe_id(tmp_path: Path) -> None:
     out = tmp_path / ".colleague"
     out.mkdir()

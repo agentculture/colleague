@@ -1,0 +1,8 @@
+g1	79a3fcd81507	ok	35B/27steps	arm-off#1	1fcbf06	0	fired(0 hunks)	5	memory:null
+g2	9fc1e8accedb	ok	35B/22steps	arm-off#2	9727111	2	fired	3	memory:null
+g3	c42d52df061f(chain:f74a0625dfc6,2a300e3953bc,4fb26235de03)	ok	35B/47+49+50+49steps	arm-off#3	6dc7f0e	0	fired(0 hunks)	5	memory:null
+g4	5233d4766039(chain:915bd76bc827,ba02d3cda929-0step)	ok	35B/49+0+26steps	arm-off#4	aec2385	11	fired	3	memory:null
+g5	b8be3ca72140(chain:fe08db19c247)	ok	35B/47+26steps	arm-off#5	85578ca	9	fired	3	memory:null
+g6	2345673ea2c7(chain:d051bc9de9fe)	ok	35B/45+24steps	arm-off#6	8f068e0	12	fired	2	memory:null
+g7	b30aabee0352(chain:c90e4b117346)	ok	35B/49+43steps	arm-off#7	0b2946e	0	fired(0 hunks)	5	memory:null
+g8	82a6e8a2426e	ok	35B/48steps	arm-off#8	d935a30	4	fired	4	memory:null

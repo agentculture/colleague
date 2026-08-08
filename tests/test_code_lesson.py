@@ -47,6 +47,39 @@ class TestCodeLessonType:
         assert record["type"] != "work-lesson"
 
 
+class TestCodeLessonTextKey:
+    """The record carries the eidetic-required 'text' body (#392): the CLI
+    rejects any record missing id/text/type, so a text-less record means every
+    code-lesson remember fails and the correction-diff lane stores nothing."""
+
+    def test_record_has_nonempty_text(self) -> None:
+        record = build_code_lesson_record(
+            area="src/main.js",
+            convention="latch discrete key presses so CLI taps span physics frames",
+            evidence="@@ -24,10 +24,16 @@ const MIN_HOLD_MS = 120;",
+        )
+        assert record["text"].strip()
+
+    def test_text_carries_area_convention_and_evidence(self) -> None:
+        record = build_code_lesson_record(
+            area="src/main.js",
+            convention="latch discrete key presses",
+            evidence="MIN_HOLD_MS = 120",
+        )
+        for fragment in ("src/main.js", "latch discrete key presses", "MIN_HOLD_MS = 120"):
+            assert fragment in record["text"]
+
+    def test_text_is_bounded_for_argv_transport(self) -> None:
+        """The record JSON rides the eidetic argv — a mega diff hunk in the
+        evidence must not blow the command line through the text body (#392
+        review). The id still derives from the UNbounded content."""
+        big = "x" * 50_000
+        record = build_code_lesson_record(area="src/main.js", convention="huge hunk", evidence=big)
+        assert len(record["text"]) <= 2000
+        twin = build_code_lesson_record(area="src/main.js", convention="huge hunk", evidence=big)
+        assert twin["id"] == record["id"]
+
+
 # ---------------------------------------------------------------------------
 # AC2 — ID namespace never collides with work-lesson-<task_id>
 # ---------------------------------------------------------------------------

@@ -1,0 +1,9 @@
+task	work_task_id	status	steps_model	pr	merge_sha	correction_lines	capture	grade
+g1	c1535160e16a	ok	35B/19steps	arm-on#1	cea2396	0	fired(0 hunks)	5
+g2	89f667f82cee(chain:f5acbfd03219,96f8f57fe716)	ok	35B/45steps	arm-on#2	d74fef6	0	fired(0 hunks)	5
+g3	aea233c7fd8b(chain:7b8e9ef688e4,3f4f3623ef41)	ok	35B/49+47+41steps	arm-on#3	486dfc3	10	fired(1 hunk,1 lesson)	3
+g4	2c07759d0da9(chain:df098d598ba3)	ok	35B/51+42steps	arm-on#4	1092baa	17	fired(1 hunk,1 lesson)	3
+g5	db91431b5ee2(chain:38c4147310f7)	ok	35B/55+36steps	arm-on#5	2d2dedb	1	fired(1 hunk,1 lesson)	3
+g6	bb96109618f2	ok	35B/46steps	arm-on#6	089821d	2	fired(1 hunk,1 lesson)	3
+g7	fda803f1302c(chain:b3401df3209e,e198eb328c06)	ok	35B/54+65+26steps	arm-on#7	07c2293	27	fired(4 hunks,4 lessons)	3
+g8	c21ce9e98352	ok	35B/33steps	arm-on#8	9990665	0	fired(0 hunks)	5
