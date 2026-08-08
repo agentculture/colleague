@@ -167,8 +167,7 @@ def find_artifact(repo_path: str | Path, task_id: str) -> Optional[Path]:
         matches = sorted(
             p
             for p in directory.glob(f"{glob.escape(task_id)}.*.json")
-            if p.is_file()
-            and not p.name.endswith((".feedback.json", ".distill.json"))
+            if p.is_file() and not p.name.endswith((".feedback.json", ".distill.json"))
         )
         if matches:
             return matches[0]
