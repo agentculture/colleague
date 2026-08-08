@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.56.2] - 2026-08-08
+
+### Added
+
+- #387 exp-2 executed in full: the #378 correction-diff ablation ran both 8-task arms on the Transformer benchmark — FALSIFYING on the pre-committed c20 bar (ON 57 vs OFF 38 correction lines; ledger row 32, delivery claim flipped, full evidence under docs/experiments/2026-08-08-prove-self-learning-387-arms/)
+
+### Fixed
+
+- find_artifact never resolves the rung-2 distill sidecar instead of the slugged artifact (#391) — grade-time correction capture was dead on every armed run with a distill child since v1.56.0
+- code-lesson records now carry the eidetic-required text body (#392) — every code-lesson store failed silently since v1.56.0; the #378 correction-diff lane stores lessons in production for the first time
+
 ## [1.56.1] - 2026-08-07
 
 ### Added
