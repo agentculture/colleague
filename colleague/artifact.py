@@ -153,10 +153,12 @@ def find_artifact(repo_path: str | Path, task_id: str) -> Optional[Path]:
     Resolves **both** the bare legacy name (``<task_id>.json``) and the slugged
     name (``<task_id>.<slug>.json``) across the new ``.colleague/`` dir then the
     legacy ``.convertible/`` dir, so a work item recorded under either scheme stays
-    findable. The work item's own ``<task_id>.feedback.json`` is never mistaken for
-    its artifact, and the rung-2 ``<task_id>.<slug>.distill.json`` sidecar (which
-    sorts before the artifact) is excluded the same way (#391). Returns ``None``
-    for an unsafe (traversal) id.
+    findable. The work item's own ``<task_id>.feedback.json`` (always bare-named)
+    is never mistaken for its artifact, and the rung-2 ``<stem>.distill.json``
+    sidecar (which sorts before the artifact it shadows) is excluded exactly when
+    the ``<stem>.json`` artifact it belongs to is present (#391) — so a legitimate
+    artifact whose request slugified to ``distill`` still resolves. Returns
+    ``None`` for an unsafe (traversal) id.
     """
     if not _is_safe_segment(task_id):
         return None
@@ -164,10 +166,17 @@ def find_artifact(repo_path: str | Path, task_id: str) -> Optional[Path]:
         bare = directory / f"{task_id}.json"
         if bare.is_file():
             return bare
+        candidates = [p for p in directory.glob(f"{glob.escape(task_id)}.*.json") if p.is_file()]
+        names = {p.name for p in candidates}
+        distill_suffix = ".distill.json"
         matches = sorted(
             p
-            for p in directory.glob(f"{glob.escape(task_id)}.*.json")
-            if p.is_file() and not p.name.endswith((".feedback.json", ".distill.json"))
+            for p in candidates
+            if p.name != f"{task_id}.feedback.json"
+            and not (
+                p.name.endswith(distill_suffix)
+                and p.name[: -len(distill_suffix)] + ".json" in names
+            )
         )
         if matches:
             return matches[0]

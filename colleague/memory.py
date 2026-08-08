@@ -397,8 +397,12 @@ def build_code_lesson_record(
     record_id = f"code-lesson-{digest}"
 
     # The eidetic CLI rejects any record missing id/text/type (#392) — the
-    # searchable body composes the three lesson facts verbatim.
-    text = f"Code lesson ({area}): {convention}\nEvidence: {evidence}"
+    # searchable body composes the three lesson facts. The record JSON rides
+    # the eidetic argv, so the text is bounded like every other argv-borne
+    # free text (the evidence field keeps the verbatim substance; the id
+    # digest above is computed from the UNbounded content, so identical
+    # lessons still upsert in place).
+    text = _bound_cli_text(f"Code lesson ({area}): {convention}\nEvidence: {evidence}")
 
     return {
         "id": record_id,

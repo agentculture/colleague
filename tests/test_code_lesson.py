@@ -69,6 +69,16 @@ class TestCodeLessonTextKey:
         for fragment in ("src/main.js", "latch discrete key presses", "MIN_HOLD_MS = 120"):
             assert fragment in record["text"]
 
+    def test_text_is_bounded_for_argv_transport(self) -> None:
+        """The record JSON rides the eidetic argv — a mega diff hunk in the
+        evidence must not blow the command line through the text body (#392
+        review). The id still derives from the UNbounded content."""
+        big = "x" * 50_000
+        record = build_code_lesson_record(area="src/main.js", convention="huge hunk", evidence=big)
+        assert len(record["text"]) <= 2000
+        twin = build_code_lesson_record(area="src/main.js", convention="huge hunk", evidence=big)
+        assert twin["id"] == record["id"]
+
 
 # ---------------------------------------------------------------------------
 # AC2 — ID namespace never collides with work-lesson-<task_id>
