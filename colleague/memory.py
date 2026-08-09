@@ -5,6 +5,12 @@ The runtime offers two public functions that delegate to the ``eidetic`` CLI:
 - ``recall(repo_path, query, top_k=5)`` — search the repo's memory store
 - ``remember(repo_path, record)`` — store a new memory record
 
+A third pair of pure, env-driven helpers — ``filter_for_injection`` /
+``filter_recall_records`` — apply recall thresholding + supersedes hygiene to
+what gets INJECTED from a recall result (plan t6, spec c10/h9); see the
+module comment above their definitions for the full rule and the composition
+rule with the retrieval-precision instrumentation.
+
 An allow-list (:data:`ALLOWED_VERBS`) restricts which eidetic verbs are
 reachable: exactly ``recall`` and ``remember``.  This mirrors the pattern
 used by :mod:`colleague.culture` and :mod:`colleague.devague`.
@@ -459,6 +465,219 @@ def score_recall_precision(records: list[dict[str, Any]], class_key: str) -> dic
     if ranks:
         scored["class_relevant_rank"] = ranks[0]
     return scored
+
+
+# ── recall thresholding + supersedes hygiene, INJECTION-ONLY (plan t6, c10/h9) ──
+#
+# By generation 7 of the #387 dogfooding run the injected recall block was
+# near-saturating RECALL_BLOCK_CAP — at that point SELECTION, not store size,
+# is the binding constraint, and the operator's stated risk is "too much
+# context; the wrong lesson surfaced". This pass answers that risk
+# colleague-side, over the ``score``/``signal``/``supersedes`` fields eidetic's
+# ``recall`` bundle already returns per record (see eidetic's
+# ``Record.to_dict()``) — no new eidetic-cli verbs (parked cross-repo, c16).
+#
+# COMPOSITION RULE WITH t5 (read before touching this section): t5's
+# retrieval-precision fields (``class_relevant_recalled`` /
+# ``class_relevant_in_top_k`` / ``class_relevant_rank``) are scored over the
+# full RECALLED set, BEFORE this pass runs. This pass filters only what gets
+# INJECTED into the model's context; it must never be given to
+# :func:`score_recall_precision` in place of the full ``records`` list — a
+# record dropped here was still recalled, and must still count there.
+#
+# Two independent hygiene moves, both advisory-context concerns only (they
+# never touch the store):
+#
+# 1. Threshold — a record whose numeric ``score`` is below ``min_score``, or
+#    whose numeric ``signal`` is below ``min_signal``, is excluded. A record
+#    missing the field, or carrying a non-numeric value, is never excluded on
+#    that axis — there is nothing to threshold, so it passes (fail open, not
+#    closed, matching every other memory-seam degrade).
+# 2. Supersedes — when a recalled record R declares
+#    ``supersedes == S["id"]`` for another recalled record S present in the
+#    SAME recalled batch, S is dropped in favor of R (the newer record wins;
+#    eidetic's own supersedes/shadowing is the long-term corrective — this is
+#    the colleague-side stopgap over what one recall call already returned).
+#
+# Every exclusion is returned, never silently dropped (h9); the caller
+# (``loop.py``'s ``_maybe_recall_memory``) rides it onto ``TaskResult.memory``
+# as ``recall_excluded`` — omitted when nothing was excluded, so a run that
+# excludes nothing serializes byte-identically to before this task.
+
+#: Master switch for the whole hygiene pass (threshold + supersedes). Default
+#: ON; a falsy value ("0"/"false"/"no"/"off", case-insensitive) restores
+#: pre-t6 injection behavior byte-for-byte — every recalled record is kept,
+#: nothing is ever excluded — regardless of the threshold env vars below.
+RECALL_HYGIENE_ENV = "COLLEAGUE_RECALL_HYGIENE"
+
+#: Optional numeric floor on a recalled record's ``score`` field. Unset (the
+#: default) means this axis never excludes anything, so hygiene being ON
+#: alone changes nothing until an operator opts into an actual bound.
+RECALL_MIN_SCORE_ENV = "COLLEAGUE_RECALL_MIN_SCORE"
+
+#: Optional numeric floor on a recalled record's ``signal`` (freshness)
+#: field. Same unset-by-default stance as ``RECALL_MIN_SCORE_ENV``.
+RECALL_MIN_SIGNAL_ENV = "COLLEAGUE_RECALL_MIN_SIGNAL"
+
+_FALSY_ENV_VALUES = {"0", "false", "no", "off"}
+
+
+def _env_source(env: dict[str, str] | None) -> Any:
+    return env if env is not None else os.environ
+
+
+def recall_hygiene_enabled(env: dict[str, str] | None = None) -> bool:
+    """Resolve the master hygiene switch: default ON, opt out via env.
+
+    *env* is an injectable mapping for tests; ``None`` (the default) reads
+    the real process environment, mirroring the rest of this module's env
+    knobs.
+    """
+    raw = _env_source(env).get(RECALL_HYGIENE_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in _FALSY_ENV_VALUES
+
+
+def _resolve_env_float(name: str, env: dict[str, str] | None) -> float | None:
+    """Read *name* from *env* as a float; unset/blank/unparseable ⇒ ``None``
+    (that axis never excludes anything — an operator typo degrades to
+    no-op, never a crash)."""
+    raw = _env_source(env).get(name)
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def recall_min_score(env: dict[str, str] | None = None) -> float | None:
+    """Resolve :data:`RECALL_MIN_SCORE_ENV`, or ``None`` when unset."""
+    return _resolve_env_float(RECALL_MIN_SCORE_ENV, env)
+
+
+def recall_min_signal(env: dict[str, str] | None = None) -> float | None:
+    """Resolve :data:`RECALL_MIN_SIGNAL_ENV`, or ``None`` when unset."""
+    return _resolve_env_float(RECALL_MIN_SIGNAL_ENV, env)
+
+
+def _record_ref(record: dict[str, Any], index: int) -> Any:
+    """A record's traceable reference for an exclusion entry: its id when it
+    has one, else its position in the recalled batch."""
+    if isinstance(record, dict):
+        rid = record.get("id")
+        if isinstance(rid, str) and rid:
+            return rid
+    return f"#{index}"
+
+
+def _numeric_field(record: dict[str, Any], field: str) -> float | None:
+    if not isinstance(record, dict):
+        return None
+    value = record.get(field)
+    if isinstance(value, bool):  # bool is an int subclass — never a score/signal
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def filter_recall_records(
+    records: list[dict[str, Any]],
+    *,
+    min_score: float | None = None,
+    min_signal: float | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Filter recalled records for INJECTION only — threshold, then supersedes.
+
+    Pure — no subprocess, no store access, no env reads (see
+    :func:`filter_for_injection` for the env-driven wrapper). Returns
+    ``(kept, excluded)``:
+
+    - ``kept`` preserves the input order of every record that survives both
+      passes.
+    - ``excluded`` is a list of ``{"id", "reason"}`` — ``id`` is the record's
+      own id when present, else ``"#<index>"`` in the input batch;
+      ``reason`` is one of ``"below-min-score"``, ``"below-min-signal"``, or
+      ``"superseded-by:<id>"``.
+
+    See the module comment above for the full rule and the composition note
+    with :func:`score_recall_precision` (this function must never feed a
+    filtered subset back into precision scoring).
+    """
+    records = list(records or [])
+    excluded: list[dict[str, Any]] = []
+    surviving_threshold: list[tuple[int, dict[str, Any]]] = []
+
+    for index, record in enumerate(records):
+        ref = _record_ref(record, index)
+        if min_score is not None:
+            score = _numeric_field(record, "score")
+            if score is not None and score < min_score:
+                excluded.append({"id": ref, "reason": "below-min-score"})
+                continue
+        if min_signal is not None:
+            signal = _numeric_field(record, "signal")
+            if signal is not None and signal < min_signal:
+                excluded.append({"id": ref, "reason": "below-min-signal"})
+                continue
+        surviving_threshold.append((index, record))
+
+    # Supersedes: drop a sibling S when another surviving record R in THIS
+    # batch declares supersedes == S["id"]. Only ids actually present in the
+    # batch are ever dropped — a supersedes pointer to a record outside this
+    # recalled set is not actionable here (it may not even be relevant), so
+    # it is left alone.
+    present_ids = {
+        record.get("id")
+        for _, record in surviving_threshold
+        if isinstance(record, dict) and isinstance(record.get("id"), str)
+    }
+    superseded_ids: dict[str, str] = {}  # superseded id -> superseding id
+    for _, record in surviving_threshold:
+        if not isinstance(record, dict):
+            continue
+        supersedes = record.get("supersedes")
+        rid = record.get("id")
+        if (
+            isinstance(supersedes, str)
+            and supersedes
+            and supersedes in present_ids
+            and supersedes != rid
+        ):
+            superseded_ids.setdefault(supersedes, rid if isinstance(rid, str) else "?")
+
+    kept: list[dict[str, Any]] = []
+    for index, record in surviving_threshold:
+        rid = record.get("id") if isinstance(record, dict) else None
+        if isinstance(rid, str) and rid in superseded_ids:
+            excluded.append({"id": rid, "reason": f"superseded-by:{superseded_ids[rid]}"})
+            continue
+        kept.append(record)
+
+    return kept, excluded
+
+
+def filter_for_injection(
+    records: list[dict[str, Any]],
+    *,
+    env: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Env-driven wrapper around :func:`filter_recall_records` (t6 entry point).
+
+    With the master switch off (:func:`recall_hygiene_enabled` false), this
+    is a strict identity: ``(list(records), [])`` — every recalled record is
+    kept and nothing is ever excluded, byte-identical to injection behavior
+    before this task, regardless of the threshold env vars.
+    """
+    if not recall_hygiene_enabled(env):
+        return list(records or []), []
+    return filter_recall_records(
+        records,
+        min_score=recall_min_score(env),
+        min_signal=recall_min_signal(env),
+    )
 
 
 # ── code-lesson record type (plan t8, spec c4/h4) ──────────────────────────

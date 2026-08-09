@@ -27,6 +27,7 @@ operator's (or Claude's) notes are mutually visible.
 | Code-lessons | `colleague/memory.py` `build_code_lesson_record` | Repo-convention records (`type=code-lesson`, own id namespace, `{area, convention, evidence, confidence}` with verbatim evidence) grown from teachers: the integrator-correction diff (`colleague/correction.py` — tip SHA vs the PR's squash commit, scoped to `changed_files`, honest no-diff when any fact is missing), lint-gate fixes, in-run test failures, and ROI grades. Captured seamlessly by the auto-trigger lane (grade-time + work-start, observable sidecar, never blocking the grade). |
 | Artifact record | `TaskResult.memory` | Omit-when-None `{query, recalled, injected_chars, lesson_recorded}` plus the retrieval-precision fields below — h7: a misleading recall is diagnosable from the artifact, never silent. |
 | Retrieval precision | `colleague/memory.py` `task_class_key` / `record_class_key` / `score_recall_precision` | Per work item: **did the class-relevant lesson surface in the recalled top-k?** Scored by the pre-declared deterministic rule below — never a model judgment, never a post-hoc call. |
+| Recall hygiene | `colleague/memory.py` `filter_for_injection` / `filter_recall_records` | Colleague-side, injection-only: drops a below-threshold record (eidetic's returned `score`/`signal` fields) and a superseded sibling (eidetic's returned `supersedes` field) from what gets INJECTED — see the dedicated section below. |
 | Loop tool | `colleague/tools.py` `memory` | Model-callable mid-run (`verb=recall\|remember`). Offered to every backend (all-engines). Read-only roles get **recall only** — `remember` is a write-capable shell-out, refused by the role-aware executor. |
 
 ## Arming — triple-gated, default-ON
@@ -93,6 +94,70 @@ at N≥16 — instead of totals).
 A memory-less run is untouched: no `memory` key, and not one of these fields
 anywhere in the artifact (pinned by
 `tests/test_loop_memory.py::test_memory_less_run_serializes_byte_identically`).
+
+## Recall thresholding + supersedes hygiene (plan t6, spec c10/h9)
+
+By generation 7 of the #387 dogfooding run the injected recall block was near-
+saturating `RECALL_BLOCK_CAP`. At that point selection is the binding
+constraint, and the operator's stated risk is concrete: "too much context; the
+wrong lesson surfaced." This mechanism answers it colleague-side, over the
+`score` / `signal` / `supersedes` fields eidetic's `recall` bundle already
+returns per record — **no new eidetic-cli verbs** (consolidation/supersedes
+verbs in the sibling eidetic-cli repo are a deliberately parked cross-repo
+follow-up, decision c16).
+
+**Two independent hygiene moves**, both injection-time only (the store itself
+is never touched):
+
+1. **Threshold** — a record whose numeric `score` is below `COLLEAGUE_RECALL_MIN_SCORE`,
+   or whose numeric `signal` is below `COLLEAGUE_RECALL_MIN_SIGNAL`, is excluded
+   from the injected block. A record missing the field, or carrying a
+   non-numeric value, is never excluded on that axis — nothing to threshold,
+   so it fails open (the same degrade stance as the rest of the memory seam).
+2. **Supersedes** — when a recalled record `R` declares `supersedes == S["id"]`
+   for another recalled record `S` present in the **same recalled batch**, `S`
+   is dropped in favor of `R` (the newer record wins). A `supersedes` pointer
+   to an id outside the recalled batch is left alone — not actionable from one
+   recall call.
+
+**Env knobs**, all resolved inside `colleague/memory.py` (no new
+`ContextControls` field, no config.json key this increment):
+
+| Env var | Effect |
+|---------|--------|
+| `COLLEAGUE_RECALL_HYGIENE` | Master switch for the whole pass. Default **ON**. A falsy value (`0`/`false`/`no`/`off`, case-insensitive) restores pre-t6 injection behavior byte-for-byte — every recalled record is kept, nothing is ever excluded — regardless of the threshold env vars below. |
+| `COLLEAGUE_RECALL_MIN_SCORE` | Optional numeric floor on a recalled record's `score`. Unset (the default) means this axis never excludes anything on its own. |
+| `COLLEAGUE_RECALL_MIN_SIGNAL` | Optional numeric floor on a recalled record's `signal` (freshness). Same unset-by-default stance. |
+
+**Traceability (h9 — never silent).** Every exclusion — threshold or
+supersedes — is recorded on `TaskResult.memory["recall_excluded"]` as
+`{"id", "reason"}` entries (`reason` ∈ `"below-min-score"` /
+`"below-min-signal"` / `"superseded-by:<id>"`), present **only** when at least
+one record was excluded (omit-when-empty, so a run that excludes nothing —
+including every run with hygiene env-disabled — serializes byte-identically
+to before this task).
+
+**Composition with retrieval precision (critical, stated by t5 and re-proven
+here).** The precision fields (`class_relevant_recalled` /
+`class_relevant_in_top_k` / `class_relevant_rank`) are scored over the FULL
+recalled set, **before** this filtering pass runs (`colleague/loop.py`'s
+`_maybe_recall_memory` calls `score_recall_precision` on the unfiltered
+`records`, then separately calls `filter_for_injection` for what actually
+gets injected). A record this pass excludes from injection was still
+*recalled*, and still counts toward those fields — filtering here changes what
+the model sees, never what the artifact says was found. Pinned by
+`tests/test_loop_memory.py::test_precision_fields_scored_over_full_recalled_set_not_filtered_injection`.
+
+**Legacy-schema recall (t3 residual, proven here).** t3 replaced the
+distillation lesson schema outright (`{pattern, constant, reason}` superseding
+`{cause, lesson, next_delta}`, no dual-schema validator) and could not itself
+prove that already-stored old-shape records still recall cleanly, because that
+is a property of the recall path. It holds: recall never re-validates a
+record's schema — `build_recall_block` (and this hygiene pass) only ever read
+a record's own `text`/`score`/`signal`/`supersedes`/`id` fields, treating
+`text` as opaque prose regardless of what shape produced it. A store holding a
+3-key legacy record recalls and injects without raising, proven by
+`tests/test_loop_memory.py::test_legacy_three_key_lesson_recalls_as_free_text_without_error`.
 
 ## Two lessons the feature itself taught us (caught live, day one)
 

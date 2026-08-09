@@ -943,6 +943,258 @@ def test_class_relevance_rule_is_documented_in_the_feature_doc() -> None:
     assert "pre-declared" in doc.lower()
 
 
+# ── recall thresholding + supersedes hygiene, injection-only (plan t6, c10/h9) ──
+#
+# The mechanism the operator's #387 decline-risk asked for ("too much context;
+# the wrong lesson surfaced"): a below-threshold or superseded record is
+# excluded from what gets INJECTED, and the exclusion rides TaskResult.memory
+# so it is never silent. The env-disabled path is the regression guard.
+
+
+def _fake_eidetic_records(bin_dir: Path, log: Path, records: list[dict]) -> None:
+    """Like ``_fake_eidetic`` but the caller supplies full record dicts
+    (id/score/signal/supersedes/metadata) rather than plain {"text": ...}."""
+    script = bin_dir / "eidetic"
+    payload = json.dumps(records)
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        f"open({str(log)!r}, 'a').write("
+        "json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd()}) + '\\n')\n"
+        "if sys.argv[1] == 'recall':\n"
+        f"    print({payload!r})\n"
+        "sys.exit(0)\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+
+
+def test_below_threshold_record_excluded_from_injection_and_recorded_on_artifact(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    bin_dir = tmp_path / "bin-thresh"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-thresh.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "strong", "text": "GOOD LESSON: keep this one", "score": 0.9},
+            {"id": "weak", "text": "WEAK LESSON: drop this one", "score": 0.05},
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.5")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    joined = json.dumps(seen_messages[0])
+    assert "GOOD LESSON" in joined
+    assert "WEAK LESSON" not in joined
+    assert result.memory is not None
+    # recalled stays the FULL count — the exclusion is an injection-time
+    # concern, not a change to what was recalled.
+    assert result.memory["recalled"] == 2
+    assert result.memory["recall_excluded"] == [{"id": "weak", "reason": "below-min-score"}]
+    assert result.to_dict()["memory"]["recall_excluded"] == [
+        {"id": "weak", "reason": "below-min-score"}
+    ]
+
+
+def test_superseded_record_dropped_from_injection_and_recorded_on_artifact(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    bin_dir = tmp_path / "bin-supersedes"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-supersedes.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "old", "text": "OLD LESSON: the stale answer"},
+            {"id": "new", "text": "NEW LESSON: the corrected answer", "supersedes": "old"},
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    joined = json.dumps(seen_messages[0])
+    assert "NEW LESSON" in joined
+    assert "OLD LESSON" not in joined
+    assert result.memory is not None
+    assert result.memory["recalled"] == 2
+    assert result.memory["recall_excluded"] == [{"id": "old", "reason": "superseded-by:new"}]
+
+
+def test_recall_hygiene_env_disabled_is_byte_identical_to_today(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """COLLEAGUE_RECALL_HYGIENE=0 restores pre-t6 injection behavior exactly —
+    even with a threshold configured AND a supersedes edge present, every
+    recalled record is injected and no exclusion is recorded."""
+    bin_dir = tmp_path / "bin-disabled"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-disabled.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "old", "text": "OLD LESSON", "score": 0.0},
+            {"id": "new", "text": "NEW LESSON", "score": 0.0, "supersedes": "old"},
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.99")
+    monkeypatch.setenv("COLLEAGUE_RECALL_HYGIENE", "0")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    joined = json.dumps(seen_messages[0])
+    assert "OLD LESSON" in joined
+    assert "NEW LESSON" in joined
+    assert result.memory is not None
+    assert "recall_excluded" not in result.memory
+    assert set(result.memory) == _ARMED_MEMORY_KEYS
+
+
+def test_precision_fields_scored_over_full_recalled_set_not_filtered_injection(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """t5 composition rule, proven: a class-relevant record excluded from
+    INJECTION by t6's threshold still counts toward class_relevant_recalled/
+    class_relevant_in_top_k/class_relevant_rank — filtering happens strictly
+    after precision scoring, never before."""
+    from colleague.memory import task_class_key
+
+    instruction = "fix the timeout classification in beta.py"
+    key = task_class_key(instruction)
+    bin_dir = tmp_path / "bin-precision"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-precision.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "noise", "text": "unrelated", "metadata": {"class_key": "some-other-class"}},
+            {
+                "id": "the-lesson",
+                "text": "THE CLASS LESSON",
+                "metadata": {"class_key": key},
+                "score": 0.01,  # below the threshold — excluded from injection
+            },
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.5")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), instruction),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    # Excluded from the actual injected context...
+    joined = json.dumps(seen_messages[0])
+    assert "THE CLASS LESSON" not in joined
+    assert result.memory is not None
+    assert result.memory["recall_excluded"] == [{"id": "the-lesson", "reason": "below-min-score"}]
+    # ...yet still counted by t5's precision scoring, at its real recalled rank.
+    assert result.memory["class_key"] == key
+    assert result.memory["class_relevant_recalled"] == 1
+    assert result.memory["class_relevant_in_top_k"] is True
+    assert result.memory["class_relevant_rank"] == 2
+
+
+def test_legacy_three_key_lesson_recalls_as_free_text_without_error(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """t3 replaced the lesson schema outright (pattern/constant/reason
+    superseding cause/lesson/next_delta) with no dual-schema validator. t3's
+    own acceptance criterion — 'already-stored 3-key lessons recall as legacy
+    free text without error' — is a property of the RECALL path, proven here:
+    a store containing an old-shape 3-key record must recall + inject without
+    raising, because recall never re-validates a record's schema — it only
+    ever reads the record's own ``text`` field as opaque prose."""
+    bin_dir = tmp_path / "bin-legacy"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-legacy.log"
+    legacy_record = {
+        "id": "work-lesson-legacy123",
+        "text": (
+            "Lesson (origin=model): cause=wrong file targeted; "
+            "lesson=check imports before editing; next_delta=grep before edit."
+        ),
+        "metadata": {
+            "cause": "wrong file targeted",
+            "lesson": "check imports before editing",
+            "next_delta": "grep before edit",
+            "distill": "validated",
+        },
+    }
+    _fake_eidetic_records(bin_dir, log, [legacy_record])
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "check imports before editing beta.py"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    assert result.status == OK
+    joined = json.dumps(seen_messages[0])
+    assert "check imports before editing" in joined
+    assert result.memory is not None
+    assert result.memory["recalled"] == 1
+    assert "recall_excluded" not in result.memory
+
+
 def test_memory_distill_config_resolution(tmp_path: Path, monkeypatch) -> None:
     from colleague.config import EngineConfig
 

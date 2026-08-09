@@ -2239,6 +2239,18 @@ def _maybe_recall_memory(ctx: _Work) -> None:
     (``CLASS_KEY_RULE``) — never a model judgment at record time — so an
     artifact answers "did the class-relevant lesson surface in top-k?" per
     work item, which is what makes a learning CURVE measurable.
+
+    Recall thresholding + supersedes hygiene (plan t6, spec c10/h9):
+    before injection, :func:`colleague.memory.filter_for_injection` drops a
+    below-threshold record (by eidetic's returned ``score``/``signal``
+    fields) and a superseded sibling record (per its returned ``supersedes``
+    field), env-gated and env-configured entirely inside
+    :mod:`colleague.memory`. THE COMPOSITION RULE: this filters only what
+    gets INJECTED — the precision score above is computed over the full
+    ``records`` set, unfiltered, so a record excluded here still counts
+    toward ``class_relevant_recalled``/``class_relevant_rank``. Every
+    exclusion is recorded on ``TaskResult.memory`` as ``recall_excluded``
+    (omitted when nothing was excluded) — traceable, never silent.
     """
     if not _memory_armed(ctx):
         return
@@ -2255,19 +2267,22 @@ def _maybe_recall_memory(ctx: _Work) -> None:
         # Advisory context only, never a precondition — a recall failure must
         # not block the run.
         return
-    block = _memorymod.build_recall_block(records) if records else ""
+    kept, excluded = _memorymod.filter_for_injection(records)
+    block = _memorymod.build_recall_block(kept) if kept else ""
     if block:
         ctx.messages.append({"role": "user", "content": block})
     ctx.result.memory = {
         "query": query,
         "recalled": len(records),
         "injected_chars": len(block),
-        # Scored over the RECALLED set (pre-injection) so a later relevance
-        # threshold can record its own exclusions without changing what these
-        # fields mean. Empty class key ⇒ no fields (unscoreable, never a
-        # meaningless zero).
+        # Scored over the RECALLED set (pre-injection, pre-hygiene-filtering)
+        # so the t6 relevance threshold/supersedes pass records its own
+        # exclusions without changing what these fields mean. Empty class key
+        # ⇒ no fields (unscoreable, never a meaningless zero).
         **_memorymod.score_recall_precision(records, _memorymod.task_class_key(query)),
     }
+    if excluded:
+        ctx.result.memory["recall_excluded"] = excluded
 
 
 def _resolve_distill_fn(ctx: _Work) -> Callable[..., Any] | None:
