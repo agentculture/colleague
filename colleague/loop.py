@@ -2213,6 +2213,17 @@ def _memory_repo(ctx: _Work) -> str:
     return ctx.memory_root or ctx.task.repo_path
 
 
+def _memory_class_source(ctx: _Work) -> str:
+    """The ONE assignment text both memory seams key off (goal, else instruction).
+
+    Recall-before uses it as the query; remember-after stamps its class key
+    (``memory.task_class_key``) onto the lesson record. Sharing this single
+    expression is what makes the retrieval-precision rule closed: run N's stamp
+    is derived from exactly the string run N+1 matches against.
+    """
+    return (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
+
+
 def _maybe_recall_memory(ctx: _Work) -> None:
     """Recall-before (spec R1 / plan t2): prior lessons as ONE advisory message.
 
@@ -2221,10 +2232,17 @@ def _maybe_recall_memory(ctx: _Work) -> None:
     token-cap without a tokenizer) and the whole exchange is recorded on
     ``TaskResult.memory`` so a misleading recall is diagnosable from the
     artifact (h7). Best-effort: any failure leaves the run untouched.
+
+    Retrieval-precision instrumentation (post-#387, spec c9/h8/h24): the
+    recalled set is additionally scored against the PRE-DECLARED, deterministic
+    class-relevance rule documented in :mod:`colleague.memory`
+    (``CLASS_KEY_RULE``) — never a model judgment at record time — so an
+    artifact answers "did the class-relevant lesson surface in top-k?" per
+    work item, which is what makes a learning CURVE measurable.
     """
     if not _memory_armed(ctx):
         return
-    query = (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
+    query = _memory_class_source(ctx)
     try:
         records = _memorymod.recall(
             _memory_repo(ctx),
@@ -2244,6 +2262,11 @@ def _maybe_recall_memory(ctx: _Work) -> None:
         "query": query,
         "recalled": len(records),
         "injected_chars": len(block),
+        # Scored over the RECALLED set (pre-injection) so a later relevance
+        # threshold can record its own exclusions without changing what these
+        # fields mean. Empty class key ⇒ no fields (unscoreable, never a
+        # meaningless zero).
+        **_memorymod.score_recall_precision(records, _memorymod.task_class_key(query)),
     }
 
 
@@ -2332,6 +2355,13 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     # the record deterministically.
     text = _memorymod.compose_lesson_text(result, request_head)
     metadata: dict[str, Any] = {"topic": "colleague-work-lesson", "status": result.status}
+    # Stamp the class key (post-#387, spec c9/h8) so a LATER run recalling this
+    # record can score, deterministically and without judgment, whether the
+    # class-relevant lesson surfaced in its top-k. Derived from the same single
+    # assignment-text expression the recall query uses.
+    class_key = _memorymod.task_class_key(_memory_class_source(ctx))
+    if class_key:
+        metadata[_memorymod.CLASS_KEY_FIELD] = class_key
     # Rung 2 (t9): ONE gated distillation attempt through the injectable seam.
     # The lesson rides the record ONLY when it schema-validates (anti-fabrication,
     # spec c9/h9); anything else leaves the rung-1 record standing with the
