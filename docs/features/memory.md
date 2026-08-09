@@ -22,10 +22,12 @@ operator's (or Claude's) notes are mutually visible.
 | CLI adapter | `colleague/memory.py` | `recall(repo, query, top_k)` / `remember(repo, record)` shell-outs to the operator-installed `eidetic` CLI. Allow-list exactly those two verbs; identity injected (`COLLEAGUE_IDENTITY`); `cwd` pinned at the store repo; absent CLI ⇒ strict no-op (`[]`/`False`, no subprocess). |
 | Recall-before | `colleague/loop.py` `_maybe_recall_memory` | ONE advisory user-role message at task start: a prior-lessons block derived from `eidetic recall` on the task's goal/instruction head, char-capped at `RECALL_BLOCK_CAP` (4000 — h7's token-cap without bundling a tokenizer). |
 | Remember-after | `colleague/loop.py` `_maybe_remember_lesson` | ONE deterministic lesson record per work item at exit — status, steps, tool counts, honesty signals, **and the failure substance verbatim** (#379 rung 1: the #313 incompletion reason/evidence/recommendation, error strings, stale-pin warnings, lint-gate fixes, test-integrity findings, affected-tests failures — all bounded per field) — upserted by id (`work-lesson-<task_id>`), so re-runs never duplicate. INCOMPLETE runs are recorded too: failures are the most valuable lessons. |
-| Rung-2 distillation | `colleague/lessons.py` + `colleague/distill.py` + the loop's remember seam | A gated cause→lesson→next-delta pass at remember time (#379 rung 2): the seam (`ContextControls.distill_fn`, or an author resolved BY ROLE via `distill.resolve_distill_author_from_config` — deepthink/muse > armed-lobes main > none) produces raw text that must pass the strict `{cause, lesson, next_delta}` schema (refuse-whole on any deviation) before the lesson folds into the record marked `origin=model`; an invalid distillation leaves the rung-1 record with an honest `no-lesson-extracted` marker. Production runs detach a bounded background child (`distill.make_distill_fn`, the sanctioned one-shot pattern) recorded as `distill: detached` — the child validates-then-upserts and writes an outcome marker; the run's return is never blocked. Kill switch: `COLLEAGUE_MEMORY_DISTILL=0` / config `memory_distill` — independent of the memory gate, rung-1 stands. |
+| Rung-2 distillation | `colleague/lessons.py` + `colleague/distill.py` + the loop's remember seam | A gated pattern→constant→reason pass at remember time (#379 rung 2, answer-shaped since #396): the seam (`ContextControls.distill_fn`, or an author resolved BY ROLE via `distill.resolve_distill_author_from_config` — deepthink/muse > armed-lobes main > none, guarded against a declared evaluator seat auto-authoring without a distinct distiller authority, spec c38/h30) produces raw text that must pass the strict `{pattern, constant, reason}` schema (refuse-whole on any deviation, including a generic-prose `constant`) before the lesson folds into the record marked `origin=model`; an invalid distillation leaves the rung-1 record with an honest `no-lesson-extracted` marker. Production runs detach a bounded background child (`distill.make_distill_fn`, the sanctioned one-shot pattern) recorded as `distill: detached` — the child validates-then-upserts and writes an outcome marker; the run's return is never blocked. Kill switch: `COLLEAGUE_MEMORY_DISTILL=0` / config `memory_distill` — independent of the memory gate, rung-1 stands. |
 | Alive counters | `TaskResult.memory` `distill_attempts`/`distill_validated` | Armed is not evidence the tier is alive — a counter that increments is (the #363 T1/T2 lesson): a seam that never validates shows `attempts>0, validated=0` on every artifact, and `doctor` surfaces attempts-vs-validated across recent runs. |
 | Code-lessons | `colleague/memory.py` `build_code_lesson_record` | Repo-convention records (`type=code-lesson`, own id namespace, `{area, convention, evidence, confidence}` with verbatim evidence) grown from teachers: the integrator-correction diff (`colleague/correction.py` — tip SHA vs the PR's squash commit, scoped to `changed_files`, honest no-diff when any fact is missing), lint-gate fixes, in-run test failures, and ROI grades. Captured seamlessly by the auto-trigger lane (grade-time + work-start, observable sidecar, never blocking the grade). |
-| Artifact record | `TaskResult.memory` | Omit-when-None `{query, recalled, injected_chars, lesson_recorded}` — h7: a misleading recall is diagnosable from the artifact, never silent. |
+| Artifact record | `TaskResult.memory` | Omit-when-None `{query, recalled, injected_chars, lesson_recorded}` plus the retrieval-precision fields below — h7: a misleading recall is diagnosable from the artifact, never silent. |
+| Retrieval precision | `colleague/memory.py` `task_class_key` / `record_class_key` / `score_recall_precision` | Per work item: **did the class-relevant lesson surface in the recalled top-k?** Scored by the pre-declared deterministic rule below — never a model judgment, never a post-hoc call. |
+| Recall hygiene | `colleague/memory.py` `filter_for_injection` / `filter_recall_records` | Colleague-side, injection-only: drops a below-threshold record (eidetic's returned `score`/`signal` fields) and a superseded sibling (eidetic's returned `supersedes` field) from what gets INJECTED — see the dedicated section below. |
 | Loop tool | `colleague/tools.py` `memory` | Model-callable mid-run (`verb=recall\|remember`). Offered to every backend (all-engines). Read-only roles get **recall only** — `remember` is a write-capable shell-out, refused by the role-aware executor. |
 
 ## Arming — triple-gated, default-ON
@@ -38,6 +40,124 @@ Memory fires only when **all three** hold:
    having one. A store-less repo (every tmp test repo) is a strict no-op with
    zero subprocess, which is what makes default-ON safe;
 3. the `eidetic` CLI is installed (absent ⇒ the t1 adapter no-ops).
+
+## Retrieval precision — the pre-declared rule `class-key-slug-v1`
+
+By generation 7 of the #387 dogfooding run the injected recall block was
+near-saturating `RECALL_BLOCK_CAP` (4000 chars). At that point **selection**,
+not store size, is the binding constraint on whether memory helps — and
+nothing measured whether the *right* lesson was surfacing. So every armed run
+now scores its own recall, and the score rides the artifact.
+
+**The rule is pre-declared, versioned, and deterministic.** It is a pure
+function of text already in the artifact — no LLM judgment at record time, no
+post-hoc human call, no score threshold. In full:
+
+1. A work item's **class** is its assignment text: `task.goal` when set, else
+   `task.instruction` (the same source the recall query derives from — one
+   expression, `loop.py`'s `_memory_class_source`).
+2. The **class key** is that text lowercased, split on every non-alphanumeric
+   run, the first **8** tokens joined with `-`, truncated to **64** chars.
+   Empty text ⇒ `""`, an *unscoreable* work item that gets no fields at all
+   (honest silence beats a meaningless zero).
+3. **Remember-after stamps** that key into the lesson record's `metadata`
+   under `class_key`.
+4. A recalled record is **class-relevant** iff its stamped key — read from
+   exactly two declared places, `record["metadata"]["class_key"]` first, then
+   a flattened `record["class_key"]` — is **exactly equal** to the recalling
+   task's class key. Nothing else counts: no substring match, no fuzzy score.
+
+The rule id `class-key-slug-v1` rides every scored artifact as
+`precision_rule`, so a reader always knows which rule produced the numbers.
+
+**The fields**, added to `TaskResult.memory` on an armed, scoreable run:
+
+| Field | Meaning |
+|-------|---------|
+| `class_key` | The recalling task's key — *what* was matched on. |
+| `precision_rule` | `class-key-slug-v1` — *which* rule produced the numbers. |
+| `class_relevant_recalled` | How many recalled records matched. |
+| `class_relevant_in_top_k` | Did at least one surface in the recalled top-k. |
+| `class_relevant_rank` | 1-based rank of the **first** match; **omitted** (not null) when there is none. |
+
+**Honest limits, stated up front.** A record predating the stamp — or written
+by the operator's own `/remember` — can never be class-relevant; that shows up
+as `class_relevant_recalled: 0` rather than hiding. The score is computed over
+the **recalled** set, *before* any injection filtering, so a later relevance
+threshold records its own exclusions without changing what these fields mean.
+And the rule measures *class* identity, not semantic relevance: a genuinely
+useful lesson from a neighbouring class scores as a miss. That is the price of
+a rule that needs no judgment — and it is the right price for the measurement
+it exists to serve (a per-task learning **curve**, corrections vs store size,
+at N≥16 — instead of totals).
+
+A memory-less run is untouched: no `memory` key, and not one of these fields
+anywhere in the artifact (pinned by
+`tests/test_loop_memory.py::test_memory_less_run_serializes_byte_identically`).
+
+## Recall thresholding + supersedes hygiene (plan t6, spec c10/h9)
+
+By generation 7 of the #387 dogfooding run the injected recall block was near-
+saturating `RECALL_BLOCK_CAP`. At that point selection is the binding
+constraint, and the operator's stated risk is concrete: "too much context; the
+wrong lesson surfaced." This mechanism answers it colleague-side, over the
+`score` / `signal` / `supersedes` fields eidetic's `recall` bundle already
+returns per record — **no new eidetic-cli verbs** (consolidation/supersedes
+verbs in the sibling eidetic-cli repo are a deliberately parked cross-repo
+follow-up, decision c16).
+
+**Two independent hygiene moves**, both injection-time only (the store itself
+is never touched):
+
+1. **Threshold** — a record whose numeric `score` is below `COLLEAGUE_RECALL_MIN_SCORE`,
+   or whose numeric `signal` is below `COLLEAGUE_RECALL_MIN_SIGNAL`, is excluded
+   from the injected block. A record missing the field, or carrying a
+   non-numeric value, is never excluded on that axis — nothing to threshold,
+   so it fails open (the same degrade stance as the rest of the memory seam).
+2. **Supersedes** — when a recalled record `R` declares `supersedes == S["id"]`
+   for another recalled record `S` present in the **same recalled batch**, `S`
+   is dropped in favor of `R` (the newer record wins). A `supersedes` pointer
+   to an id outside the recalled batch is left alone — not actionable from one
+   recall call.
+
+**Env knobs**, all resolved inside `colleague/memory.py` (no new
+`ContextControls` field, no config.json key this increment):
+
+| Env var | Effect |
+|---------|--------|
+| `COLLEAGUE_RECALL_HYGIENE` | Master switch for the whole pass. Default **ON**. A falsy value (`0`/`false`/`no`/`off`, case-insensitive) restores pre-t6 injection behavior byte-for-byte — every recalled record is kept, nothing is ever excluded — regardless of the threshold env vars below. |
+| `COLLEAGUE_RECALL_MIN_SCORE` | Optional numeric floor on a recalled record's `score`. Unset (the default) means this axis never excludes anything on its own. |
+| `COLLEAGUE_RECALL_MIN_SIGNAL` | Optional numeric floor on a recalled record's `signal` (freshness). Same unset-by-default stance. |
+
+**Traceability (h9 — never silent).** Every exclusion — threshold or
+supersedes — is recorded on `TaskResult.memory["recall_excluded"]` as
+`{"id", "reason"}` entries (`reason` ∈ `"below-min-score"` /
+`"below-min-signal"` / `"superseded-by:<id>"`), present **only** when at least
+one record was excluded (omit-when-empty, so a run that excludes nothing —
+including every run with hygiene env-disabled — serializes byte-identically
+to before this task).
+
+**Composition with retrieval precision (critical, stated by t5 and re-proven
+here).** The precision fields (`class_relevant_recalled` /
+`class_relevant_in_top_k` / `class_relevant_rank`) are scored over the FULL
+recalled set, **before** this filtering pass runs (`colleague/loop.py`'s
+`_maybe_recall_memory` calls `score_recall_precision` on the unfiltered
+`records`, then separately calls `filter_for_injection` for what actually
+gets injected). A record this pass excludes from injection was still
+*recalled*, and still counts toward those fields — filtering here changes what
+the model sees, never what the artifact says was found. Pinned by
+`tests/test_loop_memory.py::test_precision_fields_scored_over_full_recalled_set_not_filtered_injection`.
+
+**Legacy-schema recall (t3 residual, proven here).** t3 replaced the
+distillation lesson schema outright (`{pattern, constant, reason}` superseding
+`{cause, lesson, next_delta}`, no dual-schema validator) and could not itself
+prove that already-stored old-shape records still recall cleanly, because that
+is a property of the recall path. It holds: recall never re-validates a
+record's schema — `build_recall_block` (and this hygiene pass) only ever read
+a record's own `text`/`score`/`signal`/`supersedes`/`id` fields, treating
+`text` as opaque prose regardless of what shape produced it. A store holding a
+3-key legacy record recalls and injects without raising, proven by
+`tests/test_loop_memory.py::test_legacy_three_key_lesson_recalls_as_free_text_without_error`.
 
 ## Two lessons the feature itself taught us (caught live, day one)
 

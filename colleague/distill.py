@@ -49,6 +49,55 @@ class DistillAuthor:
     api_key: str
 
 
+# ---------------------------------------------------------------------------
+# Authority-separation guard (spec c38/h30) — forward-compatible for t12's
+# armed evaluation mode.
+# ---------------------------------------------------------------------------
+#
+# The three-tier / evaluation arc being built by later plan tasks (t10 defines
+# the evaluator's closed-world thought<->action judgment contract; t12 arms
+# it) introduces a seat that judges thought<->action pairs. That seat is
+# resolved BY ROLE — today the SAME role (``cortex``) this module already
+# falls back to for distillation. Left unguarded, the fallback below would
+# silently hand a seat serving as evaluator the authority to write durable
+# memory as the distiller, even though the two are distinct authority
+# contracts: the evaluator judges and CANNOT write memory; the distiller
+# distills post-outcome and runs only when evidence exists.
+#
+# Neither ``evaluator_checkpoint`` nor ``distiller_checkpoint`` is set by any
+# config path today (that arming is t12's territory) — both are read via
+# ``getattr`` so this guard activates the moment a later task starts
+# populating them, and is an inert no-op (returns ``False`` always) until
+# then. This keeps today's resolution byte-identical while pinning the split
+# with a test that works now (a caller can declare both attributes on a
+# stand-in config object without waiting on t12's real wiring).
+
+
+def _refuses_evaluator_as_distiller(config: Any, candidate_model: str) -> bool:
+    """``True`` when *candidate_model* is a declared evaluator seat with no
+    distinct distiller authority declared to override it.
+
+    Reads two forward-declared, duck-typed facts off *config*:
+
+    - ``evaluator_checkpoint`` — the model/checkpoint id serving the
+      evaluator role, when the armed evaluation mode has declared one.
+    - ``distiller_checkpoint`` — a model/checkpoint id EXPLICITLY declared
+      as a distinct distillation authority, distinguishing it from the
+      evaluator seat even when both happen to be served from the same
+      underlying checkpoint.
+
+    A candidate is refused (this returns ``True``) only when an evaluator
+    checkpoint is declared, the candidate IS that checkpoint, and no
+    distiller checkpoint distinct from it has been declared. Absent any
+    declaration (today, always) this returns ``False`` — byte-identical.
+    """
+    evaluator_checkpoint = getattr(config, "evaluator_checkpoint", None)
+    if not evaluator_checkpoint or evaluator_checkpoint != candidate_model:
+        return False
+    distiller_checkpoint = getattr(config, "distiller_checkpoint", None)
+    return not (distiller_checkpoint and distiller_checkpoint != evaluator_checkpoint)
+
+
 def resolve_distill_author(
     config: Any,
     lobes_roles: LobesRoles | None,
@@ -62,10 +111,15 @@ def resolve_distill_author(
        dual-model mode: the deepthink model (or lobes-discovered ``muse`` role)
        is the distillation author because it is the stronger reasoner.
     2. **Lobes cortex** — when lobes is armed (``lobes_roles`` is not ``None``),
-       the cortex role is the author.
-    3. **None** — when neither deepthink nor lobes is configured, no author
-       is resolved. The rung-1 floor stands (byte-identical record, no
-       counters — spec c16/h13).
+       the cortex role is the author — UNLESS the cortex checkpoint is a
+       declared evaluator seat with no distinct distiller authority declared
+       (:func:`_refuses_evaluator_as_distiller`, spec c38/h30): the evaluator
+       and the distiller are distinct authority contracts even when they
+       share a checkpoint, so that case falls through to the rung-1 floor
+       rather than silently handing the evaluator write access to memory.
+    3. **None** — when neither deepthink nor lobes is configured (or the
+       guard above refuses the candidate), no author is resolved. The rung-1
+       floor stands (byte-identical record, no counters — spec c16/h13).
 
     Env/config always win: an explicit ``config.deepthink.model`` from env var
     or config.json overrides any lobes-discovered role.
@@ -97,10 +151,11 @@ def resolve_distill_author(
                 api_key=dt_api_key or "",
             )
 
-    # Rung 2: lobes cortex (armed gateway)
+    # Rung 2: lobes cortex (armed gateway) — guarded against silently
+    # authoring as a declared evaluator seat (c38/h30).
     if lobes_roles is not None:
         cortex = lobes_roles.cortex
-        if cortex is not None:
+        if cortex is not None and not _refuses_evaluator_as_distiller(config, cortex.model):
             return DistillAuthor(
                 model=cortex.model,
                 base_url=cortex.endpoint or "",
@@ -184,7 +239,8 @@ def upsert_lesson(
     task_id:
         The work item's task id (used to build the record id).
     lesson:
-        The validated lesson dict (``cause``, ``lesson``, ``next_delta``).
+        The validated lesson dict (``pattern``, ``constant``, ``reason`` —
+        the answer-shaped schema, #396).
 
     Returns
     -------
@@ -198,8 +254,8 @@ def upsert_lesson(
     # Build the record with the SAME work-lesson id as rung-1.
     # The text folds the structured lesson into the free-form field.
     text = (
-        f" Lesson (origin=model): cause: {lesson['cause']} — "
-        f"lesson: {lesson['lesson']} — next time: {lesson['next_delta']}."
+        f" Lesson (origin=model): pattern: {lesson['pattern']} — "
+        f"constant: {lesson['constant']} — reason: {lesson['reason']}."
     )
     record = memory.build_lesson_record(
         task_id,
@@ -363,7 +419,9 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
     1. deepthink/muse target (``config.deepthink.model``) — the stronger
        reasoner authors the lesson in dual-model mode;
     2. the armed-lobes main model (cortex-resolved) when
-       ``config.lobes_gateway_url`` is set;
+       ``config.lobes_gateway_url`` is set — UNLESS that model is a declared
+       evaluator seat with no distinct distiller authority declared
+       (:func:`_refuses_evaluator_as_distiller`, spec c38/h30);
     3. ``None`` — the rung-1 floor (byte-identical record, no counters).
     """
     dt = getattr(config, "deepthink", None)
@@ -377,7 +435,7 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
             )
     if getattr(config, "lobes_gateway_url", None):
         model = getattr(config, "model", "") or ""
-        if model:
+        if model and not _refuses_evaluator_as_distiller(config, model):
             return DistillAuthor(
                 model=model,
                 base_url=getattr(config, "base_url", "") or "",
@@ -478,10 +536,13 @@ def _compose_child_prompt(artifact: dict[str, Any]) -> str:
         parts.append(f"Final summary: {str(artifact.get('summary'))[:300]}")
     parts.append(
         "Reply with ONLY a JSON object, exactly these keys, each a non-empty "
-        'string under 1000 chars: {"cause": "why it went the way it did", '
-        '"lesson": "what to know next time", "next_delta": "what to do '
-        'differently"}. No other keys, no prose around the JSON, no '
-        "thinking out loud — start your reply with '{'."
+        'string under 1000 chars: {"pattern": "the recurring shape this '
+        'lesson generalizes — what class of situation it applies to", '
+        '"constant": "the specific repo anchor it pins — an identifier, '
+        'value, path, or invariant, not generic prose", "reason": "why the '
+        'pattern holds — the causal link to the constant"}. No other keys, '
+        "no prose around the JSON, no thinking out loud — start your reply "
+        "with '{'."
     )
     return "\n".join(parts)
 
@@ -525,7 +586,7 @@ def child_main(argv: list[str] | None = None) -> int:
         parsed = lessons.parse_lesson_json(raw)
         verdict = lessons.validate_lesson(parsed if parsed is not None else raw)
         if parsed is not None and verdict.allowed:
-            lesson = {k: str(parsed[k]) for k in ("cause", "lesson", "next_delta")}
+            lesson = {k: str(parsed[k]) for k in ("pattern", "constant", "reason")}
             upsert_lesson(args.repo, args.task_id, lesson)
             write_outcome_marker(marker, status="done", lesson=lesson)
             return 0
