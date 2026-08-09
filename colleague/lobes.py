@@ -18,6 +18,20 @@ execution; resolved here as a plain role — :mod:`colleague.config`'s explicit
 wires the worker into the acting loop yet, a later task's territory) —
 ``reranker`` stays ignored (future follow-up territory, #277's retrieval lane).
 
+**Seats are resolved BY ROLE NAME, never by parsing model names.** Since the
+thought→action→evaluation arc (post-#387 program, plan task t12; issue #397)
+a SECOND, independent consumer reads roles for seats:
+:mod:`colleague.config`'s ``thought_action_evaluation`` arming block maps
+``senses`` → the front seat, ``worker`` → the worker seat, and ``cortex`` →
+the tools-off evaluator seat (``_EVALUATION_SEAT_ROLES`` there is the whole
+mapping). This module gains NO new parsing for it — the mode consumes exactly
+the roles already resolved here — and colleague still hardcodes no model id
+anywhere: the reference rig's specific model ids are a CANDIDATE, never an
+architectural requirement (spec c40). Unlike every optional rung, an armed
+mode makes its seats MANDATORY: a rig missing (or not-``ready`` on) a required
+role makes ``config`` refuse to arm with a legible reason rather than fall
+back to another seat's model.
+
 **The embedder is relayed, never consumed (S2).** Colleague itself never
 issues an embeddings request — :func:`embed_env` only relays the resolved
 embedder role's dial target + model id as environment variables for OTHER
@@ -174,7 +188,11 @@ class LobesRoles:
     through the same gateway — but THIS task resolves it as a plain role
     only; :mod:`colleague.config`'s explicit ``three_tier`` arming block is
     the ONE consumer, and RESOLUTION ONLY (nothing wires the worker into the
-    acting loop yet — a later task's territory). ``RoleInfo`` stays a
+    acting loop yet — a later task's territory). Since the
+    thought→action→evaluation arc (plan task t12) that mode's arming block is
+    a SECOND consumer of ``worker`` — and of ``senses``/``cortex``, which it
+    reads as the front and evaluator seats respectively; it adds no new field
+    and no new role here. ``RoleInfo`` stays a
     tolerant superset reader: the live ``muse``/``worker`` payloads' newer
     wire fields (``feasible``, ``hosted_by``, ``proxied``) are deliberately
     NOT parsed.
