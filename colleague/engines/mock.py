@@ -26,6 +26,7 @@ from colleague.loop import (
     run,
 )
 from colleague.senses import make_senses_run
+from colleague.tae_loop import make_tae_session
 from colleague.tools import ToolExecutor, narrow_role_by_tool_set
 
 #: Where the mock writes its marker file (relative to the repo root).
@@ -180,7 +181,15 @@ class MockEngine(Engine):
         # — is what names the acting seat. ``None`` (unarmed, the default)
         # keeps the legacy "cortex" label, byte-identical to every prior
         # release.
-        seat = "worker" if config.worker is not None else "cortex"
+        # The thought->action->evaluation mode (t13) names the SAME acting
+        # seat for the same reason: with the mode armed, config.resolve()
+        # repointed the acting dial at the worker seat, so the worker — not
+        # the evaluator/cortex — is what drives this tool loop.
+        seat = (
+            "worker"
+            if config.worker is not None or getattr(config, "thought_action_evaluation", False)
+            else "cortex"
+        )
         return run(
             complete,
             task,
@@ -210,6 +219,9 @@ class MockEngine(Engine):
             # estimate via window_messages. ``from_config`` is the single source for
             # the config→controls forwarding both backends share.
             context=ContextControls.from_config(
-                config, deepthink_run=dt_run, senses_run=senses_run
+                config,
+                deepthink_run=dt_run,
+                senses_run=senses_run,
+                tae_session=make_tae_session(config, self.name),
             ),
         )

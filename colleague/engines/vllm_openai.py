@@ -39,6 +39,7 @@ from colleague.loop import (
     run,
 )
 from colleague.senses import make_senses_run
+from colleague.tae_loop import make_tae_session
 from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas, narrow_role_by_tool_set
 
 # The one spelling of the wire content-type, referenced by every JSON POST
@@ -950,7 +951,15 @@ class VllmOpenAIEngine(Engine):
         # execution, so its presence, not a separate flag, names the acting
         # seat. ``None`` (unarmed, the default) keeps the legacy "cortex"
         # label, byte-identical to every prior release.
-        seat = "worker" if config.worker is not None else "cortex"
+        # The thought->action->evaluation mode (t13) names the SAME acting
+        # seat for the same reason: with the mode armed, config.resolve()
+        # repointed the acting dial at the worker seat, so the worker — not
+        # the evaluator/cortex — is what drives this tool loop.
+        seat = (
+            "worker"
+            if config.worker is not None or getattr(config, "thought_action_evaluation", False)
+            else "cortex"
+        )
         return run(
             self._make_complete(config, tools=offered_tools),
             task,
@@ -985,5 +994,6 @@ class VllmOpenAIEngine(Engine):
                 count_tokens=self._make_count_tokens(config),
                 deepthink_run=dt_run,
                 senses_run=senses_run,
+                tae_session=make_tae_session(config, self.name),
             ),
         )

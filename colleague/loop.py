@@ -56,6 +56,7 @@ from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import media
 from colleague import memory as _memorymod
+from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
@@ -842,6 +843,88 @@ class _Work:
     # direct ``run`` caller, or a config object predating this field via
     # ``getattr``) is a strict no-op: byte-identical to the pre-t6 loop.
     config_lifecycle: "_configlifecycle.EpisodeConfigLifecycle | None" = None
+    # Thought->action->evaluation control loop (post-#387, plan task t13): the
+    # armed mode's one seam object (:class:`colleague.tae_loop.TaeSession`),
+    # threaded from ``ContextControls.tae_session``. ``None`` (the default, and
+    # every unarmed run) is a strict no-op: each of the four call sites below
+    # is guarded by ``ctx.tae is not None``, so an unarmed loop is
+    # byte-identical. The pure control logic lives in
+    # :mod:`colleague.tae_control` / :mod:`colleague.tae_loop` — the loop only
+    # calls it.
+    tae: "_tae.TaeSession | None" = None
+
+
+def _tae_commit_initial_plan(ctx: _Work) -> None:
+    """The ``initial_plan_commit`` boundary — the FRONT commits thought 1.
+
+    The committed thought is injected as a user turn so the worker acts under a
+    named ``thought_id`` (which its next consequential action then binds to).
+    A strict no-op when the mode is unarmed; best-effort always — a front that
+    cannot commit leaves the worker without action authority, which the
+    per-tool-call gate then reports honestly rather than crashing the run.
+    """
+    if ctx.tae is None:
+        return
+    with suppress(Exception):
+        ctx.tae.commit_initial_plan(_build_user_message(ctx.task))
+    _tae_drain(ctx)
+
+
+def _tae_drain(ctx: _Work) -> None:
+    """Append any front-authored thought briefs as user turns (once each)."""
+    if ctx.tae is None:
+        return
+    for line in ctx.tae.drain_injections():
+        ctx.messages.append({"role": "user", "content": line})
+
+
+def _tae_gate(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
+    """Host classification + the evaluator boundary; True when the call is denied.
+
+    Mirrors :func:`_deny_by_policy`'s recorded shape (span, non-ok Step, tool
+    message, progress) so a TAE denial reads like every other refusal in the
+    trace. A strict no-op returning ``False`` when the mode is unarmed.
+    """
+    if ctx.tae is None:
+        return False
+    decision = ctx.tae.before_tool_call(call.name, call.arguments, policy=ctx.policy)
+    _tae_drain(ctx)
+    if decision.allowed:
+        return False
+    span.set(ok=False, denied=True, reason=decision.reason)
+    ctx.result.steps.append(Step(step_index, call.name, call.arguments, decision.reason, ok=False))
+    ctx.messages.append(_tool_message(call.id, decision.reason))
+    _emit_progress(ctx, step_index, call.name, call.arguments, ok=False)
+    return True
+
+
+def _tae_close(ctx: _Work, tool: str, ok: bool) -> None:
+    """Close an authorized action: the completion half of the supersession policy.
+
+    ``complete_then_re_evaluate`` means a thought that superseded mid-action is
+    adopted HERE, once the tool ran to completion — never half-way through, so
+    no half-applied tool state exists. A strict no-op when unarmed or when no
+    action was in flight.
+    """
+    if ctx.tae is None:
+        return
+    ctx.tae.after_tool_call(tool, ok)
+    _tae_drain(ctx)
+
+
+def _tae_finalize(ctx: _Work, outcome: str) -> None:
+    """The episode-end boundary + the ledger fold onto the artifact.
+
+    ``episode_completion`` for a finished episode, ``declared_infeasible`` for
+    one that ended without a deliverable — both members of the enumerated
+    boundary list. The ledger rides ``TaskResult.evaluation_ledger`` (t11's
+    omit-when-None field), so an unarmed run adds no artifact key.
+    """
+    if ctx.tae is None:
+        return
+    with suppress(Exception):
+        ctx.tae.finish_episode(summary=ctx.result.summary, delivered=outcome == _EXIT_FINISHED)
+    ctx.result.evaluation_ledger = ctx.tae.ledger_dict()
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1001,6 +1084,17 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
             # Execute with the hook-supplied arguments instead.
             arguments = decision.arguments
 
+        # Thought->action->evaluation gate (t13): the HOST classifies whether
+        # this call is a consequential action and, only then, invokes the
+        # evaluator at the enumerated ``consequential_action`` (or
+        # ``drift_threshold``) boundary and applies its route. Placed AFTER
+        # hooks and BEFORE the policy gate so the operator's approval gate
+        # below still runs on every route — alignment is never permission. An
+        # ordinary tool call returns allowed without touching the evaluator; an
+        # unarmed run is a strict no-op.
+        if _tae_gate(ctx, ToolCall(call.id, call.name, arguments), span, step_index):
+            return False
+
         # Policy gate: check run_command against the operator-declared allow/deny
         # policy AFTER hooks (so a hook rewrite is still gated), BEFORE execution.
         # All other tools pass through unchanged. When denied, mirrors the hook-deny
@@ -1026,6 +1120,7 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
                 else f"bad tool arguments: {type(exc).__name__}: {exc}"
             )
             _track_unknown_tool(ctx, call.name, exc)
+            _tae_close(ctx, call.name, False)
             span.set(ok=False, error=msg)
             ctx.result.steps.append(
                 Step(step_index, call.name, arguments, f"error: {msg}", ok=False)
@@ -1045,6 +1140,7 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
             return False
 
         _track_unknown_tool(ctx, call.name, None)
+        _tae_close(ctx, call.name, True)
         span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
         ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
         ctx.messages.append(_tool_message(call.id, outcome.result))
@@ -1983,12 +2079,26 @@ def _flight_stop_requested(ctx: _Work) -> bool:
     incorporates it on its NEXT turn; a ``stop`` directive asks the loop to end
     cooperatively. Both take effect only HERE, at the boundary — never mid-turn
     (cooperative, not preemptive).
+
+    Under the ARMED thought→action→evaluation mode (t13) the guidance does NOT
+    become a raw worker turn: mid-run operator words that silently redefine the
+    running thought behind the evaluator's back are the forbidden move. Instead
+    each message is routed to the FRONT as an observation
+    (:meth:`colleague.tae_loop.TaeSession.observe`), and only a thought the
+    front actually commits — superseding the old one — reaches the worker, via
+    the drained brief. The artifact/feed injection record is unchanged either
+    way, so the operator's steering stays reconstructable.
     """
     if ctx.flight is None:
         return False
     control = ctx.flight.read_control()
     for message in control.guidance:
-        ctx.messages.append({"role": "user", "content": f"[pilot guidance] {message}"})
+        if ctx.tae is not None:
+            with suppress(Exception):
+                ctx.tae.observe(message, source="flight-guidance")
+            _tae_drain(ctx)
+        else:
+            ctx.messages.append({"role": "user", "content": f"[pilot guidance] {message}"})
         _record_applied_injection(ctx, message)
     return bool(control.stop)
 
@@ -2939,10 +3049,17 @@ class ContextControls:
     config_lifecycle: "_configlifecycle.EpisodeConfigLifecycle | None" = field(
         default=None, compare=False, repr=False
     )
+    # Thought->action->evaluation control loop (t13): the armed mode's one seam
+    # object, built by :func:`colleague.tae_loop.make_tae_session` from the t12
+    # ``thought_action_evaluation`` / ``evaluation_seats`` arming. ``None`` (the
+    # default, and every unarmed config) leaves all four loop call sites dormant
+    # — byte-identical. compare=False: it holds live seats, i.e. behavior, not
+    # comparable config (the ``deepthink_run``/``senses_run`` precedent).
+    tae_session: "_tae.TaeSession | None" = field(default=None, compare=False, repr=False)
 
     @classmethod
     def from_config(
-        cls, config, *, count_tokens=None, deepthink_run=None, senses_run=None
+        cls, config, *, count_tokens=None, deepthink_run=None, senses_run=None, tae_session=None
     ) -> "ContextControls":
         """Build the controls a backend forwards from its :class:`EngineConfig`.
 
@@ -3031,6 +3148,11 @@ class ContextControls:
             # reads back ``None`` and stays byte-identical (the
             # ``chain_prior_changed`` precedent above).
             config_lifecycle=getattr(config, "config_lifecycle", None),
+            # Thought->action->evaluation session (t13): every backend passes
+            # ``make_tae_session(config, self.name)`` — the same single source
+            # as deepthink_run/senses_run, so mock and vllm-openai behave
+            # identically (all-engines rule). ``None`` when unarmed.
+            tae_session=tae_session,
         )
 
 
@@ -4542,8 +4664,14 @@ def run(
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
         config_lifecycle=_context.config_lifecycle,
+        tae=_context.tae_session,
         **_affectedtests_controls(_context),
     )
+
+    # Thought->action->evaluation initial-plan commit (t13): the FRONT commits
+    # the episode's first typed thought and it is injected as a user turn, so
+    # the worker acts under a named thought_id. A strict no-op when unarmed.
+    _tae_commit_initial_plan(ctx)
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
     # complexity within budget; a strict no-op unless armed and the task looks big.
@@ -4714,6 +4842,9 @@ def run(
         # path, so a crashed/timed-out partial artifact still carries an
         # honest finish state (mirrors the stats finalization discipline).
         _finalize_finish_states(ctx, outcome, aborted=aborted)
+        # Thought->action->evaluation episode boundary (t13) — on the aborted
+        # path too, so a crashed episode still carries its honest ledger.
+        _tae_finalize(ctx, outcome)
         # Escalation seam — aborted path (#106 t3): best-effort, observe-only.
         # A timeout / context-overflow / engine error is a limit worth escalating.
         # Wrapped in suppress so any escalation failure never masks the work item result.
@@ -4753,6 +4884,13 @@ def run(
     # Honest-incompletion (colleague#313): flag a run that produced no expected
     # deliverable — after summary resolution so it composes with finish_recovered.
     _maybe_flag_incompletion(ctx, outcome)
+
+    # Thought->action->evaluation episode boundary (t13): ``episode_completion``
+    # for a finished episode, ``declared_infeasible`` for one that ended with no
+    # deliverable — then the append-only ledger folds onto the artifact. Runs
+    # after summary resolution so the judged outcome is the real one; advisory,
+    # never flips status. A strict no-op when unarmed.
+    _tae_finalize(ctx, outcome)
 
     # Remember-after (spec R1 / plan t2): record this work item's lesson to the
     # repo's memory store; a strict no-op unless armed, best-effort always.
