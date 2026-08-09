@@ -1585,6 +1585,15 @@ class TaskResult:
     by the loop after the first media-bearing completion (or preset by a
     successful bridge); omit-when-None so an attachment-less run serializes
     byte-identically."""
+    evaluation_ledger: Optional[dict[str, Any]] = None
+    """The append-only evaluation ledger for the thought-action-evaluation mode
+    (#397, t11), or ``None`` when the ledger was not populated. Shape:
+    ``{"version": int, "entries": [...]}`` where each entry is a
+    :class:`colleague.ledger.LedgerEntry` dict (``kind``, ``thought_id``,
+    ``action_id``, ``detail``, ``seat``, ``model``, ``seq``). Like
+    ``media``/``lint_report``, the serialized key is OMITTED (not null) when
+    ``None``, so a work item with no ledger serializes byte-identically to
+    today's artifact."""
     senses: Optional[SensesBlock] = None
     """The cortex/senses front-door record for this work item (cortex/senses,
     t2), or ``None`` when no senses model ran (a plain cortex-only drive). A
@@ -1760,6 +1769,10 @@ class TaskResult:
             extra["media"] = {
                 "attachments": [dict(entry) for entry in self.media.get("attachments", [])]
             }
+        # evaluation_ledger gets the same omit-when-None treatment (t11): a
+        # ledger-less work item serializes byte-identically (no extra key).
+        if self.evaluation_ledger is not None:
+            extra["evaluation_ledger"] = dict(self.evaluation_ledger)
         # senses gets the same omit-when-None treatment as deepthink (cortex/senses,
         # t2): a run with no senses front door serializes byte-identically to
         # today's artifact (no extra key).
@@ -1854,6 +1867,11 @@ class TaskResult:
             finish_recovered=data.get("finish_recovered"),
             memory=data.get("memory"),
             media=data.get("media") if isinstance(data.get("media"), dict) else None,
+            evaluation_ledger=(
+                data.get("evaluation_ledger")
+                if isinstance(data.get("evaluation_ledger"), dict)
+                else None
+            ),
             senses=(
                 SensesBlock.from_dict(data["senses"])
                 if isinstance(data.get("senses"), dict)
