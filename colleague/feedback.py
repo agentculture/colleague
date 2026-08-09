@@ -767,9 +767,13 @@ def _capture_hunks_as_lessons(repo_path: str | Path, result: Any, outcome: dict[
     stored = 0
     for hunk in diff_record.hunks.values():
         lesson = correction.build_code_lesson(hunk)
+        # memory.build_code_lesson_record keeps its own area/convention shape
+        # (untouched here — plan t4 scope is correction.py's field mapping,
+        # not memory.py's record schema); map the answer-shaped CodeLesson
+        # fields onto it at this one call site.
         lesson_record = memorymod.build_code_lesson_record(
-            area=lesson.area or lesson.file_path,
-            convention=lesson.convention or f"correction on {lesson.file_path}",
+            area=lesson.pattern or lesson.file_path,
+            convention=lesson.reason or f"correction on {lesson.file_path}",
             evidence=lesson.evidence,
             confidence=memorymod.Confidence.low,
         )
