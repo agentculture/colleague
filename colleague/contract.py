@@ -1571,8 +1571,20 @@ class TaskResult:
     "lesson_recorded"}`` record populated by the loop: what was recalled and
     injected before work (h7: token-capped and diagnosable from the artifact —
     a misleading memory is traceable, never silent) and whether the post-run
-    lesson landed in the store. Omit-when-None, so a memory-less run serializes
-    byte-identically."""
+    lesson landed in the store.
+
+    Retrieval-precision instrumentation (post-#387, spec c9/h8/h24) adds four
+    more keys on an armed, scoreable run — ``class_key``, ``precision_rule``,
+    ``class_relevant_recalled``, ``class_relevant_in_top_k``, plus
+    ``class_relevant_rank`` only when something matched: did the
+    class-relevant lesson actually surface in the recalled top-k? They are
+    computed from the artifact-recorded recall results by the PRE-DECLARED,
+    deterministic rule ``memory.CLASS_KEY_RULE`` (documented in
+    ``docs/features/memory.md``) — never an LLM judgment at record time,
+    never a post-hoc call. An unscoreable work item (empty assignment text)
+    adds none of them.
+
+    Omit-when-None, so a memory-less run serializes byte-identically."""
     media: Optional[dict[str, Any]] = None
     """Delivery record for the task's media attachments (t9, decision c25), or
     ``None`` for an attachment-less run. Shape: ``{"attachments": [{"path",

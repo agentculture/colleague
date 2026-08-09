@@ -38,6 +38,7 @@ import enum
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404 - launching operator CLI is the point (trusted env, D2)
 from pathlib import Path
@@ -345,6 +346,119 @@ def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> di
         "text": text,
         "metadata": dict(metadata),
     }
+
+
+# ── retrieval-precision instrumentation (post-387 program, spec c9/h8/h24) ──
+#
+# THE PRE-DECLARED RULE (versioned, deterministic, no model judgment).
+#
+# The #387 dogfooding run showed recall injections near-saturating
+# RECALL_BLOCK_CAP by generation 7: SELECTION, not store size, became the
+# binding constraint — and nothing measured whether the RIGHT lesson surfaced.
+# These three pure functions make that measurable per work item, so a rerun can
+# plot a learning CURVE instead of totals.
+#
+# Rule ``class-key-slug-v1``, in full:
+#
+# 1. A work item's CLASS is its assignment text: ``task.goal`` when set, else
+#    ``task.instruction`` (the same source the recall query derives from).
+# 2. The class KEY is that text lowercased, split on every non-alphanumeric
+#    run, the first _CLASS_KEY_TOKENS tokens joined with "-", truncated to
+#    _CLASS_KEY_CAP chars.  Empty text yields "" (unscoreable — no fields).
+# 3. Remember-after STAMPS that key into the lesson record's ``metadata``
+#    under ``CLASS_KEY_FIELD``.
+# 4. A recalled record is CLASS-RELEVANT iff its stamped key, read from
+#    exactly two declared places (``record["metadata"]["class_key"]`` first,
+#    then a flattened ``record["class_key"]``), is EXACTLY EQUAL to the
+#    recalling task's class key.  Nothing else counts: no substring match, no
+#    score threshold, no LLM judgment at record time, no post-hoc human call.
+#
+# Consequence, stated honestly: records predating the stamp (or written by the
+# operator's own /remember) can never be class-relevant.  That is visible in
+# the artifact as ``class_relevant_recalled: 0`` rather than hidden — the same
+# honest-degradation stance as the rest of the memory seam.
+#
+# Composition note (deliberate): the score is computed over the RECALLED set,
+# before any injection filtering.  A later relevance-threshold / supersedes
+# pass filters what gets INJECTED and records its own exclusions; it does not
+# change what these fields mean.
+
+#: The pre-declared, versioned id of the class-relevance rule above.  It rides
+#: every scored artifact so a reader can tell WHICH rule produced the numbers.
+CLASS_KEY_RULE = "class-key-slug-v1"
+
+#: The record field (inside ``metadata``, or flattened) carrying the class key.
+CLASS_KEY_FIELD = "class_key"
+
+#: How many leading tokens of the assignment text the class slug keeps.
+_CLASS_KEY_TOKENS = 8
+
+#: Hard cap on the class slug, in characters.
+_CLASS_KEY_CAP = 64
+
+
+def task_class_key(text: str) -> str:
+    """Derive the deterministic class key for a work item's assignment text.
+
+    Pure and total: same text in, same key out, on any machine, with no model
+    turn and no store access.  Returns ``""`` for text with no alphanumeric
+    content (an unscoreable work item — the caller emits no precision fields).
+    """
+    tokens = [tok for tok in re.split(r"[^a-z0-9]+", str(text).lower()) if tok]
+    if not tokens:
+        return ""
+    return "-".join(tokens[:_CLASS_KEY_TOKENS])[:_CLASS_KEY_CAP]
+
+
+def record_class_key(record: dict[str, Any]) -> str:
+    """Read a recalled record's stamped class key from its two declared places.
+
+    ``record["metadata"]["class_key"]`` wins; a flattened ``record["class_key"]``
+    is the fallback (eidetic CLIs have shipped both shapes).  Anything else —
+    missing, non-string, non-dict metadata — reads as ``""`` (not relevant).
+    """
+    if not isinstance(record, dict):
+        return ""
+    meta = record.get("metadata")
+    if isinstance(meta, dict):
+        value = meta.get(CLASS_KEY_FIELD)
+        if isinstance(value, str):
+            return value
+    value = record.get(CLASS_KEY_FIELD)
+    return value if isinstance(value, str) else ""
+
+
+def score_recall_precision(records: list[dict[str, Any]], class_key: str) -> dict[str, Any]:
+    """Score one recall against the pre-declared class-relevance rule.
+
+    Returns the per-task precision fields destined for ``TaskResult.memory``:
+
+    - ``class_key`` — the recalling task's key (audit: what was matched on)
+    - ``precision_rule`` — :data:`CLASS_KEY_RULE` (audit: which rule)
+    - ``class_relevant_recalled`` — how many recalled records matched
+    - ``class_relevant_in_top_k`` — did at least one surface in the top-k
+    - ``class_relevant_rank`` — 1-based rank of the FIRST match; omitted (not
+      null) when there is none, mirroring the artifact's omit-when-absent style
+
+    An empty *class_key* returns ``{}`` — an unscoreable work item adds no
+    fields rather than recording a meaningless zero.
+    """
+    if not class_key:
+        return {}
+    ranks = [
+        index + 1
+        for index, record in enumerate(records or [])
+        if record_class_key(record) == class_key
+    ]
+    scored: dict[str, Any] = {
+        "class_key": class_key,
+        "precision_rule": CLASS_KEY_RULE,
+        "class_relevant_recalled": len(ranks),
+        "class_relevant_in_top_k": bool(ranks),
+    }
+    if ranks:
+        scored["class_relevant_rank"] = ranks[0]
+    return scored
 
 
 # ── code-lesson record type (plan t8, spec c4/h4) ──────────────────────────
