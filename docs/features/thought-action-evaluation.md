@@ -380,8 +380,11 @@ safe direction). It will miss paraphrases.
 
 ### Whether the front model becomes a quality bottleneck is UNMEASURED
 
-An experiment measures it later. Do NOT claim the cognition placement is
-proven; it is a hypothesis under test.
+A committed experiment measures this; until it runs, the claim that intent
+belongs in the front seat remains a **hypothesis under test**, not a result.
+Nothing in this mode's structure is evidence that the split improves outcomes —
+the structural tests prove the authority boundary holds, not that holding it is
+worth what it costs.
 
 ### Legacy vs TAE distinction
 
