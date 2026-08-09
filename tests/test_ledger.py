@@ -470,7 +470,8 @@ def test_full_episode_reconstruction() -> None:
     assert exec_entries[0].action_id == "a-1"
 
     # Verify the full chain is reconstructable:
-    # thought(t-1) -> action(a-1) -> evaluation(aligned/execute) -> reroute(execute) -> execution -> outcome
+    # thought(t-1) -> action(a-1) -> evaluation(aligned/execute)
+    #   -> reroute(execute) -> execution -> outcome
     chain = [(e.kind, e.thought_id, e.action_id) for e in entries]
     assert chain == [
         (KIND_THOUGHT, "t-1", None),
