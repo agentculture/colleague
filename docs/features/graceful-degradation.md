@@ -129,6 +129,15 @@ The trade-off is acceptable:
   3`) so the loop's termination guarantee still holds. No new exit path, no
   daemon, no new runtime dependency. Once retries exhaust or the floor is
   reached, the loop stops and preserves the partial result.
+- **`COLLEAGUE_TIMEOUT` measures silence, not generation, under streaming:**
+  with SSE armed by default (#393, [`engines.md`](engines.md)) the socket
+  timeout applies per read, so a long generation no longer races it — only a
+  genuine stall does. That stall still classifies as a request timeout
+  (`is_request_timeout` matches, because the streaming path re-raises through
+  the same `_raise_legible_timeout` as the blocking one), so this whole
+  degradation path is unchanged; see
+  [`backpressure.md`](backpressure.md) for the recorded decision to keep the
+  #255 thresholds and the #268 escalation as-is.
 - **Request timeout against a dead server:** A request timeout against a
   genuinely unreachable or stuck server still wastes up to `_MAX_TIMEOUT_RETRIES`
   bounded retries (each a full `COLLEAGUE_TIMEOUT` window) before the partial is

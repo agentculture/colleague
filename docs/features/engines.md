@@ -71,6 +71,46 @@ proves the path against a real server:
 COLLEAGUE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
+#### Headless SSE streaming — default-on ([#393][i393])
+
+[i393]: https://github.com/agentculture/colleague/issues/393
+
+Every completion the adapter sends carries `stream: true` +
+`stream_options: {include_usage: true}` and is read as Server-Sent Events.
+`COLLEAGUE_STREAM=0` (or `false`/`no`/`off`) opts out and restores the
+pre-#393 blocking request byte-identically — neither key on the wire, and
+`_stream_or_blocking` is never even entered.
+
+**Why the default flipped.** Streaming used to arm *only* off
+`EngineConfig.on_delta` — a **display** seam that only the session/cockpit
+sinks set (`cli/_commands/work.py` `_arm_delta_stream`). A headless
+`colleague work` never set it, so every turn took the blocking `urlopen`,
+whose `read()` returns only once the *whole* completion has been generated.
+That quietly turned `COLLEAGUE_TIMEOUT` into a per-turn **generation**
+ceiling: observed live in the #387 arms, turns of 300-430s against a 600s
+ceiling, with one task killed on its finish turn. Under SSE the socket
+timeout applies per read, so it measures **silence between chunks** — a long
+generation is legitimate, only a genuine stall fails.
+
+**The mechanism.** `_build_chat_payload` is the single arming decision:
+streaming arms when a delta sink is present **or**
+`_headless_streaming_enabled()` (default true). It is therefore
+*engine-uniform* by construction — the acting cortex/worker seat, deepthink,
+senses and an evaluator all build their payload there, via `_make_complete`.
+The `on_delta` seam is untouched: an unarmed `on_delta` still means "no
+display surface", and a headless streamed turn feeds the module-level
+`_noop_delta` instead. The mid-stream → one-blocking-request same-turn
+fallback, the keepalive/comment-line tolerance, and the
+"a 400/422 naming `stream` degrades to blocking" rule are all unchanged — so
+retargeting a server that cannot stream stays a config change, never a code
+change.
+
+Pinned by `tests/test_headless_streaming.py` (payload, opt-out vocabulary,
+seat uniformity, stall classification, fallback, all-engines shape parity on
+the streaming / blocking-fallback / opt-out paths). Suites that script turns
+by stubbing the blocking `_post_json` keep running on the default streaming
+path through `tests/conftest.py`'s `_sse_bridge_over_blocking_stubs`.
+
 ## Writing your own backend plugin
 
 ```python
