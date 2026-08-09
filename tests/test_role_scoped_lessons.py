@@ -10,15 +10,14 @@ Covers three changes across two modules:
 
 from __future__ import annotations
 
-import json
 import os
 import stat
 from pathlib import Path
-from unittest.mock import patch
 
-import colleague.memory as memory_mod
+import pytest
+
 import colleague.distill as distill_mod
-
+import colleague.memory as memory_mod
 
 # ===========================================================================
 # PART 1 — attribute_component
@@ -30,39 +29,72 @@ class TestAttributeComponent:
 
     def test_front_bad_thought_good_action(self) -> None:
         """faithful action from a bad thought → component 'front'."""
-        assert memory_mod.attribute_component(
-            thought_ok=False, action_faithful=True, verdict_correct=False
-        ) == "front"
+        assert (
+            memory_mod.attribute_component(
+                thought_ok=False, action_faithful=True, verdict_correct=False
+            )
+            == "front"
+        )
 
     def test_worker_good_thought_action_drift(self) -> None:
         """good thought but action drift → component 'worker'."""
-        assert memory_mod.attribute_component(
-            thought_ok=True, action_faithful=False, verdict_correct=False
-        ) == "worker"
+        assert (
+            memory_mod.attribute_component(
+                thought_ok=True, action_faithful=False, verdict_correct=False
+            )
+            == "worker"
+        )
 
     def test_evaluator_incorrect_verdict(self) -> None:
         """incorrect evaluator verdict → component 'evaluator'."""
-        assert memory_mod.attribute_component(
-            thought_ok=False, action_faithful=False, verdict_correct=False
-        ) == "evaluator"
+        assert (
+            memory_mod.attribute_component(
+                thought_ok=False, action_faithful=False, verdict_correct=False
+            )
+            == "evaluator"
+        )
+
+    def test_good_thought_faithful_action_wrong_verdict_is_evaluator(self) -> None:
+        """A good thought realised faithfully, yet judged wrongly, is the
+        textbook 'incorrect evaluator rejection/approval' from issue #397 —
+        it belongs to the evaluator, NOT to the system residual bucket."""
+        assert (
+            memory_mod.attribute_component(
+                thought_ok=True, action_faithful=True, verdict_correct=False
+            )
+            == "evaluator"
+        )
 
     def test_system_cross_role_or_routing(self) -> None:
-        """cross-role or routing failure → component 'system'."""
-        assert memory_mod.attribute_component(
-            thought_ok=True, action_faithful=True, verdict_correct=False
-        ) == "system"
+        """cross-role or routing failure → component 'system'.
+
+        Neither seat's own policy is individually at fault (the verdict was
+        correct), so the failure is orchestration-level.
+        """
+        assert (
+            memory_mod.attribute_component(
+                thought_ok=False, action_faithful=False, verdict_correct=True
+            )
+            == "system"
+        )
 
     def test_all_true_is_system(self) -> None:
         """thought_ok=True, action_faithful=True, verdict_correct=True → system."""
-        assert memory_mod.attribute_component(
-            thought_ok=True, action_faithful=True, verdict_correct=True
-        ) == "system"
+        assert (
+            memory_mod.attribute_component(
+                thought_ok=True, action_faithful=True, verdict_correct=True
+            )
+            == "system"
+        )
 
     def test_all_false_is_evaluator(self) -> None:
         """thought_ok=False, action_faithful=False, verdict_correct=False → evaluator."""
-        assert memory_mod.attribute_component(
-            thought_ok=False, action_faithful=False, verdict_correct=False
-        ) == "evaluator"
+        assert (
+            memory_mod.attribute_component(
+                thought_ok=False, action_faithful=False, verdict_correct=False
+            )
+            == "evaluator"
+        )
 
     def test_deterministic(self) -> None:
         """Same inputs always produce the same output."""
@@ -89,7 +121,7 @@ class TestBuildLessonRecordComponent:
             'echo "CWD: $(pwd)" >> "$LOG"\n'
             'echo "---" >> "$LOG"\n'
             'if [ "$1" = "recall" ]; then\n'
-            '  echo \'[]\'\n'
+            "  echo '[]'\n"
             'elif [ "$1" = "remember" ]; then\n'
             '  echo "ok"\n'
             "fi\n",
@@ -99,7 +131,7 @@ class TestBuildLessonRecordComponent:
         return script
 
     def test_valid_component_accepted(self, tmp_path: Path, monkeypatch) -> None:
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
         record = memory_mod.build_lesson_record(
             "task-1",
@@ -109,9 +141,9 @@ class TestBuildLessonRecordComponent:
         assert record["metadata"]["component"] == "worker"
 
     def test_invalid_component_rejected(self, tmp_path: Path, monkeypatch) -> None:
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             memory_mod.build_lesson_record(
                 "task-1",
                 "test lesson",
@@ -120,7 +152,7 @@ class TestBuildLessonRecordComponent:
 
     def test_no_component_is_ok(self, tmp_path: Path, monkeypatch) -> None:
         """Legacy records without a component field are still accepted."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
         record = memory_mod.build_lesson_record(
             "task-1",
@@ -203,7 +235,7 @@ class TestDistillEvaluatorOnlyRefusal:
             'echo "CWD: $(pwd)" >> "$LOG"\n'
             'echo "---" >> "$LOG"\n'
             'if [ "$1" = "recall" ]; then\n'
-            '  echo \'[]\'\n'
+            "  echo '[]'\n"
             'elif [ "$1" = "remember" ]; then\n'
             '  echo "ok"\n'
             "fi\n",
@@ -214,20 +246,12 @@ class TestDistillEvaluatorOnlyRefusal:
 
     def test_evaluator_only_lesson_refused(self, tmp_path: Path, monkeypatch) -> None:
         """A lesson with only evaluation_id in evidence is refused."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
-        # The child_main path: when the lesson has only evaluation_id,
-        # upsert_lesson should return False because the evidence guard
-        # rejects it.
-        lesson = {
-            "pattern": "test pattern",
-            "constant": "test constant",
-            "reason": "test reason",
-        }
-        # We test the guard directly: lesson_has_external_evidence returns
-        # False for evaluator-only evidence, so the upsert path should
-        # refuse.
+        # The guard is tested directly: lesson_has_external_evidence returns
+        # False for evaluator-only evidence, so the upsert path refuses. An
+        # evaluator verdict is a DIAGNOSIS, never ground truth (issue #397).
         evidence = {"evaluation_id": "eval-1"}
         assert distill_mod.lesson_has_external_evidence(evidence) is False
 
@@ -259,7 +283,7 @@ class TestFilterForInjectionRoleScoped:
             'echo "CWD: $(pwd)" >> "$LOG"\n'
             'echo "---" >> "$LOG"\n'
             'if [ "$1" = "recall" ]; then\n'
-            '  echo \'[]\'\n'
+            "  echo '[]'\n"
             'elif [ "$1" = "remember" ]; then\n'
             '  echo "ok"\n'
             "fi\n",
@@ -272,7 +296,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_role_none_no_filtering(self, tmp_path: Path, monkeypatch) -> None:
         """When role is None, behaviour is exactly as it is today: no filtering."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [
@@ -287,7 +311,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_role_none_empty_records(self, tmp_path: Path, monkeypatch) -> None:
         """role=None with empty records returns empty."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
         kept, excluded = memory_mod.filter_for_injection([], env=None)
         assert kept == []
@@ -297,7 +321,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_role_worker_injects_worker_and_cross_role(self, tmp_path: Path, monkeypatch) -> None:
         """role='worker' injects worker lessons and cross_role lessons."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [
@@ -317,7 +341,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_role_worker_injects_legacy_no_component(self, tmp_path: Path, monkeypatch) -> None:
         """Records with no component are treated as unscoped and still injected."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [
@@ -331,9 +355,11 @@ class TestFilterForInjectionRoleScoped:
         assert "legacy2" in kept_ids
         assert "worker1" in kept_ids
 
-    def test_role_evaluator_injects_evaluator_and_cross_role(self, tmp_path: Path, monkeypatch) -> None:
+    def test_role_evaluator_injects_evaluator_and_cross_role(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         """role='evaluator' injects evaluator lessons and cross_role lessons."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [
@@ -349,7 +375,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_role_system_injects_system_and_cross_role(self, tmp_path: Path, monkeypatch) -> None:
         """role='system' injects system lessons and cross_role lessons."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [
@@ -365,7 +391,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_role_front_injects_front_and_cross_role(self, tmp_path: Path, monkeypatch) -> None:
         """role='front' injects front lessons and cross_role lessons."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [
@@ -381,7 +407,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_cross_role_true_injects_for_any_role(self, tmp_path: Path, monkeypatch) -> None:
         """A record with cross_role=True is injected regardless of role."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [
@@ -394,7 +420,7 @@ class TestFilterForInjectionRoleScoped:
 
     def test_excluded_list_populated(self, tmp_path: Path, monkeypatch) -> None:
         """Excluded records appear in the excluded list."""
-        eidetic = self._make_fake_eidetic(tmp_path)
+        self._make_fake_eidetic(tmp_path)
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
         records = [

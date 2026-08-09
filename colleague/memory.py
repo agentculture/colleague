@@ -344,9 +344,7 @@ def build_recall_block(records: list[dict[str, Any]], *, cap_chars: int = RECALL
 _VALID_COMPONENTS: frozenset[str] = frozenset({"front", "worker", "evaluator", "system"})
 
 
-def attribute_component(
-    thought_ok: bool, action_faithful: bool, verdict_correct: bool
-) -> str:
+def attribute_component(thought_ok: bool, action_faithful: bool, verdict_correct: bool) -> str:
     """Determine which seat failed from the triad of boolean facts.
 
     Attribution table:
@@ -355,13 +353,18 @@ def attribute_component(
       (``thought_ok=False``, ``action_faithful=True``)
     - **worker** — good thought but action drift
       (``thought_ok=True``, ``action_faithful=False``)
-    - **evaluator** — incorrect evaluator verdict
-      (``verdict_correct=False`` and neither of the above)
-    - **system** — cross-role or routing failure
-      (``thought_ok=True``, ``action_faithful=True``, ``verdict_correct=False``)
+    - **evaluator** — incorrect evaluator rejection/approval
+      (``verdict_correct=False`` and neither of the above); note this INCLUDES
+      the good-thought/faithful-action/wrong-verdict case, which is the
+      textbook incorrect verdict and belongs to the evaluator, not to
+      ``system``
+    - **system** — cross-role or routing failure: the residual bucket for a
+      failure not attributable to any single seat's policy
 
     Deterministic and total: every combination of the three booleans maps
-    to exactly one of the four component strings.
+    to exactly one of the four component strings. The caller only invokes
+    this when there IS a failure to attribute; the all-true input therefore
+    falls to ``system`` rather than describing a healthy run.
     """
     if not thought_ok and action_faithful:
         return "front"
@@ -387,8 +390,7 @@ def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> di
     comp = meta.get("component")
     if comp is not None and comp not in _VALID_COMPONENTS:
         raise ValueError(
-            f"Invalid lesson component {comp!r}; "
-            f"must be one of {sorted(_VALID_COMPONENTS)}"
+            f"Invalid lesson component {comp!r}; " f"must be one of {sorted(_VALID_COMPONENTS)}"
         )
     return {
         "id": f"work-lesson-{task_id}",
@@ -703,9 +705,39 @@ def filter_recall_records(
     return kept, excluded
 
 
+def filter_role_scoped(
+    records: list[dict[str, Any]],
+    role: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep only the lessons *role* is entitled to see (plan task t17, c39/h31).
+
+    A lesson is injected when ANY of these holds:
+
+    * its ``metadata.component`` equals *role* — the lesson is about this seat;
+    * its ``metadata.cross_role`` is true — an EXPLICIT opt-in to every seat;
+    * it carries no ``component`` at all — legacy/unscoped records are never
+      silently dropped (a pre-t17 store must keep working).
+
+    Everything else is excluded with reason ``not-scoped-to:<role>``, so the
+    exclusion stays traceable on ``TaskResult.memory`` rather than silent.
+    """
+    kept: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for record in records or []:
+        metadata = record.get("metadata")
+        component = metadata.get("component") if isinstance(metadata, dict) else None
+        cross_role = bool(metadata.get("cross_role")) if isinstance(metadata, dict) else False
+        if not component or cross_role or component == role:
+            kept.append(record)
+        else:
+            excluded.append({"id": record.get("id", ""), "reason": f"not-scoped-to:{role}"})
+    return kept, excluded
+
+
 def filter_for_injection(
     records: list[dict[str, Any]],
     *,
+    role: str | None = None,
     env: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Env-driven wrapper around :func:`filter_recall_records` (t6 entry point).
@@ -714,14 +746,32 @@ def filter_for_injection(
     is a strict identity: ``(list(records), [])`` — every recalled record is
     kept and nothing is ever excluded, byte-identical to injection behavior
     before this task, regardless of the threshold env vars.
+
+    *role* (plan task t17) additionally narrows the kept set to the lessons
+    that seat is entitled to see — see :func:`filter_role_scoped`. It is
+    deliberately NOT gated on the hygiene master switch: role scoping is a
+    correctness property of the thought-action-evaluation mode (a lesson about
+    the evaluator must never be injected into the worker), not a tuning knob.
+    ``role=None`` — every pre-t17 caller — leaves behaviour byte-identical.
     """
+    if role is None:
+        if not recall_hygiene_enabled(env):
+            return list(records or []), []
+        return filter_recall_records(
+            records,
+            min_score=recall_min_score(env),
+            min_signal=recall_min_signal(env),
+        )
     if not recall_hygiene_enabled(env):
-        return list(records or []), []
-    return filter_recall_records(
-        records,
-        min_score=recall_min_score(env),
-        min_signal=recall_min_signal(env),
-    )
+        kept, excluded = list(records or []), []
+    else:
+        kept, excluded = filter_recall_records(
+            records,
+            min_score=recall_min_score(env),
+            min_signal=recall_min_signal(env),
+        )
+    kept, role_excluded = filter_role_scoped(kept, role)
+    return kept, excluded + role_excluded
 
 
 # ── code-lesson record type (plan t8, spec c4/h4) ──────────────────────────
