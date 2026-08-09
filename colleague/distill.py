@@ -110,14 +110,21 @@ def resolve_distill_author(
        carries a non-empty model id, that model is the author. This is the
        dual-model mode: the deepthink model (or lobes-discovered ``muse`` role)
        is the distillation author because it is the stronger reasoner.
-    2. **Lobes cortex** — when lobes is armed (``lobes_roles`` is not ``None``),
+    2. **Armed thought→action→evaluation: the DECLARED distiller, or nothing.**
+       In that mode both implicit candidates are disqualified — the cortex role
+       IS the evaluator seat, and the acting dial points at the worker, which
+       would make the actor author lessons about its own work. So an explicit
+       ``distiller_checkpoint`` names the author, and its absence falls to the
+       rung-1 floor. Declaring a distiller names the AUTHOR; it must never
+       merely license the evaluator to author.
+    3. **Lobes cortex** — when lobes is armed (``lobes_roles`` is not ``None``),
        the cortex role is the author — UNLESS the cortex checkpoint is a
        declared evaluator seat with no distinct distiller authority declared
        (:func:`_refuses_evaluator_as_distiller`, spec c38/h30): the evaluator
        and the distiller are distinct authority contracts even when they
        share a checkpoint, so that case falls through to the rung-1 floor
        rather than silently handing the evaluator write access to memory.
-    3. **None** — when neither deepthink nor lobes is configured (or the
+    4. **None** — when neither deepthink nor lobes is configured (or the
        guard above refuses the candidate), no author is resolved. The rung-1
        floor stands (byte-identical record, no counters — spec c16/h13).
 
