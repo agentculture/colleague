@@ -42,6 +42,7 @@ from typing import Iterator
 
 import pytest
 
+from colleague import distill, lobes
 from colleague.cli._errors import CliError
 from colleague.config import (
     _DEFAULT_API_KEY,
@@ -717,15 +718,37 @@ def test_armed_evaluator_checkpoint_collides_with_the_distill_candidate(
 ) -> None:
     """The PRECONDITION t4's guard exists for: in the armed mode the lobes
     cortex role serves the evaluator seat AND is what distill.py's author
-    resolution would otherwise pick (config.model / lobes_roles.cortex.model).
-    Without a declared distiller the evaluator would silently gain
-    memory-write authority — hence the guard, hence this pin."""
+    resolution would otherwise pick. Without a declared distiller the evaluator
+    would silently gain memory-write authority — hence the guard, hence this pin.
+
+    UPDATED BY PLAN TASK t13. t12 pinned the collision through ``config.model``,
+    which was then still the cortex id because t12 deliberately did not repoint
+    the acting dial. t13 repoints it: with the mode armed, ``config.model`` is
+    the WORKER seat (``colleague/config.py``'s ``elif resolved_seats is not
+    None`` branch, mirroring three-tier's t8 worker-as-actor override), because
+    the worker acts and the evaluator does not.
+
+    The collision the guard exists for is UNCHANGED and still live — it simply
+    lives where it always really lived: ``distill.resolve_distill_author``'s
+    rung 2 reads ``lobes_roles.cortex`` DIRECTLY, and the cortex role is the
+    evaluator seat. So the guard must key on ``evaluator_checkpoint``, never on
+    ``config.model`` — which is exactly what the two guard tests below already
+    assert (``guard(cfg, cfg.evaluator_checkpoint)``)."""
     with _serving(SEATED_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
         monkeypatch.setenv("COLLEAGUE_THOUGHT_ACTION_EVALUATION", "1")
         cfg = EngineConfig.resolve()
+        roles = lobes.resolve_roles(gateway)
     assert cfg.lobes_gateway_url is not None
-    assert cfg.model == cfg.evaluator_checkpoint
+    # The acting dial is the WORKER (t13) — the evaluator never acts.
+    assert cfg.model == _WORKER_MODEL
+    assert cfg.evaluator_checkpoint == _CORTEX_MODEL
+    # ...and the distill author distill.py would otherwise pick IS that
+    # evaluator checkpoint: the collision, and therefore the guard, stands.
+    assert roles is not None
+    author = distill.resolve_distill_author(cfg, roles)
+    assert author is not None
+    assert author.model == cfg.evaluator_checkpoint
 
 
 def test_declared_distiller_checkpoint_env(monkeypatch: pytest.MonkeyPatch) -> None:

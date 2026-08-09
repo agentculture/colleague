@@ -3437,6 +3437,20 @@ class EngineConfig:
         # plain presence check, never a second refusal path. The loop itself
         # (colleague/loop.py) is UNTOUCHED by this task — it simply drives
         # whatever ``EngineConfig`` hands back, exactly as it always has.
+        #
+        # The thought→action→evaluation mode (plan task t13) MIRRORS this
+        # mechanism rather than inventing a second one: with the mode armed, the
+        # acting dial becomes ``evaluation_seats.worker``'s own resolution, for
+        # the identical reason ("the worker acts; the evaluator judges and does
+        # not act"). t12 deliberately left the dial alone and said so; this is
+        # that repoint. The two modes are mutually exclusive by refusal
+        # (:func:`_refuse_conflicting_execution_modes`), so the two branches can
+        # never both fire. The evaluator's own checkpoint stays on
+        # ``evaluator_checkpoint`` — which is exactly what keeps
+        # ``distill.py``'s authority-separation guard (spec c38/h30) able to
+        # refuse the evaluator seat lesson-authoring authority: the guard reads
+        # ``evaluator_checkpoint``, never ``config.model``, so repointing the
+        # acting dial cannot weaken it.
         acting_model = resolved_model
         acting_base_url = resolved_base_url
         acting_api_key = resolved_api_key
@@ -3446,6 +3460,11 @@ class EngineConfig:
             acting_base_url = resolved_worker.base_url
             acting_api_key = resolved_worker.api_key
             acting_context_budget_tokens = resolved_worker.context
+        elif resolved_seats is not None:
+            acting_model = resolved_seats.worker.model
+            acting_base_url = resolved_seats.worker.base_url
+            acting_api_key = resolved_seats.worker.api_key
+            acting_context_budget_tokens = resolved_seats.worker.context
 
         return cls(
             base_url=acting_base_url,
