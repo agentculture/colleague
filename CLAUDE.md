@@ -59,6 +59,20 @@ minds. The architecture, part by part:
   narrowing, work front, subagent snapshot, flight seat) — see
   `three-tier.md` § Honest limits for pinning tests; NEVER a routing policy.
   Doc: `three-tier.md`.
+- **Thought → action → evaluation (#397)** — a SEPARATE opt-in mode
+  (`thought_action_evaluation`; arming it together with `three_tier` refuses):
+  the **front** (`senses` role, no repo tools) commits a typed versioned
+  `Thought` while the raw operator input is preserved verbatim; the **worker**
+  (`worker` role) realizes it as an `ActionProposal` naming exactly one live
+  `thought_id`; the tools-off **evaluator** (`cortex` role) judges fidelity and
+  returns only `execute | rethink | replan | block` — `replan` keeps the SAME
+  thought, `rethink` returns to the front. The evaluator sits on FIVE enumerated
+  boundaries, NEVER every tool call, and **alignment is not permission** (host
+  policy/approvals gate every route). Presence-mode prose can never authorize
+  action; the host — not the worker — classifies consequential actions; the
+  whole chain lands append-only on `TaskResult.evaluation_ledger` with real
+  seat/model attribution. Byte-identical when unarmed. Doc:
+  `thought-action-evaluation.md`.
 - **Media input** — images/audio ride to a multimodal main model;
   delivery **verified** onto `TaskResult.media`.
   Doc: `media-input.md`.
@@ -251,9 +265,23 @@ distillation on a FIXED author precedence (deepthink/muse > armed-lobes main >
 none — a resolution rung, not a router), the `strive` bounded mode (an
 operator-invoked verb with its own retry policy; `chain.CONTINUABLE_REASONS`
 pinned unchanged), and the code-lesson/auto-trigger lane — each surface
-enumerated, byte-identical when unarmed.
+enumerated, byte-identical when unarmed; (10) **the thought→action→evaluation
+increment** (spec
+`docs/specs/2026-08-09-post-387-program-evaluator-rename-self-learn-speci.md`):
+THREE declared roles on a FIXED authority boundary — the **front** commits a
+typed `Thought`, the **worker** realizes it, the tools-off **evaluator** judges
+thought↔action fidelity and returns only the CLOSED vocabulary
+`execute | rethink | replan | block` — resolved BY ROLE NAME from the lobes
+gateway (`senses`/`worker`/`cortex`), an INDEPENDENT opt-in
+(`thought_action_evaluation` / `COLLEAGUE_THOUGHT_ACTION_EVALUATION`, distinct
+from `three_tier`; arming both REFUSES), deepthink absent, byte-identical when
+unarmed. The evaluator sits on FIVE enumerated boundaries, never every tool
+call. **Alignment is never permission** — host policy/approvals still gate every
+route; the evaluator cannot write memory, and evaluator/distiller stay separate
+authority contracts even on one checkpoint. NEVER an automatic task-to-model
+routing policy.
 
-Anything beyond those nine is still the excluded router; document the distinction
+Anything beyond those ten is still the excluded router; document the distinction
 honestly. **Still explicitly OUT**, each parked pending its own re-spec: the
 **retrieval-consumption lane of #277** (`embedder`/`reranker` roles are
 discoverable in the lobes `/capabilities` contract but colleague consumes only
