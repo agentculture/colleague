@@ -625,12 +625,13 @@ def _remembered_record(log: Path) -> dict:
 
 def test_distill_valid_lesson_folds_into_record(repo: Path, eidetic_log: Path) -> None:
     raw = (
-        '{"cause": "wrong file", "lesson": "check imports first", "next_delta": "grep before edit"}'
+        '{"pattern": "wrong file edited first", "constant": "colleague/loop.py", '
+        '"reason": "grep before edit"}'
     )
     task, result = _armed_distill_run(repo, lambda res, head: raw)
     record = _remembered_record(eidetic_log)
     assert "Lesson (origin=model)" in record["text"]
-    assert "check imports first" in record["text"]
+    assert "grep before edit" in record["text"]
     assert record["metadata"]["distill"] == "validated"
     assert result.memory["distill_attempts"] == 1
     assert result.memory["distill_validated"] == 1

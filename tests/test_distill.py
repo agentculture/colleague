@@ -146,6 +146,93 @@ class TestResolveDistillAuthor:
 
 
 # ===========================================================================
+# AC3 (t4, spec c38/h30) — evaluator and distiller are distinct authority
+# contracts even on a shared checkpoint. This pins the guard AT THE
+# RESOLUTION SEAM ahead of t12's real arming: no config path sets
+# ``evaluator_checkpoint``/``distiller_checkpoint`` today, so these tests
+# declare them directly on a stand-in config object (duck-typed via
+# getattr) — the same forward-compat shape a later t12 wiring would use.
+# ===========================================================================
+
+
+class TestEvaluatorDistillerAuthoritySplit:
+    """resolve_distill_author refuses a declared evaluator seat as distiller
+    unless a distinct distiller authority is declared (c38/h30)."""
+
+    def test_refuses_cortex_when_it_is_the_declared_evaluator_seat(self) -> None:
+        """cortex would normally author (test_no_deepthink_uses_cortex above);
+        armed-evaluation mode must NOT silently reuse that seat as distiller."""
+        roles = FakeLobesRoles(cortex=FakeRoleInfo(model="shared-checkpoint"))
+        config = FakeEngineConfig(deepthink=None)
+        config.evaluator_checkpoint = "shared-checkpoint"  # armed, no distinct distiller
+
+        author = distill.resolve_distill_author(config, roles)
+        assert author is None  # refused — falls to the rung-1 floor, never write memory
+
+    def test_distinct_distiller_checkpoint_lifts_the_refusal(self) -> None:
+        """A distiller checkpoint distinct from the evaluator's is honored:
+        the guard only blocks the UNDECLARED case, never a genuinely
+        separated authority."""
+        roles = FakeLobesRoles(cortex=FakeRoleInfo(model="shared-checkpoint"))
+        config = FakeEngineConfig(deepthink=None)
+        config.evaluator_checkpoint = "shared-checkpoint"
+        config.distiller_checkpoint = "a-genuinely-different-checkpoint"
+
+        author = distill.resolve_distill_author(config, roles)
+        assert author is not None  # a distinct distiller authority was declared
+
+    def test_no_evaluator_declared_is_byte_identical(self) -> None:
+        """With no evaluator/distiller declaration at all (today, always),
+        cortex resolves exactly as it did before this guard existed."""
+        roles = FakeLobesRoles(cortex=FakeRoleInfo(model="shared-checkpoint"))
+        config = FakeEngineConfig(deepthink=None)
+
+        author = distill.resolve_distill_author(config, roles)
+        assert author is not None
+        assert author.model == "shared-checkpoint"
+
+    def test_deepthink_still_wins_over_a_refused_evaluator_seat(self) -> None:
+        """Precedence is untouched by the guard: deepthink/muse beats cortex
+        regardless of the evaluator/distiller declaration."""
+        roles = FakeLobesRoles(cortex=FakeRoleInfo(model="shared-checkpoint"))
+        config = FakeEngineConfig(
+            deepthink=MagicMock(
+                model="muse-model",
+                base_url="http://muse:8001/v1",
+                api_key="key",
+                context_budget=48000,
+            )
+        )
+        config.evaluator_checkpoint = "shared-checkpoint"
+
+        author = distill.resolve_distill_author(config, roles)
+        assert author is not None
+        assert author.model == "muse-model"
+
+    def test_from_config_twin_applies_the_same_guard(self) -> None:
+        """resolve_distill_author_from_config (the t16 config-only seam) is
+        guarded identically for the armed-lobes-main-model rung."""
+        from colleague.distill import resolve_distill_author_from_config
+
+        class _Cfg:
+            deepthink = None
+            model = "shared-checkpoint"
+            base_url = "http://gw:1/v1"
+            api_key = "k"
+            lobes_gateway_url = "http://gw:1"
+            evaluator_checkpoint = "shared-checkpoint"
+
+        assert resolve_distill_author_from_config(_Cfg()) is None
+
+        class _CfgWithDistiller(_Cfg):
+            distiller_checkpoint = "a-genuinely-different-checkpoint"
+
+        author = resolve_distill_author_from_config(_CfgWithDistiller())
+        assert author is not None
+        assert author.model == "shared-checkpoint"
+
+
+# ===========================================================================
 # AC2 — Child detaches via sanctioned one-shot pattern
 # ===========================================================================
 
@@ -396,7 +483,11 @@ class TestAtomicLessonUpsert:
         repo = tmp_path / "repo"
         repo.mkdir()
 
-        valid_lesson = {"cause": "x", "lesson": "y", "next_delta": "z"}
+        valid_lesson = {
+            "pattern": "budget spent re-reading a module before editing",
+            "constant": "colleague/distill.py",
+            "reason": "grep the symbol before opening files",
+        }
         with patch("colleague.memory.remember") as mock_remember:
             mock_remember.return_value = True
 
@@ -408,7 +499,7 @@ class TestAtomicLessonUpsert:
         repo = tmp_path / "repo"
         repo.mkdir()
 
-        invalid_lesson = {"cause": "x"}  # missing required keys
+        invalid_lesson = {"pattern": "x"}  # missing required keys
         with patch("colleague.memory.remember") as mock_remember:
             distill.upsert_lesson(repo, "test-123", invalid_lesson)
             mock_remember.assert_not_called()
@@ -418,7 +509,11 @@ class TestAtomicLessonUpsert:
         repo = tmp_path / "repo"
         repo.mkdir()
 
-        valid_lesson = {"cause": "x", "lesson": "y", "next_delta": "z"}
+        valid_lesson = {
+            "pattern": "budget spent re-reading a module before editing",
+            "constant": "colleague/distill.py",
+            "reason": "grep the symbol before opening files",
+        }
         with patch("colleague.memory.remember") as mock_remember:
             mock_remember.return_value = True
 

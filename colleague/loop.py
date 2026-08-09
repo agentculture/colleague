@@ -2326,8 +2326,8 @@ def _distill_pass(
     if lesson is not None and verdict.allowed:
         counts["validated"] = 1
         text += (
-            f" Lesson (origin=model): cause: {lesson['cause']} — "
-            f"lesson: {lesson['lesson']} — next time: {lesson['next_delta']}."
+            f" Lesson (origin=model): pattern: {lesson['pattern']} — "
+            f"constant: {lesson['constant']} — reason: {lesson['reason']}."
         )
         metadata["distill"] = "validated"
         metadata["lesson_origin"] = "model"

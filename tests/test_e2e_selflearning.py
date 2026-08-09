@@ -135,16 +135,16 @@ def test_failed_run_with_validating_seam_carries_lesson(learn_repo) -> None:
     repo, store = learn_repo
     raw = json.dumps(
         {
-            "cause": "budget spent re-reading alpha.py",
-            "lesson": "map the module once, then edit",
-            "next_delta": "grep the symbol before opening files",
+            "pattern": "budget spent re-reading a module before editing",
+            "constant": "alpha.py",
+            "reason": "grep the symbol before opening files",
         }
     )
     task, result, _ = _failed_run(repo, distill_fn=lambda res, head: raw)
 
     rec = _store_record(store, task.id)
     assert "Lesson (origin=model)" in rec["text"]
-    assert "map the module once, then edit" in rec["text"]
+    assert "grep the symbol before opening files" in rec["text"]
     assert rec["metadata"]["distill"] == "validated"
     assert result.memory["distill_attempts"] == 1
     assert result.memory["distill_validated"] == 1
@@ -159,9 +159,9 @@ def test_second_run_recalls_first_runs_lesson_verbatim(learn_repo) -> None:
     repo, store = learn_repo
     raw = json.dumps(
         {
-            "cause": "budget spent re-reading alpha.py",
-            "lesson": "map the module once, then edit",
-            "next_delta": "grep the symbol before opening files",
+            "pattern": "budget spent re-reading a module before editing",
+            "constant": "alpha.py",
+            "reason": "grep the symbol before opening files",
         }
     )
     task1, result1, _ = _failed_run(repo, distill_fn=lambda res, head: raw)
@@ -180,7 +180,7 @@ def test_second_run_recalls_first_runs_lesson_verbatim(learn_repo) -> None:
     first_turn = json.dumps(seen[0])
     # The failure reason AND the distilled lesson reach the next mind verbatim.
     assert str(result1.incompletion.reason)[:60] in first_turn
-    assert "map the module once, then edit" in first_turn
+    assert "grep the symbol before opening files" in first_turn
     # And the record they came from is the one run 1 wrote.
     assert rec1["id"] == f"work-lesson-{task1.id}"
 
