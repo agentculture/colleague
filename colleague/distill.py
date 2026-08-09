@@ -151,7 +151,22 @@ def resolve_distill_author(
                 api_key=dt_api_key or "",
             )
 
-    # Rung 2: lobes cortex (armed gateway) — guarded against silently
+    # Rung 2 (armed thought→action→evaluation): the DECLARED distiller, or
+    # nothing. Mirrors resolve_distill_author_from_config — in that mode both
+    # implicit candidates are disqualified (cortex IS the evaluator, the worker
+    # IS the actor), so there is no safe fallthrough. Declaring a distiller
+    # names the AUTHOR; it must never merely license the evaluator to author.
+    if getattr(config, "thought_action_evaluation", False):
+        declared = getattr(config, "distiller_checkpoint", None)
+        if declared and isinstance(declared, str) and declared.strip():
+            return DistillAuthor(
+                model=declared.strip(),
+                base_url=getattr(config, "base_url", "") or "",
+                api_key=getattr(config, "api_key", "") or "",
+            )
+        return None
+
+    # Rung 3: lobes cortex (armed gateway) — guarded against silently
     # authoring as a declared evaluator seat (c38/h30).
     if lobes_roles is not None:
         cortex = lobes_roles.cortex
