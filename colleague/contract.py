@@ -1584,6 +1584,17 @@ class TaskResult:
     never a post-hoc call. An unscoreable work item (empty assignment text)
     adds none of them.
 
+    Recall thresholding + supersedes hygiene (plan t6, spec c10/h9) adds
+    ``recall_excluded`` — a list of ``{"id", "reason"}`` for every recalled
+    record ``memory.filter_for_injection`` dropped from the INJECTED block
+    (below-threshold on eidetic's returned ``score``/``signal`` fields, or
+    superseded by a sibling hit's ``supersedes`` field) — present ONLY when
+    at least one record was excluded, so a run that excludes nothing (or has
+    hygiene env-disabled) serializes byte-identically. The precision fields
+    above are scored over the full recalled set BEFORE this filtering, so an
+    excluded record still counts toward them — see ``memory.py``'s recall
+    thresholding module comment for the composition rule.
+
     Omit-when-None, so a memory-less run serializes byte-identically."""
     media: Optional[dict[str, Any]] = None
     """Delivery record for the task's media attachments (t9, decision c25), or

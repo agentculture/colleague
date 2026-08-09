@@ -437,4 +437,138 @@ class TestAllowListEnforcement:
         """No other verbs are in the allow-list."""
         assert "export" not in memory_mod.ALLOWED_VERBS
         assert "delete" not in memory_mod.ALLOWED_VERBS
+
+
+# ---------------------------------------------------------------------------
+# Recall thresholding + supersedes hygiene, injection-only (plan t6, c10/h9)
+# ---------------------------------------------------------------------------
+
+
+class TestFilterRecallRecordsThreshold:
+    def test_below_min_score_is_excluded_with_a_reason(self) -> None:
+        records = [
+            {"id": "a", "text": "keep me", "score": 0.9},
+            {"id": "b", "text": "drop me", "score": 0.1},
+        ]
+        kept, excluded = memory_mod.filter_recall_records(records, min_score=0.5)
+        assert [r["id"] for r in kept] == ["a"]
+        assert excluded == [{"id": "b", "reason": "below-min-score"}]
+
+    def test_below_min_signal_is_excluded_with_a_reason(self) -> None:
+        records = [
+            {"id": "a", "text": "fresh", "signal": 0.8},
+            {"id": "b", "text": "stale", "signal": 0.05},
+        ]
+        kept, excluded = memory_mod.filter_recall_records(records, min_signal=0.2)
+        assert [r["id"] for r in kept] == ["a"]
+        assert excluded == [{"id": "b", "reason": "below-min-signal"}]
+
+    def test_record_missing_score_or_signal_field_is_never_excluded(self) -> None:
+        """Nothing to threshold ⇒ fail open, not closed (matches the rest of
+        the memory seam's degrade stance)."""
+        records = [{"id": "a", "text": "no fields at all"}]
+        kept, excluded = memory_mod.filter_recall_records(records, min_score=0.9, min_signal=0.9)
+        assert kept == records
+        assert excluded == []
+
+    def test_non_numeric_score_is_never_excluded(self) -> None:
+        records = [{"id": "a", "text": "weird", "score": "not-a-number"}]
+        kept, excluded = memory_mod.filter_recall_records(records, min_score=0.5)
+        assert kept == records
+        assert excluded == []
+
+    def test_no_thresholds_configured_keeps_everything(self) -> None:
+        records = [{"id": "a", "score": 0.0}, {"id": "b", "signal": 0.0}]
+        kept, excluded = memory_mod.filter_recall_records(records)
+        assert kept == records
+        assert excluded == []
+
+    def test_missing_id_falls_back_to_positional_reference(self) -> None:
+        records = [{"text": "no id here", "score": 0.0}]
+        _, excluded = memory_mod.filter_recall_records(records, min_score=0.5)
+        assert excluded == [{"id": "#0", "reason": "below-min-score"}]
+
+
+class TestFilterRecallRecordsSupersedes:
+    def test_superseded_sibling_is_dropped_in_favor_of_the_superseding_record(self) -> None:
+        records = [
+            {"id": "old", "text": "the old lesson"},
+            {"id": "new", "text": "the new lesson", "supersedes": "old"},
+        ]
+        kept, excluded = memory_mod.filter_recall_records(records)
+        assert [r["id"] for r in kept] == ["new"]
+        assert excluded == [{"id": "old", "reason": "superseded-by:new"}]
+
+    def test_supersedes_pointing_outside_the_batch_is_left_alone(self) -> None:
+        """A supersedes id not present in THIS recalled batch is not
+        actionable here — nothing is dropped."""
+        records = [{"id": "new", "text": "lesson", "supersedes": "not-in-batch"}]
+        kept, excluded = memory_mod.filter_recall_records(records)
+        assert kept == records
+        assert excluded == []
+
+    def test_self_referential_supersedes_is_ignored(self) -> None:
+        records = [{"id": "a", "text": "lesson", "supersedes": "a"}]
+        kept, excluded = memory_mod.filter_recall_records(records)
+        assert kept == records
+        assert excluded == []
+
+    def test_threshold_and_supersedes_compose(self) -> None:
+        records = [
+            {"id": "low", "text": "weak", "score": 0.1},
+            {"id": "old", "text": "old lesson", "score": 0.9},
+            {"id": "new", "text": "new lesson", "score": 0.9, "supersedes": "old"},
+        ]
+        kept, excluded = memory_mod.filter_recall_records(records, min_score=0.5)
+        assert [r["id"] for r in kept] == ["new"]
+        assert {"id": "low", "reason": "below-min-score"} in excluded
+        assert {"id": "old", "reason": "superseded-by:new"} in excluded
+
+
+class TestFilterForInjectionEnvWrapper:
+    def test_default_env_applies_configured_thresholds(self, monkeypatch) -> None:
+        monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.5")
+        records = [
+            {"id": "a", "score": 0.9},
+            {"id": "b", "score": 0.1},
+        ]
+        kept, excluded = memory_mod.filter_for_injection(records)
+        assert [r["id"] for r in kept] == ["a"]
+        assert excluded == [{"id": "b", "reason": "below-min-score"}]
+
+    def test_hygiene_disabled_env_is_a_strict_identity(self, monkeypatch) -> None:
+        """COLLEAGUE_RECALL_HYGIENE=0 restores pre-t6 behavior byte-for-byte —
+        every record kept, nothing excluded — even with thresholds set AND a
+        supersedes edge present."""
+        monkeypatch.setenv("COLLEAGUE_RECALL_HYGIENE", "0")
+        monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.99")
+        records = [
+            {"id": "old", "score": 0.0},
+            {"id": "new", "score": 0.0, "supersedes": "old"},
+        ]
+        kept, excluded = memory_mod.filter_for_injection(records)
+        assert kept == records
+        assert excluded == []
+
+    def test_falsy_spellings_all_disable(self, monkeypatch) -> None:
+        for spelling in ("0", "false", "False", "no", "off", "OFF"):
+            monkeypatch.setenv("COLLEAGUE_RECALL_HYGIENE", spelling)
+            assert memory_mod.recall_hygiene_enabled() is False
+        monkeypatch.delenv("COLLEAGUE_RECALL_HYGIENE", raising=False)
+        assert memory_mod.recall_hygiene_enabled() is True
+
+    def test_injectable_env_mapping_does_not_touch_real_process_env(self, monkeypatch) -> None:
+        """The 3-arg pure functions accept an explicit mapping for tests
+        without needing monkeypatch at all."""
+        monkeypatch.delenv("COLLEAGUE_RECALL_HYGIENE", raising=False)
+        monkeypatch.delenv("COLLEAGUE_RECALL_MIN_SCORE", raising=False)
+        env = {"COLLEAGUE_RECALL_HYGIENE": "0"}
+        assert memory_mod.recall_hygiene_enabled(env) is False
+        assert memory_mod.recall_hygiene_enabled() is True
+        assert memory_mod.recall_min_score({"COLLEAGUE_RECALL_MIN_SCORE": "0.7"}) == 0.7
+        assert memory_mod.recall_min_score({}) is None
+
+    def test_unparseable_threshold_degrades_to_no_op(self, monkeypatch) -> None:
+        monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "not-a-float")
+        assert memory_mod.recall_min_score() is None
         assert "search" not in memory_mod.ALLOWED_VERBS
