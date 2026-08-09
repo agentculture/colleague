@@ -61,8 +61,8 @@ def _tools_change(tool_ids: list[str], origin: Origin = Origin.CORTEX) -> Change
     return ChangeUnit(target=Target.WORKER_TOOLS, origin=origin, tool_ids=tool_ids)
 
 
-def _strategist_change(origin: Origin = Origin.CORTEX) -> ChangeUnit:
-    return ChangeUnit(target=Target.WORKER_PROMPT_STRATEGIST, origin=origin)
+def _evaluator_change(origin: Origin = Origin.CORTEX) -> ChangeUnit:
+    return ChangeUnit(target=Target.WORKER_PROMPT_EVALUATOR, origin=origin)
 
 
 def _knowledge_change(origin: Origin = Origin.CORTEX) -> ChangeUnit:
@@ -119,7 +119,7 @@ def test_multiple_mid_episode_proposals_never_move_the_digest() -> None:
     before = lifecycle.effective_digest()
 
     lifecycle.propose(_tools_change(["read_file"]))
-    lifecycle.propose(_strategist_change())
+    lifecycle.propose(_evaluator_change())
     lifecycle.propose(_knowledge_change())
 
     assert lifecycle.effective_digest() == before
@@ -146,7 +146,7 @@ def test_apply_window_between_episodes_applies_queue_and_moves_digest() -> None:
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
     lifecycle.propose(
         ChangeUnit(
-            target=Target.WORKER_PROMPT_STRATEGIST,
+            target=Target.WORKER_PROMPT_EVALUATOR,
             origin=Origin.CORTEX,
             content="Strategy text",
         )
@@ -158,7 +158,7 @@ def test_apply_window_between_episodes_applies_queue_and_moves_digest() -> None:
     assert application.window == WINDOW_BETWEEN_EPISODES
     assert application.digest_before == before
     assert application.digest_after != before
-    assert lifecycle.snapshot.strategist_sections == ("Strategy text",)
+    assert lifecycle.snapshot.evaluator_sections == ("Strategy text",)
 
 
 def test_apply_window_with_empty_queue_is_a_recorded_noop() -> None:
@@ -175,7 +175,7 @@ def test_apply_window_with_empty_queue_is_a_recorded_noop() -> None:
 @pytest.mark.parametrize("window", ["mid-episode", "", "BEFORE_EPISODE_1", "between_episodes"])
 def test_apply_window_refuses_unsanctioned_window(window: str) -> None:
     lifecycle = EpisodeConfigLifecycle()
-    lifecycle.propose(_strategist_change())
+    lifecycle.propose(_evaluator_change())
 
     with pytest.raises(ConfigLifecycleError):
         lifecycle.apply_window(window)
@@ -195,7 +195,7 @@ def test_sanctioned_windows_are_exactly_the_two_named_constants() -> None:
 
 def test_propose_refuses_senses_targets_out_of_scope() -> None:
     lifecycle = EpisodeConfigLifecycle()
-    unit = ChangeUnit(target=Target.SENSES_PROMPT_STRATEGIST, origin=Origin.CORTEX)
+    unit = ChangeUnit(target=Target.SENSES_PROMPT_EVALUATOR, origin=Origin.CORTEX)
 
     verdict = lifecycle.propose(unit)
 
@@ -351,7 +351,7 @@ def test_reset_discards_everything() -> None:
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
     lifecycle.observe_turn()
     lifecycle.end_episode()
-    lifecycle.propose(_strategist_change())  # left queued on purpose
+    lifecycle.propose(_evaluator_change())  # left queued on purpose
 
     lifecycle.reset()
 
@@ -389,16 +389,16 @@ def test_events_returns_a_defensive_copy() -> None:
 
 
 # ===========================================================================
-# t5 — real-text strategist folding (replaces opaque markers)
+# t5 — real-text evaluator folding (replaces opaque markers)
 # ===========================================================================
 
 
-def test_strategist_applies_verbatim_stripped_content_not_marker() -> None:
-    """Criterion 1: applied strategist unit's verbatim stripped content lands
-    in snapshot.strategist_sections — no more origin#N markers."""
+def test_evaluator_applies_verbatim_stripped_content_not_marker() -> None:
+    """Criterion 1: applied evaluator unit's verbatim stripped content lands
+    in snapshot.evaluator_sections — no more origin#N markers."""
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
     change = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.CORTEX,
         content="  Real strategy text here  ",
     )
@@ -406,19 +406,19 @@ def test_strategist_applies_verbatim_stripped_content_not_marker() -> None:
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
 
     snap = lifecycle.snapshot
-    assert snap.strategist_sections == ("Real strategy text here",)
+    assert snap.evaluator_sections == ("Real strategy text here",)
     # No origin#N marker should appear
-    for section in snap.strategist_sections:
+    for section in snap.evaluator_sections:
         assert "#" not in section
 
 
-def test_strategist_digest_moves_once_per_applied_proposal() -> None:
+def test_evaluator_digest_moves_once_per_applied_proposal() -> None:
     """Criterion 1: the digest moves exactly once per applied proposal."""
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
     before = lifecycle.effective_digest()
 
     change = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.CORTEX,
         content="Strategy content",
     )
@@ -431,26 +431,26 @@ def test_strategist_digest_moves_once_per_applied_proposal() -> None:
     assert after != before
 
 
-def test_second_strategist_application_replaces_leaving_one_note() -> None:
-    """Criterion 2: a second strategist application across a later window
+def test_second_evaluator_application_replaces_leaving_one_note() -> None:
+    """Criterion 2: a second evaluator application across a later window
     leaves exactly ONE current note (the later one)."""
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
 
-    # First strategist proposal
+    # First evaluator proposal
     lifecycle.propose(
         ChangeUnit(
-            target=Target.WORKER_PROMPT_STRATEGIST,
+            target=Target.WORKER_PROMPT_EVALUATOR,
             origin=Origin.CORTEX,
             content="First strategy",
         )
     )
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
-    assert lifecycle.snapshot.strategist_sections == ("First strategy",)
+    assert lifecycle.snapshot.evaluator_sections == ("First strategy",)
 
-    # Second strategist proposal in a later window
+    # Second evaluator proposal in a later window
     lifecycle.propose(
         ChangeUnit(
-            target=Target.WORKER_PROMPT_STRATEGIST,
+            target=Target.WORKER_PROMPT_EVALUATOR,
             origin=Origin.CORTEX,
             content="Second strategy",
         )
@@ -458,18 +458,18 @@ def test_second_strategist_application_replaces_leaving_one_note() -> None:
     lifecycle.apply_window(WINDOW_BETWEEN_EPISODES)
 
     # Only the later one remains — replace, not append
-    assert lifecycle.snapshot.strategist_sections == ("Second strategy",)
-    assert len(lifecycle.snapshot.strategist_sections) == 1
+    assert lifecycle.snapshot.evaluator_sections == ("Second strategy",)
+    assert len(lifecycle.snapshot.evaluator_sections) == 1
 
 
-def test_strategist_at_content_cap_applies_without_raising() -> None:
+def test_evaluator_at_content_cap_applies_without_raising() -> None:
     """Criterion 2: a unit at the content cap applies without raising."""
-    from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
+    from colleague.layers import EVALUATOR_SECTION_MAX_CHARS
 
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
-    max_content = "x" * STRATEGIST_SECTION_MAX_CHARS
+    max_content = "x" * EVALUATOR_SECTION_MAX_CHARS
     change = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.CORTEX,
         content=max_content,
     )
@@ -477,7 +477,7 @@ def test_strategist_at_content_cap_applies_without_raising() -> None:
     assert verdict.allowed is True
 
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
-    assert lifecycle.snapshot.strategist_sections == (max_content,)
+    assert lifecycle.snapshot.evaluator_sections == (max_content,)
 
 
 def test_worker_tools_second_application_replaces_narrowed_set() -> None:

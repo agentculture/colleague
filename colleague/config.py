@@ -2900,7 +2900,7 @@ class EngineConfig:
         # neither a DECLARED (env/config.json) deepthink nor one discovered
         # from the lobes muse role above (``resolved_deepthink`` may already
         # hold either) survives. Three-tier's own strong-reasoning seat is
-        # the worker itself (arc summary: "strategist absent, deepthink
+        # the worker itself (arc summary: "evaluator absent, deepthink
         # absent") — forcing this HERE, before the reviewer-default backfill
         # just below reads ``resolved_deepthink``, means that backfill (t7)
         # also sees no deepthink to borrow a reviewer model from, staying

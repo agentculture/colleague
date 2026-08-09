@@ -481,7 +481,7 @@ class TestChainWindowTiming:
 
 
 class TestCumulativeFold:
-    def test_applied_strategist_content_lands_on_result_and_artifact(self, git_repo, monkeypatch):
+    def test_applied_evaluator_content_lands_on_result_and_artifact(self, git_repo, monkeypatch):
         from colleague import lobes as _lobes
 
         cortex_role = _lobes.RoleInfo(
@@ -507,7 +507,7 @@ class TestCumulativeFold:
         monkeypatch.setenv("COLLEAGUE_CONFIGURATOR", "1")
 
         content = json.dumps(
-            {"changes": [{"target": "worker.prompt.strategist", "content": "focus on X"}]}
+            {"changes": [{"target": "worker.prompt.evaluator", "content": "focus on X"}]}
         )
         seen: list = []
         engine = _DualEngine(seen, content=content)
@@ -642,11 +642,11 @@ class TestCombinedTrailSourcesTheStream:
 
         state = self._state()
         unit = ChangeUnit(
-            target=Target.WORKER_PROMPT_STRATEGIST,
+            target=Target.WORKER_PROMPT_EVALUATOR,
             origin=Origin.CORTEX,
             content="Verify before editing.",
         )
-        target = Target.WORKER_PROMPT_STRATEGIST.value
+        target = Target.WORKER_PROMPT_EVALUATOR.value
         state.stream.append(EVENT_KIND_PROPOSED, target=target, origin="cortex")
         state.stream.append(EVENT_KIND_VERIFIED, target=target, origin="cortex")
         state.stream.append(EVENT_KIND_APPLIED, target=target, origin="cortex")

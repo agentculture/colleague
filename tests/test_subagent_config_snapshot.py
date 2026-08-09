@@ -8,14 +8,14 @@ plane). Instead ``colleague/subagents.py`` reads
 :meth:`~colleague.configlifecycle.EpisodeConfigLifecycle.child_snapshot` at
 spawn time and hands the child a tiny FROZEN adapter
 (:class:`~colleague.subagents.FrozenChildConfigLifecycle`) exposing exactly
-the read surface the t3 (tool-narrowing) and t7 (strategist prompt) engine
+the read surface the t3 (tool-narrowing) and t7 (evaluator prompt) engine
 seams consume — ``snapshot`` as a PROPERTY (t7 reads it ONLY as a property;
-a method-only adapter would silently lose the strategist note) — on the
+a method-only adapter would silently lose the evaluator note) — on the
 child config's ``config_lifecycle`` field.
 
 These tests FAIL on the pre-t10 tree: ``run_subagent``/``make_spawn`` never
 read ``parent_config.config_lifecycle`` at all, so a child spawned under an
-applied narrowing or strategist note is unaffected by it (the spawn bypass
+applied narrowing or evaluator note is unaffected by it (the spawn bypass
 s19/q4 names) and ``FrozenChildConfigLifecycle`` does not exist.
 """
 
@@ -37,14 +37,14 @@ from colleague.configlifecycle import (
 from colleague.contract import OK, Task
 from colleague.engines.mock import OUTPUT_FILE, MockEngine
 from colleague.lattice import CapabilityCatalog, ChangeUnit, Origin, Target
-from colleague.layers import STRATEGIST_SECTION_HEADING
+from colleague.layers import EVALUATOR_SECTION_HEADING
 from colleague.subagents import (
     FrozenChildConfigLifecycle,
     make_spawn,
     run_subagent,
 )
 
-_STRATEGIST_NOTE = "Focus on the auth module."
+_EVALUATOR_NOTE = "Focus on the auth module."
 
 
 @pytest.fixture
@@ -67,25 +67,25 @@ def _tools_change(tool_ids: list[str]) -> ChangeUnit:
     return ChangeUnit(target=Target.WORKER_TOOLS, origin=Origin.CORTEX, tool_ids=tool_ids)
 
 
-def _strategist_change(content: str) -> ChangeUnit:
+def _evaluator_change(content: str) -> ChangeUnit:
     return ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.CORTEX,
         content=content,
     )
 
 
 def _applied_lifecycle(
-    *, tool_ids: Optional[list[str]] = None, strategist: Optional[str] = None
+    *, tool_ids: Optional[list[str]] = None, evaluator: Optional[str] = None
 ) -> EpisodeConfigLifecycle:
-    """A real lifecycle with a narrowing and/or strategist note APPLIED (not queued)."""
+    """A real lifecycle with a narrowing and/or evaluator note APPLIED (not queued)."""
     catalog_ids = list(tool_ids or []) + ["finish"]
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(catalog_ids))
     if tool_ids is not None:
         verdict = lifecycle.propose(_tools_change(tool_ids))
         assert verdict.allowed is True
-    if strategist is not None:
-        verdict = lifecycle.propose(_strategist_change(strategist))
+    if evaluator is not None:
+        verdict = lifecycle.propose(_evaluator_change(evaluator))
         assert verdict.allowed is True
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
     return lifecycle
@@ -150,10 +150,10 @@ def patch_engine(monkeypatch):
 class TestFrozenChildConfigLifecycleShape:
     def test_snapshot_is_a_property_not_a_method(self) -> None:
         """t7's engine.system_prompt reads config_lifecycle.snapshot ONLY as a
-        property (getattr then .strategist_sections, never calling it) — a
-        snapshot()-METHOD-only adapter would silently lose the strategist
+        property (getattr then .evaluator_sections, never calling it) — a
+        snapshot()-METHOD-only adapter would silently lose the evaluator
         note, so this pins the property shape directly."""
-        snap = EpisodeConfigSnapshot(strategist_sections=(_STRATEGIST_NOTE,))
+        snap = EpisodeConfigSnapshot(evaluator_sections=(_EVALUATOR_NOTE,))
         adapter = FrozenChildConfigLifecycle(snap)
         # Accessing .snapshot (no call parens) already yields the snapshot.
         assert adapter.snapshot is snap
@@ -283,12 +283,12 @@ class TestNarrowedChildCannotCallNarrowedAwayTool:
 
 
 # ===========================================================================
-# 4. Acceptance 1 — composed prompt carries the current strategist note
+# 4. Acceptance 1 — composed prompt carries the current evaluator note
 # ===========================================================================
 
 
-class TestChildPromptCarriesStrategistNote:
-    def test_child_config_composes_strategist_note_via_t7_seam(
+class TestChildPromptCarriesEvaluatorNote:
+    def test_child_config_composes_evaluator_note_via_t7_seam(
         self, tmp_path: Path, patch_engine
     ) -> None:
         """Drives the t7 seam directly (engine.system_prompt) over the
@@ -297,7 +297,7 @@ class TestChildPromptCarriesStrategistNote:
         that an object of some shape was attached."""
         engine = _CapturingEngine()
         patch_engine(engine)
-        lifecycle = _applied_lifecycle(strategist=_STRATEGIST_NOTE)
+        lifecycle = _applied_lifecycle(evaluator=_EVALUATOR_NOTE)
 
         run_subagent(
             "do it",
@@ -311,8 +311,8 @@ class TestChildPromptCarriesStrategistNote:
         child_task = Task.new(str(tmp_path), "do it")
         prompt = MockEngine().system_prompt(child_task, child_cfg)
         assert prompt is not None
-        assert STRATEGIST_SECTION_HEADING in prompt
-        assert _STRATEGIST_NOTE in prompt
+        assert EVALUATOR_SECTION_HEADING in prompt
+        assert _EVALUATOR_NOTE in prompt
 
 
 # ===========================================================================
@@ -398,17 +398,17 @@ class TestByteIdenticalAndUnappliedProposalsNeverReachChild:
         # write_file was never narrowed away, so it still executes.
         assert result.changed_files == [OUTPUT_FILE]
 
-    def test_queued_but_unapplied_strategist_note_never_reaches_child(
+    def test_queued_but_unapplied_evaluator_note_never_reaches_child(
         self, tmp_path: Path, patch_engine
     ) -> None:
         engine = _CapturingEngine()
         patch_engine(engine)
 
         lifecycle = EpisodeConfigLifecycle()
-        verdict = lifecycle.propose(_strategist_change(_STRATEGIST_NOTE))
+        verdict = lifecycle.propose(_evaluator_change(_EVALUATOR_NOTE))
         assert verdict.allowed is True
         # Never applied.
-        assert lifecycle.snapshot.strategist_sections == ()
+        assert lifecycle.snapshot.evaluator_sections == ()
 
         run_subagent(
             "do it",
@@ -419,11 +419,11 @@ class TestByteIdenticalAndUnappliedProposalsNeverReachChild:
         )
 
         child_cfg = engine.configs[0]
-        assert child_cfg.config_lifecycle.snapshot.strategist_sections == ()
+        assert child_cfg.config_lifecycle.snapshot.evaluator_sections == ()
         child_task = Task.new(str(tmp_path), "do it")
         prompt = MockEngine().system_prompt(child_task, child_cfg)
         if prompt is not None:
-            assert STRATEGIST_SECTION_HEADING not in prompt
+            assert EVALUATOR_SECTION_HEADING not in prompt
 
 
 # ===========================================================================
@@ -438,7 +438,7 @@ class TestGrandchildrenInheritIdentically:
         engine = _NestingEngine()
         patch_engine(engine)
         lifecycle = _applied_lifecycle(
-            tool_ids=["read_file", "list_dir"], strategist=_STRATEGIST_NOTE
+            tool_ids=["read_file", "list_dir"], evaluator=_EVALUATOR_NOTE
         )
 
         spawn = make_spawn(str(tmp_path), EngineConfig(config_lifecycle=lifecycle), "mock")
@@ -451,24 +451,24 @@ class TestGrandchildrenInheritIdentically:
             assert isinstance(cfg.config_lifecycle, FrozenChildConfigLifecycle)
             assert not isinstance(cfg.config_lifecycle, EpisodeConfigLifecycle)
 
-        # Identical inheritance: same tool_set / strategist_sections at both depths.
+        # Identical inheritance: same tool_set / evaluator_sections at both depths.
         assert (
             child_cfg.config_lifecycle.snapshot.tool_set
             == grandchild_cfg.config_lifecycle.snapshot.tool_set
             == ("read_file", "list_dir")
         )
         assert (
-            child_cfg.config_lifecycle.snapshot.strategist_sections
-            == grandchild_cfg.config_lifecycle.snapshot.strategist_sections
-            == (_STRATEGIST_NOTE,)
+            child_cfg.config_lifecycle.snapshot.evaluator_sections
+            == grandchild_cfg.config_lifecycle.snapshot.evaluator_sections
+            == (_EVALUATOR_NOTE,)
         )
 
-    def test_grandchild_prompt_still_carries_strategist_note(
+    def test_grandchild_prompt_still_carries_evaluator_note(
         self, tmp_path: Path, patch_engine
     ) -> None:
         engine = _NestingEngine()
         patch_engine(engine)
-        lifecycle = _applied_lifecycle(strategist=_STRATEGIST_NOTE)
+        lifecycle = _applied_lifecycle(evaluator=_EVALUATOR_NOTE)
 
         spawn = make_spawn(str(tmp_path), EngineConfig(config_lifecycle=lifecycle), "mock")
         spawn("root instruction")
@@ -478,8 +478,8 @@ class TestGrandchildrenInheritIdentically:
         task = Task.new(str(tmp_path), "grandchild instruction")
         prompt = MockEngine().system_prompt(task, grandchild_cfg)
         assert prompt is not None
-        assert STRATEGIST_SECTION_HEADING in prompt
-        assert _STRATEGIST_NOTE in prompt
+        assert EVALUATOR_SECTION_HEADING in prompt
+        assert _EVALUATOR_NOTE in prompt
 
     def test_grandchild_tool_narrowing_still_refuses(self, git_repo: Path, patch_engine) -> None:
         """Depth>1 narrowing enforcement: a grandchild spawned two levels deep

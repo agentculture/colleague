@@ -522,7 +522,7 @@ class TestPerEntryProcessing:
                 {
                     "changes": [
                         {"tool_ids": ["read_file"]},  # missing "target" -> refused
-                        {"target": "worker.prompt.strategist"},  # valid -> verified
+                        {"target": "worker.prompt.evaluator"},  # valid -> verified
                     ]
                 }
             )
@@ -542,7 +542,7 @@ class TestPerEntryProcessing:
 
         assert len(result.refused) == 1
         assert len(result.verified) == 1
-        assert result.verified[0].target is Target.WORKER_PROMPT_STRATEGIST
+        assert result.verified[0].target is Target.WORKER_PROMPT_EVALUATOR
 
     def test_wrongly_typed_tool_ids_is_refused_whole(self) -> None:
         fake = _FakeEngine(
@@ -619,7 +619,7 @@ class TestPerEntryProcessing:
         and its presence does not itself trigger an extra-keys refusal."""
         fake = _FakeEngine(
             content=json.dumps(
-                {"changes": [{"target": "worker.prompt.strategist", "origin": "host"}]}
+                {"changes": [{"target": "worker.prompt.evaluator", "origin": "host"}]}
             )
         )
         stream = ConfigEventStream()
@@ -641,7 +641,7 @@ class TestPerEntryProcessing:
     def test_genuinely_unknown_extra_key_refuses_whole_via_the_lattice(self) -> None:
         fake = _FakeEngine(
             content=json.dumps(
-                {"changes": [{"target": "worker.prompt.strategist", "policy": "escalate"}]}
+                {"changes": [{"target": "worker.prompt.evaluator", "policy": "escalate"}]}
             )
         )
         stream = ConfigEventStream()
@@ -784,18 +784,18 @@ class TestKnowledgeEntryOriginStamping:
 # ===========================================================================
 # Change-content field (change-content-consumption-lane spec, acceptance
 # criterion 2): a changes entry may carry "content" (a string) for a
-# strategist target.
+# evaluator target.
 # ===========================================================================
 
 
 class TestContentField:
-    def test_strategist_content_is_carried_through(self) -> None:
+    def test_evaluator_content_is_carried_through(self) -> None:
         fake = _FakeEngine(
             content=json.dumps(
                 {
                     "changes": [
                         {
-                            "target": "worker.prompt.strategist",
+                            "target": "worker.prompt.evaluator",
                             "content": "focus on the honest-README timer inversion",
                         }
                     ]
@@ -818,17 +818,17 @@ class TestContentField:
         assert len(result.refused) == 0
         assert len(result.verified) == 1
         unit = result.verified[0]
-        assert unit.target is Target.WORKER_PROMPT_STRATEGIST
+        assert unit.target is Target.WORKER_PROMPT_EVALUATOR
         assert unit.content == "focus on the honest-README timer inversion"
         assert [e.kind for e in stream.replay()] == [EVENT_KIND_PROPOSED, EVENT_KIND_VERIFIED]
 
     def test_content_is_not_treated_as_an_extra_key(self) -> None:
         """content joined _RECOGNIZED_CHANGE_KEYS -- it must never itself
-        trigger the generic extra-keys lattice refusal on a strategist
+        trigger the generic extra-keys lattice refusal on an evaluator
         target."""
         fake = _FakeEngine(
             content=json.dumps(
-                {"changes": [{"target": "worker.prompt.strategist", "content": "a note"}]}
+                {"changes": [{"target": "worker.prompt.evaluator", "content": "a note"}]}
             )
         )
         stream = ConfigEventStream()
@@ -849,7 +849,7 @@ class TestContentField:
     def test_wrongly_typed_content_is_refused_whole(self) -> None:
         fake = _FakeEngine(
             content=json.dumps(
-                {"changes": [{"target": "worker.prompt.strategist", "content": 12345}]}
+                {"changes": [{"target": "worker.prompt.evaluator", "content": 12345}]}
             )
         )
         stream = ConfigEventStream()
@@ -870,8 +870,8 @@ class TestContentField:
         # never even reached lifecycle.propose() -- no PROPOSED event either
         assert [e.kind for e in stream.replay()] == [EVENT_KIND_REFUSED]
 
-    def test_content_on_a_non_strategist_target_refuses_whole_via_the_lattice(self) -> None:
-        """content is only valid on a *.prompt.strategist target -- on any
+    def test_content_on_a_non_evaluator_target_refuses_whole_via_the_lattice(self) -> None:
+        """content is only valid on a *.prompt.evaluator target -- on any
         other target the lattice's own field/target-shape check refuses the
         whole unit (this module never special-cases it)."""
         fake = _FakeEngine(
@@ -896,13 +896,11 @@ class TestContentField:
         assert len(result.refused) == 1
         assert "content" in result.refused[0][1]
 
-    def test_content_less_strategist_unit_stays_valid(self) -> None:
-        """A content-less strategist unit (existing proposals, pre-lane)
+    def test_content_less_evaluator_unit_stays_valid(self) -> None:
+        """A content-less evaluator unit (existing proposals, pre-lane)
         stays valid -- content defaults to "" and never trips the
         field/target-shape check."""
-        fake = _FakeEngine(
-            content=json.dumps({"changes": [{"target": "worker.prompt.strategist"}]})
-        )
+        fake = _FakeEngine(content=json.dumps({"changes": [{"target": "worker.prompt.evaluator"}]}))
         stream = ConfigEventStream()
         lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
 

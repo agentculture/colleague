@@ -57,7 +57,7 @@ def test_apply_config_window_between_episodes_applies_the_queue() -> None:
     lifecycle = EpisodeConfigLifecycle()
     lifecycle.propose(
         ChangeUnit(
-            target=Target.WORKER_PROMPT_STRATEGIST,
+            target=Target.WORKER_PROMPT_EVALUATOR,
             origin=Origin.CORTEX,
             content="Strategy text",
         )
@@ -66,12 +66,12 @@ def test_apply_config_window_between_episodes_applies_the_queue() -> None:
     application = apply_config_window(lifecycle, WINDOW_BETWEEN_EPISODES)
 
     assert application.applied_count == 1
-    assert lifecycle.snapshot.strategist_sections == ("Strategy text",)
+    assert lifecycle.snapshot.evaluator_sections == ("Strategy text",)
 
 
 def test_apply_config_window_refuses_a_mid_episode_call() -> None:
     lifecycle = EpisodeConfigLifecycle()
-    lifecycle.propose(ChangeUnit(target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX))
+    lifecycle.propose(ChangeUnit(target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX))
 
     with pytest.raises(ConfigLifecycleError):
         apply_config_window(lifecycle, "mid-episode")
