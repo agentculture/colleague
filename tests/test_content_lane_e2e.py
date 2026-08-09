@@ -5,7 +5,7 @@ change-content consumption lane (plan task t11 — spec docs/specs/
 Every OTHER task's own test file (t1 tests/test_lattice.py, t2 tests/
 test_flight_heartbeat.py, t3 tests/test_tool_narrowing.py, t5 tests/
 test_configlifecycle.py, t6 tests/test_configurator.py, t7 tests/
-test_engine_strategist_seam.py, t8 tests/test_contract_configevents.py, t9
+test_engine_evaluator_seam.py, t8 tests/test_contract_configevents.py, t9
 tests/test_work_config_plane.py, t10 tests/test_subagent_config_snapshot.py)
 already proves its OWN mechanism in isolation. This module's job is
 different: it is the ONE place that drives a SINGLE scripted cortex
@@ -14,7 +14,7 @@ work.execute_work``, exactly what ``colleague work``/``session`` call) and
 proves the six lanes the announcement names hold TOGETHER, end to end, with
 no rig and no network:
 
-  (a) a strategist note lands in the NEXT episode's composed system prompt
+  (a) an evaluator note lands in the NEXT episode's composed system prompt
   (b) a tool narrowing lands on the offered schema AND the executor
   (c) the front's armed windows fold config_events onto the artifact
   (d) cortex knowledge-entry origins are auto-stamped (a model-supplied
@@ -23,7 +23,7 @@ no rig and no network:
   (f) the applied content on the artifact is byte-verbatim
 
 ...plus the containment claims (acceptance criterion 3): an over-cap
-strategist proposal refuses whole, the section renders under its ONE named
+evaluator proposal refuses whole, the section renders under its ONE named
 heading on every engine's composed prompt, and an unarmed run has no code
 path by which cortex text could ever reach a prompt.
 
@@ -75,7 +75,7 @@ from colleague.contract import OK, Task
 from colleague.engines import vllm_openai
 from colleague.engines.mock import MockEngine
 from colleague.engines.vllm_openai import VllmOpenAIEngine
-from colleague.layers import STRATEGIST_SECTION_HEADING, STRATEGIST_SECTION_MAX_CHARS
+from colleague.layers import EVALUATOR_SECTION_HEADING, EVALUATOR_SECTION_MAX_CHARS
 from colleague.loop import ModelResponse, ToolCall
 
 # ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ def _read_artifact(path: Path) -> dict:
 
 # ===========================================================================
 # Lanes (a) + (b, executor half) + (c) + (f) — ONE hermetic mock run:
-# a scripted cortex reply carrying BOTH strategist content AND a tool
+# a scripted cortex reply carrying BOTH evaluator content AND a tool
 # narrowing in the SAME window -> the next (only) episode's composed prompt
 # carries the text, the narrowed-away tool refuses at the executor, the
 # folded config_events (incl. verbatim applied content) ride BOTH the
@@ -237,7 +237,7 @@ def _read_artifact(path: Path) -> dict:
 # ===========================================================================
 
 
-class TestStrategistAndToolNarrowingHermeticEndToEnd:
+class TestEvaluatorAndToolNarrowingHermeticEndToEnd:
     def test_scripted_cortex_reply_drives_prompt_narrowing_and_artifact(
         self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -246,7 +246,7 @@ class TestStrategistAndToolNarrowingHermeticEndToEnd:
         cortex_content = json.dumps(
             {
                 "changes": [
-                    {"target": "worker.prompt.strategist", "content": note},
+                    {"target": "worker.prompt.evaluator", "content": note},
                     {"target": "worker.tools", "tool_ids": ["list_dir", "read_file", "finish"]},
                 ]
             }
@@ -275,11 +275,11 @@ class TestStrategistAndToolNarrowingHermeticEndToEnd:
             allow_dirty=True,
         )
 
-        # -- lane (a): the strategist note rides the NEXT (here: only)
+        # -- lane (a): the evaluator note rides the NEXT (here: only)
         # episode's composed system prompt, under its named heading.
         assert captured_prompts, "the scripted worker completion must have been called"
         system_content = captured_prompts[0]
-        assert STRATEGIST_SECTION_HEADING in system_content
+        assert EVALUATOR_SECTION_HEADING in system_content
         assert note in system_content
 
         # -- lane (b), executor half: write_file was narrowed away
@@ -300,27 +300,27 @@ class TestStrategistAndToolNarrowingHermeticEndToEnd:
         assert "verified" in kinds
         assert "applied" in kinds
         applied = [e for e in result.config_events if e.kind == "applied"]
-        assert len(applied) == 2  # the strategist unit + the tools unit
+        assert len(applied) == 2  # the evaluator unit + the tools unit
         assert result.config_digest is not None
 
         data = _read_artifact(artifact_path)
         assert [e["kind"] for e in data["config_events"]] == kinds
         assert data["config_digest"] == result.config_digest
 
-        # -- lane (f): the applied strategist unit's content is byte-verbatim
+        # -- lane (f): the applied evaluator unit's content is byte-verbatim
         # on BOTH the in-memory result and the on-disk artifact; the
-        # sibling applied tools unit carries no content (only strategist
+        # sibling applied tools unit carries no content (only evaluator
         # targets ever do).
-        applied_strategist = [e for e in applied if e.target == "worker.prompt.strategist"]
-        assert len(applied_strategist) == 1
-        assert applied_strategist[0].content == note
+        applied_evaluator = [e for e in applied if e.target == "worker.prompt.evaluator"]
+        assert len(applied_evaluator) == 1
+        assert applied_evaluator[0].content == note
 
         applied_dicts = [e for e in data["config_events"] if e["kind"] == "applied"]
-        applied_strategist_dict = [
-            e for e in applied_dicts if e["target"] == "worker.prompt.strategist"
+        applied_evaluator_dict = [
+            e for e in applied_dicts if e["target"] == "worker.prompt.evaluator"
         ]
-        assert len(applied_strategist_dict) == 1
-        assert applied_strategist_dict[0]["content"] == note
+        assert len(applied_evaluator_dict) == 1
+        assert applied_evaluator_dict[0]["content"] == note
 
         applied_tools_dict = [e for e in applied_dicts if e["target"] == "worker.tools"]
         assert len(applied_tools_dict) == 1
@@ -402,7 +402,7 @@ class TestOfferedSchemaNarrowedOnTheWire:
         cortex_content = json.dumps(
             {
                 "changes": [
-                    {"target": "worker.prompt.strategist", "content": note},
+                    {"target": "worker.prompt.evaluator", "content": note},
                     {"target": "worker.tools", "tool_ids": ["list_dir", "read_file", "finish"]},
                 ]
             }
@@ -442,7 +442,7 @@ class TestOfferedSchemaNarrowedOnTheWire:
         # lane (a), all-engines parity: the SAME composed system prompt rides
         # the actual request the worker sent.
         system_content = worker_payload["messages"][0]["content"]
-        assert STRATEGIST_SECTION_HEADING in system_content
+        assert EVALUATOR_SECTION_HEADING in system_content
         assert note in system_content
 
         data = _read_artifact(artifact_path)
@@ -606,7 +606,7 @@ class TestSeatNamedFlightLineThroughTheFront:
 
 
 class TestContainment:
-    def test_over_cap_strategist_content_refuses_whole_through_the_front(
+    def test_over_cap_evaluator_content_refuses_whole_through_the_front(
         self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Pre-arc gap (h17): before plan task t1 landed (commit 8571cb4's
@@ -617,9 +617,9 @@ class TestContainment:
         lattice, before ever reaching the snapshot or any prompt.
         """
         _arm_configurator_cortex_dial(monkeypatch)
-        over_cap = "x" * (STRATEGIST_SECTION_MAX_CHARS + 1)
+        over_cap = "x" * (EVALUATOR_SECTION_MAX_CHARS + 1)
         cortex_content = json.dumps(
-            {"changes": [{"target": "worker.prompt.strategist", "content": over_cap}]}
+            {"changes": [{"target": "worker.prompt.evaluator", "content": over_cap}]}
         )
         engine = _ScriptedCortexMockEngine(cortex_content)
         monkeypatch.setattr("colleague.registry.load", lambda name: engine)
@@ -645,17 +645,17 @@ class TestContainment:
 
         assert config.config_lifecycle is not None
         # Refused whole — never folded onto the effective snapshot.
-        assert config.config_lifecycle.snapshot.strategist_sections == ()
+        assert config.config_lifecycle.snapshot.evaluator_sections == ()
         refused = [e for e in result.config_events if e.kind == "refused"]
         assert refused
-        assert refused[0].target == "worker.prompt.strategist"
+        assert refused[0].target == "worker.prompt.evaluator"
         applied = [e for e in result.config_events if e.kind == "applied"]
         assert applied == []
         # And it never reached the composed prompt.
         assert captured_prompts
-        assert STRATEGIST_SECTION_HEADING not in captured_prompts[0]
+        assert EVALUATOR_SECTION_HEADING not in captured_prompts[0]
 
-    def test_strategist_section_renders_under_its_one_heading_on_both_engines(
+    def test_evaluator_section_renders_under_its_one_heading_on_both_engines(
         self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Both engines compose the SAME heading exactly once — never
@@ -667,7 +667,7 @@ class TestContainment:
         # -- mock half
         _arm_configurator_cortex_dial(monkeypatch)
         cortex_content = json.dumps(
-            {"changes": [{"target": "worker.prompt.strategist", "content": note}]}
+            {"changes": [{"target": "worker.prompt.evaluator", "content": note}]}
         )
         mock_engine = _ScriptedCortexMockEngine(cortex_content)
         monkeypatch.setattr("colleague.registry.load", lambda name: mock_engine)
@@ -687,7 +687,7 @@ class TestContainment:
             config=mock_config,
             allow_dirty=True,
         )
-        assert captured_prompts[0].count(STRATEGIST_SECTION_HEADING) == 1
+        assert captured_prompts[0].count(EVALUATOR_SECTION_HEADING) == 1
 
         # -- vllm half
         vllm_engine = _RealWorkFakeCortex(VllmOpenAIEngine(), cortex_content)
@@ -711,13 +711,13 @@ class TestContainment:
             allow_dirty=True,
         )
         vllm_system = captured_payloads[0]["messages"][0]["content"]
-        assert vllm_system.count(STRATEGIST_SECTION_HEADING) == 1
+        assert vllm_system.count(EVALUATOR_SECTION_HEADING) == 1
         # And the engine's own default system text still carries through
-        # (the #363 T3 trap: a strategist-only composition must not silently
+        # (the #363 T3 trap: an evaluator-only composition must not silently
         # drop the engine base) — both composed prompts are longer than the
         # heading + note alone.
-        assert len(vllm_system) > len(STRATEGIST_SECTION_HEADING) + len(note) + 50
-        assert len(captured_prompts[0]) > len(STRATEGIST_SECTION_HEADING) + len(note) + 50
+        assert len(vllm_system) > len(EVALUATOR_SECTION_HEADING) + len(note) + 50
+        assert len(captured_prompts[0]) > len(EVALUATOR_SECTION_HEADING) + len(note) + 50
 
     def test_unarmed_run_has_no_code_path_for_cortex_text(
         self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
@@ -731,7 +731,7 @@ class TestContainment:
         ``if config.worker is None: return None`` (``_arm_config_plane``,
         i.e. arming is impossible without a resolved three-tier worker).
         ``colleague/engine.py`` is the ONLY module that ever passes
-        ``strategist_section=`` to the composition layer
+        ``evaluator_section=`` to the composition layer
         (``colleague/layers.py``), and it reads that value from
         ``config.config_lifecycle`` alone — never a literal, never
         ``task.instruction``/``task.goal``. So an unarmed config
@@ -772,12 +772,12 @@ class TestContainment:
         assert offenders == []
 
         engine_source = Path(engine_module.__file__).read_text(encoding="utf-8")
-        assert engine_source.count("strategist_section=strategist_section") >= 1
+        assert engine_source.count("evaluator_section=evaluator_section") >= 1
 
         # Behavioral: an unarmed run, even with the heading text SITTING in
         # the task's own instruction, never composes it into the prompt via
-        # the strategist seam (task.instruction rides the USER message, not
-        # the system message's strategist section — a separate, pre-existing
+        # the evaluator seam (task.instruction rides the USER message, not
+        # the system message's evaluator section — a separate, pre-existing
         # boundary this reconfirms rather than assumes).
         monkeypatch.setattr("colleague.registry.load", lambda name: MockEngine())
         captured_prompts: list = []
@@ -788,7 +788,7 @@ class TestContainment:
         config = EngineConfig.resolve()
         assert config.worker is None
         task = Task.new(
-            str(git_repo), f"do the thing; also mention {STRATEGIST_SECTION_HEADING}", engine="mock"
+            str(git_repo), f"do the thing; also mention {EVALUATOR_SECTION_HEADING}", engine="mock"
         )
         execute_work(
             repo=git_repo,
@@ -800,4 +800,4 @@ class TestContainment:
             allow_dirty=True,
         )
         assert getattr(config, "config_lifecycle", None) is None
-        assert STRATEGIST_SECTION_HEADING not in captured_prompts[0]
+        assert EVALUATOR_SECTION_HEADING not in captured_prompts[0]

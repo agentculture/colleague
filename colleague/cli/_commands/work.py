@@ -663,7 +663,7 @@ _READ_ONLY_MODES = frozenset({"explore", "review"})
 # ---------------------------------------------------------------------------
 #
 # The three-tier design lets cortex CONFIGURE the worker episode (a narrowed
-# tool set, a bounded strategist note, extra knowledge) via
+# tool set, a bounded evaluator note, extra knowledge) via
 # colleague/configlifecycle.py + colleague/configurator.py — both complete
 # and tested, but nothing in either CLI or session front ever constructed a
 # lifecycle or called colleague.chain.run_configurator_window (d3). This
@@ -688,7 +688,7 @@ class _ConfigPlaneState:
     :class:`~colleague.lattice.CapabilityCatalog` resolved once and reused by
     every window this task runs, and the APPLIED
     :class:`~colleague.lattice.ChangeUnit` objects accumulated across every
-    window so far (q5 — the only way an applied strategist unit's verbatim
+    window so far (q5 — the only way an applied evaluator unit's verbatim
     content can ride the folded artifact, since neither the lifecycle's own
     event nor :class:`~colleague.configlifecycle.ConfigApplication` carries
     it).

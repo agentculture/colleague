@@ -22,7 +22,7 @@ from colleague.lattice import (
     Target,
     validate_change,
 )
-from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
+from colleague.layers import EVALUATOR_SECTION_MAX_CHARS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,11 +52,11 @@ def test_valid_host_write_worker_tools() -> None:
     assert result.reason == ""
 
 
-def test_valid_host_write_worker_prompt_strategist() -> None:
-    """Host-origin writing worker.prompt.strategist is accepted."""
+def test_valid_host_write_worker_prompt_evaluator() -> None:
+    """Host-origin writing worker.prompt.evaluator is accepted."""
     catalog = _catalog(["read_file"])
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.HOST,
     )
     result = validate_change(unit, catalog)
@@ -75,11 +75,11 @@ def test_valid_host_write_worker_knowledge() -> None:
     assert result.allowed is True
 
 
-def test_valid_host_write_senses_prompt_strategist() -> None:
-    """Host-origin writing senses.prompt.strategist is accepted."""
+def test_valid_host_write_senses_prompt_evaluator() -> None:
+    """Host-origin writing senses.prompt.evaluator is accepted."""
     catalog = _catalog(["read_file"])
     unit = ChangeUnit(
-        target=Target.SENSES_PROMPT_STRATEGIST,
+        target=Target.SENSES_PROMPT_EVALUATOR,
         origin=Origin.HOST,
     )
     result = validate_change(unit, catalog)
@@ -306,11 +306,11 @@ def test_worker_origin_write_worker_tools_refused() -> None:
     assert "worker" in result.reason.lower()
 
 
-def test_worker_origin_write_worker_prompt_strategist_refused() -> None:
-    """Worker-origin writing worker.prompt.strategist is refused."""
+def test_worker_origin_write_worker_prompt_evaluator_refused() -> None:
+    """Worker-origin writing worker.prompt.evaluator is refused."""
     catalog = _catalog(["read_file"])
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.WORKER,
     )
     result = validate_change(unit, catalog)
@@ -331,11 +331,11 @@ def test_worker_origin_write_worker_knowledge_refused() -> None:
     assert "worker" in result.reason.lower()
 
 
-def test_worker_origin_write_senses_prompt_strategist_refused() -> None:
-    """Worker-origin writing senses.prompt.strategist is refused."""
+def test_worker_origin_write_senses_prompt_evaluator_refused() -> None:
+    """Worker-origin writing senses.prompt.evaluator is refused."""
     catalog = _catalog(["read_file"])
     unit = ChangeUnit(
-        target=Target.SENSES_PROMPT_STRATEGIST,
+        target=Target.SENSES_PROMPT_EVALUATOR,
         origin=Origin.WORKER,
     )
     result = validate_change(unit, catalog)
@@ -544,29 +544,29 @@ class TestIntegratorTightening:
 
 
 # ===========================================================================
-# AC1 — content field on strategist targets validates; other targets refuse
+# AC1 — content field on evaluator targets validates; other targets refuse
 # ===========================================================================
 
 
-def test_content_on_worker_prompt_strategist_validates() -> None:
-    """A ChangeUnit with content on worker.prompt.strategist is accepted."""
+def test_content_on_worker_prompt_evaluator_validates() -> None:
+    """A ChangeUnit with content on worker.prompt.evaluator is accepted."""
     catalog = _catalog(["read_file"])
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.HOST,
-        content="some strategist guidance",
+        content="some evaluator guidance",
     )
     result = validate_change(unit, catalog)
     assert result.allowed is True
 
 
-def test_content_on_senses_prompt_strategist_validates() -> None:
-    """A ChangeUnit with content on senses.prompt.strategist is accepted."""
+def test_content_on_senses_prompt_evaluator_validates() -> None:
+    """A ChangeUnit with content on senses.prompt.evaluator is accepted."""
     catalog = _catalog(["read_file"])
     unit = ChangeUnit(
-        target=Target.SENSES_PROMPT_STRATEGIST,
+        target=Target.SENSES_PROMPT_EVALUATOR,
         origin=Origin.HOST,
-        content="some strategist guidance",
+        content="some evaluator guidance",
     )
     result = validate_change(unit, catalog)
     assert result.allowed is True
@@ -613,17 +613,17 @@ def test_content_on_senses_knowledge_refused() -> None:
 
 
 # ===========================================================================
-# AC2 — content length exceeds STRATEGIST_SECTION_MAX_CHARS refuses whole
+# AC2 — content length exceeds EVALUATOR_SECTION_MAX_CHARS refuses whole
 # ===========================================================================
 
 
 def test_content_exceeding_max_chars_refused() -> None:
-    """Content whose stripped length exceeds STRATEGIST_SECTION_MAX_CHARS
+    """Content whose stripped length exceeds EVALUATOR_SECTION_MAX_CHARS
     refuses whole."""
     catalog = _catalog(["read_file"])
-    oversized = "x" * (STRATEGIST_SECTION_MAX_CHARS + 1)
+    oversized = "x" * (EVALUATOR_SECTION_MAX_CHARS + 1)
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.HOST,
         content=oversized,
     )
@@ -632,11 +632,11 @@ def test_content_exceeding_max_chars_refused() -> None:
     assert "content" in result.reason
 
 
-def test_contentless_strategist_unit_still_valid() -> None:
-    """A strategist unit with no content stays valid (existing behaviour preserved)."""
+def test_contentless_evaluator_unit_still_valid() -> None:
+    """A evaluator unit with no content stays valid (existing behaviour preserved)."""
     catalog = _catalog(["read_file"])
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.HOST,
     )
     result = validate_change(unit, catalog)
