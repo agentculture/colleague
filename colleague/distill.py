@@ -218,10 +218,35 @@ def read_outcome_status(marker_path: Path) -> str | None:
     return status if isinstance(status, str) else None
 
 
+def lesson_has_external_evidence(evidence: dict[str, Any]) -> bool:
+    """Return ``True`` when *evidence* carries EXTERNAL grounding.
+
+    A durable lesson must be grounded in EXTERNAL evidence — an evaluator
+    verdict is a DIAGNOSIS, not ground truth.  This function returns ``True``
+    only when:
+
+    - ``external_evidence`` is a non-empty list, OR
+    - ``outcome`` is a non-empty string.
+
+    A lesson whose only evidence is an ``evaluation_id`` (evaluator verdict
+    alone) returns ``False`` — the flywheel guard in the child entry uses
+    this to refuse to persist such lessons.
+    """
+    ext = evidence.get("external_evidence")
+    if isinstance(ext, list) and len(ext) > 0:
+        return True
+    outcome = evidence.get("outcome")
+    if isinstance(outcome, str) and outcome.strip():
+        return True
+    return False
+
+
 def upsert_lesson(
     repo_path: str | Path,
     task_id: str,
     lesson: dict[str, str],
+    *,
+    evidence: dict[str, Any] | None = None,
 ) -> bool:
     """Validate-then-remember: upsert the SAME work-lesson id with the lesson folded.
 
@@ -232,6 +257,12 @@ def upsert_lesson(
     The record uses the SAME ``work-lesson-<task_id>`` id as the rung-1 record,
     so eidetic deduplication upserts in place rather than creating a duplicate.
 
+    When *evidence* is provided, the flywheel guard checks that the lesson has
+    external grounding via :func:`lesson_has_external_evidence`.  A lesson
+    whose only evidence is an evaluator verdict (``evaluation_id`` present but
+    no ``external_evidence`` and no ``outcome``) is refused with a
+    ``no-lesson-extracted`` marker — the same style already used in this file.
+
     Parameters
     ----------
     repo_path:
@@ -241,6 +272,9 @@ def upsert_lesson(
     lesson:
         The validated lesson dict (``pattern``, ``constant``, ``reason`` —
         the answer-shaped schema, #396).
+    evidence:
+        Optional evidence dict linking the chain (``thought_id``, ``action_id``,
+        ``evaluation_id``, ``outcome``, ``external_evidence``).
 
     Returns
     -------
@@ -249,6 +283,10 @@ def upsert_lesson(
     """
     verdict = lessons.validate_lesson(lesson)
     if not verdict.allowed:
+        return False
+
+    # Flywheel guard: refuse lessons whose only evidence is an evaluator verdict.
+    if evidence is not None and not lesson_has_external_evidence(evidence):
         return False
 
     # Build the record with the SAME work-lesson id as rung-1.

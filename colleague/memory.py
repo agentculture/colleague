@@ -340,17 +340,61 @@ def build_recall_block(records: list[dict[str, Any]], *, cap_chars: int = RECALL
     return "\n".join(lines)[:cap_chars]
 
 
+#: The four seats that a lesson can be attributed to.
+_VALID_COMPONENTS: frozenset[str] = frozenset({"front", "worker", "evaluator", "system"})
+
+
+def attribute_component(
+    thought_ok: bool, action_faithful: bool, verdict_correct: bool
+) -> str:
+    """Determine which seat failed from the triad of boolean facts.
+
+    Attribution table:
+
+    - **front** — faithful action from a bad thought
+      (``thought_ok=False``, ``action_faithful=True``)
+    - **worker** — good thought but action drift
+      (``thought_ok=True``, ``action_faithful=False``)
+    - **evaluator** — incorrect evaluator verdict
+      (``verdict_correct=False`` and neither of the above)
+    - **system** — cross-role or routing failure
+      (``thought_ok=True``, ``action_faithful=True``, ``verdict_correct=False``)
+
+    Deterministic and total: every combination of the three booleans maps
+    to exactly one of the four component strings.
+    """
+    if not thought_ok and action_faithful:
+        return "front"
+    if thought_ok and not action_faithful:
+        return "worker"
+    if not verdict_correct:
+        return "evaluator"
+    return "system"
+
+
 def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> dict[str, Any]:
     """Shape one work-item lesson as an eidetic record (id/type/text/metadata).
 
     Idempotent by construction: the id is derived from the task id, so a
     re-remember upserts in place (eidetic dedups by id) instead of duplicating.
+
+    If *metadata* carries a ``component`` key, it must be one of
+    ``front``, ``worker``, ``evaluator``, or ``system`` — any other value
+    raises ``ValueError``.  A missing ``component`` key is accepted (legacy
+    records carry no component).
     """
+    meta = dict(metadata)
+    comp = meta.get("component")
+    if comp is not None and comp not in _VALID_COMPONENTS:
+        raise ValueError(
+            f"Invalid lesson component {comp!r}; "
+            f"must be one of {sorted(_VALID_COMPONENTS)}"
+        )
     return {
         "id": f"work-lesson-{task_id}",
         "type": "work-lesson",
         "text": text,
-        "metadata": dict(metadata),
+        "metadata": meta,
     }
 
 
