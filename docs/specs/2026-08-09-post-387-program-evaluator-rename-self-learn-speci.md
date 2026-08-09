@@ -51,6 +51,8 @@
 - structural reuse (#397): the front loop builds on `senses_loop.py`/`presence_engine.py`, the acting loop is loop.py unchanged where possible, and chain.`CONTINUABLE_REASONS` stays pinned unchanged — the mode is new wiring over proven parts, not a parallel runtime
   - instruction: verify: no fork of loop.py; `senses_loop` reuse visible in the diff; `CONTINUABLE_REASONS` pin test untouched
   - honesty: the acting-loop diff in the mode PR is reviewably small (wiring, not rewrite); the `CONTINUABLE_REASONS` pin test is untouched
+- flight-guidance routing under the armed mode (#397): operator guidance and senses-direct words route to the FRONT as observations (possibly a new or superseding thought), never directly into the worker's loop — today flight.py:199-212 injects flat guidance strings at the worker's tool-call boundaries, which under the new mode would let mid-run guidance silently redefine the thought (the exact forbidden move)
+  - honesty: with the mode armed, a mid-run guidance line that changes the objective produces a new/superseded thought (or an explicit rethink), and the worker's next consequential action names the NEW `thought_id` — proven by test
 
 ## Honesty conditions
 
@@ -66,6 +68,7 @@
 - measured on the reference rig with the same task class that produced the #387 timeout kill
 - the top-k precision score is computed from artifact-recorded recall results, and 'class-relevant' is determined by a pre-declared rule, not post-hoc judgment
 - experiment B's five mismatch classes and expected verdicts are pre-registered verbatim from issue #397's list before any evaluator run
+- a streaming stall still classifies as a request timeout for #268 survival, and the backpressure-under-streaming decision is recorded in the spec/feature doc — not silently inherited
 
 ## Success signals
 
@@ -83,6 +86,7 @@
 ## Assumptions
 
 - sequencing per #396: #393 lands first (removes the timeout-pressure confound and would have absorbed most of the run's 32 chain legs), then the specificity redesign; the #397 role sharpening is independent of that ordering
+- streaming changes the semantics two landed heuristics key off the request timeout: backpressure #255 escalates/arms when mean per-turn latency crosses timeout fractions (backpressure.py:77-104), and timeout-survival #268 classifies request-timeout errors (context.py `is_request_timeout`) — with streaming, long generation is legitimate, so both must be consciously re-verified (kept or re-keyed) rather than silently inherited
 
 ## Scope exploration
 
@@ -114,6 +118,14 @@
   - seeds: `c9`
 - `s14` — `colleague/memory.py (recall via eidetic CLI)`: recall shells out to the operator-installed eidetic CLI (allow-listed verbs, `top_k`=5, scope colleague, visibility public) and returns parsed JSON records; `RECALL_BLOCK_CAP`=4000 bounds injection — thresholding/consolidation must either filter colleague-side over returned score/signal fields or need new eidetic-cli verbs (sibling-repo scope)
   - seeds: `c10`
+- `s15` — `challenge pass / adjacent-systems lens: backpressure.py + context.py`: both #255 thresholds and #268 survival key off the request timeout whose meaning streaming changes — long generation becomes legitimate; seeded the re-verify assumption
+  - seeds: `c34`
+- `s16` — `challenge pass / failure-modes lens: flight.py:199-212 guidance seam`: flight guidance is a flat string list injected at the worker's tool-call boundaries; under the armed mode this bypasses the thought contract — seeded the front-routing requirement
+  - seeds: `c33`
+- `s17` — `challenge pass / adjacent-systems lens: coherence.py + experiment.py + docs/organs.md (artifact-contract consumers)`: grep found no in-repo consumer of `strategist_sections`/`config_events` target strings outside contract/tui/tests; out-of-repo mesh consumers remain a parked residual
+- `s18` — `challenge pass / migration lens: oilcheck/distillation.py doctor probe`: clean — a validated lesson is counted as status==done AND a non-empty lesson dict (line 138), schema-agnostic; the outright schema replace does not break the doctor probe
+- `s19` — `challenge pass / concurrency lens: vllm_openai.py streaming reader + tests/test_boundary.py thread list`: clean — `_post_json_stream` is a synchronous in-request SSE read; the headless streaming flip adds no threads, the sanctioned-thread authority is untouched
+- `s20` — `challenge pass / security lens: evaluator authority vs approval gate`: clean at spec level — alignment-is-not-permission is already pinned (h16: an aligned verdict cannot execute a gated command); the policy gate stays a policy gate, not a sandbox (documented gap unchanged)
 
 ## Decisions
 
@@ -121,9 +133,14 @@
 - headless work streams by default (#393): a no-op delta sink arms SSE on every headless turn, the mid-stream→blocking fallback stays, and an env opt-out (`COLLEAGUE_STREAM`=0-style) restores the old wire behavior
 - the lesson schema is REPLACED outright: answer-shaped pattern + constant + reason supersedes cause/lesson/`next_delta`; no dual-schema validator; already-stored 3-key lessons recall as legacy free text
 - store hygiene lands colleague-side only: relevance thresholding + supersedes handling in memory.py's recall-before path over eidetic's returned score/signal fields; new eidetic-cli verbs are a parked cross-repo follow-up
+- streaming seat scope: the headless streaming default is engine-uniform across all vllm-openai completions; mid-action supersession resolves complete-then-re-evaluate; evaluator seat loss resolves bounded-retry-then-block
 
 ## Open parks
 
 - [unknown_nonblocking] the exact drift-threshold metric that triggers a mid-episode evaluator invocation — define during planning, must be deterministic
 - [unknown_nonblocking] whether the 12B front becomes the quality bottleneck — experiment C measures it; no default flip either way from structural tests alone
+- [unknown_nonblocking] out-of-repo artifact consumers (mesh peers, daria, feedback-export readers) may reference the `strategist_sections` record key — no in-repo consumer found beyond contract/tui; residual until a mesh-side sweep
+- [unknown_nonblocking] thought lifecycle across --until-done episode chaining and fill-line compaction — the active thought must survive an episode boundary and a validated compaction without silent loss; wiring detail to pin at plan time
+- [unknown_nonblocking] front (12B) context exhaustion under continuous conversation + a growing thought ledger — prior evidence: the proxied-senses context-window gap; experiments A/C measure cost/latency but not exhaustion
+- [unknown_nonblocking] subagent actions under the armed mode — whether a delegated child's consequential actions attribute to the parent's active `thought_id` or are out of the mode's scope in v1
 - [follow_up] eidetic-cli consolidation/supersedes verbs (cross-repo) — hygiene beyond colleague-side thresholding

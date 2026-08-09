@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-09T16:29:29Z",
-  "updated": "2026-08-09T16:49:56Z",
+  "updated": "2026-08-09T16:59:43Z",
   "claims": [
     {
       "id": "c1",
@@ -564,6 +564,56 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "flight-guidance routing under the armed mode (#397): operator guidance and senses-direct words route to the FRONT as observations (possibly a new or superseding thought), never directly into the worker's loop \u2014 today flight.py:199-212 injects flat guidance strings at the worker's tool-call boundaries, which under the new mode would let mid-run guidance silently redefine the thought (the exact forbidden move)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "with the mode armed, a mid-run guidance line that changes the objective produces a new/superseded thought (or an explicit rethink), and the worker's next consequential action names the NEW thought_id \u2014 proven by test",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "assumption",
+      "text": "streaming changes the semantics two landed heuristics key off the request timeout: backpressure #255 escalates/arms when mean per-turn latency crosses timeout fractions (backpressure.py:77-104), and timeout-survival #268 classifies request-timeout errors (context.py is_request_timeout) \u2014 with streaming, long generation is legitimate, so both must be consciously re-verified (kept or re-keyed) rather than silently inherited",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "a streaming stall still classifies as a request timeout for #268 survival, and the backpressure-under-streaming decision is recorded in the spec/feature doc \u2014 not silently inherited",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "decision",
+      "text": "streaming seat scope: the headless streaming default is engine-uniform across all vllm-openai completions; mid-action supersession resolves complete-then-re-evaluate; evaluator seat loss resolves bounded-retry-then-block",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -588,6 +638,42 @@
     {
       "id": "v3",
       "text": "whether the 12B front becomes the quality bottleneck \u2014 experiment C measures it; no default flip either way from structural tests alone",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "out-of-repo artifact consumers (mesh peers, daria, feedback-export readers) may reference the strategist_sections record key \u2014 no in-repo consumer found beyond contract/tui; residual until a mesh-side sweep",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "thought lifecycle across --until-done episode chaining and fill-line compaction \u2014 the active thought must survive an episode boundary and a validated compaction without silent loss; wiring detail to pin at plan time",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v6",
+      "text": "front (12B) context exhaustion under continuous conversation + a growing thought ledger \u2014 prior evidence: the proxied-senses context-window gap; experiments A/C measure cost/latency but not exhaustion",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v7",
+      "text": "subagent actions under the armed mode \u2014 whether a delegated child's consequential actions attribute to the parent's active thought_id or are out of the mode's scope in v1",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -707,6 +793,46 @@
       "seeds": [
         "c10"
       ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / adjacent-systems lens: backpressure.py + context.py",
+      "finding": "both #255 thresholds and #268 survival key off the request timeout whose meaning streaming changes \u2014 long generation becomes legitimate; seeded the re-verify assumption",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / failure-modes lens: flight.py:199-212 guidance seam",
+      "finding": "flight guidance is a flat string list injected at the worker's tool-call boundaries; under the armed mode this bypasses the thought contract \u2014 seeded the front-routing requirement",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / adjacent-systems lens: coherence.py + experiment.py + docs/organs.md (artifact-contract consumers)",
+      "finding": "grep found no in-repo consumer of strategist_sections/config_events target strings outside contract/tui/tests; out-of-repo mesh consumers remain a parked residual",
+      "seeds": []
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / migration lens: oilcheck/distillation.py doctor probe",
+      "finding": "clean \u2014 a validated lesson is counted as status==done AND a non-empty lesson dict (line 138), schema-agnostic; the outright schema replace does not break the doctor probe",
+      "seeds": []
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / concurrency lens: vllm_openai.py streaming reader + tests/test_boundary.py thread list",
+      "finding": "clean \u2014 _post_json_stream is a synchronous in-request SSE read; the headless streaming flip adds no threads, the sanctioned-thread authority is untouched",
+      "seeds": []
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / security lens: evaluator authority vs approval gate",
+      "finding": "clean at spec level \u2014 alignment-is-not-permission is already pinned (h16: an aligned verdict cannot execute a gated command); the policy gate stays a policy gate, not a sandbox (documented gap unchanged)",
+      "seeds": []
     }
   ],
   "lapses": []
