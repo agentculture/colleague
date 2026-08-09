@@ -743,12 +743,14 @@ def test_armed_evaluator_checkpoint_collides_with_the_distill_candidate(
     # The acting dial is the WORKER (t13) — the evaluator never acts.
     assert cfg.model == _WORKER_MODEL
     assert cfg.evaluator_checkpoint == _CORTEX_MODEL
-    # ...and the distill author distill.py would otherwise pick IS that
-    # evaluator checkpoint: the collision, and therefore the guard, stands.
+    # The collision is real: the candidate rung 2 would otherwise pick — the
+    # cortex role read DIRECTLY off lobes — IS the evaluator checkpoint.
     assert roles is not None
-    author = distill.resolve_distill_author(cfg, roles)
-    assert author is not None
-    assert author.model == cfg.evaluator_checkpoint
+    assert roles.cortex.model == cfg.evaluator_checkpoint
+    # ...and because it is, the guard refuses outright: no author, so the run
+    # falls honestly to the rung-1 floor rather than letting the evaluator
+    # seat write durable memory (spec c38/h30).
+    assert distill.resolve_distill_author(cfg, roles) is None
 
 
 def test_declared_distiller_checkpoint_env(monkeypatch: pytest.MonkeyPatch) -> None:
