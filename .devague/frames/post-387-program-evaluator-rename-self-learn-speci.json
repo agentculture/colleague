@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-09T16:29:29Z",
-  "updated": "2026-08-09T16:59:43Z",
+  "updated": "2026-08-09T17:37:12Z",
   "claims": [
     {
       "id": "c1",
@@ -607,6 +607,94 @@
       "id": "c35",
       "kind": "decision",
       "text": "streaming seat scope: the headless streaming default is engine-uniform across all vllm-openai completions; mid-action supersession resolves complete-then-re-evaluate; evaluator seat loss resolves bounded-retry-then-block",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "front cadences (#397 comment): the front runs two modes \u2014 presence (thinking disabled, cheap conversational/environmental contact) and thought-commitment (bounded thinking, emits the typed Thought) \u2014 and presence-mode prose can NEVER authorize action: the worker must not infer a hidden plan from it; only a committed Thought grants action-planning authority",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "a presence-mode utterance that implies an objective produces NO ActionProposal \u2014 a test proves action planning requires a committed thought_id",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "learning-loop boundary (#397 comment): an evaluator-only verdict never becomes durable memory or training signal by itself \u2014 a verdict is a diagnosis, not ground truth; durable lessons require qualifying external evidence (operator grades, deterministic tests, integrator correction diffs, observed outcomes), and the task-local thought/action/evaluation trace is discardable after distillation \u2014 only externally grounded validated lessons persist",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "a lesson whose only evidence is an evaluator verdict is refused at distillation; every durable lesson's metadata links thought, action, evaluation, outcome, and the qualifying external evidence",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "evaluator \u2260 distiller (#397 comment): evaluation and distillation are DISTINCT authority contracts even on the same checkpoint \u2014 the evaluator is closed-world thought\u2194action judgment and cannot write memory; the distiller runs post-outcome and only when evidence exists; distill.py's lobes-cortex fallback must not silently hand the evaluator seat distillation authority in the armed mode",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "in the armed mode, distillation author resolution refuses the evaluator seat unless a distinct distiller authority is declared \u2014 a test pins the split even when both use the same checkpoint",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "component-attributed, role-scoped lessons (#397 comment): every lesson attributes to the component that failed (bad thought \u2192 front lesson; action drift \u2192 worker lesson; wrong verdict \u2192 evaluator lesson; routing failure \u2192 system lesson) and recall is role-scoped (intent/ambiguity \u2192 front, action/code \u2192 worker, alignment examples \u2192 evaluator; cross-role only when explicitly marked); component target, artifact ids, evidence source, and provenance live in record METADATA or a deliberately versioned schema \u2014 never ad hoc keys in the validated payload",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "recall-before injects only lessons scoped to the recalling role (or explicitly cross-role); component attribution and provenance live in metadata, and the validated payload keys stay exactly the versioned schema's",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "decision",
+      "text": "front-model policy (#397 comment): Gemma 4 12B is the reference CANDIDATE, not an architectural requirement \u2014 role resolution stays model-agnostic and the front model is promoted to decision authority only if experiment A shows intent-quality gains without becoming the latency/quality bottleneck",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],

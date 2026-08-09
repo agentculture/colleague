@@ -53,6 +53,14 @@
   - honesty: the acting-loop diff in the mode PR is reviewably small (wiring, not rewrite); the `CONTINUABLE_REASONS` pin test is untouched
 - flight-guidance routing under the armed mode (#397): operator guidance and senses-direct words route to the FRONT as observations (possibly a new or superseding thought), never directly into the worker's loop — today flight.py:199-212 injects flat guidance strings at the worker's tool-call boundaries, which under the new mode would let mid-run guidance silently redefine the thought (the exact forbidden move)
   - honesty: with the mode armed, a mid-run guidance line that changes the objective produces a new/superseded thought (or an explicit rethink), and the worker's next consequential action names the NEW `thought_id` — proven by test
+- front cadences (#397 comment): the front runs two modes — presence (thinking disabled, cheap conversational/environmental contact) and thought-commitment (bounded thinking, emits the typed Thought) — and presence-mode prose can NEVER authorize action: the worker must not infer a hidden plan from it; only a committed Thought grants action-planning authority
+  - honesty: a presence-mode utterance that implies an objective produces NO ActionProposal — a test proves action planning requires a committed `thought_id`
+- learning-loop boundary (#397 comment): an evaluator-only verdict never becomes durable memory or training signal by itself — a verdict is a diagnosis, not ground truth; durable lessons require qualifying external evidence (operator grades, deterministic tests, integrator correction diffs, observed outcomes), and the task-local thought/action/evaluation trace is discardable after distillation — only externally grounded validated lessons persist
+  - honesty: a lesson whose only evidence is an evaluator verdict is refused at distillation; every durable lesson's metadata links thought, action, evaluation, outcome, and the qualifying external evidence
+- evaluator ≠ distiller (#397 comment): evaluation and distillation are DISTINCT authority contracts even on the same checkpoint — the evaluator is closed-world thought↔action judgment and cannot write memory; the distiller runs post-outcome and only when evidence exists; distill.py's lobes-cortex fallback must not silently hand the evaluator seat distillation authority in the armed mode
+  - honesty: in the armed mode, distillation author resolution refuses the evaluator seat unless a distinct distiller authority is declared — a test pins the split even when both use the same checkpoint
+- component-attributed, role-scoped lessons (#397 comment): every lesson attributes to the component that failed (bad thought → front lesson; action drift → worker lesson; wrong verdict → evaluator lesson; routing failure → system lesson) and recall is role-scoped (intent/ambiguity → front, action/code → worker, alignment examples → evaluator; cross-role only when explicitly marked); component target, artifact ids, evidence source, and provenance live in record METADATA or a deliberately versioned schema — never ad hoc keys in the validated payload
+  - honesty: recall-before injects only lessons scoped to the recalling role (or explicitly cross-role); component attribution and provenance live in metadata, and the validated payload keys stay exactly the versioned schema's
 
 ## Honesty conditions
 
@@ -134,6 +142,7 @@
 - the lesson schema is REPLACED outright: answer-shaped pattern + constant + reason supersedes cause/lesson/`next_delta`; no dual-schema validator; already-stored 3-key lessons recall as legacy free text
 - store hygiene lands colleague-side only: relevance thresholding + supersedes handling in memory.py's recall-before path over eidetic's returned score/signal fields; new eidetic-cli verbs are a parked cross-repo follow-up
 - streaming seat scope: the headless streaming default is engine-uniform across all vllm-openai completions; mid-action supersession resolves complete-then-re-evaluate; evaluator seat loss resolves bounded-retry-then-block
+- front-model policy (#397 comment): Gemma 4 12B is the reference CANDIDATE, not an architectural requirement — role resolution stays model-agnostic and the front model is promoted to decision authority only if experiment A shows intent-quality gains without becoming the latency/quality bottleneck
 
 ## Open parks
 
