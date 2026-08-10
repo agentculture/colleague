@@ -541,7 +541,11 @@ def score_recall_precision(records: list[dict[str, Any]], class_key: str) -> dic
 #    closed, matching every other memory-seam degrade).
 # 2. Supersedes — when a recalled record R declares
 #    ``supersedes == S["id"]`` for another recalled record S present in the
-#    SAME recalled batch, S is dropped in favor of R (the newer record wins;
+#    SAME recalled batch, S is dropped in favor of R. A recalled batch is
+#    relevance-ordered, not time-ordered, so "newer" is NOT knowable here:
+#    when several records supersede the same id the LAST one in batch order
+#    wins, which is arbitrary but deterministic and stated rather than
+#    implied (qodo-code-review, PR #403 comment 3746507435);
 #    eidetic's own supersedes/shadowing is the long-term corrective — this is
 #    the colleague-side stopgap over what one recall call already returned).
 #
@@ -671,13 +675,21 @@ def _supersedes_map(surviving: list[tuple[int, dict[str, Any]]]) -> dict[str, st
             continue
         supersedes = record.get("supersedes")
         rid = record.get("id")
+        # A superseder with no usable id cannot be named in the exclusion
+        # reason, and "superseded-by:?" is not traceable — so such an edge
+        # drops nothing at all rather than removing a record the operator
+        # could never account for.
+        if not (isinstance(rid, str) and rid):
+            continue
         if (
             isinstance(supersedes, str)
             and supersedes
             and supersedes in present_ids
             and supersedes != rid
         ):
-            mapping.setdefault(supersedes, rid if isinstance(rid, str) else "?")
+            # Plain assignment, not setdefault: LAST in batch order wins, per
+            # the documented rule above.
+            mapping[supersedes] = rid
     return mapping
 
 

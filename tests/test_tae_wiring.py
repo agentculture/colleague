@@ -741,3 +741,66 @@ def test_every_enumerated_boundary_is_accepted_by_the_seat(boundary: str) -> Non
     assert outcome.evaluation is not None
     assert isinstance(outcome.evaluation, Evaluation)
     assert seat.boundaries == [boundary]
+
+
+# ── qodo-code-review regressions on PR #403 ─────────────────────────────────
+
+
+def _armed_config() -> EngineConfig:
+    return EngineConfig(
+        model="acting-worker-model",
+        base_url="http://rig/v1",
+        thought_action_evaluation=True,
+        evaluation_seats=EvaluationSeats(
+            front=SeatConfig("front-model", "http://front/v1", "k1", 32768),
+            worker=SeatConfig("acting-worker-model", "http://worker/v1", "k2", 262144),
+            evaluator=SeatConfig("evaluator-model", "http://evaluator/v1", "k3", 131072),
+        ),
+    )
+
+
+def test_armed_mode_fails_closed_when_the_engine_cannot_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Comment 3746426182: swallowing a registry failure made an ARMED run
+    indistinguishable from an unarmed one — every TAE call site is guarded by
+    ``if ctx.tae is None``, so the episode would proceed with no thought, no
+    evaluator boundary and no ledger while the operator believed otherwise."""
+    from colleague import registry
+    from colleague.cli._errors import CliError
+
+    def boom(_name: str):
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(registry, "load", boom)
+    with pytest.raises(CliError) as excinfo:
+        tae_loop.make_tae_session(_armed_config(), "mock")
+    message = str(excinfo.value)
+    assert "thought_action_evaluation" in message
+    assert "unevaluated" in message
+
+
+def test_unarmed_mode_still_returns_none_when_the_engine_cannot_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fail-closed path must not disturb the unarmed strict no-op."""
+    from colleague import registry
+
+    def boom(_name: str):
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(registry, "load", boom)
+    assert tae_loop.make_tae_session(EngineConfig(), "mock") is None
+
+
+def test_each_tools_off_completion_records_its_own_list() -> None:
+    """Comment 3746426184: the audit trail must not alias one shared list."""
+    session = tae_loop.make_tae_session(_armed_config(), "mock")
+    assert session is not None
+    seat = session.front
+    seat.offered_tools.append(list(tae_loop.FRONT_OFFERED_TOOLS))
+    seat.offered_tools.append([])
+    seat.offered_tools[0].append({"leaked": "schema"})
+    # The module-level constant is never the object handed out or recorded.
+    assert tae_loop.FRONT_OFFERED_TOOLS == []
+    assert seat.offered_tools[1] == []

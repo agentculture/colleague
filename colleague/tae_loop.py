@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional, cast
 
 from colleague.actionproposal import ActionProposal, validate_action_proposal
+from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.config import EngineConfig
 from colleague.evaluation import (
     ROUTE_BLOCK,
@@ -259,8 +260,16 @@ class _ToolsOffSeat:
 
     def _complete_once(self, system_prompt: str, user_prompt: str) -> str:
         """ONE tools-off completion. Raises whatever the transport raises."""
-        self.offered_tools.append(FRONT_OFFERED_TOOLS)
-        complete = self._make_complete(self._config, tools=FRONT_OFFERED_TOOLS)
+        # A FRESH empty list per call, and a snapshot of it in the audit trail.
+        # Sharing the module-level FRONT_OFFERED_TOOLS object meant every
+        # recorded entry aliased one list, so a single accidental mutation
+        # anywhere would retroactively rewrite the whole tools-off audit trail
+        # and could leak a schema to a tools-off seat (qodo-code-review, PR
+        # #403 comment 3746426184). The invariant is unchanged: an explicit
+        # empty list, never None, so the adapter omits tools/tool_choice.
+        offered: list[dict[str, Any]] = []
+        self.offered_tools.append(list(offered))
+        complete = self._make_complete(self._config, tools=offered)
         simple = robust_simple_complete(complete)
         return simple(system_prompt, user_prompt)
 
@@ -956,10 +965,26 @@ def make_tae_session(config: Any, engine_name: str) -> Optional[TaeSession]:
         return None
     from colleague import registry  # local: keeps the engine registry off import time
 
+    # FAIL CLOSED. Every TAE call site in the loop is guarded by
+    # ``if ctx.tae is None: return``, so swallowing this failure would make an
+    # ARMED run silently indistinguishable from an unarmed one: no thought
+    # commitment, no evaluator boundary, no ledger — while the operator
+    # believes the three-seat controls are in force. That is the exact
+    # silent-degradation this mode exists to prevent, so an armed config whose
+    # engine cannot be loaded raises instead (qodo-code-review, PR #403
+    # comment 3746426182). Unarmed configs still return None above, untouched.
     try:
         engine = registry.load(engine_name)
-    except Exception:
-        return None
+    except Exception as exc:  # noqa: BLE001 - re-raised loudly below
+        raise CliError(
+            EXIT_USER_ERROR,
+            "thought→action→evaluation mode is armed "
+            "(thought_action_evaluation) but its seats cannot be built: "
+            f"loading engine {engine_name!r} failed ({exc}) — refusing to run "
+            "unevaluated",
+            "fix the engine so it loads, or unset thought_action_evaluation "
+            "to run without the three-seat controls",
+        ) from exc
     make_complete = engine.make_complete
     return TaeSession(
         front=FrontSeat(
