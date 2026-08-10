@@ -158,20 +158,27 @@ def _check_non_string_values(lesson: dict[str, object]) -> list[str]:
 # fingerprints are present, the field reads as narrative ("write more tests
 # and review carefully") rather than an anchor — refused whole.
 
-_ANCHOR_PATTERN = re.compile(
-    r"""
-    [/\\][\w.\-]                                   # path separator
-    | \b[A-Za-z_][A-Za-z0-9_]{1,}\.[A-Za-z_][A-Za-z0-9_]{1,}\b  # dotted.identifier
-    | \b[A-Za-z_][A-Za-z0-9]*_[A-Za-z0-9_]*\b       # snake_case / SCREAMING_SNAKE
-    | \b[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*\b           # CamelCase / PascalCase
-    | `[^`]+`                                       # backticked code span
-    | \#\d+                                         # issue reference, e.g. #387
-    | \b[A-Za-z_][A-Za-z0-9_]*\(\)                  # function/method call ref
-    | \bv?\d+\.\d+(?:\.\d+)?\b                      # version number, e.g. v1.56.2
-    | \bline\s*\d+\b                                # line reference
-    | :\d+\b                                        # path:line reference
-    """,
-    re.VERBOSE,
+#: One compiled pattern per anchor SHAPE rather than a single alternation.
+#: Kept separate deliberately: each shape stays independently readable and
+#: testable, and no single pattern carries the complexity a ten-way
+#: alternation does (SonarCloud S5843). ``re.ASCII`` pins the original
+#: ASCII-only semantics — ``\w`` is Unicode-aware by default in Python, and
+#: widening what counts as an identifier is a behaviour change, not a
+#: style fix.
+_ANCHOR_PATTERNS = tuple(
+    re.compile(pattern, re.ASCII)
+    for pattern in (
+        r"[/\\][\w.\-]",  # path separator
+        r"\b[A-Za-z_]\w+\.[A-Za-z_]\w+\b",  # dotted.identifier
+        r"\b[A-Za-z_][A-Za-z0-9]*_\w*\b",  # snake_case / SCREAMING_SNAKE
+        r"\b[A-Z][a-z0-9]+[A-Z]\w*\b",  # CamelCase / PascalCase
+        r"`[^`]+`",  # backticked code span
+        r"\#\d+",  # issue reference, e.g. #387
+        r"\b[A-Za-z_]\w*\(\)",  # function/method call ref
+        r"\bv?\d+\.\d+(?:\.\d+)?\b",  # version number, e.g. v1.56.2
+        r"\bline\s*\d+\b",  # line reference
+        r":\d+\b",  # path:line reference
+    )
 )
 
 
@@ -182,7 +189,7 @@ def _is_generic_prose(value: str) -> bool:
     trace an anchor regex can find. Its absence means the field is narrative
     prose rather than a specific pin.
     """
-    return _ANCHOR_PATTERN.search(value) is None
+    return not any(pattern.search(value) for pattern in _ANCHOR_PATTERNS)
 
 
 def _check_generic_constant(lesson: dict[str, object]) -> bool:

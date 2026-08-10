@@ -629,6 +629,58 @@ def _numeric_field(record: dict[str, Any], field: str) -> float | None:
     return None
 
 
+def _threshold_exclusion(
+    record: dict[str, Any],
+    index: int,
+    min_score: float | None,
+    min_signal: float | None,
+) -> dict[str, Any] | None:
+    """Return this record's exclusion entry, or ``None`` when it survives.
+
+    A record is only ever excluded by a floor that is BOTH configured and
+    numerically comparable — a missing or non-numeric field fails open, so
+    hygiene never silently drops a record it cannot judge.
+    """
+    for field, floor, reason in (
+        ("score", min_score, "below-min-score"),
+        ("signal", min_signal, "below-min-signal"),
+    ):
+        if floor is None:
+            continue
+        value = _numeric_field(record, field)
+        if value is not None and value < floor:
+            return {"id": _record_ref(record, index), "reason": reason}
+    return None
+
+
+def _supersedes_map(surviving: list[tuple[int, dict[str, Any]]]) -> dict[str, str]:
+    """Map ``superseded id -> superseding id`` WITHIN this recalled batch.
+
+    Only ids actually present in the batch are ever dropped — a supersedes
+    pointer to a record outside this recalled set is not actionable here (it
+    may not even be relevant), so it is left alone.
+    """
+    present_ids = {
+        record.get("id")
+        for _, record in surviving
+        if isinstance(record, dict) and isinstance(record.get("id"), str)
+    }
+    mapping: dict[str, str] = {}
+    for _, record in surviving:
+        if not isinstance(record, dict):
+            continue
+        supersedes = record.get("supersedes")
+        rid = record.get("id")
+        if (
+            isinstance(supersedes, str)
+            and supersedes
+            and supersedes in present_ids
+            and supersedes != rid
+        ):
+            mapping.setdefault(supersedes, rid if isinstance(rid, str) else "?")
+    return mapping
+
+
 def filter_recall_records(
     records: list[dict[str, Any]],
     *,
@@ -657,45 +709,16 @@ def filter_recall_records(
     surviving_threshold: list[tuple[int, dict[str, Any]]] = []
 
     for index, record in enumerate(records):
-        ref = _record_ref(record, index)
-        if min_score is not None:
-            score = _numeric_field(record, "score")
-            if score is not None and score < min_score:
-                excluded.append({"id": ref, "reason": "below-min-score"})
-                continue
-        if min_signal is not None:
-            signal = _numeric_field(record, "signal")
-            if signal is not None and signal < min_signal:
-                excluded.append({"id": ref, "reason": "below-min-signal"})
-                continue
-        surviving_threshold.append((index, record))
+        exclusion = _threshold_exclusion(record, index, min_score, min_signal)
+        if exclusion is not None:
+            excluded.append(exclusion)
+        else:
+            surviving_threshold.append((index, record))
 
-    # Supersedes: drop a sibling S when another surviving record R in THIS
-    # batch declares supersedes == S["id"]. Only ids actually present in the
-    # batch are ever dropped — a supersedes pointer to a record outside this
-    # recalled set is not actionable here (it may not even be relevant), so
-    # it is left alone.
-    present_ids = {
-        record.get("id")
-        for _, record in surviving_threshold
-        if isinstance(record, dict) and isinstance(record.get("id"), str)
-    }
-    superseded_ids: dict[str, str] = {}  # superseded id -> superseding id
-    for _, record in surviving_threshold:
-        if not isinstance(record, dict):
-            continue
-        supersedes = record.get("supersedes")
-        rid = record.get("id")
-        if (
-            isinstance(supersedes, str)
-            and supersedes
-            and supersedes in present_ids
-            and supersedes != rid
-        ):
-            superseded_ids.setdefault(supersedes, rid if isinstance(rid, str) else "?")
+    superseded_ids = _supersedes_map(surviving_threshold)
 
     kept: list[dict[str, Any]] = []
-    for index, record in surviving_threshold:
+    for _, record in surviving_threshold:
         rid = record.get("id") if isinstance(record, dict) else None
         if isinstance(rid, str) and rid in superseded_ids:
             excluded.append({"id": rid, "reason": f"superseded-by:{superseded_ids[rid]}"})
