@@ -555,3 +555,36 @@ def test_lesson_schema_version_constant_exists() -> None:
     into the validated payload itself."""
     assert isinstance(LESSON_SCHEMA_VERSION, str)
     assert LESSON_SCHEMA_VERSION
+
+
+# ── the 'constant' anchor must not be fooled by prose slashes ────────────────
+# Regression for qodo-code-review on PR #402 (comment 3746408308): the earlier
+# `[/\\][\w.\-]` alternative matched ANY separator followed by a word char, so
+# "review and/or test" scored as a repo anchor and a narrative constant passed.
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "review and/or test more carefully",
+        "check the inputs and/or the outputs",
+        "be careful and thorough in future work",
+    ],
+)
+def test_prose_slashes_are_not_repo_anchors(prose: str) -> None:
+    verdict = validate_lesson({"pattern": "p", "constant": prose, "reason": "r"})
+    assert verdict.allowed is False
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        "colleague/loop.py",
+        "docs/features/memory.md",
+        ".colleague/config.json",
+        "tests/test_memory.py",
+    ],
+)
+def test_real_paths_are_still_repo_anchors(anchor: str) -> None:
+    verdict = validate_lesson({"pattern": "p", "constant": anchor, "reason": "r"})
+    assert verdict.allowed is True
