@@ -75,6 +75,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 A memory-less run still serializes with no `memory` key at all.
 
+## [1.57.0] - 2026-08-10
+
+### Changed
+
+- **Headless work streams SSE by default (#393).** `colleague work` previously
+  armed streaming only when a delta sink was attached (the interactive
+  session's lane), so every headless turn took the blocking request path whose
+  read returns only once the whole completion is generated — making the request
+  timeout a per-turn *generation* ceiling. Streaming now arms uniformly across
+  every vllm-openai completion; the existing mid-stream to blocking fallback
+  and keepalive tolerance are unchanged, and the result shape is byte-identical
+  on every path (the all-engines rule; `tests/test_e2e_mock.py` untouched).
+  `COLLEAGUE_STREAM=0` restores the blocking transport exactly.
+- Backpressure (#255) thresholds and timeout-survival (#268) classification are
+  deliberately KEPT rather than re-keyed under streaming, with the reasoning
+  recorded in `docs/features/backpressure.md`: every backpressure action is
+  tighten-only and advisory, so the signal lost precision but not direction.
+
+Measured on the reference rig: a big-context audit that died at the 240s socket
+timeout pre-change completed post-change, and a single turn sustained 2780s
+with no timeout. See #400 for the consequence — the socket timeout had been
+acting as an accidental no-progress watchdog, and nothing replaced it.
+
 ## [1.56.2] - 2026-08-08
 
 ### Added

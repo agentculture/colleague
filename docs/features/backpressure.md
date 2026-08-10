@@ -139,6 +139,59 @@ documented worst case on a genuinely dead server grows from `2 x timeout` to
 (env / default) surface in `colleague doctor` (`provider_timeout`),
 `colleague work --help`, and `colleague learn`.
 
+## Streaming re-verification — thresholds KEPT, not re-keyed ([#393][bp393])
+
+[bp393]: https://github.com/agentculture/colleague/issues/393
+
+Issue #393 armed SSE streaming by default for headless work
+([`engines.md`](engines.md)), which changes what `config.timeout` — the
+reference every fraction above is taken of — actually measures. This section
+records the decision consciously rather than inheriting it silently.
+
+**What changed.** `config.timeout` is handed to `urlopen(..., timeout=...)`.
+Blocking, that is a whole-completion budget, so a turn's wall-clock latency
+could never exceed it. Streaming, it is a **per-read** budget — the socket
+only has to produce *some* bytes within the window — so it measures silence
+between chunks, and a healthy turn may legitimately generate for far longer
+than `timeout`. `_timed_complete` still measures total wall-clock latency, so
+under streaming `assess` can read `ARMED`/`ESCALATED` on a turn that is
+generating perfectly well, just slowly.
+
+**The decision: keep `arm_fraction=0.5` / `escalate_fraction=0.75` / `window=3`
+exactly as they are.** Reasons:
+
+- Every backpressure action is **tighten-only and advisory** — a smaller
+  context window, less subagent fan-out, one bounded timeout raise. A false
+  `ARMED` under streaming costs throughput, never correctness, and never
+  fails a run. Under-reacting to a genuinely saturated rig is the more
+  expensive error.
+- A rig whose mean turn is past 75% of the configured budget *is* under
+  pressure whether or not the bytes now arrive incrementally. The signal
+  degraded in precision, not in direction.
+- Re-keying honestly would mean classifying against **time since the last
+  chunk**, and the loop cannot see that: `complete` hands back only a finished
+  `ModelResponse`, and `colleague.backpressure` is a leaf module with no
+  clock and no I/O by design. Threading a stall clock from the engine into
+  the loop is a new runtime surface — a separate re-spec, not a threshold
+  tweak.
+
+**#268 escalation is likewise kept.** Under streaming the once-only x2 raise
+widens the *stall* budget rather than a generation budget, which is a weaker
+lever than it was — but it is still tighten-only, still bounded, and still
+correct for the case it was built for (a saturated or stuck server).
+
+**A streaming stall still classifies as a request timeout.**
+`_post_json_stream` wraps a read-phase `TimeoutError` through the SAME
+`_raise_legible_timeout` the blocking path uses, keeping the "timed out"
+phrase, so `colleague.context.is_request_timeout` /
+`classify_degradable` match identically and the #268 survival path fires
+exactly as before. A stall is also deliberately **not** eligible for the
+mid-stream → blocking fallback (it has its own bounded retry at the loop
+level), so one turn can never spend three full timeout windows. Both are
+pinned in `tests/test_headless_streaming.py`
+(`test_streaming_stall_still_classifies_as_a_request_timeout`,
+`test_a_mid_stream_stall_is_not_swallowed_by_the_blocking_fallback`).
+
 ## Honest limits
 
 - **Per-process and cooperative, not a scheduler.** Backpressure reacts to
@@ -154,6 +207,11 @@ documented worst case on a genuinely dead server grows from `2 x timeout` to
   per #154 before the run preserves its partial — the #268 escalation does not
   change that cap, it widens each window once (worst case
   `timeout + 2 x timeout`, documented above).
+- **Under streaming the latency signal is coarser.** With SSE armed by
+  default (#393) a long *generation* is legitimate, so a mean latency past
+  the arm/escalate fraction no longer implies the turn was close to dying —
+  see the re-verification section above for why the thresholds were kept
+  anyway, and what re-keying would actually require.
 - **Advisory + tighten-only, never an error.** A run that never crosses the
   arm threshold is byte-identical; crossing it never fails the run, never
   switches model/backend, and always composes with (never replaces) the

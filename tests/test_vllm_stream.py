@@ -331,10 +331,17 @@ def test_malformed_accumulated_arguments_decode_to_empty_dict_not_a_crash(
     assert resp.tool_calls[0].arguments == {}
 
 
-# ── (d) unarmed sends no stream keys ────────────────────────────────────────
+# ── (d) the opted-out body sends no stream keys ─────────────────────────────
+#
+# #393 re-keyed this pin. Before it, an unarmed ``on_delta`` was the ONLY
+# blocking-vs-streaming decision, so "unarmed" and "no stream keys" were the
+# same statement. Headless work now streams by DEFAULT (an unarmed body DOES
+# carry the two keys — ``tests/test_headless_streaming.py`` pins that), so the
+# byte-identical pre-streaming body is what ``COLLEAGUE_STREAM=0`` promises.
 
 
-def test_unarmed_request_body_carries_no_stream_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_opted_out_request_body_carries_no_stream_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_STREAM", "0")
     captured: dict[str, object] = {}
 
     def fake_post(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
@@ -354,11 +361,12 @@ def test_unarmed_request_body_carries_no_stream_keys(monkeypatch: pytest.MonkeyP
     assert "stream_options" not in payload
 
 
-def test_unarmed_request_body_is_byte_identical_shape_to_today(
+def test_opted_out_request_body_is_byte_identical_shape_to_today(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A stricter pin than (d): the full outgoing payload key-set, unarmed,
+    """A stricter pin than (d): the full outgoing payload key-set, opted out,
     is exactly what the pre-streaming blocking path sent."""
+    monkeypatch.setenv("COLLEAGUE_STREAM", "0")
     captured: dict[str, object] = {}
 
     def fake_post(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
