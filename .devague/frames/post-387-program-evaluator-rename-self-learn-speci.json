@@ -1,0 +1,927 @@
+{
+  "slug": "post-387-program-evaluator-rename-self-learn-speci",
+  "title": "post-387 program: evaluator rename + self-learn specificity + headless SSE",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-08-09T16:29:29Z",
+  "updated": "2026-08-09T17:37:12Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague lands the post-#387 program: headless work streams SSE so turn generation time decouples from the socket timeout (#393); self-learning lessons become answer-shaped \u2014 pattern + constant + reason \u2014 with retrieval-precision instrumentation and store hygiene (#396 step 3); and the three-tier roles sharpen, renaming the strategist seat to evaluator in line with #397's thought\u2192action\u2192coherence authority split.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "all three lanes land as separately mergeable PRs; no lane's failure silently drops another (the announcement stays honest per-lane)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "headless SSE (#393): vllm_openai._build_chat_payload arms streaming solely off config.on_delta (line 810) and headless work passes None (cli/_commands/work.py:630) \u2014 arm streaming for headless work (no-op delta sink or an engine stream knob) while keeping _stream_or_blocking's mid-stream\u2192blocking same-turn fallback and keepalive tolerance unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "with streaming armed headless, a turn generating longer than the socket timeout completes; a genuine stall (no chunks for the timeout window) still fails fast",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "boundary",
+      "text": "headless SSE keeps the all-engines rule: TaskResult shape stays byte-identical (only wire behavior changes); mock's _emit_synthetic_deltas path and tests/test_e2e_mock.py guard mock/vllm-openai parity \u2014 neither diverges",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "tests/test_e2e_mock.py passes unchanged after the streaming default flips \u2014 result shape identical between blocking, streaming, and opt-out paths",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "evaluator rename (#397): rename the strategist vocabulary to evaluator across the LIVE three-tier surface \u2014 lattice.py Target.WORKER_PROMPT_STRATEGIST/SENSES_PROMPT_STRATEGIST + _STRATEGIST_TARGETS, layers.py compose_strategist_section + seat constants (~45 refs), contract.py _STRATEGIST_TARGET_VALUE + strategist_sections record keys, configlifecycle.py snapshot, configurator.py prompt text (the target-name vocabulary the cortex model must emit), engine.py prompt seam, subagents.py snapshot, work.py, 13 test files (220 refs), docs/features/three-tier.md",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "after the rename, grep for 'strategist' over colleague/ and tests/ returns zero hits; dated docs (specs/plans/deliveries/experiments) still contain it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "the rename never invalidates persisted state: ConfigEvent.from_dict parses target as a free-form string (configevents.py:147), config_digest is recomputed from the events themselves, and no code path round-trips persisted target strings through the Target enum outside lattice.py's live-proposal parse \u2014 old artifacts stay readable unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "a pre-rename artifact with worker.prompt.strategist config_events loads and continues (--continue) without error on the renamed code",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "historical dated records keep the word strategist: docs/specs/, docs/plans/, docs/deliveries/, docs/experiments/ (e.g. 2026-08-06-experiment-c-strategist-value.md) and .devague/ frames are provenance, never rewritten by a rename",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "git diff of the rename PR touches nothing under docs/specs/, docs/plans/, docs/deliveries/, docs/experiments/, or .devague/",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "non_goal",
+      "text": "no routing policy and no default flip: roles stay resolved BY ROLE NAME from lobes; any #397 experimental thought\u2192action\u2192evaluation mode is independently opt-in and byte-identical when absent (issue #397 acceptance criteria); cortex/evaluator stays tools-off and never grants permission",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "lesson specificity (#396 step 3): rung-2 distills and code-lessons carry answer-shaped substance \u2014 pattern + constant + reason \u2014 not process narrative; touches lessons.py (the strict refuse-whole 3-key cause/lesson/next_delta schema, MAX_FIELD_LENGTH 1000), distill.py (the detached child's author prompt + validation), and correction.py build_code_lesson (area/pattern fields, low-confidence default)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "the g3-latch class of lesson (pattern + constant + reason) validates under the new schema and a process-narrative lesson without a constant is refused whole",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "retrieval-precision instrumentation (#396): TaskResult.memory already records {query, recalled, injected_chars, lesson_recorded} (contract.py:1567) \u2014 extend to score per task whether the class-relevant lesson surfaced in top-k when one existed (the #394 addendum shows injections near-saturating RECALL_BLOCK_CAP by g7: selection, not store size, becomes binding)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "given a store holding a class-relevant lesson, the artifact records whether it surfaced in top-k \u2014 measured on a real run, not synthetic recall output",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "store hygiene (#396): the recall-before path (memory.py recall, top_k=5, RECALL_BLOCK_CAP=4000, build_recall_block) gains relevance thresholding and consolidation/supersedes handling \u2014 a mechanism for the operator's decline-risk (too much context, wrong lesson surfaced), not hope; eidetic already returns per-record score/signal fields to threshold on",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "with thresholding on, a below-threshold record is excluded from the injected block AND the exclusion is visible in TaskResult.memory (traceable, never silent)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "non_goal",
+      "text": "#396 steps 4-6 stay out of this arc: the benchmark-criteria redesign (recorded on #394), the #394 rerun itself (only after specificity lands, else it re-falsifies the same weak claim at full rig cost), and NEBULA/#377 row 33 (honestly unverified until specificity proves out)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "assumption",
+      "text": "sequencing per #396: #393 lands first (removes the timeout-pressure confound and would have absorbed most of the run's 32 chain legs), then the specificity redesign; the #397 role sharpening is independent of that ordering",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "the FULL #397 thought\u2192action\u2192evaluation redesign lands in this arc as a separate opt-in experimental mode (front commits typed Thoughts, worker proposes/executes Actions, evaluator returns closed verdicts), alongside the strategist\u2192evaluator rename on the landed three-tier surface",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "headless work streams by default (#393): a no-op delta sink arms SSE on every headless turn, the mid-stream\u2192blocking fallback stays, and an env opt-out (COLLEAGUE_STREAM=0-style) restores the old wire behavior",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "the lesson schema is REPLACED outright: answer-shaped pattern + constant + reason supersedes cause/lesson/next_delta; no dual-schema validator; already-stored 3-key lessons recall as legacy free text",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "store hygiene lands colleague-side only: relevance thresholding + supersedes handling in memory.py's recall-before path over eidetic's returned score/signal fields; new eidetic-cli verbs are a parked cross-repo follow-up",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "audience",
+      "text": "colleague operators running lobes-armed multi-model rigs (reference rig: Gemma 12B front / Qwen 35B acting / Qwen 27B evaluator \u2014 seats resolved BY ROLE, never by parsing model names) plus the self-learning lane's experimenters",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "every seat in the new mode resolves from the lobes /capabilities contract by role name; a rig missing a role degrades honestly (mode refuses to arm with a legible reason), never falls back to parsing model names",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "before_state",
+      "text": "headless turns block on full completion so the request timeout is a per-turn generation ceiling (#387: 300-430s turns vs the 600s ceiling, one task killed on its finish turn); process-shaped lessons produce identical traces (exp-1) while answer-shaped ones transform behavior (5x); and in the landed three-tier mode cognition sits with the worker \u2014 the front only relays, cortex only configures between episodes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "each before-state fact cites its evidence: #387 run docs for the timeout and lesson-trace claims, three-tier.md for the authority placement",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "after_state",
+      "text": "headless runs stream so only a genuine stall times out; rung-2 distills and code-lessons carry pattern + constant + reason; recall is precision-instrumented and thresholded; and an opt-in thought\u2192action\u2192evaluation mode has the front committing typed Thoughts, the worker realizing them, and a tools-off evaluator returning closed fidelity verdicts \u2014 with the strategist vocabulary gone from the living surface",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "the after-state holds with every lane's default posture stated: streaming default-on, new lesson schema mandatory, thought\u2192action\u2192evaluation opt-in",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "why_it_matters",
+      "text": "#387's falsifying evidence identified lesson SPECIFICITY as the variable and the timeout confound as rerun-corrupting; and the current authority split may place cognition in the wrong seat \u2014 the operator converses with the front continuously, so intent should be committed where it is perceived",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "the cognition-placement claim stays framed as hypothesis to MEASURE (experiment C), never asserted as proven in docs",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "thought contract (#397): the front produces a typed, versioned Thought (intent, why, constraints, success_conditions, uncertainties, supersedes, observation_refs) while the raw operator input is preserved separately and immutably (ContextPacket.original is the existing seam) \u2014 a thought never encodes executable tool calls and never becomes a lossy replacement for the input",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "a thought that attempts to embed a tool call is refused at validation; the raw operator input is byte-identical when read back from the artifact",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: a Thought dataclass with version/supersession; a test proving the raw operator text survives verbatim alongside the thought; front seat has no repo tools offered",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "action contract (#397): every consequential worker action names exactly one active thought_id with expected_effect and evidence_refs; the worker may report a thought infeasible/underspecified but cannot silently substitute a different objective",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "an action referencing a superseded thought_id is refused with a legible reason routing back through the evaluator, not silently retargeted",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: ActionProposal typed with thought_id required; a test that an action without a live thought_id is refused",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "evaluation contract (#397): the evaluator is tools-off and answers ONE question \u2014 does this action faithfully realize this thought under the available evidence \u2014 returning only the closed vocabulary verdict + route (execute | rethink | replan | block); rethink returns to the front, replan to the worker under the unchanged thought; alignment is never permission (host policy/approvals stay the hard authority)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "an 'aligned' verdict still passes through approvals/hooks/policy before execution \u2014 a test proves evaluator alignment cannot execute a gated command by itself",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: closed-vocab enum; a test that an unknown verdict/route string refuses whole (lattice unknown-key stance); a test that block never executes; evaluator receives a bounded thought/action/evidence envelope, not worker conversation history",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "evaluation ledger (#397): thought, action, evaluation, rerouting, execution, and outcome are recorded in one traceable chain on the artifact, DISTINCT from EpisodeConfigLifecycle (configuration and intention answer different questions) \u2014 append-only, with actual contributing seat/model attribution",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "given the ledger alone (no worker history), a reviewer can reconstruct which thought produced which action, verdict, route, and outcome for a full episode",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: a new ledger surface on TaskResult (omit-when-None), not folded into config_events; digest/attribution mirrors the config-events conventions",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "invocation policy (#397): the evaluator sits at deterministic boundaries only \u2014 initial plan commit, host-classified consequential actions, declared infeasibility/ambiguity, drift threshold, episode completion \u2014 NEVER on every tool call; the host owns consequential-action classification (the worker's consequential field is evidence, not authority)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "in experiment C, evaluator invocations per episode stay bounded by the enumerated boundary count \u2014 the 27B seat is never observed on ordinary tool calls",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: the boundary list is an enumerated constant; a test that ordinary tool calls do not invoke the evaluator",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "mode arming (#397): the thought\u2192action\u2192evaluation mode is an INDEPENDENT opt-in (config.json key or env var, distinct from three_tier) resolved BY ROLE NAME from lobes; absent = byte-identical including the landed three-tier mode's behavior; deepthink stays absent in this mode as in three-tier",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "with the mode unarmed, a byte-identity pinning test over the landed three-tier suites passes with zero diffs",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: unarmed byte-identity pinning tests in the style of three-tier's; existing three-tier suites stay green untouched",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "experiments (#397): experiments A (thought preservation), B (thought-to-action evaluation on pre-registered verdict/routing expectations), and C (end-to-end value vs landed three-tier and worker-only) are committed under docs/experiments/ with pre-committed bars and falsifying results preserved verbatim (#387 ledger discipline); no default flip follows from structural tests alone",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "each experiment doc's bar section is committed in a PR that precedes the results commit (pre-registration provable from git history)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: experiment docs exist with pre-registered bars BEFORE the runs; results tabulated verbatim",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "boundary",
+      "text": "v1 scope line: this arc is the TENTH sanctioned increment \u2014 an authority split with a FIXED closed vocabulary, seats resolved BY ROLE NAME from lobes, re-spec'd via this frame \u2014 NEVER a routing policy (no automatic task\u2192model decisions); host policy, approvals, hooks, and role tool curation remain the hard authority ceiling; no chain-of-thought exposure, no training/merging, cortex never becomes a second actor, the front never calls repo tools",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "the CLAUDE.md v1-scope section gains the tenth increment with the same NEVER-a-routing-policy language, and the spec enumerates every new consumed role surface",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "structural reuse (#397): the front loop builds on senses_loop.py/presence_engine.py, the acting loop is loop.py unchanged where possible, and chain.CONTINUABLE_REASONS stays pinned unchanged \u2014 the mode is new wiring over proven parts, not a parallel runtime",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "the acting-loop diff in the mode PR is reviewably small (wiring, not rewrite); the CONTINUABLE_REASONS pin test is untouched",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: no fork of loop.py; senses_loop reuse visible in the diff; CONTINUABLE_REASONS pin test untouched",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "success_signal",
+      "text": "streaming: a headless run on the reference rig sustains turns >300s with 0 socket-timeout kills on finish turns (vs 1 in the #387 arms), and the per-turn ceiling no longer tracks COLLEAGUE_TIMEOUT; unarmed/opt-out runs stay byte-identical (existing suites green)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "measured on the reference rig with the same task class that produced the #387 timeout kill",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "success_signal",
+      "text": "self-learn: every distilled lesson validates against the answer-shaped schema (pattern + constant + reason, refuse-whole) and TaskResult.memory scores class-relevant-lesson-in-top-k per task, so the #394 rerun can measure a learning CURVE at N\u226516 instead of totals",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "the top-k precision score is computed from artifact-recorded recall results, and 'class-relevant' is determined by a pre-declared rule, not post-hoc judgment",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "success_signal",
+      "text": "thought\u2192action\u2192evaluation: experiments A-C committed with pre-registered bars; experiment B detects \u22654 of the 5 seeded mismatch classes with 0 false blocks on the aligned pairs; unarmed byte-identity pinned by test",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "experiment B's five mismatch classes and expected verdicts are pre-registered verbatim from issue #397's list before any evaluator run",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "flight-guidance routing under the armed mode (#397): operator guidance and senses-direct words route to the FRONT as observations (possibly a new or superseding thought), never directly into the worker's loop \u2014 today flight.py:199-212 injects flat guidance strings at the worker's tool-call boundaries, which under the new mode would let mid-run guidance silently redefine the thought (the exact forbidden move)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "with the mode armed, a mid-run guidance line that changes the objective produces a new/superseded thought (or an explicit rethink), and the worker's next consequential action names the NEW thought_id \u2014 proven by test",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "assumption",
+      "text": "streaming changes the semantics two landed heuristics key off the request timeout: backpressure #255 escalates/arms when mean per-turn latency crosses timeout fractions (backpressure.py:77-104), and timeout-survival #268 classifies request-timeout errors (context.py is_request_timeout) \u2014 with streaming, long generation is legitimate, so both must be consciously re-verified (kept or re-keyed) rather than silently inherited",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "a streaming stall still classifies as a request timeout for #268 survival, and the backpressure-under-streaming decision is recorded in the spec/feature doc \u2014 not silently inherited",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "decision",
+      "text": "streaming seat scope: the headless streaming default is engine-uniform across all vllm-openai completions; mid-action supersession resolves complete-then-re-evaluate; evaluator seat loss resolves bounded-retry-then-block",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "front cadences (#397 comment): the front runs two modes \u2014 presence (thinking disabled, cheap conversational/environmental contact) and thought-commitment (bounded thinking, emits the typed Thought) \u2014 and presence-mode prose can NEVER authorize action: the worker must not infer a hidden plan from it; only a committed Thought grants action-planning authority",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "a presence-mode utterance that implies an objective produces NO ActionProposal \u2014 a test proves action planning requires a committed thought_id",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "learning-loop boundary (#397 comment): an evaluator-only verdict never becomes durable memory or training signal by itself \u2014 a verdict is a diagnosis, not ground truth; durable lessons require qualifying external evidence (operator grades, deterministic tests, integrator correction diffs, observed outcomes), and the task-local thought/action/evaluation trace is discardable after distillation \u2014 only externally grounded validated lessons persist",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "a lesson whose only evidence is an evaluator verdict is refused at distillation; every durable lesson's metadata links thought, action, evaluation, outcome, and the qualifying external evidence",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "evaluator \u2260 distiller (#397 comment): evaluation and distillation are DISTINCT authority contracts even on the same checkpoint \u2014 the evaluator is closed-world thought\u2194action judgment and cannot write memory; the distiller runs post-outcome and only when evidence exists; distill.py's lobes-cortex fallback must not silently hand the evaluator seat distillation authority in the armed mode",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "in the armed mode, distillation author resolution refuses the evaluator seat unless a distinct distiller authority is declared \u2014 a test pins the split even when both use the same checkpoint",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "component-attributed, role-scoped lessons (#397 comment): every lesson attributes to the component that failed (bad thought \u2192 front lesson; action drift \u2192 worker lesson; wrong verdict \u2192 evaluator lesson; routing failure \u2192 system lesson) and recall is role-scoped (intent/ambiguity \u2192 front, action/code \u2192 worker, alignment examples \u2192 evaluator; cross-role only when explicitly marked); component target, artifact ids, evidence source, and provenance live in record METADATA or a deliberately versioned schema \u2014 never ad hoc keys in the validated payload",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "recall-before injects only lessons scoped to the recalling role (or explicitly cross-role); component attribution and provenance live in metadata, and the validated payload keys stay exactly the versioned schema's",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "decision",
+      "text": "front-model policy (#397 comment): Gemma 4 12B is the reference CANDIDATE, not an architectural requirement \u2014 role resolution stays model-agnostic and the front model is promoted to decision authority only if experiment A shows intent-quality gains without becoming the latency/quality bottleneck",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "eidetic-cli consolidation/supersedes verbs (cross-repo) \u2014 hygiene beyond colleague-side thresholding",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "the exact drift-threshold metric that triggers a mid-episode evaluator invocation \u2014 define during planning, must be deterministic",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "whether the 12B front becomes the quality bottleneck \u2014 experiment C measures it; no default flip either way from structural tests alone",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "out-of-repo artifact consumers (mesh peers, daria, feedback-export readers) may reference the strategist_sections record key \u2014 no in-repo consumer found beyond contract/tui; residual until a mesh-side sweep",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "thought lifecycle across --until-done episode chaining and fill-line compaction \u2014 the active thought must survive an episode boundary and a validated compaction without silent loss; wiring detail to pin at plan time",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v6",
+      "text": "front (12B) context exhaustion under continuous conversation + a growing thought ledger \u2014 prior evidence: the proxied-senses context-window gap; experiments A/C measure cost/latency but not exhaustion",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v7",
+      "text": "subagent actions under the armed mode \u2014 whether a delegated child's consequential actions attribute to the parent's active thought_id or are out of the mode's scope in v1",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "colleague/engines/vllm_openai.py (_build_chat_payload:810, _make_complete, _stream_or_blocking)",
+      "finding": "streaming is armed exclusively by config.on_delta is not None; the streaming machinery (incremental ModelResponse assembly, keepalive tolerance, mid-stream fallback to one blocking request) already exists from the feels-alive arc \u2014 #393 is a re-arming decision, not new transport code",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "colleague/cli/_commands/work.py:594-632 (delta seam)",
+      "finding": "headless work sets config.on_delta = None on every non-cockpit path, so every headless turn takes the blocking urlopen whose read returns only at full completion \u2014 the request timeout becomes a per-turn generation ceiling (observed live: #387 arms, 300-430s turns vs 600s ceiling)",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "colleague/engines/mock.py (_emit_synthetic_deltas)",
+      "finding": "mock already reconstructs content exactly through ordered synthetic deltas when on_delta is armed \u2014 a headless-streaming knob must keep mock and vllm-openai result shapes identical (tests/test_e2e_mock.py is the guard)",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "colleague/lattice.py:40-125 (Target enum)",
+      "finding": "strategist is the lattice's content-bearing target vocabulary \u2014 Target.WORKER_PROMPT_STRATEGIST = 'worker.prompt.strategist' / SENSES_PROMPT_STRATEGIST, the only targets whose changes carry content; renaming changes the wire string the configurator model must emit",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "colleague/layers.py:518-760 (compose_strategist_section + prompt composition)",
+      "finding": "45 strategist references \u2014 the seat constants (STRATEGIST_SEAT_WORKER), the size-capped section composer, and the strategist_section/strategist_seat parameters threaded through both system-prompt composers",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "colleague/contract.py:2058-2183 + colleague/configlifecycle.py (snapshot)",
+      "finding": "_STRATEGIST_TARGET_VALUE and strategist_sections appear in serialized record/snapshot keys ('content only on applied strategist records', snapshot to_dict) \u2014 the rename touches artifact-facing key names, not just identifiers",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "colleague/configevents.py:98-165 (ConfigEvent)",
+      "finding": "target/origin are free-form strings not tied to the lattice enum; from_dict str()s whatever is persisted, and config_digest recomputes from the events \u2014 old artifacts carrying worker.prompt.strategist parse fine after a rename",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "docs/ tree (specs, plans, deliveries, experiments) + .devague/ frames",
+      "finding": "strategist appears in dated records including docs/experiments/2026-08-06-experiment-c-strategist-value.md and the three-tier spec/plan/delivery \u2014 these are provenance records a rename must not rewrite; only the living surface (code, tests, docs/features/three-tier.md, CLAUDE.md bullet) renames",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "tests/ (13 files, 220 strategist refs)",
+      "finding": "test_layers_strategist.py and test_engine_strategist_seam.py are named after the vocabulary; the rename footprint includes renaming test modules and their fixtures, guarded by the existing three-tier suites",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "colleague/lessons.py (schema + validator)",
+      "finding": "the distillation lesson is a strict refuse-whole 3-key JSON schema (cause/lesson/next_delta, each \u22641000 chars); invalid input records the honest no-lesson-extracted marker \u2014 the specificity redesign changes this schema, so back-compat with already-stored 3-key lessons is a real question",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "colleague/distill.py (detached rung-2 child)",
+      "finding": "the distillation author resolves by role (deepthink/muse > armed-lobes main > rung-1 floor), runs as a detached one-shot child re-reading the persisted artifact, and validates via lessons.py \u2014 the author prompt and validation both move with the schema",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "colleague/correction.py (build_code_lesson)",
+      "finding": "code-lessons build from correction-diff hunks with file/area/pattern fields and a low confidence default \u2014 the same answer-shaped bar (pattern + constant + reason) applies here; #387 evidence: the g3 latch code-lesson's class never recurred, process-shaped lessons produced identical traces",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "colleague/contract.py:1567-1574 (TaskResult.memory)",
+      "finding": "the memory exchange record already captures query/recalled/injected_chars/lesson_recorded with omit-when-None serialization \u2014 the natural hook for per-task retrieval-precision scoring without a new artifact surface",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "colleague/memory.py (recall via eidetic CLI)",
+      "finding": "recall shells out to the operator-installed eidetic CLI (allow-listed verbs, top_k=5, scope colleague, visibility public) and returns parsed JSON records; RECALL_BLOCK_CAP=4000 bounds injection \u2014 thresholding/consolidation must either filter colleague-side over returned score/signal fields or need new eidetic-cli verbs (sibling-repo scope)",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / adjacent-systems lens: backpressure.py + context.py",
+      "finding": "both #255 thresholds and #268 survival key off the request timeout whose meaning streaming changes \u2014 long generation becomes legitimate; seeded the re-verify assumption",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / failure-modes lens: flight.py:199-212 guidance seam",
+      "finding": "flight guidance is a flat string list injected at the worker's tool-call boundaries; under the armed mode this bypasses the thought contract \u2014 seeded the front-routing requirement",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / adjacent-systems lens: coherence.py + experiment.py + docs/organs.md (artifact-contract consumers)",
+      "finding": "grep found no in-repo consumer of strategist_sections/config_events target strings outside contract/tui/tests; out-of-repo mesh consumers remain a parked residual",
+      "seeds": []
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / migration lens: oilcheck/distillation.py doctor probe",
+      "finding": "clean \u2014 a validated lesson is counted as status==done AND a non-empty lesson dict (line 138), schema-agnostic; the outright schema replace does not break the doctor probe",
+      "seeds": []
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / concurrency lens: vllm_openai.py streaming reader + tests/test_boundary.py thread list",
+      "finding": "clean \u2014 _post_json_stream is a synchronous in-request SSE read; the headless streaming flip adds no threads, the sanctioned-thread authority is untouched",
+      "seeds": []
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / security lens: evaluator authority vs approval gate",
+      "finding": "clean at spec level \u2014 alignment-is-not-permission is already pinned (h16: an aligned verdict cannot execute a gated command); the policy gate stays a policy gate, not a sandbox (documented gap unchanged)",
+      "seeds": []
+    }
+  ],
+  "lapses": []
+}

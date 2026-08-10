@@ -26,6 +26,7 @@ from colleague.engines.vllm_openai import (
     _same_role_call_time_refresh,
 )
 from colleague.lobes import LobesRoles, ModelRefreshWarning, RoleInfo
+from tests._vllm_http import sse_lines_for_turn
 
 _STALE_ID = "stale/pinned-model-id-nobody-serves"
 _FRESH_ID = "fresh/currently-served-model-id"
@@ -57,7 +58,13 @@ class _ErrBody:
 
 
 class _OkResponse:
-    """Minimal context-manager stand-in for a successful HTTP response."""
+    """Minimal context-manager stand-in for a successful HTTP response.
+
+    Answers on BOTH transports off the SAME scripted payload: ``read()`` for
+    the blocking body, and line iteration for the SSE reader that headless
+    streaming now takes by default (#393) — so the stale-pin refresh is pinned
+    on the transport the driver actually uses, not only the opt-out one.
+    """
 
     def __init__(self, payload: dict) -> None:
         self._payload = payload
@@ -70,6 +77,9 @@ class _OkResponse:
 
     def read(self) -> bytes:
         return json.dumps(self._payload).encode("utf-8")
+
+    def __iter__(self):
+        return iter(sse_lines_for_turn(self._payload))
 
 
 def _model_not_found_error(url: str, model_id: str) -> urllib.error.HTTPError:

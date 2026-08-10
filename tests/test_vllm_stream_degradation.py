@@ -479,18 +479,26 @@ def test_full_loop_survives_a_mid_stream_death_status_ok_shape_unchanged(
     assert len(deltas) > 0
 
 
-# ── (g) unarmed path: zero behavior change ──────────────────────────────────
+# ── (g) opted-out path: zero behavior change ────────────────────────────────
 
 
-def test_unarmed_path_never_touches_the_stream_fallback_wrapper(
+def test_opted_out_path_never_touches_the_stream_fallback_wrapper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With ``on_delta`` unarmed, ``_stream_or_blocking`` must never even be
-    called — the unarmed path stays exactly ``_post_json`` + ``_parse_response``,
-    the pre-t4 shape, with no stream keys and exactly one HTTP call."""
+    """With streaming opted out, ``_stream_or_blocking`` must never even be
+    called — that path stays exactly ``_post_json`` + ``_parse_response``, the
+    pre-t4 shape, with no stream keys and exactly one HTTP call.
+
+    #393 re-keyed the trigger: an unarmed ``on_delta`` no longer means
+    "blocking" (headless work streams by default, so a long generation stops
+    racing the socket timeout), so the pin that used to ride on ``on_delta is
+    None`` now rides on the explicit ``COLLEAGUE_STREAM=0`` opt-out — which is
+    the surface that actually promises byte-identical pre-streaming behavior.
+    """
+    monkeypatch.setenv("COLLEAGUE_STREAM", "0")
 
     def fail_if_called(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("_stream_or_blocking must not run when on_delta is None")
+        raise AssertionError("_stream_or_blocking must not run when streaming is opted out")
 
     monkeypatch.setattr(vllm_openai, "_stream_or_blocking", fail_if_called)
 
@@ -506,7 +514,7 @@ def test_unarmed_path_never_touches_the_stream_fallback_wrapper(
 
     engine = VllmOpenAIEngine()
     cfg = EngineConfig.resolve(base_url="http://host:9999/v1", model="m")
-    assert cfg.on_delta is None
+    assert cfg.on_delta is None  # no display sink either — the opt-out is what decides
     complete = engine._make_complete(cfg, tools=[])
     resp = complete([{"role": "user", "content": "hi"}])
 

@@ -30,13 +30,34 @@ plant its OWN fake user-level config still wins by setting ``COLLEAGUE_HOME``
 itself (via ``monkeypatch.setenv``, in its own body, which runs after this
 fixture) or by passing an explicit ``user_home=`` argument to a ``configdir``
 function directly — either always overrides this default.
+
+**SSE bridge over blocking stubs (#393).** Headless SSE streaming is armed by
+default from #393 on, so the vLLM driver reaches for ``urllib.request.urlopen``
++ the SSE reader on every turn — not the ``vllm_openai._post_json`` blocking
+function that a dozen suites monkeypatch to script their turns. Those suites
+pin *transport-independent* behavior (the loop, the offered tool schema, policy
+parity, degradation, the artifact shape), so the
+``_sse_bridge_over_blocking_stubs`` autouse fixture keeps them running on the
+DEFAULT (streaming) path instead of demoting them to the opt-out: whenever a
+test has installed its own ``_post_json`` stub, a chat-completions stream is
+answered from THAT stub, re-framed as SSE (:mod:`tests._vllm_http`). The bridge
+is inert for every test that has not patched ``_post_json`` (the real
+``urlopen`` is called), and a test that patches ``urlopen`` itself — the
+streaming suites — overrides it from its own body. A suite that genuinely pins
+the BLOCKING transport sets ``COLLEAGUE_STREAM=0``; that, not this bridge, is
+the honest opt-out.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import urllib.request
 
 import pytest
+
+from colleague.engines import vllm_openai
+from tests._vllm_http import FakeStreamResponse, sse_lines_for_turn
 
 #: The ``OPENAI_*`` variables colleague actually reads (it does not consume the
 #: wider OPENAI_* namespace, so only these are cleared).
@@ -55,3 +76,35 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for key in _OPENAI_PROVIDER_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("COLLEAGUE_HOME", str(tmp_path / "isolated-home"))
+
+
+#: The pristine blocking transport — the identity a patched ``_post_json`` is
+#: compared against, captured once at import time (before any monkeypatching).
+_REAL_POST_JSON = vllm_openai._post_json
+
+
+@pytest.fixture(autouse=True)
+def _sse_bridge_over_blocking_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer a streamed chat turn from the test's own ``_post_json`` stub (#393).
+
+    See the module docstring. Everything is decided at CALL time, so this
+    fixture never cares whether it ran before or after the test installed its
+    stub, and it is a strict no-op for any test that installed none.
+    """
+    real_urlopen = urllib.request.urlopen
+
+    def dispatching_urlopen(request, timeout=None):  # type: ignore[no-untyped-def]
+        url = str(getattr(request, "full_url", ""))
+        if vllm_openai._post_json is _REAL_POST_JSON or not url.endswith("/chat/completions"):
+            return real_urlopen(request, timeout=timeout)
+        payload = vllm_openai._blocking_payload(json.loads(request.data.decode("utf-8")))
+        auth = request.headers.get("Authorization", "")
+        turn = vllm_openai._post_json(
+            url,
+            payload,
+            api_key=auth[len("Bearer ") :] if auth.startswith("Bearer ") else "",
+            timeout=timeout if timeout is not None else 0.0,
+        )
+        return FakeStreamResponse(sse_lines_for_turn(turn))
+
+    monkeypatch.setattr("urllib.request.urlopen", dispatching_urlopen)
