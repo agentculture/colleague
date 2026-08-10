@@ -118,8 +118,8 @@ class FrozenChildConfigLifecycle:
     - ``snapshot`` — a **property** (not a method). ``colleague/engine.py``'s
       ``system_prompt`` (t7) reads it ONLY via
       ``getattr(lifecycle, "snapshot", None)`` and then
-      ``.strategist_sections`` off the result — never calling it. A
-      method-only ``snapshot()`` would silently lose the strategist note at
+      ``.evaluator_sections`` off the result — never calling it. A
+      method-only ``snapshot()`` would silently lose the evaluator note at
       that seam. ``colleague/engines/{mock,vllm_openai}.py`` (t3) read the
       SAME attribute defensively via a ``callable()`` check, so a property
       satisfies both: the attribute access already yields the (non-callable)

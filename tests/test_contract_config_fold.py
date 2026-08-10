@@ -1,5 +1,5 @@
 """Contract fold: configlifecycle events -> durable configevents.ConfigEvent
-records, and verbatim applied strategist content (three-tier-execution plan
+records, and verbatim applied evaluator content (three-tier-execution plan
 task t8, covers c6/h6/c36/h29).
 
 colleague.configlifecycle.EpisodeConfigLifecycle keeps its OWN small,
@@ -8,7 +8,7 @@ plus a per-window application history -- neither shape is what
 TaskResult.config_events carries. colleague.contract.map_configlifecycle_events
 is the ONE mapper that turns the lifecycle's own records into the durable
 configevents.ConfigEvent vocabulary, mapping kinds honestly (never inventing
-a new configevents kind) and folding each applied worker.prompt.strategist
+a new configevents kind) and folding each applied worker.prompt.evaluator
 unit's verbatim content onto its applied record -- sourced from the
 originally-queued ChangeUnit, since neither the lifecycle event nor
 ConfigApplication carries content itself.
@@ -120,14 +120,14 @@ def test_target_and_origin_ride_straight_through() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Verbatim applied strategist content (acceptance 2)
+# Verbatim applied evaluator content (acceptance 2)
 # ---------------------------------------------------------------------------
 
 
-def test_applied_strategist_unit_content_rides_the_applied_record() -> None:
+def test_applied_evaluator_unit_content_rides_the_applied_record() -> None:
     lifecycle = EpisodeConfigLifecycle()
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST,
+        target=Target.WORKER_PROMPT_EVALUATOR,
         origin=Origin.CORTEX,
         content="  Focus on the honest-README timer inversion.  ",
     )
@@ -142,7 +142,7 @@ def test_applied_strategist_unit_content_rides_the_applied_record() -> None:
     assert isinstance(applied[0], ConfigEventRecord)
 
 
-def test_applied_non_strategist_unit_carries_no_content() -> None:
+def test_applied_non_evaluator_unit_carries_no_content() -> None:
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
     unit = ChangeUnit(target=Target.WORKER_TOOLS, origin=Origin.CORTEX, tool_ids=["read_file"])
     lifecycle.propose(unit)
@@ -152,7 +152,7 @@ def test_applied_non_strategist_unit_carries_no_content() -> None:
 
     applied = [e for e in mapped if e.kind == "applied"]
     assert len(applied) == 1
-    # A non-strategist applied unit contributes no content -- the mapped
+    # A non-evaluator applied unit contributes no content -- the mapped
     # record is a PLAIN ConfigEvent (no content attribute at all), not a
     # ConfigEventRecord, mirroring _coerce_config_events' own class-selection
     # rule so mapper output and a round-tripped artifact match.
@@ -192,18 +192,18 @@ def test_non_refused_records_carry_no_reason() -> None:
 
 
 def test_multiple_applied_units_matched_positionally_across_windows() -> None:
-    """Two windows, each applying a different strategist note -- the mapper
+    """Two windows, each applying a different evaluator note -- the mapper
     pairs each 'applied' lifecycle event with the caller's flat, ordered
     applied_units list (decision q2: the fold is cumulative)."""
     lifecycle = EpisodeConfigLifecycle()
     first = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content="First note"
+        target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content="First note"
     )
     lifecycle.propose(first)
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
 
     second = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content="Second note"
+        target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content="Second note"
     )
     lifecycle.propose(second)
     lifecycle.apply_window(WINDOW_BETWEEN_EPISODES)
@@ -246,7 +246,7 @@ def test_content_omitted_from_to_dict_when_empty() -> None:
 
 def test_content_present_in_to_dict_when_set() -> None:
     record = ConfigEventRecord(
-        kind="applied", target="worker.prompt.strategist", origin="cortex", seq=0, content="note"
+        kind="applied", target="worker.prompt.evaluator", origin="cortex", seq=0, content="note"
     )
     assert record.to_dict()["content"] == "note"
 
@@ -254,7 +254,7 @@ def test_content_present_in_to_dict_when_set() -> None:
 def test_from_dict_reads_content_when_present() -> None:
     data = {
         "kind": "applied",
-        "target": "worker.prompt.strategist",
+        "target": "worker.prompt.evaluator",
         "origin": "cortex",
         "reason": "",
         "seq": 0,
@@ -297,7 +297,7 @@ def test_a_plain_configevent_instance_is_unaffected_by_the_subclass() -> None:
 def test_taskresult_round_trips_mapped_events_with_content() -> None:
     lifecycle = EpisodeConfigLifecycle()
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content="Applied note"
+        target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content="Applied note"
     )
     lifecycle.propose(unit)
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
@@ -334,7 +334,7 @@ def test_mapped_events_round_trip_through_the_artifact_on_disk(tmp_path) -> None
     """Acceptance 1: '...and the artifact on disk'."""
     lifecycle = EpisodeConfigLifecycle()
     unit = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content="On-disk note"
+        target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content="On-disk note"
     )
     lifecycle.propose(unit)
     lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
@@ -376,11 +376,11 @@ def test_config_digest_for_matches_effective_digest() -> None:
 def test_config_digest_for_changes_when_content_changes() -> None:
     """Content rides ConfigEventRecord.to_dict, which canonical()/
     effective_digest already dispatch to dynamically -- an applied
-    strategist unit's content genuinely moves the digest, not just kind/
+    evaluator unit's content genuinely moves the digest, not just kind/
     target/origin/seq."""
     lifecycle_a = EpisodeConfigLifecycle()
     unit_a = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content="Note A"
+        target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content="Note A"
     )
     lifecycle_a.propose(unit_a)
     lifecycle_a.apply_window(WINDOW_BEFORE_EPISODE_1)
@@ -388,7 +388,7 @@ def test_config_digest_for_changes_when_content_changes() -> None:
 
     lifecycle_b = EpisodeConfigLifecycle()
     unit_b = ChangeUnit(
-        target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content="Note B"
+        target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content="Note B"
     )
     lifecycle_b.propose(unit_b)
     lifecycle_b.apply_window(WINDOW_BEFORE_EPISODE_1)

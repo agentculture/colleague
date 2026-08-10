@@ -43,7 +43,7 @@ from colleague.configlifecycle import (
 )
 from colleague.contract import OK, Task
 from colleague.lattice import CapabilityCatalog, ChangeUnit, Origin, Target
-from colleague.layers import STRATEGIST_SECTION_HEADING
+from colleague.layers import EVALUATOR_SECTION_HEADING
 from colleague.loop import ModelResponse, ToolCall
 
 _CONFIGURATOR_SRC = Path(configurator_module.__file__)
@@ -240,7 +240,7 @@ class TestActingCompletionSeamNeverWrapped:
 # Pin 1c — structural pin RE-PROVEN WITH CONTENT FLOWING (plan task t11,
 # acceptance criterion 1): the two pins above hold purely structurally (AST
 # shape), true regardless of whether any cortex content ever exists. This
-# section adds the BEHAVIORAL companion using a REAL applied strategist
+# section adds the BEHAVIORAL companion using a REAL applied evaluator
 # note: the composed system prompt must be the ONLY carrier of that text
 # anywhere in the worker's actual message history, not merely "no function
 # accepts a history-shaped parameter".
@@ -248,13 +248,13 @@ class TestActingCompletionSeamNeverWrapped:
 # Pre-arc gap this closes (h17, failing-first): before plan task t7 landed
 # (commit 5d9c363, "merge t5" — the tree immediately before t7's prompt-
 # consumption seam), colleague/engine.py's system_prompt() never read
-# config.config_lifecycle at all — no strategist_section was ever composed
+# config.config_lifecycle at all — no evaluator_section was ever composed
 # regardless of what a lifecycle's snapshot carried. Verified directly: with
 # colleague/engine.py checked out at 5d9c363 (git show 5d9c363:colleague/
 # engine.py), MockEngine().work() below produces a system message with NO
-# STRATEGIST_SECTION_HEADING and NO trace of ``note`` anywhere — the first
+# EVALUATOR_SECTION_HEADING and NO trace of ``note`` anywhere — the first
 # assertion in test_applied_content_appears_only_in_the_composed_system_message
-# (``STRATEGIST_SECTION_HEADING in system_content``) fails immediately on
+# (``EVALUATOR_SECTION_HEADING in system_content``) fails immediately on
 # that tree. Restored to the current tree after verification (no production
 # file was left modified).
 # ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ class TestContentFlowsOnlyThroughTheComposedSystemPrompt:
     def test_applied_content_appears_only_in_the_composed_system_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A REAL applied worker.prompt.strategist note (not a fake/stub
+        """A REAL applied worker.prompt.evaluator note (not a fake/stub
         snapshot) drives ``MockEngine().work()`` end to end — the exact
         production path (``colleague/engine.py``'s ``system_prompt()``, t7)
         that turns an applied snapshot into prompt text. Across every model
@@ -279,12 +279,12 @@ class TestContentFlowsOnlyThroughTheComposedSystemPrompt:
         )
         note = "focus review on the auth module before anything else"
         verdict = lifecycle.propose(
-            ChangeUnit(target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content=note)
+            ChangeUnit(target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content=note)
         )
         assert verdict.allowed is True
         application = lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
         assert application.applied_count == 1
-        assert lifecycle.snapshot.strategist_sections == (note,)
+        assert lifecycle.snapshot.evaluator_sections == (note,)
 
         config = EngineConfig.resolve()
         config.config_lifecycle = lifecycle
@@ -318,7 +318,7 @@ class TestContentFlowsOnlyThroughTheComposedSystemPrompt:
         for messages in seen_messages:
             assert messages[0]["role"] == "system"
             system_content = str(messages[0]["content"])
-            assert STRATEGIST_SECTION_HEADING in system_content
+            assert EVALUATOR_SECTION_HEADING in system_content
             assert note in system_content
             # The ONE-carrier claim: no OTHER message in this turn's growing
             # history (user turn 1, or any prior assistant/tool exchange by
@@ -326,7 +326,6 @@ class TestContentFlowsOnlyThroughTheComposedSystemPrompt:
             for other in messages[1:]:
                 other_content = str(other.get("content", ""))
                 assert note not in other_content, (
-                    "cortex-authored strategist text leaked into a non-system "
-                    f"message: {other!r}"
+                    "cortex-authored evaluator text leaked into a non-system " f"message: {other!r}"
                 )
-                assert STRATEGIST_SECTION_HEADING not in other_content
+                assert EVALUATOR_SECTION_HEADING not in other_content

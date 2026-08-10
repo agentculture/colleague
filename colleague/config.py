@@ -278,6 +278,52 @@ _SENSES_DEFAULT_WINDOW = 32768
 # worker (c25/h21).
 _DEFAULT_THREE_TIER_ENABLED = False
 
+# Thought→action→evaluation execution arming (post-#387 program, plan task
+# t12; issue #397; spec claims c17/c26, honesty h10/h19).
+#
+# An INDEPENDENT opt-in, deliberately DISTINCT from ``three_tier``:
+# ``COLLEAGUE_THOUGHT_ACTION_EVALUATION`` env > a ``thought_action_evaluation``
+# key in .colleague/config.json (bool, or an object whose presence — absent an
+# explicit ``{"enabled": false}`` — itself means armed, the ``lobes``/
+# ``three_tier`` bare-string-or-object precedent) > default-OFF. Arming one
+# mode never arms the other; arming BOTH refuses loudly (two execution modes
+# cannot both own the acting seat — see :func:`_resolve_evaluation_seats`).
+#
+# Unarmed is a strict no-op: no seat is resolved, no field changes, and the
+# ``to_dict()`` key set is byte-identical to the pre-feature snapshot (the
+# mode's keys are omit-when-unarmed, the deepthink/senses/worker convention).
+_DEFAULT_THOUGHT_ACTION_EVALUATION = False
+
+# The seat → lobes ROLE NAME map for the thought→action→evaluation mode.
+#
+# Every seat is resolved BY ROLE NAME from the gateway's ``/capabilities``
+# contract — colleague NEVER parses a model name to decide who fills a seat
+# (spec c40: the reference rig's Gemma 12B / Qwen 35B / Qwen 27B ids are a
+# CANDIDATE, never an architectural requirement). The mapping mirrors the
+# landed three-tier seats:
+#
+# - ``front`` ← the ``senses`` role: the operator-facing front door, here
+#   promoted from relaying to committing typed Thoughts;
+# - ``worker`` ← the ``worker`` role: the bounded-tool-loop actor that
+#   realizes a Thought;
+# - ``evaluator`` ← the ``cortex`` role: the tools-off seat that judges
+#   thought↔action fidelity (three-tier's configurator seat, re-tasked).
+#
+# The evaluator sharing the ``cortex`` role is EXACTLY why the authority
+# separation of spec c38/h30 matters: distillation's own author resolution
+# would otherwise pick that same checkpoint and silently hand the evaluator
+# memory-write authority. Arming therefore populates
+# :attr:`EngineConfig.evaluator_checkpoint`, which
+# ``colleague/distill.py``'s ``_refuses_evaluator_as_distiller`` guard reads.
+#
+# Ordered (not a dict literal at use time) so a refusal always names the seats
+# in a deterministic order.
+_EVALUATION_SEAT_ROLES: tuple[tuple[str, str], ...] = (
+    ("front", "senses"),
+    ("worker", "worker"),
+    ("evaluator", "cortex"),
+)
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -304,6 +350,18 @@ _SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget
 # ONLY via lobes role-NAME discovery (never model-name parsing, the t3
 # design boundary); the only recognised key is the key-hygiene override.
 _WORKER_CONFIG_KEYS = frozenset({"api_key"})
+# Recognised key inside each NESTED seat section (``front``/``worker``/
+# ``evaluator``) of .colleague/config.json for the thought→action→evaluation
+# mode (plan task t12). Deliberately the SAME narrow set as
+# :data:`_WORKER_CONFIG_KEYS`: a seat has no declared model/base_url — seats
+# resolve ONLY by lobes role NAME — so the key-hygiene override is the only
+# thing an operator can say about a seat here.
+_SEAT_CONFIG_KEYS = _WORKER_CONFIG_KEYS
+# Recognised key inside the NESTED "distiller" section of .colleague/config.json
+# (plan task t12; spec c38/h30). A bare string is also accepted (the ``lobes``
+# precedent). This declares that lesson DISTILLATION is a distinct authority
+# from evaluation — see :func:`_resolve_distiller_checkpoint`.
+_DISTILLER_CONFIG_KEYS = frozenset({"model"})
 
 _VOICE_CONFIG_KEYS = frozenset({"stt_model", "tts_model", "base_url", "api_key"})
 # Recognised keys inside the NESTED "realtime" section of .colleague/config.json
@@ -580,6 +638,74 @@ def _load_three_tier_override(repo_path: str | Path) -> str | None:
         # explicit {"enabled": "false"} disable (Qodo #367 review, thread 4).
         return str(section.get("enabled", True))
     return str(section)
+
+
+def _load_thought_action_evaluation_override(repo_path: str | Path) -> str | None:
+    """Read the ``thought_action_evaluation`` key from .colleague/config.json as
+    a raw string (post-#387 program, plan task t12; issue #397).
+
+    The exact shape of :func:`_load_three_tier_override` against a DIFFERENT
+    key — arming this mode must never arm three-tier, and vice versa. Accepts
+    a bare boolean (``{"thought_action_evaluation": true}``) or a nested object
+    (``{"thought_action_evaluation": {"enabled": true}}``, whose bare presence
+    is itself armed). The RAW value is preserved so ``_parse_bool`` downstream
+    handles string booleans (``bool("false")`` is True — the Qodo #367
+    regression class). Reads via :func:`_merged_config_json` (the at-home
+    per-key merge, #339), so a machine-wide default survives a repo-level
+    config.json that omits the key. Never raises.
+    """
+    data = _merged_config_json(repo_path)
+    section = data.get("thought_action_evaluation")
+    if section is None:
+        return None
+    if isinstance(section, dict):
+        return str(section.get("enabled", True))
+    return str(section)
+
+
+def _load_distiller_override(repo_path: str | Path) -> str | None:
+    """Read the declared DISTILLER checkpoint id from .colleague/config.json
+    (plan task t12; spec c38/h30).
+
+    Accepts a bare string (``{"distiller": "some/model"}``) or a nested object
+    (``{"distiller": {"model": "some/model"}}``) — the ``lobes``
+    bare-string-or-object tolerance. Returns the raw id, or ``None`` when
+    absent/blank. Per-key merged (:func:`_merged_config_json`); never raises.
+    """
+    data = _merged_config_json(repo_path)
+    section = data.get("distiller")
+    if section is None:
+        return None
+    if isinstance(section, dict):
+        recognised = {
+            key: value
+            for key, value in section.items()
+            if key in _DISTILLER_CONFIG_KEYS and value is not None
+        }
+        value = recognised.get("model")
+        return str(value) if value is not None else None
+    return str(section)
+
+
+def _load_seat_overrides(repo_path: str | Path, section_name: str) -> dict[str, str]:
+    """Read one NESTED seat section (``front``/``worker``/``evaluator``) of
+    .colleague/config.json, per-key merged (plan task t12).
+
+    The generalisation of :func:`_load_worker_overrides` over a seat name: the
+    recognised key set is deliberately narrow (:data:`_SEAT_CONFIG_KEYS` —
+    ``api_key`` only) because a seat carries NO declared model/base_url; seats
+    are resolved ONLY by lobes role-NAME discovery, never model-name parsing.
+    A missing/non-dict section yields an empty dict and never raises.
+    """
+    data = _merged_config_json(repo_path)
+    section = data.get(section_name)
+    if not isinstance(section, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in section.items()
+        if key in _SEAT_CONFIG_KEYS and value is not None
+    }
 
 
 def _load_worker_overrides(repo_path: str | Path) -> dict[str, str]:
@@ -1015,20 +1141,76 @@ def _voice_from_lobes_roles(roles: object, gateway_url: str, api_key: str) -> "V
     )
 
 
-def _worker_refusal(message: str, remediation: str) -> "CliError":
-    """Build the loud three-tier worker refusal (c25/h21), lazily importing
+def _seat_refusal(message: str, remediation: str) -> "CliError":
+    """Build a loud seat-resolution refusal, lazily importing
     :class:`~colleague.cli._errors.CliError` (the same lazy-import stance
     :func:`_resolve_lobes_rung` takes for ``colleague.lobes`` — keeps
     ``config``'s module-level import graph unchanged).
 
-    This is the ONE refusal path in this module: every other lobes-fed rung
-    (deepthink/senses/voice/realtime) degrades to ``None`` on any resolution
-    failure, but an EXPLICITLY armed three-tier config makes the worker role
-    MANDATORY — see :func:`_resolve_worker`.
+    Every other lobes-fed rung (deepthink/senses/voice/realtime) degrades to
+    ``None`` on any resolution failure. These are the exceptions: an
+    EXPLICITLY armed execution mode makes its seats MANDATORY — three-tier's
+    worker (:func:`_resolve_worker`, c25/h21) and the thought→action→evaluation
+    mode's front/worker/evaluator (:func:`_resolve_evaluation_seats`, h19).
     """
     from colleague.cli._errors import EXIT_USER_ERROR, CliError
 
     return CliError(EXIT_USER_ERROR, message, remediation)
+
+
+def _worker_refusal(message: str, remediation: str) -> "CliError":
+    """The three-tier worker refusal (c25/h21) — see :func:`_seat_refusal`."""
+    return _seat_refusal(message, remediation)
+
+
+def _defaults_source(file_value: str | None, lobes_value: str | None, builtin: str) -> str:
+    """First non-None of the two DEFAULTS-SOURCE rungs, else *builtin*.
+
+    config.json outranks the lobes discovery rung; both sit BELOW the explicit
+    flag/env precedence :func:`_pick` applies on top. Written as statements
+    rather than a nested ternary (SonarCloud S3358) and shared by the base_url
+    and model resolutions so the two rungs cannot drift apart.
+    """
+    if file_value is not None:
+        return file_value
+    if lobes_value is not None:
+        return lobes_value
+    return builtin
+
+
+def _resolve_acting_dial(
+    resolved_worker: "WorkerConfig | None",
+    resolved_seats: "EvaluationSeats | None",
+    *,
+    main: tuple[str, str, str, int],
+) -> tuple[str, str, str, int]:
+    """Return ``(model, base_url, api_key, context)`` for the seat that ACTS.
+
+    Exactly one seat acts. Unarmed, that is the main dial. Under three-tier
+    (t8) it is ``resolved_worker``; under thought→action→evaluation (t13) it is
+    ``resolved_seats.worker`` — the evaluator never acts. The two modes are
+    mutually exclusive (``_refuse_conflicting_execution_modes``), so the
+    branches below can never both apply.
+
+    Note this repoints the ACTING dial only. ``distill.py``'s
+    authority-separation guard reads ``evaluator_checkpoint``, never
+    ``config.model``, so moving this dial cannot weaken it (spec c38/h30).
+    """
+    if resolved_worker is not None:
+        return (
+            resolved_worker.model,
+            resolved_worker.base_url,
+            resolved_worker.api_key,
+            resolved_worker.context,
+        )
+    if resolved_seats is not None:
+        return (
+            resolved_seats.worker.model,
+            resolved_seats.worker.base_url,
+            resolved_seats.worker.api_key,
+            resolved_seats.worker.context,
+        )
+    return main
 
 
 def _resolve_worker(
@@ -1132,6 +1314,162 @@ def _resolve_worker(
         api_key=api_key,
         context=int(getattr(worker_role, "context", 0) or 0),
     )
+
+
+# ---------------------------------------------------------------------------
+# Thought→action→evaluation mode arming (post-#387 program, plan task t12;
+# issue #397; spec c17/c26, honesty h10/h19).
+# ---------------------------------------------------------------------------
+
+
+def _refuse_conflicting_execution_modes(three_tier: bool, thought_action_evaluation: bool) -> None:
+    """Refuse when BOTH execution modes are armed at once (plan task t12).
+
+    Two execution modes cannot both own the acting seat, and silently letting
+    one win by precedence is exactly the class of quiet degradation this arc
+    exists to prevent — an operator who armed both must be told, not guessed
+    at. A strict no-op unless both are armed.
+    """
+    if three_tier and thought_action_evaluation:
+        raise _seat_refusal(
+            "three_tier and thought_action_evaluation are both armed — they are "
+            "independent execution modes and cannot both own the acting seat",
+            "unset one of COLLEAGUE_THREE_TIER / COLLEAGUE_THOUGHT_ACTION_EVALUATION "
+            "(or the matching .colleague/config.json key)",
+        )
+
+
+def _refuse_unusable_evaluation_gateway(
+    declared_lobes_url: str | None,
+    lobes_gateway_url: str | None,
+    lobes_roles: object,
+) -> None:
+    """Raise the two GATEWAY-level arming refusals for the mode (plan task t12).
+
+    Mirrors :func:`_resolve_worker`'s first two refusal branches, including the
+    *declared* vs *resolved* URL distinction: ``declared_lobes_url`` is the
+    RAW, no-network operator declaration, while ``lobes_gateway_url`` is
+    already collapsed to ``None`` on EITHER "nothing declared" OR "declared but
+    unreachable/malformed" — telling them apart is what lets the message name
+    the real gap.
+    """
+    if declared_lobes_url is None:
+        raise _seat_refusal(
+            "thought→action→evaluation mode is armed (thought_action_evaluation) "
+            "but no lobes gateway is configured — the front, worker, and evaluator "
+            "seats can only be discovered from a lobes gateway",
+            "set COLLEAGUE_LOBES_URL or a 'lobes' section in .colleague/config.json "
+            "to a gateway advertising ready senses/worker/cortex roles, or unset "
+            "thought_action_evaluation",
+        )
+    if lobes_gateway_url is None or lobes_roles is None:
+        raise _seat_refusal(
+            "thought→action→evaluation mode is armed (thought_action_evaluation) "
+            f"but the lobes gateway {declared_lobes_url!r} is unreachable — the "
+            "front, worker, and evaluator seats could not be resolved",
+            "check the lobes gateway is running and reachable, or unset "
+            "thought_action_evaluation",
+        )
+
+
+def _seat_api_key(
+    seat: str,
+    file_seat: dict[str, str],
+    seat_base_url: str,
+    main_base_url: str,
+    main_api_key: str,
+) -> str:
+    """Resolve one seat's api_key under the #347/#348 same-origin hygiene rule.
+
+    An explicit ``COLLEAGUE_<SEAT>_API_KEY`` env or a ``<seat>.api_key`` in
+    config.json always wins (trusted operator intent). Otherwise the MAIN key
+    is inherited only when the seat's resolved dial target shares the main
+    endpoint's origin; a cross-origin seat gets the withheld
+    :data:`_DEFAULT_API_KEY` instead, so the main Bearer token is never
+    forwarded to a host a wire payload advertised. Identical in mechanism to
+    :func:`_resolve_worker`'s own key hygiene.
+    """
+    explicit = _pick(
+        None,
+        f"COLLEAGUE_{seat.upper()}_API_KEY",
+        default=file_seat.get("api_key", ""),
+    )
+    if explicit:
+        return explicit
+    if _same_origin(seat_base_url, main_base_url):
+        return main_api_key
+    return _DEFAULT_API_KEY
+
+
+def _resolve_evaluation_seats(
+    armed: bool,
+    lobes_roles: object,
+    lobes_gateway_url: str | None,
+    declared_lobes_url: str | None,
+    main_base_url: str,
+    main_api_key: str,
+    file_seats: dict[str, dict[str, str]],
+) -> "EvaluationSeats | None":
+    """Resolve the thought→action→evaluation mode's three seats (plan task t12).
+
+    **Not armed (default): a strict no-op.** Returns ``None`` without
+    inspecting a single role — every advertised role is read and discarded
+    exactly as it is today, so an unarmed resolution is byte-identical
+    (acceptance criterion 1, honesty h19/h10).
+
+    **Armed: every seat is MANDATORY and resolved BY ROLE NAME.**
+    :data:`_EVALUATION_SEAT_ROLES` is the whole mapping — ``front`` ←
+    ``senses``, ``worker`` ← ``worker``, ``evaluator`` ← ``cortex`` — read off
+    the gateway's ``/capabilities`` contract. There is deliberately NO
+    declared-seat-model rung anywhere: colleague never parses a model name to
+    decide who fills a seat (spec c40 — the reference rig's specific model ids
+    are a CANDIDATE, never an architectural requirement). A missing or not-``ready``
+    role raises :class:`~colleague.cli._errors.CliError` naming BOTH the seat
+    and the role it resolves from, rather than falling back to another seat's
+    model: a silent fallback would leave the operator believing they have an
+    evaluator seat when they do not, which removes the mode's entire safety
+    property (acceptance criterion 2).
+
+    The refusal fires HERE, at resolution time (``EngineConfig.resolve()``),
+    before any episode starts — uniform across the ``work`` and ``session``
+    fronts, exactly like three-tier's worker refusal.
+
+    RESOLUTION ONLY in this task: nothing consumes these seats yet. The
+    control loop (which seat acts when, and the evaluator's invocation
+    boundaries) is plan task t13's territory — this task arms the seats, not
+    their payloads. Consequently the ACTING dial (``model``/``base_url``/
+    ``api_key``) is deliberately left UNCHANGED by arming, unlike three-tier's
+    t8 worker-as-actor override.
+    """
+    if not armed:
+        return None
+    _refuse_unusable_evaluation_gateway(declared_lobes_url, lobes_gateway_url, lobes_roles)
+    seats: dict[str, SeatConfig] = {}
+    for seat, role_name in _EVALUATION_SEAT_ROLES:
+        role = getattr(lobes_roles, role_name, None)
+        if role is None or not getattr(role, "ready", False):
+            raise _seat_refusal(
+                "thought→action→evaluation mode is armed (thought_action_evaluation) "
+                f"but the lobes gateway {lobes_gateway_url!r} advertises no ready "
+                f"{role_name} role — the {seat} seat resolves BY ROLE NAME from "
+                "/capabilities and has no fallback",
+                f"arm a ready {role_name} role on the lobes gateway, or unset "
+                "thought_action_evaluation",
+            )
+        seat_base_url = _role_dial_base_url(role, lobes_gateway_url)
+        seats[seat] = SeatConfig(
+            model=role.model,
+            base_url=seat_base_url,
+            api_key=_seat_api_key(
+                seat,
+                file_seats.get(seat, {}),
+                seat_base_url,
+                main_base_url,
+                main_api_key,
+            ),
+            context=int(getattr(role, "context", 0) or 0),
+        )
+    return EvaluationSeats(**seats)
 
 
 def _resolve_realtime_devices(file_realtime: dict[str, str]) -> tuple[str | None, str | None]:
@@ -1737,6 +2075,48 @@ def _resolve_three_tier_enabled(file_value: str | None) -> bool:
     return _DEFAULT_THREE_TIER_ENABLED
 
 
+def _resolve_thought_action_evaluation_enabled(file_value: str | None) -> bool:
+    """Resolve the thought→action→evaluation arming flag: env
+    ``COLLEAGUE_THOUGHT_ACTION_EVALUATION`` > config.json
+    ``thought_action_evaluation`` > default-OFF (plan task t12; issue #397).
+
+    The exact precedence shape of :func:`_resolve_three_tier_enabled` over a
+    DELIBERATELY DISTINCT key: arming this mode never arms three-tier, and
+    arming three-tier never arms this mode (acceptance criterion 1). Default-OFF,
+    never ambient — an execution-mode change needs explicit operator intent
+    (decision c21's stance), never an accident of an armed lobes gateway alone.
+    """
+    env = os.environ.get("COLLEAGUE_THOUGHT_ACTION_EVALUATION")
+    if env is not None and env.strip() != "":
+        return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_THOUGHT_ACTION_EVALUATION
+
+
+def _resolve_distiller_checkpoint(file_value: str | None) -> str | None:
+    """Resolve the DECLARED distiller checkpoint id: env
+    ``COLLEAGUE_DISTILLER_MODEL`` > config.json ``distiller`` > absent
+    (plan task t12; spec c38/h30).
+
+    Evaluation and distillation are DISTINCT authority contracts even when they
+    share a checkpoint: the evaluator does closed-world thought↔action judgment
+    and cannot write durable memory, while the distiller runs post-outcome and
+    only when evidence exists. ``colleague/distill.py``'s
+    ``_refuses_evaluator_as_distiller`` guard refuses to let the evaluator seat
+    author lessons UNLESS a distinct distiller authority is declared — this is
+    that declaration.
+
+    Deliberately a bare CHECKPOINT ID, not a dial: it asserts *who the
+    distillation authority is*, and distill.py's own precedence already owns
+    where that author is dialed. Resolved independently of the mode's arming
+    (an authority declaration is meaningful on its own); ``None`` when absent
+    or blank, which leaves the guard exactly as inert as it is today.
+    """
+    declared = _pick(None, "COLLEAGUE_DISTILLER_MODEL", default=file_value or "")
+    return declared.strip() or None
+
+
 def _load_affected_tests_overrides(
     repo_path: str | Path,
 ) -> tuple[str | None, str | None, str | None, str | None]:
@@ -2318,6 +2698,57 @@ class WorkerConfig:
 
 
 @dataclass(frozen=True)
+class SeatConfig:
+    """One resolved thought→action→evaluation seat's dial target (plan task t12).
+
+    Field-for-field :class:`WorkerConfig`'s shape — model id, dial target,
+    api_key (same-origin hygiene, #347/#348), and the role's OWN advertised
+    context window read verbatim off the wire — because a seat *is* the same
+    kind of thing: a lobes role colleague may dial. It is a separate type only
+    so the three-tier worker seat and this mode's seats can never be confused
+    for one another by a reader or a consumer.
+
+    Which lobes role fills which seat is :data:`_EVALUATION_SEAT_ROLES` and
+    nothing else: there is no declared seat model anywhere, and no model-name
+    parsing anywhere (spec c40).
+    """
+
+    model: str
+    base_url: str
+    api_key: str
+    context: int
+
+
+@dataclass(frozen=True)
+class EvaluationSeats:
+    """The three seats of the thought→action→evaluation mode (plan task t12).
+
+    Present on :attr:`EngineConfig.evaluation_seats` ONLY when the mode is
+    EXPLICITLY armed (``COLLEAGUE_THOUGHT_ACTION_EVALUATION`` /
+    config.json ``thought_action_evaluation``) AND the lobes gateway advertises
+    a ready role for every seat. All three are MANDATORY: an armed-but-
+    unresolvable seat raises a loud refusal naming the seat and the role
+    (:func:`_resolve_evaluation_seats`) instead of ever degrading to a silent
+    fallback — a silently missing evaluator would remove the mode's entire
+    safety property.
+
+    - :attr:`front` (lobes ``senses``) — commits typed Thoughts; no repo tools.
+    - :attr:`worker` (lobes ``worker``) — realizes a Thought through tools.
+    - :attr:`evaluator` (lobes ``cortex``) — tools-off thought↔action fidelity
+      judgment; CANNOT write durable memory (spec c38/h30 — see
+      :attr:`EngineConfig.evaluator_checkpoint`).
+
+    RESOLUTION ONLY: nothing consumes these seats yet (the control loop is plan
+    task t13). Deepthink is unconditionally absent whenever this is present,
+    exactly as in three-tier mode.
+    """
+
+    front: SeatConfig
+    worker: SeatConfig
+    evaluator: SeatConfig
+
+
+@dataclass(frozen=True)
 class VoiceConfig:
     """A resolved voice (stt/tts) escalation target.
 
@@ -2525,6 +2956,35 @@ class EngineConfig:
     # silent cortex-as-actor). See :class:`WorkerConfig` and
     # :func:`_resolve_worker`.
     worker: Optional[WorkerConfig] = None
+    # Thought→action→evaluation execution arming (post-#387 program, plan task
+    # t12; issue #397). ``False`` (the default) = today's byte-identical
+    # behavior — every seat advert is read and discarded, and this key is
+    # omitted from ``to_dict()`` entirely. An INDEPENDENT opt-in: distinct
+    # from ``three_tier`` in every direction (arming one never arms the other;
+    # arming both refuses). See :func:`_resolve_thought_action_evaluation_enabled`.
+    thought_action_evaluation: bool = False
+    # The mode's three resolved seats (front/worker/evaluator), each resolved
+    # BY ROLE NAME from the lobes /capabilities contract. ``None`` = the mode
+    # is not armed, byte-identical to today. RESOLUTION ONLY when present: an
+    # armed run with any unresolvable seat raises a loud refusal instead of
+    # ever leaving this ``None`` with the flag True (no silent fallback). See
+    # :class:`EvaluationSeats` and :func:`_resolve_evaluation_seats`.
+    evaluation_seats: Optional[EvaluationSeats] = None
+    # The checkpoint id serving the EVALUATOR seat (spec c38/h30). Set ONLY
+    # when the mode is armed — it is ``evaluation_seats.evaluator.model``,
+    # surfaced as a flat field because ``colleague/distill.py``'s
+    # ``_refuses_evaluator_as_distiller`` guard reads exactly this attribute
+    # (via ``getattr``) to refuse handing the evaluator seat lesson-authoring
+    # authority. ``None`` = unarmed, which leaves that guard as inert as it is
+    # today. See :func:`_resolve_evaluation_seats`.
+    evaluator_checkpoint: Optional[str] = None
+    # An operator-DECLARED distinct distillation authority (spec c38/h30).
+    # Lifts the evaluator-as-distiller refusal above by naming a checkpoint
+    # that is genuinely not the evaluator's. Resolved independently of the
+    # mode's arming (an authority declaration stands on its own); ``None`` =
+    # nothing declared, byte-identical to today. See
+    # :func:`_resolve_distiller_checkpoint`.
+    distiller_checkpoint: Optional[str] = None
     # The episode config-lifecycle attachment (change-content consumption
     # lane, plan task t3). ``None`` (the default) = no config plane armed,
     # byte-identical to today — the pre-existing state, since nothing has
@@ -2746,6 +3206,9 @@ class EngineConfig:
         file_realtime: dict[str, str] = {}
         file_three_tier: str | None = None
         file_worker: dict[str, str] = {}
+        file_tae: str | None = None
+        file_distiller: str | None = None
+        file_seats: dict[str, dict[str, str]] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -2766,6 +3229,18 @@ class EngineConfig:
             file_realtime = _load_realtime_overrides(repo_path)
             file_three_tier = _load_three_tier_override(repo_path)
             file_worker = _load_worker_overrides(repo_path)
+            # Thought→action→evaluation mode (t12): its own arming key, its own
+            # per-seat key-hygiene sections, and the declared distiller
+            # authority. The ``worker`` section is SHARED with three-tier —
+            # same seat name, same key, and the two modes are mutually
+            # exclusive, so there is nothing to disambiguate.
+            file_tae = _load_thought_action_evaluation_override(repo_path)
+            file_distiller = _load_distiller_override(repo_path)
+            file_seats = {
+                "front": _load_seat_overrides(repo_path, "front"),
+                "worker": file_worker,
+                "evaluator": _load_seat_overrides(repo_path, "evaluator"),
+            }
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -2787,12 +3262,7 @@ class EngineConfig:
         # The default is a plain if/else (not a nested ternary, SonarCloud
         # S3358) over the two DEFAULTS-SOURCE rungs below the explicit
         # arg/env precedence: config.json, then the lobes discovery rung.
-        if file_base_url is not None:
-            base_url_default = file_base_url
-        elif lobes_base_url is not None:
-            base_url_default = lobes_base_url
-        else:
-            base_url_default = _DEFAULT_BASE_URL
+        base_url_default = _defaults_source(file_base_url, lobes_base_url, _DEFAULT_BASE_URL)
         resolved_base_url = _pick(
             base_url,
             "COLLEAGUE_BASE_URL",
@@ -2886,28 +3356,67 @@ class EngineConfig:
         # None — the refusal fires HERE, at resolution time, before any
         # episode starts.
         resolved_three_tier = _resolve_three_tier_enabled(file_three_tier)
+        # The RAW, no-network operator declaration, hoisted so both execution
+        # modes' seat resolution names the same gap the same way (it was
+        # already evaluated unconditionally as an argument below).
+        declared_lobes_url = resolve_lobes_gateway_url(repo_path)
         resolved_worker = _resolve_worker(
             resolved_three_tier,
             lobes_roles,
             lobes_gateway_url,
-            resolve_lobes_gateway_url(repo_path),
+            declared_lobes_url,
             resolved_base_url,
             resolved_api_key,
             file_worker,
         )
+        # Thought→action→evaluation seat resolution (post-#387 program, plan
+        # task t12; issue #397, spec c17/c26 + h10/h19). An INDEPENDENT opt-in
+        # from the block above: not armed is a strict no-op (every seat advert
+        # read and discarded, byte-identical), ARMED makes the front/worker/
+        # evaluator roles MANDATORY and resolves each BY ROLE NAME. Both modes
+        # armed at once refuses first — neither mode silently wins.
+        resolved_tae = _resolve_thought_action_evaluation_enabled(file_tae)
+        _refuse_conflicting_execution_modes(resolved_three_tier, resolved_tae)
+        resolved_seats = _resolve_evaluation_seats(
+            resolved_tae,
+            lobes_roles,
+            lobes_gateway_url,
+            declared_lobes_url,
+            resolved_base_url,
+            resolved_api_key,
+            file_seats,
+        )
+        # The authority-separation seam (spec c38/h30): the evaluator's own
+        # checkpoint id, flat on the config, is what distill.py's
+        # ``_refuses_evaluator_as_distiller`` guard reads to refuse handing the
+        # evaluator seat lesson-authoring authority — and the declared
+        # distiller checkpoint is what lifts that refusal. Unarmed leaves the
+        # former ``None``, so the guard stays exactly as inert as today.
+        resolved_evaluator_checkpoint = (
+            resolved_seats.evaluator.model if resolved_seats is not None else None
+        )
+        resolved_distiller_checkpoint = _resolve_distiller_checkpoint(file_distiller)
         # Deepthink absent in three-tier mode (plan task t8; covers c12/h12).
         # Once three_tier is armed, no DeepthinkConfig is EVER constructed —
         # neither a DECLARED (env/config.json) deepthink nor one discovered
         # from the lobes muse role above (``resolved_deepthink`` may already
         # hold either) survives. Three-tier's own strong-reasoning seat is
-        # the worker itself (arc summary: "strategist absent, deepthink
+        # the worker itself (arc summary: "evaluator absent, deepthink
         # absent") — forcing this HERE, before the reviewer-default backfill
         # just below reads ``resolved_deepthink``, means that backfill (t7)
         # also sees no deepthink to borrow a reviewer model from, staying
         # consistent with deepthink's total absence. Legacy (three_tier
         # False) is completely untouched: resolved_deepthink keeps whatever
         # _resolve_deepthink/_deepthink_lobes_fallback already computed above.
-        if resolved_three_tier:
+        #
+        # The thought→action→evaluation mode (t12) takes the IDENTICAL stance
+        # for the identical reason: its evaluator seat is the mode's judgment
+        # surface, so a second, differently-resolved judgment escalation would
+        # be exactly the ambiguity the fixed authority boundary exists to
+        # remove (acceptance criterion 3 — "deepthink stays absent in this mode
+        # as in three-tier"). Unarmed keeps every legacy deepthink path
+        # untouched.
+        if resolved_three_tier or resolved_tae:
             resolved_deepthink = None
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
@@ -2926,12 +3435,7 @@ class EngineConfig:
         # Lobes rung (t4): the gateway's cortex model is the default only for the
         # main model id, below config.json and above the builtin. A plain if/else
         # (not a nested ternary, SonarCloud S3358), mirroring base_url_default above.
-        if file_model is not None:
-            model_default = file_model
-        elif lobes_model is not None:
-            model_default = lobes_model
-        else:
-            model_default = _DEFAULT_MODEL
+        model_default = _defaults_source(file_model, lobes_model, _DEFAULT_MODEL)
 
         resolved_model = _pick(
             model,
@@ -2973,15 +3477,35 @@ class EngineConfig:
         # plain presence check, never a second refusal path. The loop itself
         # (colleague/loop.py) is UNTOUCHED by this task — it simply drives
         # whatever ``EngineConfig`` hands back, exactly as it always has.
-        acting_model = resolved_model
-        acting_base_url = resolved_base_url
-        acting_api_key = resolved_api_key
-        acting_context_budget_tokens = resolved_context_budget_tokens
-        if resolved_worker is not None:
-            acting_model = resolved_worker.model
-            acting_base_url = resolved_worker.base_url
-            acting_api_key = resolved_worker.api_key
-            acting_context_budget_tokens = resolved_worker.context
+        #
+        # The thought→action→evaluation mode (plan task t13) MIRRORS this
+        # mechanism rather than inventing a second one: with the mode armed, the
+        # acting dial becomes ``evaluation_seats.worker``'s own resolution, for
+        # the identical reason ("the worker acts; the evaluator judges and does
+        # not act"). t12 deliberately left the dial alone and said so; this is
+        # that repoint. The two modes are mutually exclusive by refusal
+        # (:func:`_refuse_conflicting_execution_modes`), so the two branches can
+        # never both fire. The evaluator's own checkpoint stays on
+        # ``evaluator_checkpoint`` — which is exactly what keeps
+        # ``distill.py``'s authority-separation guard (spec c38/h30) able to
+        # refuse the evaluator seat lesson-authoring authority: the guard reads
+        # ``evaluator_checkpoint``, never ``config.model``, so repointing the
+        # acting dial cannot weaken it.
+        (
+            acting_model,
+            acting_base_url,
+            acting_api_key,
+            acting_context_budget_tokens,
+        ) = _resolve_acting_dial(
+            resolved_worker,
+            resolved_seats,
+            main=(
+                resolved_model,
+                resolved_base_url,
+                resolved_api_key,
+                resolved_context_budget_tokens,
+            ),
+        )
 
         return cls(
             base_url=acting_base_url,
@@ -3226,6 +3750,22 @@ class EngineConfig:
             # gap, so a returned config never carries three_tier True with
             # worker None.
             worker=resolved_worker,
+            # Thought→action→evaluation arming (post-#387 program, plan task
+            # t12) — env `COLLEAGUE_THOUGHT_ACTION_EVALUATION` > config.json
+            # `thought_action_evaluation` > default-OFF; independent of
+            # `three_tier` in both directions.
+            thought_action_evaluation=resolved_tae,
+            # The mode's three seats (front/worker/evaluator), each resolved BY
+            # ROLE NAME from lobes /capabilities — None when the mode is not
+            # armed (byte-identical); when armed, resolution above already
+            # raised a naming refusal on any missing/not-ready role, so a
+            # returned config never carries the flag True with seats None.
+            evaluation_seats=resolved_seats,
+            # The evaluator seat's checkpoint id + any declared distinct
+            # distillation authority (spec c38/h30) — the two attributes
+            # distill.py's authority-separation guard reads.
+            evaluator_checkpoint=resolved_evaluator_checkpoint,
+            distiller_checkpoint=resolved_distiller_checkpoint,
             # Embedder env overrides (S2, task t19) — {} when lobes is
             # unarmed/unreachable or the gateway doesn't advertise an embedder
             # (see :func:`_resolve_lobes_rung` / :func:`colleague.lobes.embed_env`).
@@ -3327,6 +3867,34 @@ class EngineConfig:
                 "base_url": self.worker.base_url,
                 "context": self.worker.context,
             }
+        # Thought→action→evaluation mode (plan task t12): omit-when-UNARMED —
+        # deliberately NOT the always-present key ``three_tier`` is, so an
+        # unarmed snapshot's key set is byte-identical to the pre-mode one
+        # (honesty h19; pinned by tests/test_config_evaluation_mode.py and the
+        # landed key-set pins in test_config_subagent.py / test_config_senses.py).
+        # Every seat's api_key is simply absent from its sub-dict, never
+        # included — the same redaction convention as worker/senses/deepthink.
+        if self.thought_action_evaluation:
+            data["thought_action_evaluation"] = True
+        if self.evaluation_seats is not None:
+            data["evaluation_seats"] = {
+                seat: {
+                    "model": dial.model,
+                    "base_url": dial.base_url,
+                    "context": dial.context,
+                }
+                for seat, dial in (
+                    ("front", self.evaluation_seats.front),
+                    ("worker", self.evaluation_seats.worker),
+                    ("evaluator", self.evaluation_seats.evaluator),
+                )
+            }
+        # Checkpoint IDS, never credentials — safe to surface, and the operator
+        # needs to see which authority each contract resolved to (spec c38/h30).
+        if self.evaluator_checkpoint is not None:
+            data["evaluator_checkpoint"] = self.evaluator_checkpoint
+        if self.distiller_checkpoint is not None:
+            data["distiller_checkpoint"] = self.distiller_checkpoint
         return data
 
 

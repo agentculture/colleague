@@ -7,8 +7,8 @@ instance and *who* may change it. The lattice is the single source of truth
 for the three-tier execution model:
 
 * **Targets** — the five writable surfaces:
-    ``worker.tools``, ``worker.prompt.strategist``, ``worker.knowledge``,
-    ``senses.prompt.strategist``, ``senses.knowledge``.
+    ``worker.tools``, ``worker.prompt.evaluator``, ``worker.knowledge``,
+    ``senses.prompt.evaluator``, ``senses.knowledge``.
 * **Origins** — the three actors: ``host``, ``cortex``, ``worker``.
 * **Authority ceiling** — origin rules governing which origin may write
   which target.
@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
+from colleague.layers import EVALUATOR_SECTION_MAX_CHARS
 
 # ---------------------------------------------------------------------------
 # Target and Origin enums
@@ -48,9 +48,9 @@ class Target(Enum):
     """
 
     WORKER_TOOLS = "worker.tools"
-    WORKER_PROMPT_STRATEGIST = "worker.prompt.strategist"
+    WORKER_PROMPT_EVALUATOR = "worker.prompt.evaluator"
     WORKER_KNOWLEDGE = "worker.knowledge"
-    SENSES_PROMPT_STRATEGIST = "senses.prompt.strategist"
+    SENSES_PROMPT_EVALUATOR = "senses.prompt.evaluator"
     SENSES_KNOWLEDGE = "senses.knowledge"
 
 
@@ -121,8 +121,8 @@ _FORBIDDEN_KEYS = frozenset(
 #: is a malformed unit and refuses whole.
 _KNOWLEDGE_TARGETS = frozenset({Target.WORKER_KNOWLEDGE, Target.SENSES_KNOWLEDGE})
 
-#: The targets whose changes carry ``content`` (a strategist section string).
-_STRATEGIST_TARGETS = frozenset({Target.WORKER_PROMPT_STRATEGIST, Target.SENSES_PROMPT_STRATEGIST})
+#: The targets whose changes carry ``content`` (an evaluator section string).
+_EVALUATOR_TARGETS = frozenset({Target.WORKER_PROMPT_EVALUATOR, Target.SENSES_PROMPT_EVALUATOR})
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +332,7 @@ def _check_field_target_shape(unit: ChangeUnit) -> Optional[Verdict]:
     """Check 4: a field on a target it does not belong to is a malformed
     unit — ``tool_ids`` rides only ``worker.tools``, ``knowledge_entries``
     rides only the ``*.knowledge`` targets, ``content`` rides only the
-    ``*.prompt.strategist`` targets.  An empty ``tool_ids`` on ``worker.tools``
+    ``*.prompt.evaluator`` targets.  An empty ``tool_ids`` on ``worker.tools``
     is also refused (empty narrowing). Refuse whole, never ignore."""
     if unit.tool_ids and unit.target is not Target.WORKER_TOOLS:
         return Verdict(
@@ -347,18 +347,18 @@ def _check_field_target_shape(unit: ChangeUnit) -> Optional[Verdict]:
             f"{sorted(t.value for t in _KNOWLEDGE_TARGETS)!r}, "
             f"not {unit.target.value!r}",
         )
-    if unit.content and unit.target not in _STRATEGIST_TARGETS:
+    if unit.content and unit.target not in _EVALUATOR_TARGETS:
         return Verdict(
             False,
             f"refused: content is only valid on "
-            f"{sorted(t.value for t in _STRATEGIST_TARGETS)!r}, "
+            f"{sorted(t.value for t in _EVALUATOR_TARGETS)!r}, "
             f"not {unit.target.value!r}",
         )
-    if unit.content and len(unit.content.strip()) > STRATEGIST_SECTION_MAX_CHARS:
+    if unit.content and len(unit.content.strip()) > EVALUATOR_SECTION_MAX_CHARS:
         return Verdict(
             False,
             f"refused: content length ({len(unit.content.strip())}) exceeds "
-            f"the {STRATEGIST_SECTION_MAX_CHARS}-char cap "
+            f"the {EVALUATOR_SECTION_MAX_CHARS}-char cap "
             f"on {unit.target.value!r}",
         )
     if not unit.tool_ids and unit.target is Target.WORKER_TOOLS:

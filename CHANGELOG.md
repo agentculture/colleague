@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.59.0] - 2026-08-10
+
+### Added
+
+- **Thought → action → evaluation: a three-seat authority split (#397)** — the
+  tenth sanctioned increment, an INDEPENDENT opt-in
+  (`thought_action_evaluation` / `COLLEAGUE_THOUGHT_ACTION_EVALUATION`),
+  byte-identical when unarmed. The **front** (`senses` role, no repo tools)
+  commits a typed versioned `Thought` while the raw operator input is preserved
+  verbatim; the **worker** (`worker` role) realizes it as an `ActionProposal`
+  naming exactly one live thought; the tools-off **evaluator** (`cortex` role)
+  judges fidelity and returns only `execute | rethink | replan | block`. Seats
+  resolve BY ROLE NAME from the lobes gateway — never by parsing model names —
+  and a rig missing a role refuses to arm rather than falling back silently.
+  Arming this together with `three_tier` refuses: two modes cannot both own the
+  acting seat.
+- The whole chain lands append-only on `TaskResult.evaluation_ledger` with real
+  seat/model attribution (omit-when-None).
+- Component-attributed, role-scoped lessons: a lesson names the seat that
+  failed and reaches only that seat on recall, and an evaluator verdict alone
+  can never promote durable memory — a verdict is a diagnosis, not evidence.
+
+### Changed
+
+- The `strategist` vocabulary is renamed to `evaluator` across the living
+  surface (code, tests, `docs/features/three-tier.md`). Dated records under
+  `docs/specs/`, `docs/plans/`, `docs/deliveries/` and `docs/experiments/` keep
+  the old word as provenance. Persisted artifacts need no migration — proven by
+  a committed compat test.
+
+### Honest limits
+
+- The mode has **no live-rig proof**; all tests use scripted seat doubles, and
+  whether placing intent in the front seat improves outcomes is a hypothesis
+  under test, not a result. The measuring experiment is deliberately not in
+  this release.
+- With the mode armed there is no implicit lesson author — cortex IS the
+  evaluator and the worker IS the actor — so rung-2 distillation requires an
+  explicitly declared `distiller_checkpoint` or falls to the rung-1 floor.
+
 ## [1.58.0] - 2026-08-10
 
 ### Changed

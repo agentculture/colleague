@@ -148,8 +148,8 @@ class Engine(abc.ABC):
         layers exist for ``config.model``, so the loop falls back to its own
         default and behavior is byte-identical to a layer-free run.
 
-        Strategist section (plan task t7): when ``config.config_lifecycle`` is
-        present and its snapshot carries non-empty ``strategist_sections``, the
+        Evaluator section (plan task t7): when ``config.config_lifecycle`` is
+        present and its snapshot carries non-empty ``evaluator_sections``, the
         single current note is passed as RAW text to the composition functions
         (``system_prompt_for`` and ``compose_role_prompt``), which compose the
         heading themselves. Passing pre-composed text would double-head silently
@@ -158,24 +158,24 @@ class Engine(abc.ABC):
         # Imported lazily to keep this module's import surface minimal and avoid
         # pulling the whole loop in at engine import time.
         from colleague.layers import (
-            STRATEGIST_SEAT_WORKER,
+            EVALUATOR_SEAT_WORKER,
             compose_role_prompt,
             system_prompt_for,
         )
         from colleague.loop import _DEFAULT_SYSTEM
 
-        # Prompt-consumption seam (t7): read the strategist note from the
+        # Prompt-consumption seam (t7): read the evaluator note from the
         # attached config_lifecycle snapshot, if present. The snapshot property
-        # carries strategist_sections — a tuple holding at most ONE verbatim
+        # carries evaluator_sections — a tuple holding at most ONE verbatim
         # note (wave 2 replace semantics). Pass RAW text, never pre-composed.
-        strategist_section: str | None = None
+        evaluator_section: str | None = None
         lifecycle = getattr(config, "config_lifecycle", None)
         if lifecycle is not None:
             snapshot = getattr(lifecycle, "snapshot", None)
             if snapshot is not None:
-                sections = getattr(snapshot, "strategist_sections", ())
+                sections = getattr(snapshot, "evaluator_sections", ())
                 if sections:
-                    strategist_section = sections[0]
+                    evaluator_section = sections[0]
 
         # Typed-subagent role (#t4): when this work item runs as a role, compose the
         # base + AGENTS + the role's prompt_fragment + the role's curated skill subset
@@ -192,13 +192,13 @@ class Engine(abc.ABC):
                     task.repo_path,
                     config.model,
                     base=_DEFAULT_SYSTEM,
-                    strategist_section=strategist_section,
-                    strategist_seat=STRATEGIST_SEAT_WORKER,
+                    evaluator_section=evaluator_section,
+                    evaluator_seat=EVALUATOR_SEAT_WORKER,
                 )
         return system_prompt_for(
             task.repo_path,
             config.model,
             base=_DEFAULT_SYSTEM,
-            strategist_section=strategist_section,
-            strategist_seat=STRATEGIST_SEAT_WORKER,
+            evaluator_section=evaluator_section,
+            evaluator_seat=EVALUATOR_SEAT_WORKER,
         )

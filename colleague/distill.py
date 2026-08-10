@@ -98,6 +98,43 @@ def _refuses_evaluator_as_distiller(config: Any, candidate_model: str) -> bool:
     return not (distiller_checkpoint and distiller_checkpoint != evaluator_checkpoint)
 
 
+def _deepthink_author(config: Any) -> DistillAuthor | None:
+    """Rung 1, shared by both resolvers: the declared deepthink/muse target.
+
+    ``None`` when no deepthink model is declared — the caller falls to its
+    next rung.
+    """
+    dt = getattr(config, "deepthink", None)
+    if dt is None:
+        return None
+    model = getattr(dt, "model", None)
+    if not (model and isinstance(model, str) and model.strip()):
+        return None
+    return DistillAuthor(
+        model=model.strip(),
+        base_url=getattr(dt, "base_url", None) or getattr(config, "base_url", "") or "",
+        api_key=getattr(dt, "api_key", None) or getattr(config, "api_key", "") or "",
+    )
+
+
+def _declared_distiller_author(config: Any) -> DistillAuthor | None:
+    """The EXPLICITLY declared distillation authority, or ``None``.
+
+    Shared by both resolvers as the armed-mode rung. Declaring a distiller
+    names the AUTHOR — it never merely licenses the evaluator to author (spec
+    c38/h30), which is why the armed branch returns this result directly
+    rather than falling through to a cortex-shaped candidate.
+    """
+    declared = getattr(config, "distiller_checkpoint", None)
+    if not (declared and isinstance(declared, str) and declared.strip()):
+        return None
+    return DistillAuthor(
+        model=declared.strip(),
+        base_url=getattr(config, "base_url", "") or "",
+        api_key=getattr(config, "api_key", "") or "",
+    )
+
+
 def resolve_distill_author(
     config: Any,
     lobes_roles: LobesRoles | None,
@@ -110,14 +147,21 @@ def resolve_distill_author(
        carries a non-empty model id, that model is the author. This is the
        dual-model mode: the deepthink model (or lobes-discovered ``muse`` role)
        is the distillation author because it is the stronger reasoner.
-    2. **Lobes cortex** — when lobes is armed (``lobes_roles`` is not ``None``),
+    2. **Armed thought→action→evaluation: the DECLARED distiller, or nothing.**
+       In that mode both implicit candidates are disqualified — the cortex role
+       IS the evaluator seat, and the acting dial points at the worker, which
+       would make the actor author lessons about its own work. So an explicit
+       ``distiller_checkpoint`` names the author, and its absence falls to the
+       rung-1 floor. Declaring a distiller names the AUTHOR; it must never
+       merely license the evaluator to author.
+    3. **Lobes cortex** — when lobes is armed (``lobes_roles`` is not ``None``),
        the cortex role is the author — UNLESS the cortex checkpoint is a
        declared evaluator seat with no distinct distiller authority declared
        (:func:`_refuses_evaluator_as_distiller`, spec c38/h30): the evaluator
        and the distiller are distinct authority contracts even when they
        share a checkpoint, so that case falls through to the rung-1 floor
        rather than silently handing the evaluator write access to memory.
-    3. **None** — when neither deepthink nor lobes is configured (or the
+    4. **None** — when neither deepthink nor lobes is configured (or the
        guard above refuses the candidate), no author is resolved. The rung-1
        floor stands (byte-identical record, no counters — spec c16/h13).
 
@@ -139,19 +183,18 @@ def resolve_distill_author(
         The resolved author, or ``None`` when no author is available.
     """
     # Rung 1: deepthink/muse target (dual-model mode)
-    dt = getattr(config, "deepthink", None)
-    if dt is not None:
-        dt_model = getattr(dt, "model", None)
-        if dt_model and isinstance(dt_model, str) and dt_model.strip():
-            dt_base_url = getattr(dt, "base_url", None) or getattr(config, "base_url", "")
-            dt_api_key = getattr(dt, "api_key", None) or getattr(config, "api_key", "")
-            return DistillAuthor(
-                model=dt_model.strip(),
-                base_url=dt_base_url or "",
-                api_key=dt_api_key or "",
-            )
+    deepthink_author = _deepthink_author(config)
+    if deepthink_author is not None:
+        return deepthink_author
 
-    # Rung 2: lobes cortex (armed gateway) — guarded against silently
+    # Rung 2 (armed thought→action→evaluation): the DECLARED distiller, or
+    # nothing. In that mode both implicit candidates are disqualified (cortex
+    # IS the evaluator, the worker IS the actor), so there is no safe
+    # fallthrough — hence the unconditional return.
+    if getattr(config, "thought_action_evaluation", False):
+        return _declared_distiller_author(config)
+
+    # Rung 3: lobes cortex (armed gateway) — guarded against silently
     # authoring as a declared evaluator seat (c38/h30).
     if lobes_roles is not None:
         cortex = lobes_roles.cortex
@@ -218,10 +261,35 @@ def read_outcome_status(marker_path: Path) -> str | None:
     return status if isinstance(status, str) else None
 
 
+def lesson_has_external_evidence(evidence: dict[str, Any]) -> bool:
+    """Return ``True`` when *evidence* carries EXTERNAL grounding.
+
+    A durable lesson must be grounded in EXTERNAL evidence — an evaluator
+    verdict is a DIAGNOSIS, not ground truth.  This function returns ``True``
+    only when:
+
+    - ``external_evidence`` is a non-empty list, OR
+    - ``outcome`` is a non-empty string.
+
+    A lesson whose only evidence is an ``evaluation_id`` (evaluator verdict
+    alone) returns ``False`` — the flywheel guard in the child entry uses
+    this to refuse to persist such lessons.
+    """
+    ext = evidence.get("external_evidence")
+    if isinstance(ext, list) and len(ext) > 0:
+        return True
+    outcome = evidence.get("outcome")
+    if isinstance(outcome, str) and outcome.strip():
+        return True
+    return False
+
+
 def upsert_lesson(
     repo_path: str | Path,
     task_id: str,
     lesson: dict[str, str],
+    *,
+    evidence: dict[str, Any] | None = None,
 ) -> bool:
     """Validate-then-remember: upsert the SAME work-lesson id with the lesson folded.
 
@@ -232,6 +300,12 @@ def upsert_lesson(
     The record uses the SAME ``work-lesson-<task_id>`` id as the rung-1 record,
     so eidetic deduplication upserts in place rather than creating a duplicate.
 
+    When *evidence* is provided, the flywheel guard checks that the lesson has
+    external grounding via :func:`lesson_has_external_evidence`.  A lesson
+    whose only evidence is an evaluator verdict (``evaluation_id`` present but
+    no ``external_evidence`` and no ``outcome``) is refused with a
+    ``no-lesson-extracted`` marker — the same style already used in this file.
+
     Parameters
     ----------
     repo_path:
@@ -241,6 +315,9 @@ def upsert_lesson(
     lesson:
         The validated lesson dict (``pattern``, ``constant``, ``reason`` —
         the answer-shaped schema, #396).
+    evidence:
+        Optional evidence dict linking the chain (``thought_id``, ``action_id``,
+        ``evaluation_id``, ``outcome``, ``external_evidence``).
 
     Returns
     -------
@@ -249,6 +326,10 @@ def upsert_lesson(
     """
     verdict = lessons.validate_lesson(lesson)
     if not verdict.allowed:
+        return False
+
+    # Flywheel guard: refuse lessons whose only evidence is an evaluator verdict.
+    if evidence is not None and not lesson_has_external_evidence(evidence):
         return False
 
     # Build the record with the SAME work-lesson id as rung-1.
@@ -418,21 +499,32 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
 
     1. deepthink/muse target (``config.deepthink.model``) — the stronger
        reasoner authors the lesson in dual-model mode;
-    2. the armed-lobes main model (cortex-resolved) when
+    2. **armed thought→action→evaluation mode: an EXPLICITLY declared
+       ``distiller_checkpoint``, or nothing.** In that mode there is no safe
+       implicit author — see the note below;
+    3. otherwise the armed-lobes main model (cortex-resolved) when
        ``config.lobes_gateway_url`` is set — UNLESS that model is a declared
        evaluator seat with no distinct distiller authority declared
        (:func:`_refuses_evaluator_as_distiller`, spec c38/h30);
-    3. ``None`` — the rung-1 floor (byte-identical record, no counters).
+    4. ``None`` — the rung-1 floor (byte-identical record, no counters).
+
+    Why rung 2 exists (t13). Rung 3's premise is that the armed-lobes main
+    model is *cortex-resolved*. That held until the three-seat mode repointed
+    the acting dial at the **worker** (``config.py``'s TAE branch), after
+    which ``config.model`` is the actor, not the reflective seat. Falling
+    through to rung 3 would then silently make the worker author lessons
+    about its own work — which the evaluator/distiller separation (c38/h30)
+    exists to prevent and which the operator's standing role doctrine
+    assigns to the reflective seat, never the actor. In that mode both
+    implicit candidates are disqualified — cortex *is* the evaluator, and the
+    worker *is* the actor — so the author must be declared outright or the
+    run honestly falls to the rung-1 floor.
     """
-    dt = getattr(config, "deepthink", None)
-    if dt is not None:
-        dt_model = getattr(dt, "model", None)
-        if dt_model and isinstance(dt_model, str) and dt_model.strip():
-            return DistillAuthor(
-                model=dt_model.strip(),
-                base_url=getattr(dt, "base_url", None) or getattr(config, "base_url", "") or "",
-                api_key=getattr(dt, "api_key", None) or getattr(config, "api_key", "") or "",
-            )
+    deepthink_author = _deepthink_author(config)
+    if deepthink_author is not None:
+        return deepthink_author
+    if getattr(config, "thought_action_evaluation", False):
+        return _declared_distiller_author(config)
     if getattr(config, "lobes_gateway_url", None):
         model = getattr(config, "model", "") or ""
         if model and not _refuses_evaluator_as_distiller(config, model):

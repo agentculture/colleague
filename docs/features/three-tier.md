@@ -79,7 +79,7 @@ the worker's acts from being attributed to senses or vice versa.
 
 The lattice provides **refuse-whole change units** and an **authority ceiling**:
 configuration proposals from the configurator are validated as typed units
-(worker knowledge, senses knowledge, worker prompt strategist). A proposal
+(worker knowledge, senses knowledge, worker prompt evaluator). A proposal
 that violates the authority ceiling (e.g. tries to change the worker's
 tool-calling behavior) is refused. The lattice never applies partial changes —
 a unit is accepted or refused as a whole.
@@ -173,7 +173,7 @@ tiny minimal-context fixture is the environment #346 says amplifies the
 collapse. The comparison is honest about what it measured; a broad-repo
 comparison remains future evidence.
 
-### Experiment C — strategist value gate
+### Experiment C — evaluator value gate
 
 **Protocol:** `docs/experiments/2026-08-06-experiment-c-strategist-value.md`
 
@@ -186,7 +186,7 @@ false interventions on control trials.
 because the model-authored knowledge entry omitted its `origin` field. The
 corrective content was substantively right, but the structural validation
 caught the missing field. The obvious v1.1 improvement — auto-stamping
-entry-level origins — is folded into the #366 follow-up. The strategist
+entry-level origins — is folded into the #366 follow-up. The evaluator
 remains opt-in and off by default.
 
 ## Honest limits
@@ -197,14 +197,14 @@ The change-content consumption lane is **wired end to end**. Applied
 configuration changes reach the worker's next episode through the composed
 prompt and tool schema. The pinning tests that prove each segment:
 
-- **ChangeUnit.content** — strategist-targets-only validation, 4000-char cap,
+- **ChangeUnit.content** — evaluator-targets-only validation, 4000-char cap,
   empty-narrowing refusal (`tests/test_lattice.py`)
 - **Lifecycle folds** — verbatim text with REPLACE semantics
   (`tests/test_configlifecycle.py`)
 - **Configurator auto-stamps** — entry origins, content key, visible degraded
   events (`tests/test_configurator.py`, `tests/test_configevents.py`)
-- **Prompt seam** — `Engine.system_prompt` composes the strategist section
-  (`tests/test_engine_strategist_seam.py`)
+- **Prompt seam** — `Engine.system_prompt` composes the evaluator section
+  (`tests/test_engine_evaluator_seam.py`)
 - **Tool narrowing** — schema + executor intersection with the role ceiling
   (`tests/test_tool_narrowing.py`)
 - **Work front** — lifecycle + windows + folds `config_events` onto
@@ -214,7 +214,7 @@ prompt and tool schema. The pinning tests that prove each segment:
 - **Flight run-start** — names the acting seat
   (`tests/test_flight_heartbeat.py`)
 
-### The strategist ships opt-in and OFF
+### The evaluator ships opt-in and OFF
 
 The configurator is default **off**. Three-tier mode ships the worker and
 senses tiers active (when armed), but the cortex configurator is dormant
@@ -222,13 +222,13 @@ until explicitly enabled. This is deliberate: the origin-stamping refusal
 nuance from experiment C shows the lattice validation is stricter than the
 model's output.
 
-### Strategist VALUE is unproven until the NEBULA benchmark arm
+### Evaluator VALUE is unproven until the NEBULA benchmark arm
 
-The content lane is wired, but whether the strategist *improves* task outcomes
+The content lane is wired, but whether the evaluator *improves* task outcomes
 remains unmeasured. The NEBULA RUN benchmark arm (issue #366: the identical
 ship-game prompt re-run configurator-live against the recorded pre-#366
 baseline) is the gate for a value claim. Until that arm runs, the
-strategist's value is conditional on the benchmark — not proven.
+evaluator's value is conditional on the benchmark — not proven.
 
 ### Deepthink is absent in three-tier mode
 

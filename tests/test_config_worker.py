@@ -559,7 +559,7 @@ def test_to_dict_carries_worker_when_armed_and_omits_api_key(
 # never cortex's — "the worker drives the tool loop and cortex does not
 # act". And deepthink is unconditionally absent in three-tier mode: neither
 # a DECLARED (env/config.json) deepthink nor one discovered from the lobes
-# muse role ever survives once three_tier is armed (strategist absent,
+# muse role ever survives once three_tier is armed (evaluator absent,
 # deepthink absent). The loop itself (colleague/loop.py) is untouched by
 # this task — this is resolution-only wiring; whatever EngineConfig hands
 # back is what the loop already drives with.
@@ -648,7 +648,7 @@ def test_three_tier_armed_with_muse_advert_constructs_no_deepthink(
 ) -> None:
     """Acceptance criterion 1 (config.py side): a muse advert present
     alongside an armed three-tier config must never construct a
-    DeepthinkConfig — the strategist stays absent when the worker is the
+    DeepthinkConfig — the evaluator stays absent when the worker is the
     acting seat (c12/h12). Mirrors
     tests/test_config_lobes_deepthink.py's muse discovery fixture."""
     with _serving(WORKER_MUSE_PAYLOAD) as gateway:

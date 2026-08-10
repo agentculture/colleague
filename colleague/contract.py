@@ -1608,6 +1608,15 @@ class TaskResult:
     by the loop after the first media-bearing completion (or preset by a
     successful bridge); omit-when-None so an attachment-less run serializes
     byte-identically."""
+    evaluation_ledger: Optional[dict[str, Any]] = None
+    """The append-only evaluation ledger for the thought-action-evaluation mode
+    (#397, t11), or ``None`` when the ledger was not populated. Shape:
+    ``{"version": int, "entries": [...]}`` where each entry is a
+    :class:`colleague.ledger.LedgerEntry` dict (``kind``, ``thought_id``,
+    ``action_id``, ``detail``, ``seat``, ``model``, ``seq``). Like
+    ``media``/``lint_report``, the serialized key is OMITTED (not null) when
+    ``None``, so a work item with no ledger serializes byte-identically to
+    today's artifact."""
     senses: Optional[SensesBlock] = None
     """The cortex/senses front-door record for this work item (cortex/senses,
     t2), or ``None`` when no senses model ran (a plain cortex-only drive). A
@@ -1783,6 +1792,10 @@ class TaskResult:
             extra["media"] = {
                 "attachments": [dict(entry) for entry in self.media.get("attachments", [])]
             }
+        # evaluation_ledger gets the same omit-when-None treatment (t11): a
+        # ledger-less work item serializes byte-identically (no extra key).
+        if self.evaluation_ledger is not None:
+            extra["evaluation_ledger"] = dict(self.evaluation_ledger)
         # senses gets the same omit-when-None treatment as deepthink (cortex/senses,
         # t2): a run with no senses front door serializes byte-identically to
         # today's artifact (no extra key).
@@ -1877,6 +1890,11 @@ class TaskResult:
             finish_recovered=data.get("finish_recovered"),
             memory=data.get("memory"),
             media=data.get("media") if isinstance(data.get("media"), dict) else None,
+            evaluation_ledger=(
+                data.get("evaluation_ledger")
+                if isinstance(data.get("evaluation_ledger"), dict)
+                else None
+            ),
             senses=(
                 SensesBlock.from_dict(data["senses"])
                 if isinstance(data.get("senses"), dict)
@@ -2072,33 +2090,33 @@ _LIFECYCLE_KIND_TO_CONFIG_EVENT_KIND: dict[str, str] = {
 
 #: The one lattice target string whose APPLIED unit carries content worth
 #: folding onto the artifact. Mirrors
-#: ``colleague.lattice.Target.WORKER_PROMPT_STRATEGIST.value`` — duck-typed
+#: ``colleague.lattice.Target.WORKER_PROMPT_EVALUATOR.value`` — duck-typed
 #: here (a plain string compare) rather than importing ``colleague.lattice``,
 #: so this mapper stays exactly as decoupled from the lattice's typed surface
 #: as ``colleague/configevents.py`` itself already is (that module's own
 #: docstring: "target/origin are free-form strings here ... so this stream
 #: stays usable by any future producer").
-_STRATEGIST_TARGET_VALUE = "worker.prompt.strategist"
+_EVALUATOR_TARGET_VALUE = "worker.prompt.evaluator"
 
 
 @dataclass
 class ConfigEventRecord(ConfigEvent):
     """A :class:`~colleague.configevents.ConfigEvent` extended with the
-    verbatim applied strategist ``content`` (plan task t8, decision q5).
+    verbatim applied evaluator ``content`` (plan task t8, decision q5).
 
     ``configevents.py`` belongs to a sibling task this wave and is not
     touched here — this subclass is contract.py's own COMPATIBLE extension
     of the base dataclass's ``to_dict``/``from_dict`` shape: ``content`` is
     OMITTED (not emitted as an empty string) whenever it is empty, so an
-    ordinary proposed/refused/applied-non-strategist/baseline record
+    ordinary proposed/refused/applied-non-evaluator/baseline record
     serializes byte-identically to a plain :class:`ConfigEvent`, and an
     artifact written before this field existed loads with ``content=""``
     (falsy — round-trips right back to the same omitted shape old artifacts
-    always had). Only an APPLIED ``worker.prompt.strategist`` record ever
+    always had). Only an APPLIED ``worker.prompt.evaluator`` record ever
     carries a non-empty ``content``; refused records stay reason-only
     (acceptance 2) — nothing here special-cases that, it simply follows from
     :func:`map_configlifecycle_events` never setting ``content`` on anything
-    but an applied strategist record.
+    but an applied evaluator record.
 
     A plain :class:`ConfigEvent` (e.g. one another producer like
     :mod:`colleague.configurator` appends directly onto a
@@ -2137,7 +2155,7 @@ def map_configlifecycle_events(
     replay (append-only, kind in ``{"proposed", "refused", "applied",
     "boundary"}``) onto durable :class:`ConfigEvent` entries — the shape
     :attr:`TaskResult.config_events` carries. A mapped event that carries
-    applied strategist content (see *applied_units* below) is a
+    applied evaluator content (see *applied_units* below) is a
     :class:`ConfigEventRecord`; every other mapped event is a PLAIN
     :class:`ConfigEvent` — the same class-selection rule
     :func:`_coerce_config_events` uses reading an artifact back, so mapper
@@ -2167,11 +2185,11 @@ def map_configlifecycle_events(
     :class:`~colleague.configlifecycle.ConfigApplication`; only the
     originally-queued :class:`~colleague.lattice.ChangeUnit` carries it).
     Content rides the mapped record ONLY when the paired unit targets
-    ``worker.prompt.strategist`` (the lattice's only content-bearing target
+    ``worker.prompt.evaluator`` (the lattice's only content-bearing target
     this lifecycle ever applies — ``senses.*`` proposals are refused before
     they ever queue). Every other applied unit (worker.tools/
     worker.knowledge) contributes nothing to ``content``, matching the
-    "refused records stay reason-only, content only on applied strategist
+    "refused records stay reason-only, content only on applied evaluator
     records" acceptance (criterion 2). *applied_units* shorter than the
     number of "applied" events in *events* is tolerated (the trailing
     applied events simply get no content) — this function never raises.
@@ -2185,10 +2203,10 @@ def map_configlifecycle_events(
 
 def _applied_unit_content(applied_iter: Iterator[Any]) -> str:
     """Pull the next applied :class:`~colleague.lattice.ChangeUnit` (if any)
-    off *applied_iter* and return its content when it targets the strategist
-    prompt — the "content only on applied strategist records" rule (see
+    off *applied_iter* and return its content when it targets the evaluator
+    prompt — the "content only on applied evaluator records" rule (see
     :func:`map_configlifecycle_events`). Returns ``""`` when the iterator is
-    exhausted or the applied unit carries no strategist content.
+    exhausted or the applied unit carries no evaluator content.
     """
     unit = next(applied_iter, None)
     if unit is None:
@@ -2196,14 +2214,14 @@ def _applied_unit_content(applied_iter: Iterator[Any]) -> str:
     target = getattr(unit, "target", None)
     target_value = getattr(target, "value", target)
     unit_content = str(getattr(unit, "content", "") or "")
-    if target_value == _STRATEGIST_TARGET_VALUE and unit_content:
+    if target_value == _EVALUATOR_TARGET_VALUE and unit_content:
         return unit_content.strip()
     return ""
 
 
 def _map_one_lifecycle_event(seq: int, event: Any, applied_iter: Iterator[Any]) -> ConfigEvent:
     """Map a single lifecycle event onto a durable :class:`ConfigEvent` (or
-    :class:`ConfigEventRecord` when it carries applied strategist content).
+    :class:`ConfigEventRecord` when it carries applied evaluator content).
 
     Extracted from :func:`map_configlifecycle_events` to keep the caller's
     cognitive complexity under the S3776 ceiling (the ``_moded_config``

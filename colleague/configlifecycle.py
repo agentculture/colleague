@@ -2,7 +2,7 @@
 
 An opt-in three-tier run (design brief #364/#363) lets cortex *configure* what
 the worker's episode runs under — a narrowed tool set, a bounded task-local
-strategist prompt section, extra knowledge entries — as typed
+evaluator prompt section, extra knowledge entries — as typed
 :class:`~colleague.lattice.ChangeUnit` proposals. This module owns the ONE
 question those proposals raise once they exist: *when* does a proposal ever
 take effect?
@@ -23,10 +23,10 @@ list, which stays exactly ``{subagents.py, _input_line.py}``; v1 cortex
 review is synchronous, never concurrent-with-episode).
 
 Scope: this lifecycle tracks the WORKER seat's three configurable surfaces —
-``worker.tools`` / ``worker.prompt.strategist`` / ``worker.knowledge`` (the
+``worker.tools`` / ``worker.prompt.evaluator`` / ``worker.knowledge`` (the
 lattice's ``Target`` enum also carries two ``senses.*`` targets, which are a
 different consumer's concern and are refused here, not silently dropped).
-The snapshot folds real text for strategist sections (t5) and replaces the
+The snapshot folds real text for evaluator sections (t5) and replaces the
 tool-set tuple for worker.tools — it does not compose a full prompt or
 resolve a real tool schema (that stays layers.py's and roles.py/tools.py's
 job). A queued unit's effect on the snapshot is deterministic and sufficient
@@ -61,12 +61,12 @@ from typing import Optional, cast
 from colleague.lattice import CapabilityCatalog, ChangeUnit, Target, Verdict, validate_change
 
 # The three WORKER-seat targets this lifecycle applies. The lattice's other two
-# targets (``senses.prompt.strategist`` / ``senses.knowledge``) belong to a
+# targets (``senses.prompt.evaluator`` / ``senses.knowledge``) belong to a
 # different consumer — :meth:`EpisodeConfigLifecycle.propose` refuses them by
 # name rather than silently ignoring them (the lattice's own "refuse whole,
 # never strip-and-retain" discipline).
 WORKER_TARGETS: frozenset[Target] = frozenset(
-    {Target.WORKER_TOOLS, Target.WORKER_PROMPT_STRATEGIST, Target.WORKER_KNOWLEDGE}
+    {Target.WORKER_TOOLS, Target.WORKER_PROMPT_EVALUATOR, Target.WORKER_KNOWLEDGE}
 )
 
 # The two sanctioned application windows (colleague/chain.py names the second
@@ -91,8 +91,8 @@ class EpisodeConfigSnapshot:
     """One episode's resolved, immutable configuration — digestible.
 
     Three tuples mirror the three worker-seat lattice targets:
-    ``strategist_sections`` (real stripped text, one current note per
-    applied strategist proposal — the composed prompt TEXT is layers.py's
+    ``evaluator_sections`` (real stripped text, one current note per
+    applied evaluator proposal — the composed prompt TEXT is layers.py's
     concern), ``tool_set`` (the narrowed tool id set, replaced by each
     applied worker.tools proposal), and ``knowledge_entries`` (canonical
     JSON strings, appended per applied knowledge entry). Frozen: a
@@ -100,14 +100,14 @@ class EpisodeConfigSnapshot:
     (see :func:`_apply_change`).
     """
 
-    strategist_sections: tuple[str, ...] = ()
+    evaluator_sections: tuple[str, ...] = ()
     tool_set: tuple[str, ...] = ()
     knowledge_entries: tuple[str, ...] = ()
 
     def canonical(self) -> str:
         """A deterministic, order-preserving JSON serialization for digesting."""
         payload = {
-            "strategist_sections": list(self.strategist_sections),
+            "evaluator_sections": list(self.evaluator_sections),
             "tool_set": list(self.tool_set),
             "knowledge_entries": list(self.knowledge_entries),
         }
@@ -180,16 +180,16 @@ def _apply_change(snapshot: EpisodeConfigSnapshot, change: ChangeUnit) -> Episod
             EpisodeConfigSnapshot,
             replace(snapshot, knowledge_entries=snapshot.knowledge_entries + added),
         )
-    if change.target is Target.WORKER_PROMPT_STRATEGIST:
+    if change.target is Target.WORKER_PROMPT_EVALUATOR:
         # Real-text fold (t5): the verbatim stripped content REPLACES the
-        # previous strategist_sections tuple — one current note, not a
+        # previous evaluator_sections tuple — one current note, not a
         # growing list of opaque markers. The digest moves exactly once
         # per applied proposal, only at a sanctioned window.
         return cast(
             EpisodeConfigSnapshot,
             replace(
                 snapshot,
-                strategist_sections=(change.content.strip(),),
+                evaluator_sections=(change.content.strip(),),
             ),
         )
     # Unreachable: propose() refuses every non-worker target before queuing.

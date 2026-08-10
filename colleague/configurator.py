@@ -110,7 +110,7 @@ from colleague.configevents import (
 )
 from colleague.configlifecycle import ConfigApplication, EpisodeConfigLifecycle
 from colleague.lattice import CapabilityCatalog, ChangeUnit, Origin, Target
-from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
+from colleague.layers import EVALUATOR_SECTION_MAX_CHARS
 from colleague.plan.cli_driver import _extract_json_object, robust_simple_complete
 
 if TYPE_CHECKING:
@@ -321,17 +321,17 @@ _SYSTEM_PROMPT = (
     "execution mode. Between worker episodes you review the episode's facts "
     "and MAY propose typed configuration changes for the WORKER seat only: "
     "narrowing its tool set, adding worker knowledge, or marking a "
-    "task-local strategist note. You never talk to the operator or the "
+    "task-local evaluator note. You never talk to the operator or the "
     "worker directly, and nothing you write here is ever shown to either of "
     "them verbatim — you communicate ONLY through ONE JSON object naming "
     "zero or more typed changes.\n\n"
-    "Valid targets: worker.tools, worker.prompt.strategist, worker.knowledge.\n"
+    "Valid targets: worker.tools, worker.prompt.evaluator, worker.knowledge.\n"
     '- A worker.tools change carries "tool_ids": a list of tool ids drawn '
     "ONLY from the available set below.\n"
     '- A worker.knowledge change carries "knowledge_entries": a list of '
     "JSON objects (each will be stamped with your origin).\n"
-    '- A worker.prompt.strategist change carries "content": a string note '
-    f"for the worker's next episode, capped at {STRATEGIST_SECTION_MAX_CHARS} "
+    '- A worker.prompt.evaluator change carries "content": a string note '
+    f"for the worker's next episode, capped at {EVALUATOR_SECTION_MAX_CHARS} "
     "characters.\n\n"
     "Respond with EXACTLY one JSON object of this shape:\n"
     '{"changes": [{"target": "worker.tools", "tool_ids": ["..."]}]}\n'

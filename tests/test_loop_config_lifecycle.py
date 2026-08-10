@@ -131,30 +131,30 @@ def test_single_turn_episode_still_observes_the_pinned_digest(tmp_path: Path) ->
 # — and what the t11 instruction's acceptance criterion 1 names explicitly
 # ("test_loop_config_lifecycle.py proves mid-episode digest constancy with a
 # real applied note") — is that the FROZEN snapshot the digest is computed
-# over now carries REAL, verbatim applied strategist text instead of an
+# over now carries REAL, verbatim applied evaluator text instead of an
 # opaque origin#N marker, and the constancy claim is re-proven over THAT
 # snapshot, not an empty one.
 #
 # Pre-arc gap (h17, failing-first): before plan task t5 landed (commit
 # c194616, "merge t6" — the tree immediately before t5's real-text fold),
-# EpisodeConfigLifecycle._apply_change's WORKER_PROMPT_STRATEGIST branch
+# EpisodeConfigLifecycle._apply_change's WORKER_PROMPT_EVALUATOR branch
 # folded an OPAQUE marker (f"{origin}#{n}", e.g. "cortex#1") — never
 # change.content. Verified directly: with colleague/configlifecycle.py
 # checked out at c194616 (git show c194616:colleague/configlifecycle.py),
-# this test's own assertion ``lifecycle.snapshot.strategist_sections ==
+# this test's own assertion ``lifecycle.snapshot.evaluator_sections ==
 # (note,)`` fails immediately (the snapshot instead carries ``("cortex#1",)``
 # — the note text is nowhere in it). Restored to the current tree after
 # verification (no production file was left modified).
 # ===========================================================================
 
 
-def test_digest_pinned_constant_across_turns_with_a_real_applied_strategist_note(
+def test_digest_pinned_constant_across_turns_with_a_real_applied_evaluator_note(
     tmp_path: Path,
 ) -> None:
     lifecycle = _lifecycle()
     note = "focus on the auth module before anything else"
     verdict = lifecycle.propose(
-        ChangeUnit(target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content=note)
+        ChangeUnit(target=Target.WORKER_PROMPT_EVALUATOR, origin=Origin.CORTEX, content=note)
     )
     assert verdict.allowed is True
     application = lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
@@ -163,7 +163,7 @@ def test_digest_pinned_constant_across_turns_with_a_real_applied_strategist_note
     # The note is REAL, verbatim text on the now-effective snapshot — not an
     # opaque marker (the exact fact that fails on the pre-t5 tree, see the
     # section docstring above).
-    assert lifecycle.snapshot.strategist_sections == (note,)
+    assert lifecycle.snapshot.evaluator_sections == (note,)
     digest_with_real_content = lifecycle.effective_digest()
 
     task = Task.new(str(tmp_path), "survey the repo")
@@ -190,7 +190,7 @@ def test_digest_pinned_constant_across_turns_with_a_real_applied_strategist_note
     assert lifecycle.effective_digest() == digest_with_real_content
     # And the note itself is still exactly what was applied — nothing about
     # running the episode ever mutates the snapshot's content.
-    assert lifecycle.snapshot.strategist_sections == (note,)
+    assert lifecycle.snapshot.evaluator_sections == (note,)
 
 
 # ===========================================================================
