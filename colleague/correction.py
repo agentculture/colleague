@@ -88,10 +88,11 @@ CorrectionDiff = CorrectionRecord
 
 @dataclass
 class CodeLesson:
-    """A code-lesson record built from a correction diff hunk.
+    """A code-lesson record built from a correction diff hunk (answer-shaped, #396).
 
     The evidence field carries the hunk text **verbatim** — the raw diff is
-    the substance.  Interpretation fields (``area``, ``convention``) are
+    the substance.  Interpretation fields (``pattern``, ``constant``,
+    ``reason``) mirror :mod:`colleague.lessons`' answer-shaped schema and are
     marked ``origin=model`` because they are model-derived analysis, not
     observed fact.
 
@@ -101,10 +102,16 @@ class CodeLesson:
         The file this lesson applies to.
     evidence:
         The verbatim hunk text from the correction diff.
-    area:
-        The code area or concern this lesson addresses (model interpretation).
-    convention:
-        The convention or pattern the lesson captures (model interpretation).
+    pattern:
+        The recurring shape this lesson generalizes — the code area or
+        concern it addresses (model interpretation).
+    constant:
+        The specific repo anchor the lesson pins — defaults to *file_path*
+        (itself a repo-anchor fingerprint) when the caller doesn't supply a
+        more specific one.
+    reason:
+        Why the pattern holds — the convention or invariant the lesson
+        captures (model interpretation).
     origin:
         Always ``"model"`` — interpretation fields are model-derived.
     confidence:
@@ -113,8 +120,9 @@ class CodeLesson:
 
     file_path: str
     evidence: str
-    area: str = ""
-    convention: str = ""
+    pattern: str = ""
+    constant: str = ""
+    reason: str = ""
     origin: str = "model"
     confidence: str = "low"
 
@@ -322,24 +330,34 @@ def capture_correction_diff(
 def build_code_lesson(
     hunk: DiffHunk,
     *,
-    area: str = "",
-    convention: str = "",
+    pattern: str = "",
+    constant: str = "",
+    reason: str = "",
     confidence: str = "low",
 ) -> CodeLesson:
-    """Build a code-lesson record from a correction diff hunk.
+    """Build a code-lesson record from a correction diff hunk (answer-shaped, #396).
 
     The hunk text is quoted **verbatim** as the evidence field.  Interpretation
-    fields (``area``, ``convention``) are marked ``origin=model`` because they
-    represent model-derived analysis, not observed fact.
+    fields (``pattern``, ``constant``, ``reason``) mirror
+    :mod:`colleague.lessons`' answer-shaped schema and are marked
+    ``origin=model`` because they represent model-derived analysis, not
+    observed fact. ``constant`` defaults to the hunk's *file_path* — itself a
+    repo-anchor fingerprint — when the caller doesn't supply a more specific
+    anchor.
 
     Parameters
     ----------
     hunk:
         The diff hunk to build the lesson from.
-    area:
-        The code area or concern (model interpretation, optional).
-    convention:
-        The convention or pattern captured (model interpretation, optional).
+    pattern:
+        The recurring shape / code area this lesson addresses (model
+        interpretation, optional).
+    constant:
+        The specific repo anchor this lesson pins (model interpretation,
+        optional — defaults to *hunk.file_path*).
+    reason:
+        Why the pattern holds — the convention captured (model
+        interpretation, optional).
     confidence:
         Confidence level; defaults to ``"low"``.
 
@@ -351,8 +369,9 @@ def build_code_lesson(
     return CodeLesson(
         file_path=hunk.file_path,
         evidence=hunk.text,
-        area=area,
-        convention=convention,
+        pattern=pattern,
+        constant=constant or hunk.file_path,
+        reason=reason,
         origin="model",
         confidence=confidence,
     )

@@ -107,6 +107,30 @@ def _cwds(log: Path) -> list[str]:
     return [json.loads(line)["cwd"] for line in log.read_text().splitlines()]
 
 
+#: The full ``TaskResult.memory`` key set of a plain armed run whose recall
+#: surfaced NO class-relevant lesson (``class_relevant_rank`` appears only on a
+#: hit, and the distill counters only when the rung-2 seam is armed).
+_ARMED_MEMORY_KEYS = {
+    "query",
+    "recalled",
+    "injected_chars",
+    "lesson_recorded",
+    "class_key",
+    "precision_rule",
+    "class_relevant_recalled",
+    "class_relevant_in_top_k",
+}
+
+#: Every key the retrieval-precision instrumentation can ever add. The
+#: memory-less regression guard asserts NONE of them reach the artifact.
+_PRECISION_KEYS = _ARMED_MEMORY_KEYS - {
+    "query",
+    "recalled",
+    "injected_chars",
+    "lesson_recorded",
+} | {"class_relevant_rank"}
+
+
 def test_armed_run_recalls_injects_and_remembers(repo: Path, eidetic_log: Path) -> None:
     seen_messages: list[list[dict]] = []
 
@@ -601,12 +625,13 @@ def _remembered_record(log: Path) -> dict:
 
 def test_distill_valid_lesson_folds_into_record(repo: Path, eidetic_log: Path) -> None:
     raw = (
-        '{"cause": "wrong file", "lesson": "check imports first", "next_delta": "grep before edit"}'
+        '{"pattern": "wrong file edited first", "constant": "colleague/loop.py", '
+        '"reason": "grep before edit"}'
     )
     task, result = _armed_distill_run(repo, lambda res, head: raw)
     record = _remembered_record(eidetic_log)
     assert "Lesson (origin=model)" in record["text"]
-    assert "check imports first" in record["text"]
+    assert "grep before edit" in record["text"]
     assert record["metadata"]["distill"] == "validated"
     assert result.memory["distill_attempts"] == 1
     assert result.memory["distill_validated"] == 1
@@ -657,7 +682,7 @@ def test_distill_knob_off_is_byte_identical_rung1(repo: Path, eidetic_log: Path)
     record = _remembered_record(eidetic_log)
     assert "Lesson (origin=model)" not in record["text"]
     assert "distill" not in record["metadata"]
-    assert set(result.memory) == {"query", "recalled", "injected_chars", "lesson_recorded"}
+    assert set(result.memory) == _ARMED_MEMORY_KEYS
 
 
 def test_no_distill_fn_is_byte_identical_rung1(repo: Path, eidetic_log: Path) -> None:
@@ -665,7 +690,7 @@ def test_no_distill_fn_is_byte_identical_rung1(repo: Path, eidetic_log: Path) ->
     result = run(scripted([_FINISH]), task, max_steps=5, context=ContextControls(memory=True))
     record = _remembered_record(eidetic_log)
     assert "distill" not in record["metadata"]
-    assert set(result.memory) == {"query", "recalled", "injected_chars", "lesson_recorded"}
+    assert set(result.memory) == _ARMED_MEMORY_KEYS
 
 
 def test_parse_lesson_json_tolerant_extraction() -> None:
@@ -675,6 +700,505 @@ def test_parse_lesson_json_tolerant_extraction() -> None:
     assert parse_lesson_json(fenced) == {"cause": "a", "lesson": "b", "next_delta": "c"}
     assert parse_lesson_json("no json here") is None
     assert parse_lesson_json('{"truncated": ') is None
+
+
+# ── Retrieval-precision instrumentation (post-#387: spec c9/h8/c31/h24) ──────
+#
+# #387 showed recall injections near-saturating RECALL_BLOCK_CAP by g7 —
+# SELECTION, not store size, became binding, and nothing measured whether the
+# right lesson surfaced. These tests pin the PRE-DECLARED rule (memory.py's
+# ``class-key-slug-v1``), the fields it puts on TaskResult.memory, the
+# closed remember→recall loop, and the memory-less byte-identity guard.
+
+
+def test_task_class_key_is_deterministic_and_slugged() -> None:
+    """The rule is a pure function of the assignment text — no judgment, no I/O."""
+    from colleague.memory import task_class_key
+
+    first = task_class_key("Fix the retry backoff")
+    assert first == "fix-the-retry-backoff"
+    # Same text ⇒ same key even after a DIFFERENT assignment is keyed in
+    # between: repeating the call verbatim would hold for any deterministic
+    # function, so interleaving is what actually proves no state leaks
+    # between calls.
+    task_class_key("an entirely unrelated assignment")
+    assert task_class_key("Fix the retry backoff") == first
+    # Case and punctuation are normalized away; a different assignment differs.
+    assert task_class_key("  FIX  the/retry, backoff!  ") == "fix-the-retry-backoff"
+    assert task_class_key("Fix the timeout classification") != task_class_key("Fix the retry")
+    # Bounded: at most 8 tokens, at most 64 chars.
+    long_key = task_class_key(" ".join(f"tok{i}" for i in range(50)))
+    assert long_key == "tok0-tok1-tok2-tok3-tok4-tok5-tok6-tok7"
+    assert len(task_class_key("x" * 200)) <= 64
+    # Unscoreable text yields the empty key (the caller then adds no fields).
+    assert task_class_key("") == ""
+    assert task_class_key("   ...   ") == ""
+
+
+def test_record_class_key_reads_exactly_two_declared_places() -> None:
+    """No substring match, no score threshold — exact equality on a stamped key."""
+    from colleague.memory import record_class_key
+
+    assert record_class_key({"metadata": {"class_key": "fix-the-retry"}}) == "fix-the-retry"
+    assert record_class_key({"class_key": "fix-the-retry"}) == "fix-the-retry"
+    # metadata wins over the flattened fallback.
+    assert record_class_key({"metadata": {"class_key": "a"}, "class_key": "b"}) == "a"
+    # Anything else reads as "" — an unstamped record is simply not relevant.
+    assert record_class_key({"text": "a lesson"}) == ""
+    assert record_class_key({"metadata": "not-a-dict"}) == ""
+    assert record_class_key({"metadata": {"class_key": 7}}) == ""
+    assert record_class_key("not a record") == ""  # type: ignore[arg-type]
+
+
+def test_score_recall_precision_hit_miss_and_rank() -> None:
+    """The scoring rule, in isolation: counts, top-k outcome, 1-based rank."""
+    from colleague.memory import CLASS_KEY_RULE, score_recall_precision
+
+    key = "fix-the-retry-backoff"
+    miss = score_recall_precision([{"text": "unrelated"}, {"text": "also unrelated"}], key)
+    assert miss == {
+        "class_key": key,
+        "precision_rule": CLASS_KEY_RULE,
+        "class_relevant_recalled": 0,
+        "class_relevant_in_top_k": False,
+    }
+    assert "class_relevant_rank" not in miss  # omitted, never null
+
+    hit = score_recall_precision(
+        [
+            {"text": "noise"},
+            {"text": "the lesson", "metadata": {"class_key": key}},
+            {"text": "another", "metadata": {"class_key": key}},
+        ],
+        key,
+    )
+    assert hit["class_relevant_recalled"] == 2
+    assert hit["class_relevant_in_top_k"] is True
+    assert hit["class_relevant_rank"] == 2  # 1-based rank of the FIRST match
+
+    # An empty recall still scores honestly (0 / False), never silently absent.
+    assert score_recall_precision([], key)["class_relevant_in_top_k"] is False
+    # An unscoreable work item adds NO fields rather than a meaningless zero.
+    assert score_recall_precision([{"metadata": {"class_key": ""}}], "") == {}
+
+
+def test_armed_run_records_precision_miss_when_no_class_lesson(
+    repo: Path, eidetic_log: Path
+) -> None:
+    """Store holds lessons, none of this class ⇒ the artifact says so, loudly."""
+    task = Task.new(str(repo), "map the retry architecture")
+    result = run(scripted([_FINISH]), task, max_steps=5, context=ContextControls(memory=True))
+
+    from colleague.memory import CLASS_KEY_RULE, task_class_key
+
+    assert result.memory is not None
+    assert result.memory["recalled"] == 2
+    assert result.memory["class_key"] == task_class_key("map the retry architecture")
+    assert result.memory["precision_rule"] == CLASS_KEY_RULE
+    assert result.memory["class_relevant_recalled"] == 0
+    assert result.memory["class_relevant_in_top_k"] is False
+    assert "class_relevant_rank" not in result.memory
+    # And it survives the artifact round-trip.
+    assert result.to_dict()["memory"]["class_relevant_in_top_k"] is False
+
+
+def test_armed_run_records_precision_hit_from_recorded_recall_results(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """A class-stamped record in the top-k scores a hit at its real rank."""
+    from colleague.memory import task_class_key
+
+    instruction = "fix the timeout classification in beta.py"
+    key = task_class_key(instruction)
+    bin_dir = tmp_path / "bin-hit"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-hit.log"
+    _fake_eidetic(
+        bin_dir,
+        log,
+        [
+            {"text": "unrelated lesson", "metadata": {"class_key": "some-other-class"}},
+            {"text": "the class lesson", "metadata": {"class_key": key}},
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    result = run(
+        scripted([_FINISH]),
+        Task.new(str(repo), instruction),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    assert result.memory is not None
+    assert result.memory["class_key"] == key
+    assert result.memory["class_relevant_recalled"] == 1
+    assert result.memory["class_relevant_in_top_k"] is True
+    assert result.memory["class_relevant_rank"] == 2
+
+
+def test_goal_wins_over_instruction_for_the_class_key(repo: Path, eidetic_log: Path) -> None:
+    """The class key keys off the SAME text the recall query does (goal first)."""
+    from colleague.memory import task_class_key
+
+    task = Task.new(str(repo), "an instruction nobody scores on")
+    task.goal = "converge the backoff multiplier"
+    result = run(scripted([_FINISH]), task, max_steps=5, context=ContextControls(memory=True))
+
+    assert result.memory is not None
+    assert result.memory["query"] == "converge the backoff multiplier"
+    assert result.memory["class_key"] == task_class_key("converge the backoff multiplier")
+
+
+def test_remember_stamps_the_class_key_recall_matches_on(
+    repo: Path, eidetic_log: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """The loop closes: run N's stamp is exactly what run N+1 scores against.
+
+    This is what makes the measurement real rather than synthetic — the
+    stamped record is fed back through the recall path verbatim.
+    """
+    from colleague.memory import task_class_key
+
+    instruction = "harden the retry backoff multiplier"
+    run(
+        scripted([_FINISH]),
+        Task.new(str(repo), instruction),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+    stamped = _remembered_record(eidetic_log)
+    assert stamped["metadata"]["class_key"] == task_class_key(instruction)
+
+    # Feed run N's REAL stored record back as run N+1's recall result.
+    bin_dir = tmp_path / "bin-loop"
+    bin_dir.mkdir()
+    log2 = tmp_path / "eidetic-loop.log"
+    _fake_eidetic(bin_dir, log2, [stamped])
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    second = run(
+        scripted([_FINISH]),
+        Task.new(str(repo), instruction),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+    assert second.memory is not None
+    assert second.memory["class_relevant_in_top_k"] is True
+    assert second.memory["class_relevant_rank"] == 1
+
+    # A DIFFERENT class recalling the same record scores an honest miss.
+    third = run(
+        scripted([_FINISH]),
+        Task.new(str(repo), "write the changelog entry"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+    assert third.memory is not None
+    assert third.memory["class_relevant_in_top_k"] is False
+
+
+def test_memory_less_run_serializes_byte_identically(tmp_path: Path, monkeypatch) -> None:
+    """THE regression guard: no store ⇒ not one precision key reaches the artifact."""
+    bin_dir = tmp_path / "bin-none"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-none.log"
+    _fake_eidetic(bin_dir, log, [{"text": "should never be read"}])
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    store_less = tmp_path / "repo"
+    store_less.mkdir()
+
+    result = run(
+        scripted([_FINISH]),
+        Task.new(str(store_less), "a task with no store behind it"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    assert _calls(log) == []
+    assert result.memory is None
+    payload = result.to_dict()
+    assert "memory" not in payload
+    serialized = json.dumps(payload)
+    for key in _PRECISION_KEYS:
+        assert key not in serialized
+    # The whole artifact round-trips with the memory key still absent.
+    assert "memory" not in TaskResult.from_dict(payload).to_dict()
+
+
+def test_unscoreable_task_adds_no_precision_fields(repo: Path, eidetic_log: Path) -> None:
+    """An empty assignment text is unscoreable — honest silence, not a fake zero."""
+    task = Task.new(str(repo), "   ")
+    result = run(scripted([_FINISH]), task, max_steps=5, context=ContextControls(memory=True))
+
+    assert result.memory is not None
+    assert set(result.memory) == {"query", "recalled", "injected_chars", "lesson_recorded"}
+    assert "class_key" not in _remembered_record(eidetic_log)["metadata"]
+
+
+def test_class_relevance_rule_is_documented_in_the_feature_doc() -> None:
+    """The rule must be AUDITABLE: the feature doc states it, and cannot drift."""
+    from colleague.memory import CLASS_KEY_FIELD, CLASS_KEY_RULE
+
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "features" / "memory.md").read_text()
+    assert CLASS_KEY_RULE in doc, "the versioned rule id must be named in the feature doc"
+    assert CLASS_KEY_FIELD in doc, "the stamped metadata field must be named in the feature doc"
+    for field_name in sorted(_PRECISION_KEYS):
+        assert field_name in doc, f"{field_name} is undocumented in docs/features/memory.md"
+    # The pre-declared / not-a-judgment property is stated, not merely implied.
+    assert "pre-declared" in doc.lower()
+
+
+# ── recall thresholding + supersedes hygiene, injection-only (plan t6, c10/h9) ──
+#
+# The mechanism the operator's #387 decline-risk asked for ("too much context;
+# the wrong lesson surfaced"): a below-threshold or superseded record is
+# excluded from what gets INJECTED, and the exclusion rides TaskResult.memory
+# so it is never silent. The env-disabled path is the regression guard.
+
+
+def _fake_eidetic_records(bin_dir: Path, log: Path, records: list[dict]) -> None:
+    """Like ``_fake_eidetic`` but the caller supplies full record dicts
+    (id/score/signal/supersedes/metadata) rather than plain {"text": ...}."""
+    script = bin_dir / "eidetic"
+    payload = json.dumps(records)
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        f"open({str(log)!r}, 'a').write("
+        "json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd()}) + '\\n')\n"
+        "if sys.argv[1] == 'recall':\n"
+        f"    print({payload!r})\n"
+        "sys.exit(0)\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+
+
+def test_below_threshold_record_excluded_from_injection_and_recorded_on_artifact(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    bin_dir = tmp_path / "bin-thresh"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-thresh.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "strong", "text": "GOOD LESSON: keep this one", "score": 0.9},
+            {"id": "weak", "text": "WEAK LESSON: drop this one", "score": 0.05},
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.5")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    joined = json.dumps(seen_messages[0])
+    assert "GOOD LESSON" in joined
+    assert "WEAK LESSON" not in joined
+    assert result.memory is not None
+    # recalled stays the FULL count — the exclusion is an injection-time
+    # concern, not a change to what was recalled.
+    assert result.memory["recalled"] == 2
+    assert result.memory["recall_excluded"] == [{"id": "weak", "reason": "below-min-score"}]
+    assert result.to_dict()["memory"]["recall_excluded"] == [
+        {"id": "weak", "reason": "below-min-score"}
+    ]
+
+
+def test_superseded_record_dropped_from_injection_and_recorded_on_artifact(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    bin_dir = tmp_path / "bin-supersedes"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-supersedes.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "old", "text": "OLD LESSON: the stale answer"},
+            {"id": "new", "text": "NEW LESSON: the corrected answer", "supersedes": "old"},
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    joined = json.dumps(seen_messages[0])
+    assert "NEW LESSON" in joined
+    assert "OLD LESSON" not in joined
+    assert result.memory is not None
+    assert result.memory["recalled"] == 2
+    assert result.memory["recall_excluded"] == [{"id": "old", "reason": "superseded-by:new"}]
+
+
+def test_recall_hygiene_env_disabled_is_byte_identical_to_today(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """COLLEAGUE_RECALL_HYGIENE=0 restores pre-t6 injection behavior exactly —
+    even with a threshold configured AND a supersedes edge present, every
+    recalled record is injected and no exclusion is recorded."""
+    bin_dir = tmp_path / "bin-disabled"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-disabled.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "old", "text": "OLD LESSON", "score": 0.0},
+            {"id": "new", "text": "NEW LESSON", "score": 0.0, "supersedes": "old"},
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.99")
+    monkeypatch.setenv("COLLEAGUE_RECALL_HYGIENE", "0")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    joined = json.dumps(seen_messages[0])
+    assert "OLD LESSON" in joined
+    assert "NEW LESSON" in joined
+    assert result.memory is not None
+    assert "recall_excluded" not in result.memory
+    assert set(result.memory) == _ARMED_MEMORY_KEYS
+
+
+def test_precision_fields_scored_over_full_recalled_set_not_filtered_injection(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """t5 composition rule, proven: a class-relevant record excluded from
+    INJECTION by t6's threshold still counts toward class_relevant_recalled/
+    class_relevant_in_top_k/class_relevant_rank — filtering happens strictly
+    after precision scoring, never before."""
+    from colleague.memory import task_class_key
+
+    instruction = "fix the timeout classification in beta.py"
+    key = task_class_key(instruction)
+    bin_dir = tmp_path / "bin-precision"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-precision.log"
+    _fake_eidetic_records(
+        bin_dir,
+        log,
+        [
+            {"id": "noise", "text": "unrelated", "metadata": {"class_key": "some-other-class"}},
+            {
+                "id": "the-lesson",
+                "text": "THE CLASS LESSON",
+                "metadata": {"class_key": key},
+                "score": 0.01,  # below the threshold — excluded from injection
+            },
+        ],
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "0.5")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), instruction),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    # Excluded from the actual injected context...
+    joined = json.dumps(seen_messages[0])
+    assert "THE CLASS LESSON" not in joined
+    assert result.memory is not None
+    assert result.memory["recall_excluded"] == [{"id": "the-lesson", "reason": "below-min-score"}]
+    # ...yet still counted by t5's precision scoring, at its real recalled rank.
+    assert result.memory["class_key"] == key
+    assert result.memory["class_relevant_recalled"] == 1
+    assert result.memory["class_relevant_in_top_k"] is True
+    assert result.memory["class_relevant_rank"] == 2
+
+
+def test_legacy_three_key_lesson_recalls_as_free_text_without_error(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """t3 replaced the lesson schema outright (pattern/constant/reason
+    superseding cause/lesson/next_delta) with no dual-schema validator. t3's
+    own acceptance criterion — 'already-stored 3-key lessons recall as legacy
+    free text without error' — is a property of the RECALL path, proven here:
+    a store containing an old-shape 3-key record must recall + inject without
+    raising, because recall never re-validates a record's schema — it only
+    ever reads the record's own ``text`` field as opaque prose."""
+    bin_dir = tmp_path / "bin-legacy"
+    bin_dir.mkdir()
+    log = tmp_path / "eidetic-legacy.log"
+    legacy_record = {
+        "id": "work-lesson-legacy123",
+        "text": (
+            "Lesson (origin=model): cause=wrong file targeted; "
+            "lesson=check imports before editing; next_delta=grep before edit."
+        ),
+        "metadata": {
+            "cause": "wrong file targeted",
+            "lesson": "check imports before editing",
+            "next_delta": "grep before edit",
+            "distill": "validated",
+        },
+    }
+    _fake_eidetic_records(bin_dir, log, [legacy_record])
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    seen_messages: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen_messages.append([dict(m) for m in messages])
+        return _FINISH
+
+    result = run(
+        complete,
+        Task.new(str(repo), "check imports before editing beta.py"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+
+    assert result.status == OK
+    joined = json.dumps(seen_messages[0])
+    assert "check imports before editing" in joined
+    assert result.memory is not None
+    assert result.memory["recalled"] == 1
+    assert "recall_excluded" not in result.memory
 
 
 def test_memory_distill_config_resolution(tmp_path: Path, monkeypatch) -> None:

@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.58.0] - 2026-08-10
+
+### Changed
+
+- **The distillation lesson schema is REPLACED, not extended (#396).** The
+  three-key `cause`/`lesson`/`next_delta` shape gives way to an answer-shaped
+  `pattern`/`constant`/`reason`, where `constant` is validated against a
+  repo-anchor fingerprint so a lesson must pin something concrete (an
+  identifier, path, value or invariant) rather than narrate a process. The
+  refuse-whole stance and length bounds carry over unchanged; there is no
+  dual-schema validator. Rationale: the #387 proof found lesson SPECIFICITY to
+  be the variable — answer-shaped lessons changed behaviour, process-shaped
+  ones produced an identical trace.
+- Provenance (component target, artifact ids, evidence source) lives in record
+  METADATA or a versioned envelope — never as keys in the validated payload.
+
+### Added
+
+- **Retrieval-precision instrumentation on `TaskResult.memory`.** The
+  remember-after path stamps a deterministic class key that the next run scores
+  against, so "did the class-relevant lesson surface in top-k" is measurable
+  rather than assumed. The rule (`class-key-slug-v1`) is documented in
+  `docs/features/memory.md` and pinned by a test that reads the doc.
+- **Recall hygiene, colleague-side only.** Relevance thresholding over the
+  score/signal fields eidetic already returns, plus supersedes resolution within
+  a recalled batch. Every exclusion is recorded on `TaskResult.memory` — never
+  silent. Disabled by env, behaviour is byte-identical to before.
+
+A memory-less run still serializes with no `memory` key at all.
+
 ## [1.57.0] - 2026-08-10
 
 ### Changed

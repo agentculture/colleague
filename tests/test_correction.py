@@ -338,7 +338,7 @@ class TestBuildCodeLesson:
         assert lesson.file_path == "src/foo.py"
 
     def test_code_lesson_marks_interpretation_as_origin_model(self) -> None:
-        """Interpretation fields (area, convention) are marked origin=model."""
+        """Interpretation fields (pattern, constant, reason) are marked origin=model."""
         hunk = DiffHunk(file_path="src/bar.py", text="some hunk text")
 
         lesson = build_code_lesson(hunk)
@@ -360,6 +360,32 @@ class TestBuildCodeLesson:
         lesson = build_code_lesson(hunk)
 
         assert lesson.confidence == "low"
+
+    def test_code_lesson_constant_defaults_to_file_path(self) -> None:
+        """constant (the answer-shaped repo anchor, #396) defaults to the
+        hunk's file_path when the caller supplies no more specific anchor."""
+        hunk = DiffHunk(file_path="src/foo.py", text="hunk")
+
+        lesson = build_code_lesson(hunk)
+
+        assert lesson.constant == "src/foo.py"
+
+    def test_code_lesson_constant_override_wins_over_file_path(self) -> None:
+        """An explicit constant overrides the file_path default."""
+        hunk = DiffHunk(file_path="src/foo.py", text="hunk")
+
+        lesson = build_code_lesson(hunk, constant="src/foo.py:42")
+
+        assert lesson.constant == "src/foo.py:42"
+
+    def test_code_lesson_carries_pattern_and_reason(self) -> None:
+        """pattern/reason ride through unchanged when supplied."""
+        hunk = DiffHunk(file_path="src/foo.py", text="hunk")
+
+        lesson = build_code_lesson(hunk, pattern="import ordering", reason="isort convention")
+
+        assert lesson.pattern == "import ordering"
+        assert lesson.reason == "isort convention"
 
 
 # ---------------------------------------------------------------------------
