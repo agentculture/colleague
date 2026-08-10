@@ -715,9 +715,14 @@ def test_task_class_key_is_deterministic_and_slugged() -> None:
     """The rule is a pure function of the assignment text — no judgment, no I/O."""
     from colleague.memory import task_class_key
 
-    assert task_class_key("Fix the retry backoff") == "fix-the-retry-backoff"
-    # Same text ⇒ same key, on every machine, every run.
-    assert task_class_key("Fix the retry backoff") == task_class_key("Fix the retry backoff")
+    first = task_class_key("Fix the retry backoff")
+    assert first == "fix-the-retry-backoff"
+    # Same text ⇒ same key even after a DIFFERENT assignment is keyed in
+    # between: repeating the call verbatim would hold for any deterministic
+    # function, so interleaving is what actually proves no state leaks
+    # between calls.
+    task_class_key("an entirely unrelated assignment")
+    assert task_class_key("Fix the retry backoff") == first
     # Case and punctuation are normalized away; a different assignment differs.
     assert task_class_key("  FIX  the/retry, backoff!  ") == "fix-the-retry-backoff"
     assert task_class_key("Fix the timeout classification") != task_class_key("Fix the retry")
