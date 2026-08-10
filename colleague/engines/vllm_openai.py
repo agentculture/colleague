@@ -916,7 +916,13 @@ class VllmOpenAIEngine(Engine):
                         payload,
                         api_key=config.api_key,
                         timeout=config.timeout,
-                        on_delta=config.on_delta or _noop_delta,
+                        # An explicit `is None` test, NOT truthiness: the
+                        # arming decision above is `config.on_delta is not
+                        # None`, and a callable can be falsey (`__bool__` /
+                        # `__len__`). `or` would arm streaming for such a sink
+                        # and then silently swap it for the no-op, dropping
+                        # every delta.
+                        on_delta=(config.on_delta if config.on_delta is not None else _noop_delta),
                     )
                 data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
                 return _parse_response(data)

@@ -497,3 +497,52 @@ def test_streaming_and_opt_out_yield_the_same_vllm_result_shape(
     assert streamed.status == blocking.status == OK
     assert _key_shape(streamed.to_dict()) == _key_shape(blocking.to_dict())
     assert streamed.summary == blocking.summary
+
+
+# ── a FALSEY-but-present delta sink must still receive every delta ───────────
+#
+# Regression for qodo-code-review on PR #401 (comment 3746408765). The arming
+# decision is `config.on_delta is not None`, so a callable whose __bool__ is
+# False arms streaming — but the callback was selected with `or`, which would
+# swap that very sink for the no-op and silently drop every delta. The two
+# tests below pin BOTH halves of that inconsistency.
+
+
+class _FalseySink:
+    """A legitimate delta sink that is falsey — e.g. a collector defining
+    ``__len__`` so callers can ask how much it has captured."""
+
+    def __init__(self) -> None:
+        self.chunks: list[str] = []
+
+    def __call__(self, chunk: str) -> None:
+        self.chunks.append(chunk)
+
+    def __len__(self) -> int:  # empty collector => falsey
+        return len(self.chunks)
+
+
+def test_a_falsey_delta_sink_still_receives_its_deltas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sink = _FalseySink()
+    assert not sink  # precondition: falsey while empty, yet not None
+    captured: dict[str, object] = {}
+    _stub_stream(monkeypatch, captured)
+
+    cfg = _cfg(on_delta=sink)
+    complete = VllmOpenAIEngine()._make_complete(cfg, tools=[])
+    resp = complete([{"role": "user", "content": "hi"}])
+
+    assert resp.content == "hi"
+    # With `or`, these deltas would have gone to _noop_delta instead.
+    assert "".join(sink.chunks) == "hi"
+
+
+def test_the_arming_test_and_the_sink_choice_use_the_same_predicate() -> None:
+    """Both must be an explicit ``is None`` check — never truthiness."""
+    import inspect
+
+    src = inspect.getsource(vllm_openai.VllmOpenAIEngine._make_complete)
+    assert "config.on_delta or _noop_delta" not in src
+    assert "config.on_delta if config.on_delta is not None else _noop_delta" in src
