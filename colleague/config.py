@@ -1163,6 +1163,21 @@ def _worker_refusal(message: str, remediation: str) -> "CliError":
     return _seat_refusal(message, remediation)
 
 
+def _defaults_source(file_value: str | None, lobes_value: str | None, builtin: str) -> str:
+    """First non-None of the two DEFAULTS-SOURCE rungs, else *builtin*.
+
+    config.json outranks the lobes discovery rung; both sit BELOW the explicit
+    flag/env precedence :func:`_pick` applies on top. Written as statements
+    rather than a nested ternary (SonarCloud S3358) and shared by the base_url
+    and model resolutions so the two rungs cannot drift apart.
+    """
+    if file_value is not None:
+        return file_value
+    if lobes_value is not None:
+        return lobes_value
+    return builtin
+
+
 def _resolve_acting_dial(
     resolved_worker: "WorkerConfig | None",
     resolved_seats: "EvaluationSeats | None",
@@ -3247,12 +3262,7 @@ class EngineConfig:
         # The default is a plain if/else (not a nested ternary, SonarCloud
         # S3358) over the two DEFAULTS-SOURCE rungs below the explicit
         # arg/env precedence: config.json, then the lobes discovery rung.
-        if file_base_url is not None:
-            base_url_default = file_base_url
-        elif lobes_base_url is not None:
-            base_url_default = lobes_base_url
-        else:
-            base_url_default = _DEFAULT_BASE_URL
+        base_url_default = _defaults_source(file_base_url, lobes_base_url, _DEFAULT_BASE_URL)
         resolved_base_url = _pick(
             base_url,
             "COLLEAGUE_BASE_URL",
@@ -3425,12 +3435,7 @@ class EngineConfig:
         # Lobes rung (t4): the gateway's cortex model is the default only for the
         # main model id, below config.json and above the builtin. A plain if/else
         # (not a nested ternary, SonarCloud S3358), mirroring base_url_default above.
-        if file_model is not None:
-            model_default = file_model
-        elif lobes_model is not None:
-            model_default = lobes_model
-        else:
-            model_default = _DEFAULT_MODEL
+        model_default = _defaults_source(file_model, lobes_model, _DEFAULT_MODEL)
 
         resolved_model = _pick(
             model,
