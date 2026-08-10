@@ -810,6 +810,34 @@ def _tokenize_count(
     return count
 
 
+def _delta_sink(on_delta: "Callable[[str], None] | None") -> "Callable[[str], None]":
+    """The sink a streamed turn feeds: the caller's, or the headless no-op.
+
+    An explicit ``is None`` test, NOT truthiness. The arming decision is
+    ``config.on_delta is not None``, and a callable can be falsey via
+    ``__bool__``/``__len__`` — a collector sink defining ``__len__`` is the
+    obvious real case. ``or`` would arm streaming for such a sink and then
+    silently swap it for the no-op, dropping every delta it was installed to
+    receive (qodo-code-review, PR #401 comment 3746408765).
+    """
+    return _noop_delta if on_delta is None else on_delta
+
+
+def _refreshed_model_id(
+    config: EngineConfig, role_name: str, exc: "urllib.error.HTTPError"
+) -> "str | None":
+    """The same-role refreshed model id for a stale pin, else ``None``.
+
+    ``None`` means the caller must re-raise unchanged: either this is a
+    replaced-config seat (deepthink/senses), whose 404 belongs to that lane's
+    own degrade path rather than a main-seat refresh (d5, issue 375), or the
+    gateway offered no replacement.
+    """
+    if config.refresh_seat is None:
+        return None
+    return _same_role_call_time_refresh(config, role_name, exc)
+
+
 class VllmOpenAIEngine(Engine):
     """Drives an OpenAI-compatible chat-completions endpoint with tool calling."""
 
@@ -916,13 +944,7 @@ class VllmOpenAIEngine(Engine):
                         payload,
                         api_key=config.api_key,
                         timeout=config.timeout,
-                        # An explicit `is None` test, NOT truthiness: the
-                        # arming decision above is `config.on_delta is not
-                        # None`, and a callable can be falsey (`__bool__` /
-                        # `__len__`). `or` would arm streaming for such a sink
-                        # and then silently swap it for the no-op, dropping
-                        # every delta.
-                        on_delta=(config.on_delta if config.on_delta is not None else _noop_delta),
+                        on_delta=_delta_sink(config.on_delta),
                     )
                 data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
                 return _parse_response(data)
@@ -935,12 +957,7 @@ class VllmOpenAIEngine(Engine):
                 # retry, never a second catch (a repeat 404 propagates
                 # unguarded below — legible via _raise_legible_http_error's
                 # existing body-folding, exactly as before this task).
-                if config.refresh_seat is None:
-                    # A replaced-config seat (deepthink/senses) — its 404
-                    # belongs to that lane's own degrade path, never a
-                    # main-seat refresh (d5, issue 375).
-                    raise
-                refreshed_id = _same_role_call_time_refresh(config, role_name, exc)
+                refreshed_id = _refreshed_model_id(config, role_name, exc)
                 if refreshed_id is None:
                     raise
                 # Persist the refresh (Qodo review, PR #381): later

@@ -540,9 +540,17 @@ def test_a_falsey_delta_sink_still_receives_its_deltas(
 
 
 def test_the_arming_test_and_the_sink_choice_use_the_same_predicate() -> None:
-    """Both must be an explicit ``is None`` check — never truthiness."""
+    """Both must key on ``is None`` — never truthiness.
+
+    Asserted against BEHAVIOUR, not against where the choice happens to live:
+    a falsey-but-present sink is returned unchanged, and only ``None`` yields
+    the no-op. The module is also checked to be free of the truthiness idiom
+    so the bug cannot creep back in at any call site.
+    """
     import inspect
 
-    src = inspect.getsource(vllm_openai.VllmOpenAIEngine._make_complete)
-    assert "config.on_delta or _noop_delta" not in src
-    assert "config.on_delta if config.on_delta is not None else _noop_delta" in src
+    sink = _FalseySink()
+    assert not sink  # falsey, but a real sink
+    assert vllm_openai._delta_sink(sink) is sink
+    assert vllm_openai._delta_sink(None) is vllm_openai._noop_delta
+    assert "on_delta or _noop_delta" not in inspect.getsource(vllm_openai)
