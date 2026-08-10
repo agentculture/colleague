@@ -168,7 +168,13 @@ def _check_non_string_values(lesson: dict[str, object]) -> list[str]:
 _ANCHOR_PATTERNS = tuple(
     re.compile(pattern, re.ASCII)
     for pattern in (
-        r"[/\\][\w.\-]",  # path separator
+        # A PATH, not merely a slash. The earlier `[/\\][\w.\-]` matched any
+        # separator followed by a word char, so prose like "review and/or
+        # test" scored as an anchor (qodo-code-review, PR #402 comment
+        # 3746408308). A real path shows either a dotted file extension
+        # after a separator, or two or more separators.
+        r"[\w.\-]+[/\\][\w.\-]*\.\w+",  # a/b.ext  (colleague/loop.py)
+        r"[\w.\-]+[/\\][\w.\-]+[/\\][\w.\-]+",  # a/b/c  (docs/features/x)
         r"\b[A-Za-z_]\w+\.[A-Za-z_]\w+\b",  # dotted.identifier
         r"\b[A-Za-z_][A-Za-z0-9]*_\w*\b",  # snake_case / SCREAMING_SNAKE
         r"\b[A-Z][a-z0-9]+[A-Z]\w*\b",  # CamelCase / PascalCase

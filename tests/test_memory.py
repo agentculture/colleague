@@ -572,3 +572,32 @@ class TestFilterForInjectionEnvWrapper:
         monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "not-a-float")
         assert memory_mod.recall_min_score() is None
         assert "search" not in memory_mod.ALLOWED_VERBS
+
+
+# ── supersedes chains and cycles ─────────────────────────────────────────────
+# Regression for qodo-code-review on PR #402 (comment 3746408309).
+
+
+def test_supersedes_chain_names_the_terminal_survivor() -> None:
+    """A<-B<-C must report BOTH A and B as superseded-by C.
+
+    Naming B would point a debugger at a record that is itself excluded and
+    therefore absent from the injected block.
+    """
+    kept, excluded = memory_mod.filter_recall_records(
+        [{"id": "A"}, {"id": "B", "supersedes": "A"}, {"id": "C", "supersedes": "B"}]
+    )
+    assert [r["id"] for r in kept] == ["C"]
+    assert {e["id"]: e["reason"] for e in excluded} == {
+        "A": "superseded-by:C",
+        "B": "superseded-by:C",
+    }
+
+
+def test_a_supersedes_cycle_drops_nothing() -> None:
+    """A cycle has no terminal superseder, so applying it would exclude every
+    record in the cycle and could silently empty the recall block."""
+    records = [{"id": "X", "supersedes": "Y"}, {"id": "Y", "supersedes": "X"}]
+    kept, excluded = memory_mod.filter_recall_records(records)
+    assert [r["id"] for r in kept] == ["X", "Y"]
+    assert excluded == []

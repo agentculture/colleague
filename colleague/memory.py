@@ -635,6 +635,38 @@ def _supersedes_map(surviving: list[tuple[int, dict[str, Any]]]) -> dict[str, st
     return mapping
 
 
+def _resolve_supersedes_chain(mapping: dict[str, str]) -> dict[str, str]:
+    """Collapse each superseded id to its FINAL surviving superseder.
+
+    Two problems the raw one-step mapping has (qodo-code-review, PR #402
+    comment 3746408309):
+
+    * **Chains.** With A superseded by B and B superseded by C, the raw map
+      reports A as ``superseded-by:B`` — but B is itself excluded, so the
+      reason points a debugger at a record that is not in the injected block.
+      Walk to the terminal superseder and name that instead.
+    * **Cycles.** A supersedes B and B supersedes A has NO terminal
+      superseder; applying the raw map would exclude every record in the
+      cycle and could silently empty the recall block. A cycle is therefore
+      left UNRESOLVED — nothing in it is dropped. Dropping an arbitrary
+      member would be a coin toss, and dropping all of them loses data the
+      operator asked to recall.
+    """
+    resolved: dict[str, str] = {}
+    for start, first in mapping.items():
+        seen = {start}
+        current: str | None = first
+        while current in mapping:
+            if current in seen:  # cycle — no terminal superseder exists
+                current = None
+                break
+            seen.add(current)
+            current = mapping[current]
+        if current is not None:
+            resolved[start] = current
+    return resolved
+
+
 def filter_recall_records(
     records: list[dict[str, Any]],
     *,
@@ -669,7 +701,7 @@ def filter_recall_records(
         else:
             surviving_threshold.append((index, record))
 
-    superseded_ids = _supersedes_map(surviving_threshold)
+    superseded_ids = _resolve_supersedes_chain(_supersedes_map(surviving_threshold))
 
     kept: list[dict[str, Any]] = []
     for _, record in surviving_threshold:
