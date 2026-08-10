@@ -42,7 +42,7 @@ _NEW_WORKER_TARGET = "worker.prompt.evaluator"
 _NEW_SENSES_TARGET = "senses.prompt.evaluator"
 
 
-@pytest.fixture()
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     adir = tmp_path / ".colleague"
     adir.mkdir()

@@ -1163,6 +1163,41 @@ def _worker_refusal(message: str, remediation: str) -> "CliError":
     return _seat_refusal(message, remediation)
 
 
+def _resolve_acting_dial(
+    resolved_worker: "WorkerConfig | None",
+    resolved_seats: "EvaluationSeats | None",
+    *,
+    main: tuple[str, str, str, int],
+) -> tuple[str, str, str, int]:
+    """Return ``(model, base_url, api_key, context)`` for the seat that ACTS.
+
+    Exactly one seat acts. Unarmed, that is the main dial. Under three-tier
+    (t8) it is ``resolved_worker``; under thought→action→evaluation (t13) it is
+    ``resolved_seats.worker`` — the evaluator never acts. The two modes are
+    mutually exclusive (``_refuse_conflicting_execution_modes``), so the
+    branches below can never both apply.
+
+    Note this repoints the ACTING dial only. ``distill.py``'s
+    authority-separation guard reads ``evaluator_checkpoint``, never
+    ``config.model``, so moving this dial cannot weaken it (spec c38/h30).
+    """
+    if resolved_worker is not None:
+        return (
+            resolved_worker.model,
+            resolved_worker.base_url,
+            resolved_worker.api_key,
+            resolved_worker.context,
+        )
+    if resolved_seats is not None:
+        return (
+            resolved_seats.worker.model,
+            resolved_seats.worker.base_url,
+            resolved_seats.worker.api_key,
+            resolved_seats.worker.context,
+        )
+    return main
+
+
 def _resolve_worker(
     three_tier: bool,
     lobes_roles: object,
@@ -3451,20 +3486,21 @@ class EngineConfig:
         # refuse the evaluator seat lesson-authoring authority: the guard reads
         # ``evaluator_checkpoint``, never ``config.model``, so repointing the
         # acting dial cannot weaken it.
-        acting_model = resolved_model
-        acting_base_url = resolved_base_url
-        acting_api_key = resolved_api_key
-        acting_context_budget_tokens = resolved_context_budget_tokens
-        if resolved_worker is not None:
-            acting_model = resolved_worker.model
-            acting_base_url = resolved_worker.base_url
-            acting_api_key = resolved_worker.api_key
-            acting_context_budget_tokens = resolved_worker.context
-        elif resolved_seats is not None:
-            acting_model = resolved_seats.worker.model
-            acting_base_url = resolved_seats.worker.base_url
-            acting_api_key = resolved_seats.worker.api_key
-            acting_context_budget_tokens = resolved_seats.worker.context
+        (
+            acting_model,
+            acting_base_url,
+            acting_api_key,
+            acting_context_budget_tokens,
+        ) = _resolve_acting_dial(
+            resolved_worker,
+            resolved_seats,
+            main=(
+                resolved_model,
+                resolved_base_url,
+                resolved_api_key,
+                resolved_context_budget_tokens,
+            ),
+        )
 
         return cls(
             base_url=acting_base_url,

@@ -337,7 +337,8 @@ class TestAlignmentIsNotPermission:
     def test_aligned_execute_cannot_run_a_gated_command(self, tmp_path: Path) -> None:
         policy = _armed_policy(tmp_path, allow=["git", "pytest"])
         check = validate_evaluation(make_evaluation())  # aligned + execute
-        assert check.allowed is True and check.evaluation is not None
+        assert check.allowed is True
+        assert check.evaluation is not None
         evaluation = check.evaluation
         assert may_execute(evaluation) is True, "the evaluator itself says 'execute'"
 
@@ -373,7 +374,8 @@ class TestAlignmentIsNotPermission:
         policy = load_policy(tmp_path, user_home=tmp_path / "home")
 
         check = validate_evaluation(make_evaluation())
-        assert check.evaluation is not None and may_execute(check.evaluation) is True
+        assert check.evaluation is not None
+        assert may_execute(check.evaluation) is True
         # The evaluation is aligned; the hook is still unapproved.
         assert policy.check_file("hooks", "rogue.sh", hook).allowed is False
 

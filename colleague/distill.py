@@ -98,6 +98,43 @@ def _refuses_evaluator_as_distiller(config: Any, candidate_model: str) -> bool:
     return not (distiller_checkpoint and distiller_checkpoint != evaluator_checkpoint)
 
 
+def _deepthink_author(config: Any) -> DistillAuthor | None:
+    """Rung 1, shared by both resolvers: the declared deepthink/muse target.
+
+    ``None`` when no deepthink model is declared — the caller falls to its
+    next rung.
+    """
+    dt = getattr(config, "deepthink", None)
+    if dt is None:
+        return None
+    model = getattr(dt, "model", None)
+    if not (model and isinstance(model, str) and model.strip()):
+        return None
+    return DistillAuthor(
+        model=model.strip(),
+        base_url=getattr(dt, "base_url", None) or getattr(config, "base_url", "") or "",
+        api_key=getattr(dt, "api_key", None) or getattr(config, "api_key", "") or "",
+    )
+
+
+def _declared_distiller_author(config: Any) -> DistillAuthor | None:
+    """The EXPLICITLY declared distillation authority, or ``None``.
+
+    Shared by both resolvers as the armed-mode rung. Declaring a distiller
+    names the AUTHOR — it never merely licenses the evaluator to author (spec
+    c38/h30), which is why the armed branch returns this result directly
+    rather than falling through to a cortex-shaped candidate.
+    """
+    declared = getattr(config, "distiller_checkpoint", None)
+    if not (declared and isinstance(declared, str) and declared.strip()):
+        return None
+    return DistillAuthor(
+        model=declared.strip(),
+        base_url=getattr(config, "base_url", "") or "",
+        api_key=getattr(config, "api_key", "") or "",
+    )
+
+
 def resolve_distill_author(
     config: Any,
     lobes_roles: LobesRoles | None,
@@ -146,32 +183,16 @@ def resolve_distill_author(
         The resolved author, or ``None`` when no author is available.
     """
     # Rung 1: deepthink/muse target (dual-model mode)
-    dt = getattr(config, "deepthink", None)
-    if dt is not None:
-        dt_model = getattr(dt, "model", None)
-        if dt_model and isinstance(dt_model, str) and dt_model.strip():
-            dt_base_url = getattr(dt, "base_url", None) or getattr(config, "base_url", "")
-            dt_api_key = getattr(dt, "api_key", None) or getattr(config, "api_key", "")
-            return DistillAuthor(
-                model=dt_model.strip(),
-                base_url=dt_base_url or "",
-                api_key=dt_api_key or "",
-            )
+    deepthink_author = _deepthink_author(config)
+    if deepthink_author is not None:
+        return deepthink_author
 
     # Rung 2 (armed thought→action→evaluation): the DECLARED distiller, or
-    # nothing. Mirrors resolve_distill_author_from_config — in that mode both
-    # implicit candidates are disqualified (cortex IS the evaluator, the worker
-    # IS the actor), so there is no safe fallthrough. Declaring a distiller
-    # names the AUTHOR; it must never merely license the evaluator to author.
+    # nothing. In that mode both implicit candidates are disqualified (cortex
+    # IS the evaluator, the worker IS the actor), so there is no safe
+    # fallthrough — hence the unconditional return.
     if getattr(config, "thought_action_evaluation", False):
-        declared = getattr(config, "distiller_checkpoint", None)
-        if declared and isinstance(declared, str) and declared.strip():
-            return DistillAuthor(
-                model=declared.strip(),
-                base_url=getattr(config, "base_url", "") or "",
-                api_key=getattr(config, "api_key", "") or "",
-            )
-        return None
+        return _declared_distiller_author(config)
 
     # Rung 3: lobes cortex (armed gateway) — guarded against silently
     # authoring as a declared evaluator seat (c38/h30).
@@ -499,24 +520,11 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
     worker *is* the actor — so the author must be declared outright or the
     run honestly falls to the rung-1 floor.
     """
-    dt = getattr(config, "deepthink", None)
-    if dt is not None:
-        dt_model = getattr(dt, "model", None)
-        if dt_model and isinstance(dt_model, str) and dt_model.strip():
-            return DistillAuthor(
-                model=dt_model.strip(),
-                base_url=getattr(dt, "base_url", None) or getattr(config, "base_url", "") or "",
-                api_key=getattr(dt, "api_key", None) or getattr(config, "api_key", "") or "",
-            )
+    deepthink_author = _deepthink_author(config)
+    if deepthink_author is not None:
+        return deepthink_author
     if getattr(config, "thought_action_evaluation", False):
-        declared = getattr(config, "distiller_checkpoint", None)
-        if declared and isinstance(declared, str) and declared.strip():
-            return DistillAuthor(
-                model=declared.strip(),
-                base_url=getattr(config, "base_url", "") or "",
-                api_key=getattr(config, "api_key", "") or "",
-            )
-        return None
+        return _declared_distiller_author(config)
     if getattr(config, "lobes_gateway_url", None):
         model = getattr(config, "model", "") or ""
         if model and not _refuses_evaluator_as_distiller(config, model):

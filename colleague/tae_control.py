@@ -63,7 +63,7 @@ def next_actor(route: str) -> str:
     """
     if route not in _ROUTE_TABLE:
         raise ValueError(
-            f"unknown route {route!r} — the closed set is " f"{sorted(_ROUTE_TABLE.keys())}"
+            f"unknown route {route!r} — the closed set is {sorted(_ROUTE_TABLE.keys())}"
         )
     return _ROUTE_TABLE[route]
 
@@ -90,7 +90,14 @@ def classify_consequential(worker_flag: bool, host_verdict: bool) -> bool:
     *worker_flag* entirely.  A worker claiming ``consequential=False``
     cannot stop a host-classified consequential action from being treated
     as consequential.
+
+    *worker_flag* is therefore accepted and DELIBERATELY discarded. Keeping it
+    in the signature is the point: callers pass the worker's claim, and the
+    discard below is where "evidence, not authority" is enforced. Dropping the
+    parameter to satisfy an unused-argument check would move that boundary out
+    of the code and into a comment (SonarCloud S1172).
     """
+    del worker_flag  # evidence only — never an input to the classification
     return host_verdict
 
 

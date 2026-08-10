@@ -476,7 +476,9 @@ def test_armed_without_a_lobes_gateway_refuses(monkeypatch: pytest.MonkeyPatch) 
     message = exc_info.value.message.lower()
     assert "thought_action_evaluation" in message
     assert "lobes" in message
-    assert "front" in message and "worker" in message and "evaluator" in message
+    assert "front" in message
+    assert "worker" in message
+    assert "evaluator" in message
 
 
 def test_armed_with_an_unreachable_gateway_refuses(monkeypatch: pytest.MonkeyPatch) -> None:

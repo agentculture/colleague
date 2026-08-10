@@ -553,7 +553,12 @@ def _read(source: object, names: "tuple[str, ...]") -> object:
 
 
 def _bounded_text(value: object, label: str, truncated: "list[str]") -> str:
-    text = value if isinstance(value, str) else ("" if value is None else str(value))
+    if isinstance(value, str):
+        text = value
+    elif value is None:
+        text = ""
+    else:
+        text = str(value)
     if len(text) > MAX_ENVELOPE_TEXT_CHARS:
         truncated.append(label)
         return text[: MAX_ENVELOPE_TEXT_CHARS - 3] + "..."

@@ -246,7 +246,7 @@ def _iter_json_objects(text: str) -> list[dict[str, Any]]:
             break
         try:
             obj, end = decoder.raw_decode(text, brace)
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:  # JSONDecodeError is a ValueError subclass
             idx = brace + 1
             continue
         if isinstance(obj, dict):

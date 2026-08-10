@@ -390,7 +390,7 @@ def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> di
     comp = meta.get("component")
     if comp is not None and comp not in _VALID_COMPONENTS:
         raise ValueError(
-            f"Invalid lesson component {comp!r}; " f"must be one of {sorted(_VALID_COMPONENTS)}"
+            f"Invalid lesson component {comp!r}; must be one of {sorted(_VALID_COMPONENTS)}"
         )
     return {
         "id": f"work-lesson-{task_id}",
