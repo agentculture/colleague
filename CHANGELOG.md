@@ -34,6 +34,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   silent. Disabled by env, behaviour is byte-identical to before.
 
 A memory-less run still serializes with no `memory` key at all.
+
 ## [1.57.0] - 2026-08-10
 
 ### Changed
