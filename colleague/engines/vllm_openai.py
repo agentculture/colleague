@@ -558,6 +558,60 @@ def _post_json_stream(
     )
 
 
+# ── headless streaming default (#393) ──────────────────────────────────────
+#
+# Streaming used to arm ONLY off ``EngineConfig.on_delta`` — a *display* seam
+# that a headless ``colleague work`` never sets (``cli/_commands/work.py``'s
+# ``_arm_delta_stream`` arms it for the session/cockpit sinks and nothing
+# else). So every headless turn took the blocking ``urlopen``, whose
+# ``read()`` returns only once the WHOLE completion has been generated —
+# which quietly turned ``COLLEAGUE_TIMEOUT`` into a per-turn *generation*
+# ceiling instead of a socket-idle guard (#393; observed live: 300-430s turns
+# against a 600s ceiling, one task killed on its finish turn).
+#
+# The fix decouples the transport from the sink: streaming arms when a delta
+# sink is present OR headless streaming is enabled (the default). The sink
+# seam itself is untouched — an unarmed ``on_delta`` still means "nobody wants
+# to see the tokens", it just no longer means "read the whole answer in one
+# blocking gulp". The delta callback the transport needs in that case is the
+# no-op below.
+
+#: The one env opt-out. Absent (the default) = streaming armed; any falsy
+#: spelling (``0``/``false``/``no``/``off``/empty, the repo-wide
+#: ``colleague.config._parse_bool`` vocabulary) restores the pre-#393 blocking
+#: request path byte-identically. Read at payload-build time rather than
+#: resolved onto ``EngineConfig`` so the engine's serialized config shape (the
+#: artifact snapshot) stays byte-identical.
+_STREAM_ENV_KEY = "COLLEAGUE_STREAM"
+
+_STREAM_DISABLING_VALUES = ("", "0", "false", "no", "off")
+
+
+def _headless_streaming_enabled() -> bool:
+    """Whether SSE streaming is armed for completions with no delta sink (#393).
+
+    Default ``True``; ``COLLEAGUE_STREAM=0`` (or any other falsy spelling)
+    disables it. Deliberately consulted per payload build, so an operator can
+    flip the knob for a single run without rebuilding a config.
+    """
+    value = os.environ.get(_STREAM_ENV_KEY)
+    if value is None:
+        return True
+    return value.strip().lower() not in _STREAM_DISABLING_VALUES
+
+
+def _noop_delta(_chunk: str) -> None:
+    """The delta sink a headless streamed turn feeds (#393).
+
+    Streaming headless is a TRANSPORT decision — bytes arriving incrementally
+    so the socket read timeout measures *silence* rather than total generation
+    time — not a display decision. Nothing is rendering, so the chunks are
+    dropped here. Keeping this separate from ``EngineConfig.on_delta`` is what
+    lets ``config.on_delta is None`` keep its original meaning ("no display
+    surface armed") for every consumer that reads it.
+    """
+
+
 # ── mid-stream failure fallback (feels-alive arc, task t5) ─────────────────
 #
 # A broken stream must never break a run: ``_stream_or_blocking`` is the ONLY
@@ -756,6 +810,34 @@ def _tokenize_count(
     return count
 
 
+def _delta_sink(on_delta: "Callable[[str], None] | None") -> "Callable[[str], None]":
+    """The sink a streamed turn feeds: the caller's, or the headless no-op.
+
+    An explicit ``is None`` test, NOT truthiness. The arming decision is
+    ``config.on_delta is not None``, and a callable can be falsey via
+    ``__bool__``/``__len__`` — a collector sink defining ``__len__`` is the
+    obvious real case. ``or`` would arm streaming for such a sink and then
+    silently swap it for the no-op, dropping every delta it was installed to
+    receive (qodo-code-review, PR #401 comment 3746408765).
+    """
+    return _noop_delta if on_delta is None else on_delta
+
+
+def _refreshed_model_id(
+    config: EngineConfig, role_name: str, exc: "urllib.error.HTTPError"
+) -> "str | None":
+    """The same-role refreshed model id for a stale pin, else ``None``.
+
+    ``None`` means the caller must re-raise unchanged: either this is a
+    replaced-config seat (deepthink/senses), whose 404 belongs to that lane's
+    own degrade path rather than a main-seat refresh (d5, issue 375), or the
+    gateway offered no replacement.
+    """
+    if config.refresh_seat is None:
+        return None
+    return _same_role_call_time_refresh(config, role_name, exc)
+
+
 class VllmOpenAIEngine(Engine):
     """Drives an OpenAI-compatible chat-completions endpoint with tool calling."""
 
@@ -793,11 +875,19 @@ class VllmOpenAIEngine(Engine):
     ) -> "tuple[dict[str, Any], bool]":
         """Build one chat-completions payload (+ whether it streams).
 
-        Extracted from ``_make_complete``'s closure (SonarCloud S3776); every
-        rule is unchanged: an EMPTY offered-tools list omits BOTH "tools" and
-        "tool_choice" (the honest tools-off invariant the deepthink seam
-        relies on); an armed ``on_delta`` adds the SSE keys, unarmed adds
-        neither (byte-identical pre-streaming body).
+        Extracted from ``_make_complete``'s closure (SonarCloud S3776). An
+        EMPTY offered-tools list omits BOTH "tools" and "tool_choice" (the
+        honest tools-off invariant the deepthink seam relies on).
+
+        Streaming (#393) arms when a delta sink is armed **or** headless
+        streaming is enabled (:func:`_headless_streaming_enabled`, default on;
+        ``COLLEAGUE_STREAM=0`` opts out). This is the SINGLE arming decision
+        in the driver, so it is engine-uniform by construction: every
+        vllm-openai completion — the acting cortex/worker seat, deepthink,
+        senses, an evaluator — is built here, via ``_make_complete``, and gets
+        the identical rule. Opted out (or, before #393, unarmed) the body
+        carries NEITHER SSE key and is byte-identical to the pre-streaming
+        blocking payload.
         """
         payload: dict[str, Any] = {
             "model": config.model,
@@ -807,7 +897,7 @@ class VllmOpenAIEngine(Engine):
         if offered_tools:
             payload["tools"] = offered_tools
             payload["tool_choice"] = "auto"
-        streaming = config.on_delta is not None
+        streaming = config.on_delta is not None or _headless_streaming_enabled()
         if streaming:
             payload["stream"] = True
             payload["stream_options"] = {"include_usage": True}
@@ -844,12 +934,17 @@ class VllmOpenAIEngine(Engine):
                     # A mid-stream failure degrades to ONE blocking request for
                     # THIS SAME turn (task t5) — the loop never sees the
                     # transport hiccup, only a normal ModelResponse.
+                    #
+                    # ``_noop_delta`` is the headless case (#393): streaming is
+                    # armed for the TRANSPORT (incremental bytes, so the read
+                    # timeout measures silence rather than generation time)
+                    # with no display surface to feed.
                     return _stream_or_blocking(
                         url,
                         payload,
                         api_key=config.api_key,
                         timeout=config.timeout,
-                        on_delta=config.on_delta,
+                        on_delta=_delta_sink(config.on_delta),
                     )
                 data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
                 return _parse_response(data)
@@ -862,12 +957,7 @@ class VllmOpenAIEngine(Engine):
                 # retry, never a second catch (a repeat 404 propagates
                 # unguarded below — legible via _raise_legible_http_error's
                 # existing body-folding, exactly as before this task).
-                if config.refresh_seat is None:
-                    # A replaced-config seat (deepthink/senses) — its 404
-                    # belongs to that lane's own degrade path, never a
-                    # main-seat refresh (d5, issue 375).
-                    raise
-                refreshed_id = _same_role_call_time_refresh(config, role_name, exc)
+                refreshed_id = _refreshed_model_id(config, role_name, exc)
                 if refreshed_id is None:
                     raise
                 # Persist the refresh (Qodo review, PR #381): later
