@@ -773,8 +773,12 @@ def test_armed_mode_fails_closed_when_the_engine_cannot_load(
         raise RuntimeError("engine exploded")
 
     monkeypatch.setattr(registry, "load", boom)
+    # Build the config OUTSIDE the raises block: only the call under test may
+    # be able to throw inside it, or a failure in the fixture would be
+    # indistinguishable from the behaviour being asserted (SonarCloud S5915).
+    config = _armed_config()
     with pytest.raises(CliError) as excinfo:
-        tae_loop.make_tae_session(_armed_config(), "mock")
+        tae_loop.make_tae_session(config, "mock")
     message = str(excinfo.value)
     assert "thought_action_evaluation" in message
     assert "unevaluated" in message
