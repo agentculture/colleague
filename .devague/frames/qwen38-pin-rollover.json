@@ -1,0 +1,464 @@
+{
+  "slug": "qwen38-pin-rollover",
+  "title": "qwen38 pin rollover",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-08-19T22:25:48Z",
+  "updated": "2026-08-19T23:23:09Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague's default model pin and rig-sized knobs follow the Spark's cortex rollover: unsloth/Qwen3.6-27B-NVFP4 -> unsloth/Qwen3.8-27B-NVFP4, served at 1,048,576-token YaRN context (issue #404); the stale id 404s on the gateway today",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "the rig actually serves the new id at 1M when this lands \u2014 re-probe /capabilities at implementation time, not just at scoping time",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify against issue #404 + a live /capabilities probe: cortex model unsloth/Qwen3.8-27B-NVFP4, context 1048576, ready",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "flip _DEFAULT_MODEL at colleague/config.py:66 to unsloth/Qwen3.8-27B-NVFP4 \u2014 the comment there says the builtin fallback exists precisely so a bare work item reaches a live model instead of a 404, and the old id 404s now; tests/test_config.py:13 asserts the exact id and moves with it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "the flip changes ONLY the default id string; resolution precedence (flag > COLLEAGUE_MODEL > config.json > lobes > default) stays byte-identical",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "sweep the current-state doc/skill surfaces to the new id: README.md:106,306; docs/features/model-selection.md:26,79; docs/live-testing.md rig-description rows 25/146 (dated proof rows stay verbatim); .claude/skills/ask-colleague/SKILL.md:30,115; .claude/skills/ask-colleague/scripts/ask-colleague.sh:105,184 (the script's hardcoded fallback default)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "every edited doc line describes CURRENT state \u2014 no dated proof row, changelog entry, or spec/plan artifact is rewritten",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "historical artifacts keep the old id verbatim: CHANGELOG.md, .devague/frames|plans|deliveries, docs/specs/ + docs/plans/, tools/tui_sim/recordings, .eidetic/memory jsonl, and dated live-testing.md proof rows \u2014 never rewrite history",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "git diff shows zero hunks under CHANGELOG.md, .devague/, docs/specs/, docs/plans/, tools/tui_sim/recordings/, .eidetic/",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "assumption",
+      "text": "the bounded-completion callers are the real exposure to #404's 'reasoning consumes max_tokens' caveat: the main work loop sends NO max_tokens (payload at vllm_openai.py:896-904 has temperature/tools/stream only), but distill.py:559 caps rung-2 distillation at max_tokens=1600 and oilcheck probes cap at _PROBE_MAX_TOKENS=128 (tool_calling.py:80, three_tier.py:56) \u2014 a reasoning-heavy 3.8 can return empty content with finish_reason=length there, silently degrading distillation and possibly misreporting probes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "assumption",
+      "text": "the same-role stale-pin refresh already softens this rollover where lobes is armed (resolution-time roster check + call-time 404 catch, lobes.py t9) \u2014 but the BUILTIN default has no nameable pin source, so _model_pin_source returns None and only the call-time rung covers a bare run; and with lobes UNARMED the 404 surfaces unchanged. The default flip is therefore still required, refresh is a cushion not a fix",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "non_goal",
+      "text": "the stopped embed-deep lane is a no-op inside colleague: the retrieval-consumption lane of #277 is parked \u2014 colleague consumes only cortex/senses/stt/tts role adverts (CLAUDE.md scope section); lobes.py's /v1/embeddings mention is a doc comment about gateway path shape, not a consumer. eidetic's embedder (if its vector mode dials the Spark) is a sibling-repo concern, not this change",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "assumption",
+      "text": "cosmetic/fixture refs move only for consistency, none functionally: layers.py:126,132 docstring sanitization examples; ~16 test files carry the old id as arbitrary fixture strings (only tests/test_config.py:13 is tied to the default); tools/experiments/experiment_b.py:113 pins CONVERTIBLE_MODEL inside a dated #387 experiment (historical \u2014 leave)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "non_goal",
+      "text": "no routing policy and no scope creep ride along: this is a pin flip + rig-sized knob retune under the existing enumerated increments; version bump + CHANGELOG entry per the PR workflow",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "decision",
+      "text": "q1 resolved: context budget gets a moderate raise (order 128K-256K) with _DEFAULT_MAX_OUTPUT_CHARS rescaled to the same ~13% fraction; adaptive prefill \u2014 the agent deciding/finding the right context size for best performance \u2014 is parked as a follow-up opportunity, not this change",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "decision",
+      "text": "q2 resolved: _DEFAULT_TIMEOUT stays 120.0; document COLLEAGUE_TIMEOUT for long-context runs and lean on default-on streaming (#393) + timeout-survival partials (#268)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "decision",
+      "text": "q3 resolved: the empty /v1/models roster is possibly a lobes-cli bug, but the fetch requires Bearer auth which colleague should attach \u2014 re-probe authed first; file on lobes-cli only if the authed roster is still empty",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "audience",
+      "text": "colleague operators on the Spark rig (bare work items resolving the builtin default) plus every doc/skill reader who copies the pinned id",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "operators pinning via env/config.json are NOT broken by the change \u2014 their pin wins over the new default exactly as before",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "check README.md and model-selection.md name the new id; a bare 'colleague work' with no pin reaches a live model",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "before_state",
+      "text": "every unsloth/Qwen3.6-27B-NVFP4 pin 404s on the gateway since the 2026-08-19 cortex rollover (lobes-cli#185); the context-budget comment still cites the retired 64K serving; distillation caps max_tokens=1600 against a reasoning-heavy checkpoint",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "the 404 is reproduced (or the refresh warning observed) against the live rig before fixing, so the before-state is evidence, not narrative",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "after_state",
+      "text": "a bare work item resolves unsloth/Qwen3.8-27B-NVFP4 and completes against the live rig; the context budget is a moderate raise sized for the 1M YaRN window with its comment citing the 2026-08-20 probe; COLLEAGUE_TIMEOUT is documented for long-context runs; bounded completions (distill, oilcheck probes) survive reasoning-consumes-max_tokens",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "the moderate budget raise is validated live: one long-context run completes with streaming and no overflow churn at the new default",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "run a live bare work item against the rig; grep confirms no current-state surface still carries the old id",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "why_it_matters",
+      "text": "the builtin default exists precisely so a bare run reaches a live model instead of a 404 (config.py:66 comment) \u2014 today it does the opposite; and rung-2 distillation silently degrading to empty content undermines the self-learning arc just proven in #387",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "the distill degradation is demonstrated (empty content at finish_reason=length) or honestly downgraded to theoretical if the 3.8 does not reproduce it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "success_signal",
+      "text": "grep -rn 'Qwen3.6-27B' over current-state surfaces (colleague/, README, docs/features/, .claude/skills/, tests/test_config.py) returns 0 hits; historical artifacts keep >200 refs untouched; uv run pytest -n auto passes; one live bare work item exits 0 against the rig",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "the grep exclusion list is stated in the spec verbatim so 'current-state surfaces' is not judgment at sweep time",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "run the grep excluding CHANGELOG/.devague/docs/specs+plans/tools/tui_sim/.eidetic; run the test suite; run COLLEAGUE_VLLM_E2E=1 live check or a bare 'colleague work' smoke",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "distill.py's max_tokens=1600 rises enough to cover reasoning + the ~1600-token lesson payload (or handles finish_reason=length explicitly); oilcheck _PROBE_MAX_TOKENS=128 is re-validated against the reasoning-heavy 3.8 so probes cannot misreport tool-calling capability",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "new caps are sized from a live reproduction, and a still-empty completion after the raise surfaces as a recorded warning, never a silent empty lesson",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "reproduce empty-content-at-length against the live rig with max_tokens=128/1600 first; size the new caps from that evidence, not guesswork",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "the rollover note tells operators that per-model config overlays are exact-id-keyed (.colleague/<sanitized-model-id>/ via layers.py sanitize_model): any overlay dir keyed on the old id silently stops applying after the flip and must be renamed to the new id \u2014 one line in docs/features/per-model-configuration.md or the PR/CHANGELOG entry",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "the note is advisory documentation only \u2014 no code migrates or renames operator overlay dirs automatically",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "grep .colleague/ for old-id-keyed dirs at implementation time (none exist locally today, checked 2026-08-20); verify the doc note names sanitize_model's exact-path rule",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "adaptive prefill: let the agent decide or discover the right context size per task for best performance (beyond the static moderate-raise default)",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "whether realistic distill/strive prompts push 3.8 reasoning past 1600 tokens (the 128-token probe reasoned in 209 chars; heavier prompts unmeasured)",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "colleague/config.py:66 (_DEFAULT_MODEL) + tests/test_config.py:13",
+      "finding": "the one functional pin: builtin fallback default, documented as 'points at the model the reference rig actually serves'; probed /capabilities 2026-08-20: cortex now serves unsloth/Qwen3.8-27B-NVFP4, ready, tools=true",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "README.md, docs/features/model-selection.md, docs/live-testing.md, .claude/skills/ask-colleague/*",
+      "finding": "grep found 261 total 'Qwen3.6-27B' refs; the ones describing CURRENT state are these doc/skill sites \u2014 live-testing.md is mostly a dated ledger whose historical rows must not be rewritten",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "CHANGELOG.md, .devague/*, docs/specs+plans, tools/tui_sim/recordings",
+      "finding": "the bulk of the 261 refs live in append-only/dated records of past runs and merged arcs; rewriting them would falsify provenance",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "colleague/config.py:70-88 (_DEFAULT_CONTEXT_BUDGET + _DEFAULT_MAX_OUTPUT_CHARS)",
+      "finding": "budget comment cites the 64K serving probed 2026-07-02 and says raise for a wider-window model; /capabilities now advertises context 1048576 \u2014 the sizing rationale is stale either way, and MAX_OUTPUT_CHARS scales with whatever is chosen",
+      "seeds": []
+    },
+    {
+      "id": "s5",
+      "surface": "colleague/engines/vllm_openai.py:562-580 (headless streaming default) + timeout knobs",
+      "finding": "streaming is armed by default with one env opt-out, so #404's 'stream long requests' guidance is already the shipped behavior \u2014 no new streaming work; the open exposure is time-to-first-byte during minutes-long prefill vs the 120s default timeout",
+      "seeds": []
+    },
+    {
+      "id": "s6",
+      "surface": "colleague/distill.py:550-575, colleague/oilcheck/tool_calling.py, colleague/oilcheck/three_tier.py",
+      "finding": "read the payload builders: only these three sites send max_tokens; the adapter already parses both reasoning and reasoning_content spellings (vllm_openai.py:260-272,425-428) so trace delivery itself is fine",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "colleague/lobes.py:418-560, colleague/config.py:1698-1800 (_model_pin_source/_refresh_stale_model_pin)",
+      "finding": "refresh fires only for flag/env/config.json pins with lobes armed+reachable and a successfully-fetched roster; builtin-default and unarmed paths still hard-404 on the stale id",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "live lobes gateway http://localhost:8001 (/v1/models vs /capabilities)",
+      "finding": "probed 2026-08-20: /v1/models data=[] while /capabilities shows cortex=unsloth/Qwen3.8-27B-NVFP4 context=1048576 ready=true; empty-vs-None semantics at lobes.py:497-560 make [] a refresh-triggering answer, not a skip",
+      "seeds": []
+    },
+    {
+      "id": "s9",
+      "surface": "colleague/lobes.py:372-373 + CLAUDE.md v1-scope section (embedder/reranker parked)",
+      "finding": "no code path in colleague dials an embedding endpoint; #404's embed-deep note routes to eidetic/lobes-cli, not here",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "colleague/layers.py:120-135, tests/*Qwen3.6* fixture sites, tools/experiments/experiment_b.py",
+      "finding": "the sanitization mechanism is model-agnostic (id->path examples only); fixture ids pass regardless of served reality \u2014 a consistency sweep is cheap but optional",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "CLAUDE.md v1-scope line (excluded router)",
+      "finding": "the change touches which id the ONE default resolves to, never how a task picks a model",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / depth decision",
+      "finding": "lightweight: no c19 escalation signal applies \u2014 no migration, distributed state, hardware change, destructive op, or data-loss surface; the flip is env-pin reversible; lenses swept 2026-08-20 against the exported spec + live rig",
+      "seeds": []
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / cheap probe: authed /v1/models",
+      "finding": "probed 2026-08-20 with the operator's COLLEAGUE_API_KEY: full roster returned incl. unsloth/Qwen3.8-27B-NVFP4 \u2014 the earlier empty roster was an auth artifact (unauthenticated GET gets 200 + data=[]); q3's conditional bug-filing is settled: no lobes-cli bug, the refresh rung works when the key is configured",
+      "seeds": []
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / cheap probe: reasoning-vs-max_tokens on the live 3.8",
+      "finding": "authed completion at max_tokens=128: finish_reason=stop, 209 reasoning chars + 93-char content, 64 completion tokens \u2014 the #404 empty-content caveat did NOT reproduce on a short distill prompt at temperature 0; it is prompt-dependent, so c18/h10's sizing-from-realistic-reproduction stands and h8's honest-downgrade-to-theoretical branch is live",
+      "seeds": []
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / adjacent-systems lens: colleague/layers.py sanitize_model + .colleague/<model>/ overlays",
+      "finding": "per-model isolation is exact-path by sanitized id, so a model rollover orphans old-id overlays by design; no such dir exists on this machine (only a history file naming the 35B variant) but the hazard is generic",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / overlooked-actors lens: senses/deepthink budgets + mode profiles",
+      "finding": "only the MAIN budget changes: senses (gemma-12B, own 24000 default) and deepthink (absent in three-tier mode; own default) are untouched; mode profiles scale by context_budget_fraction so they follow the new default automatically (profiles.py:75-110)",
+      "seeds": []
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / reversibility lens: rollback path",
+      "finding": "the code flip reverts trivially, but a LIVE rollback needs the rig to serve the old checkpoint again \u2014 the old id 404s, so COLLEAGUE_MODEL re-pinning cannot roll back alone; rollback is rig-side (lobes-cli), acceptable for a default-pin change",
+      "seeds": []
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / unstated-assumptions lens: tool-calling on 3.8",
+      "finding": "/capabilities advertises tools=true (probed 2026-08-20) and c18 already re-validates via oilcheck probes; the /tokenize exact-counting carve-out degrades to None on error by contract \u2014 clean",
+      "seeds": []
+    }
+  ],
+  "lapses": []
+}
