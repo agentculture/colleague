@@ -53,7 +53,16 @@ _PROBE_TOOLS = [
     }
 ]
 _PROBE_MESSAGES = [{"role": "user", "content": "Call the ping tool now."}]
-_PROBE_MAX_TOKENS = 128
+
+# SIZED FROM LIVE MEASUREMENT (t3, 2026-08-20) — kept in step with
+# ``tool_calling._PROBE_MAX_TOKENS``, which carries the full measurement table.
+# This probe targets the WORKER seat, and the operator rig's worker
+# (unsloth/Qwen3.6-35B-A3B-NVFP4) needs 163 completion tokens to emit the
+# ping call: at 128 it returns a 200 with finish_reason=length and no
+# ``tool_calls``, which this module then reports as "accepted a tools request
+# but returned no tool_call" — a false negative about a working server. 512 is
+# 3.1x the measured worst case.
+_PROBE_MAX_TOKENS = 512
 
 
 def _three_tier_armed(repo_path=None) -> bool:

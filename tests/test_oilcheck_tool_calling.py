@@ -181,3 +181,39 @@ def test_probe_check_has_the_five_key_shape(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr("urllib.request.urlopen", _ok)
     tc = _find(checks(), "tool_calling")
     assert set(tc) == {"id", "passed", "severity", "message", "remediation"}
+
+
+# ---------------------------------------------------------------------------
+# Probe cap sizing (t3) — live re-validation against the rig, 2026-08-20
+# ---------------------------------------------------------------------------
+#
+#   model                             max_tokens  finish_reason  tool_call  tok
+#   unsloth/Qwen3.8-27B-NVFP4                128  tool_calls     yes         32
+#   unsloth/Qwen3.6-35B-A3B-NVFP4            128  length         NO         128
+#   unsloth/Qwen3.6-35B-A3B-NVFP4            512  tool_calls     yes        163
+#
+# The 3.8 does NOT misreport at 128. The 35B — the seat `config.model` points
+# at in three-tier / worker-dispatch mode — provably does: a 200 truncated
+# mid-reasoning reads as ACCEPTED-BUT-IGNORED, a false negative about a server
+# whose tool calling is fine.
+
+
+def test_probe_cap_clears_the_measured_worst_case(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The cap covers 2x the worst measured tool-call spend (163 tokens)."""
+    from colleague.oilcheck import tool_calling
+
+    assert tool_calling._PROBE_MAX_TOKENS >= 2 * 163
+
+
+def test_probe_request_carries_the_sized_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    from colleague.oilcheck import tool_calling
+
+    captured: dict = {}
+
+    def _capture(request: object, timeout: float | None = None) -> _Resp:
+        captured["body"] = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return _Resp(_TOOL_CALL_BODY)
+
+    monkeypatch.setattr("urllib.request.urlopen", _capture)
+    checks()
+    assert captured["body"]["max_tokens"] == tool_calling._PROBE_MAX_TOKENS
