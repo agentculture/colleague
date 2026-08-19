@@ -710,3 +710,249 @@ class TestFindArtifactSidecars:
             json.dumps({"task_id": "abc123", "rating": 5}), encoding="utf-8"
         )
         assert distill._find_artifact(tmp_path, "abc123") is None
+
+
+# ---------------------------------------------------------------------------
+# Bounded-completion sizing + reasoning-consumes-max_tokens (t3)
+# ---------------------------------------------------------------------------
+#
+# Live sizing experiment against unsloth/Qwen3.8-27B-NVFP4 (2026-08-20), with
+# realistic rung-2 payloads composed by `_compose_child_prompt`:
+#
+#   payload | max_tokens | finish_reason | reasoning | content | completion tok
+#   A       |  400       | length        | 1854 ch   |    0 ch |  400
+#   A       | 1600       | stop          | 2530 ch   |  655 ch |  669
+#   B       | 1600       | stop          | 6346 ch   |  459 ch | 1449
+#   C       | 1600       | stop          | 4854 ch   |  709 ch | 1160
+#
+# The degradation reproduces (payload A at 400: a 200 with zero content), and
+# the worst realistic payload spends 1449 of the 1600 cap — a 151-token margin.
+
+
+class _FakeCompletionResponse:
+    """A context-manager stand-in for ``urllib.request.urlopen``'s response."""
+
+    def __init__(self, body: dict) -> None:
+        self._body = json.dumps(body).encode("utf-8")
+
+    def __enter__(self) -> "_FakeCompletionResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def _completion_body(
+    *,
+    content: str = "",
+    reasoning: str = "",
+    finish_reason: str = "stop",
+    reasoning_key: str = "reasoning",
+) -> dict:
+    message: dict[str, Any] = {"role": "assistant", "content": content}
+    if reasoning:
+        message[reasoning_key] = reasoning
+    return {"choices": [{"finish_reason": finish_reason, "message": message}]}
+
+
+def _patch_urlopen(body: dict, captured: dict | None = None):
+    """Return a ``urlopen`` stand-in serving *body*, recording the request."""
+
+    def fake_urlopen(request: Any, timeout: float | None = None) -> _FakeCompletionResponse:
+        if captured is not None:
+            captured["url"] = request.full_url
+            captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _FakeCompletionResponse(body)
+
+    return fake_urlopen
+
+
+_VALID_LESSON = {
+    "pattern": "the reasoning budget is spent before the answer is emitted",
+    "constant": "colleague/distill.py::_DISTILL_MAX_TOKENS",
+    "reason": "a reasoning model bills thinking against the same max_tokens",
+}
+
+
+class TestBoundedCompletionSizing:
+    """The distill completion is sized from the live measurement (h10)."""
+
+    def test_max_tokens_covers_the_measured_envelope(self) -> None:
+        """The cap clears 2x the worst measured realistic payload (1449 tokens)."""
+        assert distill._DISTILL_MAX_TOKENS >= 2 * 1449
+
+    def test_request_carries_the_sized_cap(self, monkeypatch: Any) -> None:
+        import urllib.request
+
+        captured: dict = {}
+        monkeypatch.setattr(
+            urllib.request,
+            "urlopen",
+            _patch_urlopen(_completion_body(content="{}"), captured),
+        )
+        distill._openai_completion("m", "http://rig/v1", "k", "prompt")
+        assert captured["body"]["max_tokens"] == distill._DISTILL_MAX_TOKENS
+
+    def test_completion_reports_finish_reason_and_parts(self, monkeypatch: Any) -> None:
+        """The completion is structured: content, reasoning and finish_reason."""
+        import urllib.request
+
+        monkeypatch.setattr(
+            urllib.request,
+            "urlopen",
+            _patch_urlopen(
+                _completion_body(content="", reasoning="thinking hard", finish_reason="length")
+            ),
+        )
+        completion = distill._openai_completion("m", "http://rig/v1", "k", "prompt")
+        assert completion.finish_reason == "length"
+        assert completion.content == ""
+        assert completion.reasoning == "thinking hard"
+        assert completion.truncated is True
+        # The combined text keeps the pre-change shape (content then reasoning).
+        assert "thinking hard" in completion.text
+
+    def test_reasoning_content_spelling_is_read(self, monkeypatch: Any) -> None:
+        """Some servers spell the field ``reasoning_content`` (s14)."""
+        import urllib.request
+
+        monkeypatch.setattr(
+            urllib.request,
+            "urlopen",
+            _patch_urlopen(
+                _completion_body(
+                    content="",
+                    reasoning="thought",
+                    reasoning_key="reasoning_content",
+                )
+            ),
+        )
+        completion = distill._openai_completion("m", "http://rig/v1", "k", "prompt")
+        assert completion.reasoning == "thought"
+
+
+class TestTruncatedDistillation:
+    """A reasoning-consumed completion is a recorded warning, never a silent
+    empty lesson (h10)."""
+
+    @staticmethod
+    def _seed_artifact(tmp_path: Path, task_id: str = "abc123") -> Path:
+        adir = tmp_path / ".colleague"
+        adir.mkdir(exist_ok=True)
+        artifact = adir / f"{task_id}.some-slug.json"
+        artifact.write_text(
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": "INCOMPLETE",
+                    "summary": "s",
+                    "stats": {"step_count": 9},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return artifact
+
+    @staticmethod
+    def _marker(artifact: Path) -> dict:
+        return json.loads(artifact.with_suffix(".distill.json").read_text(encoding="utf-8"))
+
+    def test_length_truncation_is_recorded_and_never_remembered(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        artifact = self._seed_artifact(tmp_path)
+        monkeypatch.setattr(
+            distill,
+            "_openai_completion",
+            lambda *a, **k: distill.DistillCompletion(
+                content="", reasoning="x" * 1854, finish_reason="length"
+            ),
+        )
+        with patch("colleague.memory.remember") as mock_remember:
+            rc = distill.child_main(
+                ["--repo", str(tmp_path), "--task-id", "abc123", "--model", "m"]
+            )
+            mock_remember.assert_not_called()
+        assert rc == 1
+        marker = self._marker(artifact)
+        assert marker["status"] == "failed"
+        assert "lesson" not in marker
+        reason = marker["reason"]
+        assert "truncat" in reason.lower()
+        assert "finish_reason=length" in reason
+        assert str(distill._DISTILL_MAX_TOKENS) in reason
+
+    def test_empty_content_is_recorded_as_such(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """An empty completion that STOPPED is still named honestly."""
+        artifact = self._seed_artifact(tmp_path)
+        monkeypatch.setattr(
+            distill,
+            "_openai_completion",
+            lambda *a, **k: distill.DistillCompletion(
+                content="", reasoning="", finish_reason="stop"
+            ),
+        )
+        with patch("colleague.memory.remember") as mock_remember:
+            rc = distill.child_main(
+                ["--repo", str(tmp_path), "--task-id", "abc123", "--model", "m"]
+            )
+            mock_remember.assert_not_called()
+        assert rc == 1
+        marker = self._marker(artifact)
+        assert marker["status"] == "failed"
+        assert "no content" in marker["reason"].lower()
+
+    def test_lesson_carried_in_reasoning_still_validates(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Regression: a server that puts the JSON in ``reasoning`` with empty
+        ``content`` still produces a validated lesson — the empty-content guard
+        must not swallow it."""
+        artifact = self._seed_artifact(tmp_path)
+        monkeypatch.setattr(
+            distill,
+            "_openai_completion",
+            lambda *a, **k: distill.DistillCompletion(
+                content="",
+                reasoning=json.dumps(_VALID_LESSON),
+                finish_reason="stop",
+            ),
+        )
+        with patch("colleague.memory.remember") as mock_remember:
+            mock_remember.return_value = True
+            rc = distill.child_main(
+                ["--repo", str(tmp_path), "--task-id", "abc123", "--model", "m"]
+            )
+            mock_remember.assert_called_once()
+        assert rc == 0
+        marker = self._marker(artifact)
+        assert marker["status"] == "done"
+        assert marker["lesson"]["constant"] == _VALID_LESSON["constant"]
+
+    def test_truncated_partial_json_names_truncation_not_schema(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Content that STARTED the JSON but got cut names the truncation —
+        a schema complaint would send the operator hunting the wrong bug."""
+        artifact = self._seed_artifact(tmp_path)
+        monkeypatch.setattr(
+            distill,
+            "_openai_completion",
+            lambda *a, **k: distill.DistillCompletion(
+                content='{"pattern": "half a thou',
+                reasoning="y" * 4000,
+                finish_reason="length",
+            ),
+        )
+        with patch("colleague.memory.remember") as mock_remember:
+            rc = distill.child_main(
+                ["--repo", str(tmp_path), "--task-id", "abc123", "--model", "m"]
+            )
+            mock_remember.assert_not_called()
+        assert rc == 1
+        marker = self._marker(artifact)
+        assert marker["status"] == "failed"
+        assert "truncat" in marker["reason"].lower()
