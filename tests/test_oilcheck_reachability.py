@@ -59,7 +59,7 @@ def _ok(*_args: object, **_kwargs: object) -> _FakeResponse:
     return _FakeResponse(
         {
             "object": "list",
-            "data": [{"id": "unsloth/Qwen3.6-27B-NVFP4"}],
+            "data": [{"id": "unsloth/Qwen3.8-27B-NVFP4"}],
         }
     )
 
@@ -111,7 +111,7 @@ def test_probe_warns_when_configured_model_is_not_served(
     assert c is not None
     assert c["passed"] is False
     assert c["severity"] == "warning"
-    assert "unsloth/Qwen3.6-27B-NVFP4" in c["message"]
+    assert "unsloth/Qwen3.8-27B-NVFP4" in c["message"]
     assert "other/model" in c["message"]
     assert c["remediation"]
 

@@ -63,29 +63,33 @@ _DEFAULT_BASE_URL = "http://localhost:8001/v1"
 # serves at _DEFAULT_BASE_URL so a bare work item (no COLLEAGUE_MODEL / --model)
 # reaches a live model instead of a 404 "model does not exist". Override per
 # environment with COLLEAGUE_MODEL or --model.
-_DEFAULT_MODEL = "unsloth/Qwen3.6-27B-NVFP4"
+#
+# Flipped from unsloth/Qwen3.6-27B-NVFP4 to unsloth/Qwen3.8-27B-NVFP4 (issue
+# #404): an authed GET of the lobes gateway /capabilities on 2026-08-20 showed
+# the rig now serves cortex model unsloth/Qwen3.8-27B-NVFP4 at a 1048576-token
+# (1M via YaRN) context, ready=true, tools=true — the old 3.6 id 404s.
+_DEFAULT_MODEL = "unsloth/Qwen3.8-27B-NVFP4"
 _DEFAULT_MAX_STEPS = 40
 _DEFAULT_TEMPERATURE = 0.0
 _DEFAULT_TIMEOUT = 120.0
 # Proactive context budget in tokens. Counted exactly via the served model's
 # /tokenize endpoint when reachable; char-based fallback otherwise (best-effort
 # exact, char-approximate fallback, never token-exact-guaranteed — no tokenizer
-# library is bundled). Sized for the window the reference rig ACTUALLY serves
-# the default model at: the lobes rig serves the 27B at 64K (65536 tokens,
-# probed live 2026-07-02 — the old 192000 default assumed the retired 256K
-# serving and drove every long run into overflow/latency churn), keeping the
-# same ~0.73 fill fraction (48000/65536) with headroom for the completion +
-# system/tools prompt. Override per environment with COLLEAGUE_CONTEXT_BUDGET
-# (e.g. raise it for a wider-window model: the rig's Gemma4-12B serves 128K →
-# 96000; a Gemma4 default-model flip is staged on the serving side growing a
-# Gemma-format tool-call parser — probed: it emits no structured tool calls yet).
-_DEFAULT_CONTEXT_BUDGET = 48000
+# library is bundled). Sized for the window the reference rig now serves the
+# default model at: the 2026-08-20 /capabilities probe (issue #404) shows the
+# rig serving unsloth/Qwen3.8-27B-NVFP4 at a 1048576-token (1M via YaRN)
+# window — 131072 (128K) is the conservative end of the sanctioned 128K-256K
+# range (decision c10), ~2.7x the old 48000/65536-window sizing, leaving deep
+# headroom below the served window for the completion + system/tools prompt
+# without chasing the full 1M (streaming/latency at that size is unproven).
+# Override per environment with COLLEAGUE_CONTEXT_BUDGET.
+_DEFAULT_CONTEXT_BUDGET = 131072
 # Cap on each tool result (read_file / run_command / list_dir / subagent) fed
-# back to the model, in characters. Scaled with the context budget (the same
-# ~13% of window as the previous 100000-for-192000 sizing) so one large read
-# cannot evict half the working history; still above the old hardcoded 20000.
-# Tunable per environment with COLLEAGUE_MAX_OUTPUT_CHARS.
-_DEFAULT_MAX_OUTPUT_CHARS = 25000
+# back to the model, in characters. Scaled with the context budget at the same
+# ~13% ratio as the previous 48000-token/25000-char sizing: 131072 tokens * ~4
+# chars/token * 13% ≈ 68000, so one large read still cannot evict half the
+# working history. Tunable per environment with COLLEAGUE_MAX_OUTPUT_CHARS.
+_DEFAULT_MAX_OUTPUT_CHARS = 68000
 
 # Opt-in concurrency width for subagent delegation (how many may run in
 # parallel). Clamped to [1, MAX_SUBAGENT_FANOUT - 1] by effective_concurrency().
