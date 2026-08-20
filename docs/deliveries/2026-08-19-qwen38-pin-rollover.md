@@ -113,3 +113,28 @@ confirmed (task-by-task accounting above).
 - The operator shell still exports stale `CONVERTIBLE_MODEL=unsloth/Qwen3.6-27B-NVFP4`
   — harmless (the refresh rung cushions it, and it reproduced the before-state
   for free) but worth cleaning from the environment.
+
+## Post-delivery addendum (2026-08-20, pre-merge)
+
+Claims and remaining work that RESOLVED between delivery and merge — recorded
+so the artifact stays honest rather than frozen wrong:
+
+- **"WGSL/WebGPU game runs at 60fps in a browser" (was `unverified`) →
+  resolved AGAINST the claim, then repaired.** Browser execution showed the
+  run's game logic alive but every draw dead: 6 WebGPU/WGSL bug classes
+  across 17 sites, all silent to `node --check` (WebGPU errors are async and
+  non-throwing). Fixed operator-side and verified rendering. Full record:
+  live-testing.md row 36; follow-ups #407 (incremental authoring lane) and
+  #408 (tool-surface audit). The row-35 long-context proof claims (streamed
+  completion, zero overflow churn at the 131072 default) stand unaffected.
+- **Qodo review closed**: 3 inline findings triaged — 2 PUSHBACK on
+  adjudicated spec decisions (c10 budget ratio, c11 timeout stance), 1 FIX
+  (real bug: a truncated-but-parseable distill completion could be recorded
+  `done`; fixed in `6209806` with a schema-valid regression test). All
+  threads replied and resolved; Sonar Quality Gate OK.
+- **New defects found by exercising this tree** (filed, out of this PR's
+  scope): #409 (a remote-proxied worker read can starve past the timeout
+  ladder) and #410 (SIGTERM salvage writes WIP but no artifact from that
+  wedged state, blocking `--continue`).
+- Deviations `d1`–`d3` remain `proposed`, awaiting
+  `devague deviate --confirm`.
