@@ -36,7 +36,7 @@ Tokens live on `usage` (`prompt_tokens` / `completion_tokens` / `total_tokens`).
 Tokens are **exactly** what the model response `usage` reports — never estimated.
 Colleague has **no tokenizer** (zero runtime deps), so it cannot produce a
 reasoning- or written-*token* count. Concretely, the reference server
-(`model-gear`, Qwen3.6-27B) reports only `prompt`/`completion`/`total` tokens —
+(`model-gear`, Qwen3.8-27B) reports only `prompt`/`completion`/`total` tokens —
 no `completion_tokens_details`, so no reasoning-token breakdown — but it returns
 the chain-of-thought as a separate `message.reasoning` field. So colleague
 measures "thought vs written" as exact **chars/bytes**, not tokens:
