@@ -102,7 +102,7 @@ Options:
   --dry-run          (clean) report what would be reaped without changing anything
   --base BRANCH      Base for `review` diff (default: main)
   --engine NAME      Backend plugin (default: $COLLEAGUE_ENGINE or vllm-openai)
-  --model NAME       Model (default: $COLLEAGUE_MODEL or unsloth/Qwen3.6-27B-NVFP4)
+  --model NAME       Model (default: $COLLEAGUE_MODEL or unsloth/Qwen3.8-27B-NVFP4)
   --role NAME        Typed subagent role (e.g. explorer, reviewer, writer)
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20; explore/review default from
@@ -181,7 +181,7 @@ REPO="."
 BASE="main"
 # COLLEAGUE_* wins; the legacy CONVERTIBLE_* names are honored as a deprecated fallback.
 ENGINE="${COLLEAGUE_ENGINE:-${CONVERTIBLE_ENGINE:-vllm-openai}}"
-MODEL="${COLLEAGUE_MODEL:-${CONVERTIBLE_MODEL:-unsloth/Qwen3.6-27B-NVFP4}}"
+MODEL="${COLLEAGUE_MODEL:-${CONVERTIBLE_MODEL:-unsloth/Qwen3.8-27B-NVFP4}}"
 BASE_URL="${COLLEAGUE_BASE_URL:-${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}}"
 MAX_STEPS=20
 MAX_STEPS_EXPLICIT=0

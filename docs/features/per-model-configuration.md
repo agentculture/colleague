@@ -64,6 +64,20 @@ The overlay path is built by **exact construction** through
 `.colleague/*/hooks.json` or iterates sibling directories. Model X therefore
 can never load model Y's overlay: isolation is structural, not filtered.
 
+**Advisory — a model-id rollover orphans old-id overlays.** Because isolation
+is exact-path-keyed, `.colleague/<sanitized-model-id>/` overlays (hooks *and*
+the [layered-config.md](layered-config.md) AGENTS/skills sibling) are tied to
+the *exact* model id that was pinned when the directory was created. If the
+served model id changes (e.g. a default-pin rollover, or an operator pointing
+`--model`/`COLLEAGUE_MODEL` at a new checkpoint), any overlay directory keyed
+on the old id silently stops applying — the loader looks for the new
+sanitized token and finds nothing, so the fix regresses without a warning.
+This is documentation only: colleague does not migrate, rename, or detect
+stale overlay directories. The operator must rename
+`.colleague/<old-sanitized-id>/` to `.colleague/<new-sanitized-id>/` (via
+`colleague.layers.sanitize_model`) after any model rollover to keep the
+overlay active.
+
 ### Strict no-op
 
 With no `--model` passed (or for a model whose overlay file is absent), the

@@ -230,9 +230,11 @@ def write_outcome_marker(
 ) -> None:
     """Write the outcome marker file (best-effort, never raises).
 
-    The marker is a small JSON file with ``status`` (``pending``/``done``/``dead``),
-    an optional ``pid`` (for liveness probing), an optional ``lesson`` dict
-    (when ``status == "done"``), and an optional ``reason`` (when ``status == "dead"``).
+    The marker is a small JSON file with ``status``
+    (``pending``/``done``/``failed``/``dead``), an optional ``pid`` (for
+    liveness probing), an optional ``lesson`` dict (when ``status == "done"``),
+    and an optional ``reason`` (when ``status`` is ``failed`` or ``dead`` —
+    see :func:`_failure_reason` for the failure vocabulary).
     """
     try:
         payload: dict[str, Any] = {"status": status, "written_at": time.time()}
@@ -547,7 +549,69 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
 # :func:`detach_distill_child`'s one-shot detach.
 
 
-def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> str:
+# The bounded completion's token envelope, SIZED FROM LIVE MEASUREMENT (t3,
+# spec h10) against unsloth/Qwen3.8-27B-NVFP4 on 2026-08-20 with realistic
+# rung-2 payloads composed by :func:`_compose_child_prompt`:
+#
+#   payload                     max_tokens  finish_reason  reasoning  content  tok
+#   A (one clear TypeError)            400  length          1854 ch     0 ch   400
+#   A                                  800  stop            2530 ch   655 ch   669
+#   A                                 1600  stop            2530 ch   655 ch   669
+#   B (contradictory gates)           1600  stop            6346 ch   459 ch  1449
+#   C (ambiguous outcome)             1600  stop            4854 ch   709 ch  1160
+#
+# Two facts drive the number. (1) The degradation is REAL, not theoretical:
+# payload A at 400 returns a 200 with `finish_reason=length`, 1854 chars of
+# reasoning and ZERO content — an empty lesson from a successful HTTP call.
+# (2) The old 1600 cap left a 151-token margin over the worst realistic
+# payload (1449, 90.6% of the cap), and reasoning — not the prompt — is what
+# varies: `_compose_child_prompt` truncates every field, so the prompt is
+# structurally capped near 1.7 KB while the reasoning spend tripled between
+# an easy diagnosis and a hard one. Content itself is only ~150-200 tokens.
+#
+# 4096 is 2.8x the measured worst case and still a BOUNDED completion (the
+# detached-and-bounded child contract holds). Raising it is free on the stop
+# path: at temperature 0 the same payload emitted an identical 669/1449/1160
+# tokens at caps of 800, 1600, 3200 and 6000 — vLLM bills what is generated,
+# not what is reserved. The explicit `finish_reason=length` handling below
+# lands regardless: a measured envelope is not a proof of an upper bound.
+_DISTILL_MAX_TOKENS = 4096
+
+#: Wall-clock ceiling for the one bounded completion. The slowest measured
+#: realistic payload took 79 s at 1449 tokens, so 180 s covers the raised
+#: envelope with room to spare.
+_DISTILL_TIMEOUT = 180
+
+
+@dataclass(frozen=True)
+class DistillCompletion:
+    """The result of the child's ONE bounded completion.
+
+    Structured rather than a bare string so the truncation case is
+    diagnosable: a reasoning model bills its thinking against the SAME
+    ``max_tokens`` as its answer, so a completion can succeed at the HTTP
+    layer and still carry no lesson (``finish_reason == "length"`` with empty
+    ``content``). :attr:`text` preserves the pre-change concatenation, so
+    parsing behaviour is unchanged — including servers that emit the JSON in
+    ``reasoning`` with an empty ``content``.
+    """
+
+    content: str
+    reasoning: str
+    finish_reason: str
+
+    @property
+    def text(self) -> str:
+        """Content then reasoning — the string the lesson parser sees."""
+        return self.content + ("\n" + self.reasoning if self.reasoning else "")
+
+    @property
+    def truncated(self) -> bool:
+        """``True`` when the server stopped because the token cap was hit."""
+        return self.finish_reason == "length"
+
+
+def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> DistillCompletion:
     """ONE bounded chat completion over urllib (the vLLM-adapter convention)."""
     import urllib.request
 
@@ -556,7 +620,7 @@ def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> 
         {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1600,
+            "max_tokens": _DISTILL_MAX_TOKENS,
             "temperature": 0,
         }
     ).encode("utf-8")
@@ -569,12 +633,18 @@ def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> 
         },
     )
     with urllib.request.urlopen(
-        req, timeout=180
+        req, timeout=_DISTILL_TIMEOUT
     ) as resp:  # nosec B310 - operator-configured http(s) endpoint
         data = json.loads(resp.read().decode("utf-8"))
-    msg = ((data.get("choices") or [{}])[0].get("message")) or {}
-    return (msg.get("content") or "") + (
-        "\n" + msg.get("reasoning", "") if msg.get("reasoning") else ""
+    choice = (data.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    # Servers disagree on the spelling of the reasoning field (s14): vLLM's
+    # OpenAI front end serves `reasoning`, others `reasoning_content`.
+    reasoning = msg.get("reasoning") or msg.get("reasoning_content") or ""
+    return DistillCompletion(
+        content=msg.get("content") or "",
+        reasoning=reasoning,
+        finish_reason=choice.get("finish_reason") or "",
     )
 
 
@@ -639,6 +709,40 @@ def _compose_child_prompt(artifact: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _failure_reason(completion: DistillCompletion, verdict_reason: str) -> str:
+    """Name WHY no lesson was extracted, on the existing marker channel.
+
+    The three failures are operationally different and must not read alike
+    (spec h10). A completion whose reasoning ate the token budget is a SIZING
+    fault; a completion with no content at all is a SERVING fault; anything
+    else is the genuine schema refusal the validator already explains.
+    Reporting the first two as a schema complaint would send the operator
+    hunting the prompt instead of the cap — and an empty completion must
+    never pass silently as "no lesson today".
+
+    The marker itself is the recorded-warning channel: a ``failed`` marker
+    counts as an attempt-without-a-validation in the ``distillation_alive``
+    check group, so doctor surfaces it as the armed-but-not-alive warning.
+    """
+    if completion.truncated:
+        return (
+            f"truncated: the distillation completion hit max_tokens="
+            f"{_DISTILL_MAX_TOKENS} (finish_reason=length) with "
+            f"{len(completion.reasoning)} reasoning chars and "
+            f"{len(completion.content)} content chars — the reasoning consumed "
+            f"the budget before a complete lesson JSON was emitted; raise "
+            f"_DISTILL_MAX_TOKENS or shorten the distillation prompt"
+        )
+    if not completion.content.strip():
+        return (
+            f"no content: the distillation completion returned an empty content field "
+            f"(finish_reason={completion.finish_reason or 'unset'}, "
+            f"{len(completion.reasoning)} reasoning chars) — no lesson distilled; "
+            f"check the author model is serving and emits content, not reasoning alone"
+        )
+    return verdict_reason
+
+
 def child_main(argv: list[str] | None = None) -> int:
     """The detached distillation child: read artifact → ONE completion →
     validate-then-upsert → outcome marker. The exit code is informational only
@@ -669,20 +773,27 @@ def child_main(argv: list[str] | None = None) -> int:
     write_outcome_marker(marker, status="pending", pid=os.getpid())
     try:
         artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-        raw = _openai_completion(
+        completion = _openai_completion(
             args.model,
             os.environ.get("COLLEAGUE_DISTILL_BASE_URL", ""),
             os.environ.get("COLLEAGUE_DISTILL_API_KEY", ""),
             _compose_child_prompt(artifact),
         )
-        parsed = lessons.parse_lesson_json(raw)
-        verdict = lessons.validate_lesson(parsed if parsed is not None else raw)
-        if parsed is not None and verdict.allowed:
+        parsed = lessons.parse_lesson_json(completion.text)
+        verdict = lessons.validate_lesson(parsed if parsed is not None else completion.text)
+        # A length-cut completion can still carry an early balanced JSON
+        # object the tolerant parser happily extracts — a mid-draft the
+        # model never finished, not a lesson. Truncation ALWAYS routes to
+        # the failed branch, where _failure_reason names the cap (h10;
+        # Qodo review on #406).
+        if parsed is not None and verdict.allowed and not completion.truncated:
             lesson = {k: str(parsed[k]) for k in ("pattern", "constant", "reason")}
             upsert_lesson(args.repo, args.task_id, lesson)
             write_outcome_marker(marker, status="done", lesson=lesson)
             return 0
-        write_outcome_marker(marker, status="failed", reason=verdict.reason)
+        write_outcome_marker(
+            marker, status="failed", reason=_failure_reason(completion, verdict.reason)
+        )
         return 1
     except Exception as exc:  # the marker IS the honest failure channel
         write_outcome_marker(marker, status="dead", reason=str(exc)[:300])

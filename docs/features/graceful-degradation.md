@@ -54,12 +54,34 @@ the `--json` work path — not empty output plus an opaque error.
 |---------|--------|-------|
 | `COLLEAGUE_CONTEXT_BUDGET` | Environment variable | Tokens; overrides config default. |
 | `--context-budget-tokens` | CLI flag (future) | Not yet a flag; config only today. |
-| `EngineConfig.context_budget_tokens` | Config object | Default: 48,000 tokens (48000 — sized for the 64K/65,536-token window the reference rig actually serves the default model at, probed 2026-07-02; raise it for a wider-window model, e.g. 96000 for a 128K serving). |
+| `EngineConfig.context_budget_tokens` | Config object | Default: 131,072 tokens (131072, 128K) — a **moderate raise, not a max-out**, of the reference rig's actually-served window, sized after the 2026-08-20 rollover to `unsloth/Qwen3.8-27B-NVFP4` serving a 1,048,576-token (1M) YaRN context (issue #404; `_DEFAULT_MAX_OUTPUT_CHARS` was rescaled to the same ~13% fraction). Adaptive prefill — letting the agent size the budget per task — is a parked follow-up, not this default. |
 
 The budget is resolved via the standard precedence: explicit value (code) >
 environment > default. It must be a positive integer in **tokens** — the exact
 unit the server counts. Off by default would be 0 or missing; any value > 0
 enables the feature.
+
+## `COLLEAGUE_TIMEOUT` for long-context runs (decision c11)
+
+`_DEFAULT_TIMEOUT` stays **120.0 seconds** — the qwen38-pin rollover did not
+raise it. A long-context run (a large budget, deep history, or a
+reasoning-heavy model prefilling for minutes before its first token) can
+legitimately take longer than that default, so operators running against the
+wider 1M-context rig should raise `COLLEAGUE_TIMEOUT` explicitly (e.g.
+`COLLEAGUE_TIMEOUT=300`) rather than expect the built-in default to cover it.
+
+Two landed features carry the degrade story instead of a bigger default:
+
+- **Headless streaming is default-on** ([#393](engines.md)) — the socket
+  timeout applies per read, not to the whole generation, so a long completion
+  no longer races the timeout on its own; only a genuine stall does (see the
+  non-goals note below).
+- **Timeout-survival** (#268) preserves the partial result instead of losing
+  the run outright when a bounded retry still exhausts.
+
+So the guidance for long-context runs is: raise `COLLEAGUE_TIMEOUT` for the
+expected prefill depth, and rely on streaming + timeout-survival for the rest —
+not a change to `_DEFAULT_TIMEOUT` itself.
 
 ## How token counting works — the `count_tokens` seam
 
@@ -171,7 +193,7 @@ unchanged even with the feature enabled.
 # Explicit budget (tokens):
 COLLEAGUE_CONTEXT_BUDGET=16000 colleague work "read all files" --engine vllm-openai
 
-# Default budget (48,000 tokens, sized for the rig's served 64K window):
+# Default budget (131,072 tokens, a moderate raise for the rig's served 1M YaRN window):
 colleague work "read all files" --engine vllm-openai
 
 # Turn off (0 disables proactive windowing; reactive retry still engages on overflow):

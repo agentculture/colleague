@@ -10,13 +10,15 @@ from colleague.config import EngineConfig, ResolveOverrides
 def test_context_budget_default() -> None:
     """Default context_budget_tokens fits the reference rig's SERVED window.
 
-    The lobes rig serves the default 27B at 64K (65536 tokens, probed live
-    2026-07-02), so the default keeps the ~0.73 fill fraction: 48000. The old
-    192000 assumed the retired 256K serving and drove long runs into
-    overflow/latency churn.
+    The 2026-08-20 /capabilities probe (issue #404) shows the rig serving the
+    default 27B (unsloth/Qwen3.8-27B-NVFP4) at a 1048576-token (1M via YaRN)
+    window; 131072 (128K) is the conservative end of the sanctioned 128K-256K
+    range (decision c10), ~2.7x the old 48000/65536-window sizing. The old
+    192000 default (before that) assumed the retired 256K serving and drove
+    long runs into overflow/latency churn.
     """
     cfg = EngineConfig.resolve()
-    assert cfg.context_budget_tokens == 48000
+    assert cfg.context_budget_tokens == 131072
 
 
 def test_context_budget_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,7 +47,7 @@ def test_context_budget_to_dict_default() -> None:
     """to_dict() with default context_budget_tokens."""
     cfg = EngineConfig.resolve()
     snapshot = cfg.to_dict()
-    assert snapshot["context_budget_tokens"] == 48000
+    assert snapshot["context_budget_tokens"] == 131072
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +61,7 @@ def test_context_budget_to_dict_default() -> None:
 def test_max_output_chars_default() -> None:
     """Default max_output_chars scales with the budget, above the old 20000."""
     cfg = EngineConfig.resolve()
-    assert cfg.max_output_chars == 25000
+    assert cfg.max_output_chars == 68000
 
 
 def test_max_output_chars_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

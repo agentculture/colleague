@@ -31,7 +31,7 @@ def _read(name: str) -> str:
 def test_context_budget_default_matches_docs() -> None:
     """graceful-degradation.md must quote the live default context budget."""
     budget = cfg._DEFAULT_CONTEXT_BUDGET
-    assert budget == 48000, "update this guard if the default budget changes"
+    assert budget == 131072, "update this guard if the default budget changes"
     text = _read("graceful-degradation.md")
     # the current default must appear (bare or comma-grouped)
     assert str(budget) in text or f"{budget:,}" in text, (

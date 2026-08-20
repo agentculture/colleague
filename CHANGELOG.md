@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.60.0] - 2026-08-20
+
+### Added
+
+- Per-model overlay rollover advisory (docs/features/per-model-configuration.md): `.colleague/<sanitized-model-id>/` overlays are exact-id-keyed — a model rollover silently orphans old-id dirs; the operator renames them (nothing migrates automatically).
+- COLLEAGUE_TIMEOUT guidance for long-context runs (docs/features/graceful-degradation.md): the default stays 120.0; raise per-run for deep prefill — headless streaming (#393) + timeout survival (#268) are the degrade story.
+- Truncation-aware distillation outcomes: the rung-2 child completion now reports finish_reason/reasoning-vs-content split, and a truncated or empty-content completion writes an explicit reason onto the distill outcome marker — never a silent empty lesson.
+
+### Changed
+
+- Default model pin: unsloth/Qwen3.6-27B-NVFP4 -> unsloth/Qwen3.8-27B-NVFP4 (#404) — the Spark cortex rollover (1,048,576-token YaRN context, authed /capabilities probe 2026-08-20); the stale id 404s on the gateway.
+- Context budget default 48000 -> 131072 (a moderate raise for the 1M window, decision c10 — not a max-out; prefill at depth runs minutes), _DEFAULT_MAX_OUTPUT_CHARS 25000 -> 68000 (same ~13%-of-window-chars ratio).
+- Distill child cap _DISTILL_MAX_TOKENS 1600 -> 4096 (+180s timeout), sized from live 3.8 measurements: the hardest realistic rung-2 payload spent 1449/1600 tokens (90.6%), and reasoning is 88-93% of every spend.
+- oilcheck _PROBE_MAX_TOKENS 128 -> 512: measured live, the three-tier worker seat (Qwen3.6-35B-A3B) truncates mid-reasoning at 128 and the probe misreports tool calling as ACCEPTED-BUT-IGNORED; the 3.8 itself passes at 128 with 4x headroom.
+- Current-state docs/skills sweep to the new id: README, model-selection.md, live-testing.md reference-rig table, stats-and-feedback.md, ask-colleague SKILL.md + wrapper fallback; dated proof rows and changelog history untouched.
+
 ## [1.59.0] - 2026-08-10
 
 ### Added

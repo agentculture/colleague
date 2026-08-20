@@ -1,0 +1,45 @@
+{
+  "plan_slug": "qwen38-pin-rollover",
+  "schema_version": 1,
+  "created": "2026-08-19T23:58:46Z",
+  "updated": "2026-08-20T07:16:49Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t3 raised oilcheck _PROBE_MAX_TOKENS 128->512 although the 3.8 did NOT misreport at 128 \u2014 the live measurement showed the probe's actual three-tier target, the 35B worker seat (unsloth/Qwen3.6-35B-A3B-NVFP4), truncating mid-reasoning at 128 with no tool_calls (a false ACCEPTED-BUT-IGNORED), and tool_calling.py sends a byte-identical payload against config.model which points at the worker in worker-dispatch mode; both caps raised together on that evidence",
+      "task_ref": "t3",
+      "reason": "criterion 3 scoped re-validation to the 3.8 and gated the raise on 'the probe misreports at 128'; it does misreport at 128 \u2014 on the worker seat the probe actually targets \u2014 so the raise honors the criterion's purpose beyond its letter; measurements in scratchpad/t3-sizing.md and code comments",
+      "affects": [
+        "t3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t4's 'Docs/skills files only \u2014 zero Python changes' instruction gains a two-file carve-out: tests/test_doc_config_drift.py:34 (guard assert budget == 48000 -> 131072, the test's own 'update this guard' note) and tests/test_ask_colleague_skill.py:145 (asserts the old id in the script's help output) \u2014 assertion literals only, no test logic changes; both assertions exist to pin exactly the doc/skill lines t4 is briefed to change",
+      "task_ref": "t4",
+      "reason": "the drift test is deliberately coupled to graceful-degradation.md (red since t2 merged, by design) and the skill test pins ask-colleague.sh's help text; leaving either untouched makes t4's own acceptance unmeetable with a green suite",
+      "affects": [
+        "t4",
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t4 left docs/live-testing.md:146 untouched although criterion 1 named it: the line sits inside the dated '2026-07-10, t1 Baseline measurement' proof block, so the h3 never-rewrite-history rule was honored over the plan's line pointer; the current-state Reference rig table (line 25) was updated as briefed",
+      "task_ref": "t4",
+      "reason": "the acceptance criterion's ~146 pointer misclassified a dated proof row as a rig-description row; h3 and boundary c4 take precedence",
+      "affects": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ Covers:
 1. A per-model overlay for ``coolthor/gemma-4-12B-it-NVFP4A16`` setting
    ``context_budget_tokens: 96000`` yields that budget after
    ``apply_mode_profile``.
-2. A bare default resolve (no overlay) still yields the default 48000 budget.
+2. A bare default resolve (no overlay) still yields the default 131072 budget.
 3. No file under ``colleague/`` contains the string ``gemma`` in source code
    (only in comments/docstrings is acceptable).
 """
@@ -115,17 +115,17 @@ def test_modeless_run_ignores_overlay(gemma_repo: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Default resolve without overlay stays at 48000
+# Test 2: Default resolve without overlay stays at 131072
 # ---------------------------------------------------------------------------
 
 
 def test_default_budget_without_overlay(tmp_path: Path) -> None:
-    """Bare default resolve yields the built-in 48000 budget (no drift)."""
+    """Bare default resolve yields the built-in 131072 budget (no drift)."""
     # No .colleague/ directory at all
     config = EngineConfig()
     applied = apply_mode_profile(config, mode=None)
     assert applied.context_budget_tokens == _DEFAULT_CONTEXT_BUDGET
-    assert _DEFAULT_CONTEXT_BUDGET == 48000
+    assert _DEFAULT_CONTEXT_BUDGET == 131072
 
 
 def test_default_budget_with_empty_repo(tmp_path: Path) -> None:

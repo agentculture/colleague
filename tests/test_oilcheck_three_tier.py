@@ -897,3 +897,32 @@ class TestCheckShape:
 
         result = three_tier.probe_checks()
         assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# Worker probe cap sizing (t3) — see tests/test_oilcheck_tool_calling.py for
+# the measurement table. The worker seat on the operator rig is
+# unsloth/Qwen3.6-35B-A3B-NVFP4, which at max_tokens=128 returns a 200 with
+# finish_reason=length and NO tool_calls — the probe's false negative.
+# ---------------------------------------------------------------------------
+
+
+def test_worker_probe_cap_clears_the_measured_worst_case() -> None:
+    """The cap covers 2x the worst measured worker tool-call spend (163 tokens)."""
+    from colleague.oilcheck import three_tier
+
+    assert three_tier._PROBE_MAX_TOKENS >= 2 * 163
+
+
+def test_worker_probe_request_carries_the_sized_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    from colleague.oilcheck import three_tier
+
+    captured: dict = {}
+
+    def _capture(request: object, timeout: float | None = None) -> _FakeResponse:
+        captured["body"] = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return _FakeResponse(_tool_call_response())
+
+    monkeypatch.setattr("urllib.request.urlopen", _capture)
+    three_tier._worker_tool_calling("http://worker.example:8001/v1", "worker/model", "k")
+    assert captured["body"]["max_tokens"] == three_tier._PROBE_MAX_TOKENS

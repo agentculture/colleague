@@ -123,13 +123,13 @@ def sanitize_model(model: str) -> str:
 
     Every run of characters outside ``[A-Za-z0-9._-]`` collapses to a single
     ``-``; leading/trailing ``-``/``.`` are stripped. An empty or degenerate id
-    yields ``"default"``. Dots are preserved (``Qwen3.6`` and ``NVFP4`` carry
+    yields ``"default"``. Dots are preserved (``Qwen3.8`` and ``NVFP4`` carry
     meaning).
 
     Examples::
 
         "Qwen/Qwen3-32B"             -> "Qwen-Qwen3-32B"
-        "mmangkad/Qwen3.6-27B-NVFP4" -> "mmangkad-Qwen3.6-27B-NVFP4"
+        "unsloth/Qwen3.8-27B-NVFP4"  -> "unsloth-Qwen3.8-27B-NVFP4"
         ""                           -> "default"
 
     Note: distinct ids can collide (``a/b`` and ``a-b`` both -> ``a-b``).

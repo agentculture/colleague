@@ -77,7 +77,26 @@ _PROBE_TOOLS = [
 # text and the probe can't tell. max_tokens is generous enough for a reasoning
 # model to think *and* emit the call (16 was too small) while staying minimal.
 _PROBE_MESSAGES = [{"role": "user", "content": "Call the ping tool now."}]
-_PROBE_MAX_TOKENS = 128
+
+# SIZED FROM LIVE MEASUREMENT (t3, 2026-08-20) — this exact payload against the
+# operator rig's served seats:
+#
+#   model                            max_tokens  finish_reason  tool_call  tok
+#   unsloth/Qwen3.8-27B-NVFP4               128  tool_calls     yes         32
+#   unsloth/Qwen3.8-27B-NVFP4               512  tool_calls     yes         32
+#   unsloth/Qwen3.6-35B-A3B-NVFP4           128  length         NO         128
+#   unsloth/Qwen3.6-35B-A3B-NVFP4           512  tool_calls     yes        163
+#
+# The Qwen3.8 does NOT misreport at 128 (32 tokens, 4x headroom). The 35B —
+# which ``config.model`` legitimately points at in three-tier / worker-dispatch
+# mode, and which ``oilcheck/three_tier.py`` probes as the worker seat with a
+# byte-identical payload — provably does: a 200 truncated mid-reasoning carries
+# no ``tool_calls``, so ``_response_has_tool_call`` reports ACCEPTED-BUT-IGNORED
+# about a server whose tool calling is fine. That is the false green this probe
+# exists to prevent, inverted. 512 is 3.1x the measured worst case, keeps the
+# blast radius minimal, and costs nothing when the model stops early (the two
+# 512 rows above spent the same tokens as their 128 counterparts).
+_PROBE_MAX_TOKENS = 512
 
 
 def checks(repo_path=None) -> list[dict]:
