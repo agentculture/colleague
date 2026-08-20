@@ -885,6 +885,38 @@ class TestTruncatedDistillation:
         assert "finish_reason=length" in reason
         assert str(distill._DISTILL_MAX_TOKENS) in reason
 
+    def test_truncated_but_parseable_lesson_is_never_remembered(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A length-cut completion can still carry an early balanced JSON
+        object (the tolerant parser extracts it) — a mid-draft, not a lesson.
+        Truncation always routes to the failed branch (Qodo #406 review)."""
+        artifact = self._seed_artifact(tmp_path)
+        lesson_json = (
+            '{"pattern": "trace-first stalls",'
+            ' "constant": "colleague/loop.py:_execute_step",'
+            ' "reason": "all steps went to tracing before execution"}'
+        )
+        monkeypatch.setattr(
+            distill,
+            "_openai_completion",
+            lambda *a, **k: distill.DistillCompletion(
+                content=lesson_json, reasoning="r" * 500, finish_reason="length"
+            ),
+        )
+        with patch("colleague.memory.remember") as mock_remember:
+            rc = distill.child_main(
+                ["--repo", str(tmp_path), "--task-id", "abc123", "--model", "m"]
+            )
+            mock_remember.assert_not_called()
+        assert rc == 1
+        marker = self._marker(artifact)
+        assert marker["status"] == "failed"
+        assert "lesson" not in marker
+        reason = marker["reason"]
+        assert "truncat" in reason.lower()
+        assert "finish_reason=length" in reason
+
     def test_empty_content_is_recorded_as_such(self, tmp_path: Path, monkeypatch: Any) -> None:
         """An empty completion that STOPPED is still named honestly."""
         artifact = self._seed_artifact(tmp_path)

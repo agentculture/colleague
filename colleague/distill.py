@@ -781,7 +781,12 @@ def child_main(argv: list[str] | None = None) -> int:
         )
         parsed = lessons.parse_lesson_json(completion.text)
         verdict = lessons.validate_lesson(parsed if parsed is not None else completion.text)
-        if parsed is not None and verdict.allowed:
+        # A length-cut completion can still carry an early balanced JSON
+        # object the tolerant parser happily extracts — a mid-draft the
+        # model never finished, not a lesson. Truncation ALWAYS routes to
+        # the failed branch, where _failure_reason names the cap (h10;
+        # Qodo review on #406).
+        if parsed is not None and verdict.allowed and not completion.truncated:
             lesson = {k: str(parsed[k]) for k in ("pattern", "constant", "reason")}
             upsert_lesson(args.repo, args.task_id, lesson)
             write_outcome_marker(marker, status="done", lesson=lesson)
