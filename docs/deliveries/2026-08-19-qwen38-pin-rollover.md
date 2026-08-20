@@ -36,8 +36,9 @@ Quoted verbatim from the `devague summary` skeleton:
 
 ## Mid-work Decisions
 
-All three deviation records are **`proposed` — awaiting the operator's
-`devague deviate --confirm`**; quoted from the store, not re-litigated:
+All three deviation records were **approved by the operator on 2026-08-20**
+(`devague deviate --confirm d1 d2 d3`); quoted from the store, not
+re-litigated:
 
 - `d1` (t3) — probe caps raised 128 → 512 although the 3.8 itself passes at
   128: the live measurement showed the probe's actual three-tier target, the
@@ -63,9 +64,9 @@ All three deviation records are **`proposed` — awaiting the operator's
 
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
-| `t3` (`d1`) | cap raised on the worker seat's measured misreport, not the 3.8's — the criterion's letter scoped re-validation to the 3.8 | acceptable (proposed) |
-| `t4` (`d2`) | two test-assertion literals edited alongside the briefed doc/skill lines, against the task's "zero Python changes" instruction | acceptable (proposed) |
-| `t4` (`d3`) | criterion 1's `live-testing.md:~146` pointer misclassified a dated proof row; h3/c4 took precedence | acceptable (proposed) |
+| `t3` (`d1`) | cap raised on the worker seat's measured misreport, not the 3.8's — the criterion's letter scoped re-validation to the 3.8 | acceptable (approved) |
+| `t4` (`d2`) | two test-assertion literals edited alongside the briefed doc/skill lines, against the task's "zero Python changes" instruction | acceptable (approved) |
+| `t4` (`d3`) | criterion 1's `live-testing.md:~146` pointer misclassified a dated proof row; h3/c4 took precedence | acceptable (approved) |
 
 No other task diverged: t1, t2, t5 delivered to their acceptance criteria as
 confirmed (task-by-task accounting above).
@@ -136,5 +137,4 @@ so the artifact stays honest rather than frozen wrong:
   scope): #409 (a remote-proxied worker read can starve past the timeout
   ladder) and #410 (SIGTERM salvage writes WIP but no artifact from that
   wedged state, blocking `--continue`).
-- Deviations `d1`–`d3` remain `proposed`, awaiting
-  `devague deviate --confirm`.
+- Deviations `d1`–`d3`: **approved** by the operator pre-merge (2026-08-20).

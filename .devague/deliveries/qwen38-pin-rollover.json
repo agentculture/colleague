@@ -2,7 +2,7 @@
   "plan_slug": "qwen38-pin-rollover",
   "schema_version": 1,
   "created": "2026-08-19T23:58:46Z",
-  "updated": "2026-08-20T00:05:56Z",
+  "updated": "2026-08-20T07:16:49Z",
   "deviations": [
     {
       "id": "d1",
@@ -13,7 +13,7 @@
         "t3"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable"
     },
     {
@@ -26,7 +26,7 @@
         "t5"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable"
     },
     {
@@ -38,7 +38,7 @@
         "t4"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable"
     }
   ]
