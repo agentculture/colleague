@@ -23,7 +23,7 @@ each field independently: an explicit flag value wins if given, else the first
 
 | Field | Flag | Environment (checked in order) | Default |
 |-------|------|--------------------------------|---------|
-| model | `--model` | `COLLEAGUE_MODEL` | `unsloth/Qwen3.6-27B-NVFP4` |
+| model | `--model` | `COLLEAGUE_MODEL` | `unsloth/Qwen3.8-27B-NVFP4` |
 | base_url | `--base-url` | `COLLEAGUE_BASE_URL`, `OPENAI_BASE_URL` | `http://localhost:8001/v1` |
 | api_key | `--api-key` | `COLLEAGUE_API_KEY`, `OPENAI_API_KEY` | `EMPTY` |
 
@@ -33,6 +33,14 @@ fall through — and a whitespace-only environment value is taken as-is (it is n
 stripped). Only the **engine name** (`resolve_engine`) treats a blank/whitespace
 candidate as absent and strips it. So set the model to a real served name; don't
 rely on a blank value falling back to the default.
+
+The reference rig serves the default model (`unsloth/Qwen3.8-27B-NVFP4`) at a
+**1,048,576-token (1M) YaRN context** (probed 2026-08-20, issue #404). The
+built-in `context_budget_tokens` default is a **moderate raise, not a max-out**
+of that window — `_DEFAULT_CONTEXT_BUDGET = 131072` (128K) — with
+`_DEFAULT_MAX_OUTPUT_CHARS` rescaled to the same proportion; see
+[graceful-degradation.md](graceful-degradation.md) for the full sizing rationale
+and the `COLLEAGUE_TIMEOUT` guidance for long-context runs.
 
 ## Persistent config file (.colleague/config.json)
 
@@ -76,7 +84,7 @@ no-op — it never raises.
 ```json
 {
   "base_url": "http://localhost:8001/v1",
-  "model": "unsloth/Qwen3.6-27B-NVFP4"
+  "model": "unsloth/Qwen3.8-27B-NVFP4"
 }
 ```
 

@@ -22,7 +22,7 @@ rig**, with a commit+date stamp per feature so staleness is detectable.
 | Field | Value |
 |-------|-------|
 | Provider `base_url` | `http://localhost:8001/v1` |
-| Model | `unsloth/Qwen3.6-27B-NVFP4` |
+| Model | `unsloth/Qwen3.8-27B-NVFP4` |
 | Readiness check | `colleague doctor --probe` (must report `provider_reachable` + `provider_model_available` → passed) |
 
 A served model that exposes tool calling is required: the vLLM rig must run with
