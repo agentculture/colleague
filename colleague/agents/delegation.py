@@ -33,7 +33,7 @@ appending a ``plan_node`` event; it touches the ledger and nothing else.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Optional, Union
+from typing import Any, Iterable, Mapping
 
 from colleague.agents.state.ledger import LedgerEvent, TaskLedger
 from colleague.config import MAX_SUBAGENT_DEPTH, MAX_SUBAGENT_FANOUT, MAX_SUBAGENT_TOTAL
@@ -75,7 +75,7 @@ class DelegationVerdict:
     """
 
     allowed: bool
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -253,9 +253,7 @@ def close_delegation(handle: DelegationHandle, result: Any) -> LedgerEvent:
     )
 
 
-def handoff(
-    ledger: TaskLedger, plan_node: Union[str, Mapping[str, Any]], to_agent: str
-) -> LedgerEvent:
+def handoff(ledger: TaskLedger, plan_node: str | Mapping[str, Any], to_agent: str) -> LedgerEvent:
     """Transfer plan-node ownership to *to_agent* — on the ledger only.
 
     Appends a ``plan_node`` event (keyed by the node's ``id``) whose latest
