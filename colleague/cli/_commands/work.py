@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import background, flight, media, registry, rig, worktrees
+from colleague import background, flight, media, registry, rig, salvage, worktrees
 from colleague.artifact import (
     artifact_dir,
     failed_result,
@@ -53,7 +53,15 @@ from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, apply_mode_profile, resolve_engine
-from colleague.contract import INCOMPLETE, OK, ChainView, Task, TaskResult
+from colleague.contract import (
+    ERROR,
+    INCOMPLETE,
+    OK,
+    ChainView,
+    IncompletionRecord,
+    Task,
+    TaskResult,
+)
 from colleague.feedback import capture_uncaptured_predecessor, set_last_work
 from colleague.handoff import (
     HandoffError,
@@ -318,8 +326,93 @@ def _setup_isolation(
     )
 
 
-def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:
+def finalize_interrupted(
+    result: TaskResult,
+    *,
+    reason: str,
+    command_name: str | None,
+    mode: str | None,
+    continued_from: str | None,
+) -> TaskResult:
+    """Stamp the interrupt onto a live partial so its artifact is an honest seed (#410).
+
+    ``status`` becomes ``error`` with the signal named; an incompletion record
+    points the operator at ``work --continue``; ``command``/``mode``/
+    ``continued_from`` mirror what the normal write path records. Idempotent —
+    a second signal stamps the same facts.
+    """
+    steps = len(result.steps)
+    result.status = ERROR
+    result.error = f"interrupted by {reason} after {steps} step(s)"
+    if not result.summary:
+        result.summary = f"interrupted by {reason} after {steps} step(s) (partial)"
+    result.incompletion = IncompletionRecord(
+        reason="interrupted",
+        evidence=result.error,
+        recommendation=f"resume with: colleague work --continue {result.task_id}",
+    )
+    result.command = command_name
+    result.mode = mode
+    result.continued_from = continued_from
+    return result
+
+
+def _make_salvage_writer(
+    task: Task,
+    repo: Path,
+    *,
+    command_name: str | None,
+    mode: str | None,
+    continued_from: str | None,
+) -> Callable[[str], None]:
+    """Build the SIGTERM/SIGINT salvage writer for *task* (#410).
+
+    Reads the loop's live partial (:func:`colleague.salvage.peek`), stamps it via
+    :func:`finalize_interrupted`, and writes the artifact + ``last_work`` pointer
+    under the OPERATOR repo — the same location the normal path writes, so
+    ``work --continue`` finds it. No live partial (the loop never started) →
+    a ``failed_result`` is written instead, so the artifact is UNCONDITIONAL.
+    """
+
+    def _write(reason: str) -> None:
+        partial = salvage.peek(task.id)
+        if partial is None:
+            partial = failed_result(
+                task.id,
+                f"interrupted by {reason} before the loop started",
+                request=task.instruction,
+            )
+        if not partial.stats.request:
+            # The loop stamps the request at its own finalize — which this
+            # interrupt never reaches — so carry it here: the artifact keeps the
+            # normal <id>.<slug>.json name and stays discoverable by request.
+            partial.stats.request = task.instruction
+        finalize_interrupted(
+            partial,
+            reason=reason,
+            command_name=command_name,
+            mode=mode,
+            continued_from=continued_from,
+        )
+        write(partial, artifact_dir(repo))
+        with suppress(Exception):
+            set_last_work(repo, partial.task_id)
+        salvage.unregister(task.id)
+
+    return _write
+
+
+def _arm_interrupt_commit(
+    worktree_path: str | None, *, salvage_write: Callable[[str], None] | None = None
+) -> Callable[[], None]:
     """Install SIGTERM+SIGINT handlers that commit the iso worktree's WIP before exit (#222).
+
+    #410: when *salvage_write* is given it runs FIRST — before the WIP commit and
+    independent of whatever state the request layer is stuck in — writing the
+    partial result artifact (the continuation seed) from the loop's live partial
+    (:mod:`colleague.salvage`); a failure there never blocks the WIP commit. A
+    ``None`` worktree with a salvage writer still arms the handlers (the artifact
+    write is worktree-independent); neither → nothing is installed.
 
     The isolated work path's success teardown lives in a ``finally`` that a SIGTERM
     (a caller's ``timeout``) bypasses entirely, stranding the model's WIP as
@@ -339,14 +432,19 @@ def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:
     unsupported platform degrades gracefully (handlers simply not installed) — never
     breaking a work item. Signals are stdlib: no new dependency, daemon, or thread.
     """
-    if worktree_path is None:
+    if worktree_path is None and salvage_write is None:
         return lambda: None
 
     previous: dict[int, object] = {}
 
     def _handler(signum: int, _frame: object) -> None:
-        with suppress(Exception):
-            worktrees.commit_iso_worktree_wip(worktree_path, reason=signal.Signals(signum).name)
+        reason = signal.Signals(signum).name
+        if salvage_write is not None:
+            with suppress(Exception):
+                salvage_write(reason)
+        if worktree_path is not None:
+            with suppress(Exception):
+                worktrees.commit_iso_worktree_wip(worktree_path, reason=reason)
         # Restore prior handlers before exiting so a second signal can't re-enter this
         # handler mid-commit; SystemExit unwinds through the normal finally blocks
         # (cockpit close, telemetry flush, worktree remove) and exits without a traceback.
@@ -1206,7 +1304,12 @@ def execute_work(
     # process exits, instead of stranding it as uncommitted files in an orphan
     # worktree. A None worktree (the in-place session path) arms nothing. Restored
     # in the finally.
-    _restore_signals: Callable[[], None] = _arm_interrupt_commit(worktree_path)
+    _restore_signals: Callable[[], None] = _arm_interrupt_commit(
+        worktree_path,
+        salvage_write=_make_salvage_writer(
+            task, repo, command_name=command_name, mode=mode, continued_from=continued_from
+        ),
+    )
 
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
