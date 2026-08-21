@@ -364,6 +364,20 @@ class SubResult:
     bookkeeping. Populated structurally by the caller that mints the child
     (plan t16), never inferred. Omitted from ``to_dict`` when ``None`` so a
     child recorded without lineage serializes byte-identically to today."""
+    agent_id: Optional[str] = None
+    """The model-bound agent identity this child ran as (#411 plan task t14) —
+    set ONLY when the parent's ``agents`` mode is armed and the child carried a
+    ``profile``; ``None`` otherwise and omitted from ``to_dict`` so an unarmed
+    child serializes byte-identically to today."""
+    resolved_model: Optional[str] = None
+    """The served model id the child's profile RESOLVED to (trace data from the
+    lobes advert, or the parent's main model under the no-gateway degrade) —
+    armed-only, omit-when-None like ``agent_id``."""
+    fallback_from_role: Optional[str] = None
+    """The lobes role the child's profile was carried FROM when it fell back to
+    the cortex/main model (absent, not-ready, dormant per d3, or no gateway) —
+    a RECORDED fallback, never silent. ``None`` when the child ran on its own
+    ready role (or unarmed); omitted from ``to_dict`` when ``None``."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -382,6 +396,13 @@ class SubResult:
         # without a parent link serializes byte-identically to today.
         if self.parent is not None:
             d["parent"] = self.parent
+        # Armed-only identity fields (#411 t14): omit-when-None, same convention.
+        if self.agent_id is not None:
+            d["agent_id"] = self.agent_id
+        if self.resolved_model is not None:
+            d["resolved_model"] = self.resolved_model
+        if self.fallback_from_role is not None:
+            d["fallback_from_role"] = self.fallback_from_role
         return d
 
     @classmethod
@@ -396,6 +417,9 @@ class SubResult:
             usage=Usage.from_dict(data.get("usage", {})),
             role=data.get("role"),
             parent=data.get("parent"),
+            agent_id=data.get("agent_id"),
+            resolved_model=data.get("resolved_model"),
+            fallback_from_role=data.get("fallback_from_role"),
         )
 
 

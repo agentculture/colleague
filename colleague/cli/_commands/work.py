@@ -75,7 +75,12 @@ from colleague.handoff import (
     working_tree_dirty,
 )
 from colleague.roles import is_read_only
-from colleague.subagents import make_batch_spawn, make_spawn, new_agent_budget
+from colleague.subagents import (
+    default_parent_profile,
+    make_batch_spawn,
+    make_spawn,
+    new_agent_budget,
+)
 from colleague.telemetry import Telemetry, load_telemetry
 
 
@@ -1389,20 +1394,17 @@ def execute_work(
             # `parent_task_id=task.id` (spec R6 / plan t16 / #259) records THIS
             # work item's id on every direct child's `SubResult.parent`, so a
             # subagent tree is walkable from artifacts alone.
+            # `parent_profile` (#411 t14): the parent's own purpose, recorded on
+            # every delegate event — passed ONLY when the `agents` mode is
+            # armed, so the unarmed calls are byte-identical to today.
             budget = new_agent_budget(config)
-            config.subagent_spawn = make_spawn(
-                task.repo_path,
-                config,
-                task.engine,
-                counter=budget,
-                parent_task_id=task.id,
-            )
+            spawn_kwargs: dict = {"counter": budget, "parent_task_id": task.id}
+            parent_profile = default_parent_profile(config)
+            if parent_profile is not None:
+                spawn_kwargs["parent_profile"] = parent_profile
+            config.subagent_spawn = make_spawn(task.repo_path, config, task.engine, **spawn_kwargs)
             config.subagent_batch_spawn = make_batch_spawn(
-                task.repo_path,
-                config,
-                task.engine,
-                counter=budget,
-                parent_task_id=task.id,
+                task.repo_path, config, task.engine, **spawn_kwargs
             )
             # Rig-level cooperative concurrency budget (t13 / spec R5 / #258): hold
             # ONE slot for the whole model-driving loop, so concurrent TOP-LEVEL
