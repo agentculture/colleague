@@ -308,6 +308,21 @@ def senses_engine_config(
     ledger_path = getattr(config, "agents_ledger_path", None)
     if ledger_path is not None and getattr(seat, "agents_ledger_path", None) is None:
         seat.agents_ledger_path = ledger_path  # type: ignore[attr-defined]
+    # Per-seat thinking effort (#416 t4): the senses seat carries its own
+    # table rung (off default) via the plain ``reasoning_effort_seat``
+    # attribute that ``vllm_openai._effort_for`` honors ahead of the acting
+    # seat's resolved rung.
+    from colleague import effort
+
+    setattr(
+        seat,
+        "reasoning_effort_seat",
+        effort.resolve_effort(
+            kill_switch=(config.reasoning_effort == "default"),
+            seat_override=config.reasoning_effort_seats.get("senses"),
+            seat="senses",
+        ),
+    )
     return seat
 
 

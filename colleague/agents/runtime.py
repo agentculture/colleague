@@ -58,7 +58,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence, cast
 from urllib.parse import urlsplit
 
-from colleague.agents.profile import AgentProfile
+from colleague.agents.profile import PURPOSE_ROLE, AgentProfile
 from colleague.agents.state.ledger import LedgerEvent, TaskLedger
 from colleague.agents.tools import tool_surface_digest
 from colleague.config import EngineConfig
@@ -266,6 +266,24 @@ def agent_engine_config(config: EngineConfig, profile: AgentProfile, roles: Any)
     # pending fold of ``subagents._child_config_for_profile`` onto this builder
     # (#412) must therefore keep carrying it.
     setattr(seat, "agents_profile", profile.purpose)
+    # Per-seat thinking effort (#416 t4): the agent seat carries the rung of
+    # the seat its PURPOSE names (talker→senses, thinker_coder→cortex,
+    # worker→worker) via the plain ``reasoning_effort_seat`` attribute that
+    # ``vllm_openai._effort_for`` honors ahead of the acting seat's resolved
+    # rung. A purpose with no seat-table row (associate) resolves to None —
+    # unset, byte-identical.
+    from colleague import effort
+
+    _seat_name = PURPOSE_ROLE.get(profile.purpose)
+    setattr(
+        seat,
+        "reasoning_effort_seat",
+        effort.resolve_effort(
+            kill_switch=(config.reasoning_effort == "default"),
+            seat_override=config.reasoning_effort_seats.get(_seat_name) if _seat_name else None,
+            seat=_seat_name,
+        ),
+    )
     return seat
 
 
