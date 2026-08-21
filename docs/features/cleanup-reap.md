@@ -26,8 +26,9 @@ break ordinary git operations.
   throwaway `work`/`drive` worktree — so the file outlives the worktree and
   `git status` stays clean (the repo's own `/.colleague/*` ignore rule).
   `reap_finished_ledgers` removes a ledger **only** when its task is provably
-  over: the artifact `<id>.*.json` parses with a terminal status (`ok` /
-  `incomplete` / `error`), or the task is orphaned (its iso liveness marker
+  over: the artifact `<id>.*.json` parses with status `ok` (an `incomplete` /
+  `error` artifact is a `work --continue` seed, so its ledger is KEPT even when
+  orphaned — #411 c35), or the task is orphaned (its iso liveness marker
   names a dead pid, or this same `clean` just reaped its iso worktree). A
   **live** task — a recent flight id or an alive liveness marker — is never
   touched, and a ledger with no artifact and no liveness opinion is kept (an

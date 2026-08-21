@@ -140,13 +140,23 @@ def test_ledger_dir_matches_the_ledger_path_helper(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("status", [OK, INCOMPLETE, ERROR])
-def test_finished_task_ledger_is_reaped(git_repo: Path, status: str) -> None:
+def test_finished_ok_task_ledger_is_reaped(git_repo: Path) -> None:
     led = _write_ledger(git_repo, "fin1")
-    _write_artifact(git_repo, "fin1", status=status)
+    _write_artifact(git_repo, "fin1", status=OK)
     reaped = handoff.reap_finished_ledgers(git_repo)
     assert reaped == [str(led)]
     assert not led.exists()
+
+
+@pytest.mark.parametrize("status", [INCOMPLETE, ERROR])
+def test_resumable_task_ledger_is_kept_even_when_orphaned(git_repo: Path, status: str) -> None:
+    """An incomplete/error artifact is a `work --continue` seed (#411 c35): its
+    ledger survives clean — even with a dead marker or an explicit orphaned id."""
+    led = _write_ledger(git_repo, "res1")
+    _write_artifact(git_repo, "res1", status=status)
+    _write_marker(git_repo, "res1", _dead_pid())
+    assert handoff.reap_finished_ledgers(git_repo, orphaned_task_ids={"res1"}) == []
+    assert led.exists()
 
 
 def test_ledger_without_artifact_or_marker_is_kept(git_repo: Path) -> None:

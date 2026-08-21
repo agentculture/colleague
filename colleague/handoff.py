@@ -928,8 +928,11 @@ def reap_colleague_branches(
 #: ``tests/test_ledger_reap.py`` against ``ledger_path``).
 _LEDGER_SUBDIR = Path(".colleague") / "ledger"
 
-#: The closed TaskResult status set — an artifact carrying any of these is final.
-_TERMINAL_STATUSES = frozenset({"ok", "incomplete", "error"})
+#: An artifact carrying this status is FINAL (the run completed); ``incomplete`` /
+#: ``error`` artifacts are RESUMABLE (``work --continue``) and their ledger is the
+#: continuation seed (#411 c35) — the reap keeps those.
+_TERMINAL_STATUSES = frozenset({"ok"})
+_RESUMABLE_STATUSES = frozenset({"incomplete", "error"})
 
 
 def ledger_dir(repo_path: str | Path) -> Path:
@@ -937,22 +940,33 @@ def ledger_dir(repo_path: str | Path) -> Path:
     return Path(repo_path) / _LEDGER_SUBDIR
 
 
-def _artifact_is_final(repo: Path, task_id: str) -> bool:
-    """True when ``task_id``'s artifact exists, parses, and carries a terminal status.
+def _artifact_status(repo: Path, task_id: str) -> str | None:
+    """``task_id``'s artifact status, or ``None`` when it is absent/unparseable.
 
-    A 0-byte / unparseable artifact (a truncated write) is NOT final — the
+    A 0-byte / unparseable artifact (a truncated write) has no status — the
     artifact reap handles that file; this helper stays conservative.
     """
     from colleague.artifact import find_artifact  # local: keeps module import order flat
 
     path = find_artifact(repo, task_id)
     if path is None:
-        return False
+        return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return False
-    return isinstance(data, dict) and data.get("status") in _TERMINAL_STATUSES
+        return None
+    status = data.get("status") if isinstance(data, dict) else None
+    return status if isinstance(status, str) else None
+
+
+def _artifact_is_final(repo: Path, task_id: str) -> bool:
+    """True when ``task_id``'s artifact exists, parses, and says the run COMPLETED (``ok``)."""
+    return _artifact_status(repo, task_id) in _TERMINAL_STATUSES
+
+
+def _artifact_is_resumable(repo: Path, task_id: str) -> bool:
+    """True when the artifact says ``incomplete`` / ``error`` — a ``work --continue`` seed."""
+    return _artifact_status(repo, task_id) in _RESUMABLE_STATUSES
 
 
 def _liveness_opinion(repo: Path, task_id: str) -> bool | None:
@@ -978,15 +992,18 @@ def reap_finished_ledgers(
     """Remove finished/orphaned task ledgers under ``.colleague/ledger/``; return their paths.
 
     A ``<id>.jsonl`` directly under the ledger dir is reaped when — and only
-    when — its task is NOT live and is either **final** (its artifact parses
-    with status ``ok`` / ``incomplete`` / ``error``, :func:`_artifact_is_final`)
-    or **orphaned** (``id`` in ``orphaned_task_ids`` — e.g. the iso worktrees
+    when — its task is NOT live, NOT resumable, and is either **final** (its
+    artifact parses with status ``ok``, :func:`_artifact_is_final`) or
+    **orphaned** (``id`` in ``orphaned_task_ids`` — e.g. the iso worktrees
     ``clean`` just reaped — or its liveness marker names a dead pid). **Live**
     wins over everything: an ``id`` in ``active_task_ids`` or an ALIVE marker
-    keeps the ledger. A ledger with no artifact and no marker is kept (a run
-    may still be going). Anything that is not ``*.jsonl`` directly in the dir is
-    never touched. ``dry_run=True`` reports without removing; an unlink failure
-    is skipped (not reported, never raised). Missing dir = ``[]``.
+    keeps the ledger. **Resumable** wins next: an ``incomplete`` / ``error``
+    artifact means ``work --continue`` can still seed from this ledger (#411
+    c35), so it is kept even when orphaned. A ledger with no artifact and no
+    marker is kept (a run may still be going). Anything that is not ``*.jsonl``
+    directly in the dir is never touched. ``dry_run=True`` reports without
+    removing; an unlink failure is skipped (not reported, never raised).
+    Missing dir = ``[]``.
     """
     repo = Path(repo_path)
     ldir = ledger_dir(repo)
@@ -1002,7 +1019,7 @@ def reap_finished_ledgers(
         if not task_id or task_id in active:
             continue
         alive = _liveness_opinion(repo, task_id)
-        if alive is True:
+        if alive is True or _artifact_is_resumable(repo, task_id):
             continue
         if not (task_id in orphaned or alive is False or _artifact_is_final(repo, task_id)):
             continue
