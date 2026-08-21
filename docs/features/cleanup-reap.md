@@ -20,6 +20,21 @@ break ordinary git operations.
   opt-in.
 - **Artifacts** — `reap_artifacts` removes 0-byte `.colleague/` artifacts + a
   dangling `last_work`, **never** a non-empty (gradable) one.
+- **Finished-task ledgers** (#411 t19) — an agents-mode run writes its task
+  ledger at the **operator** repo (`.colleague/ledger/<id>.jsonl`, rooted at
+  `task.flight_repo_path`, the flight-plane precedent), never inside the
+  throwaway `work`/`drive` worktree — so the file outlives the worktree and
+  `git status` stays clean (the repo's own `/.colleague/*` ignore rule).
+  `reap_finished_ledgers` removes a ledger **only** when its task is provably
+  over: the artifact `<id>.*.json` parses with a terminal status (`ok` /
+  `incomplete` / `error`), or the task is orphaned (its iso liveness marker
+  names a dead pid, or this same `clean` just reaped its iso worktree). A
+  **live** task — a recent flight id or an alive liveness marker — is never
+  touched, and a ledger with no artifact and no liveness opinion is kept (an
+  in-place run stamps no marker; absence of evidence is not death). Honest
+  consequence: a `work --continue` of a cut run whose ledger `clean` already
+  reaped seeds from the artifact's prose recap instead (the documented
+  no-ledger degrade).
 - **Loose objects** — `empty_loose_objects` *reports* 0-byte `.git/objects` files
   and suggests `git prune`; it **never deletes** them (conservative by design).
 
@@ -39,14 +54,15 @@ touch `subprocess` themselves.
 
 ## Honest limits
 
-- Scoped strictly to `colleague/*` refs and `.colleague/` artifacts.
+- Scoped strictly to `colleague/*` refs and `.colleague/` artifacts (incl.
+  `.colleague/ledger/*.jsonl`, never a nested or non-`.jsonl` file).
 - Conservative with `.git/objects` — reports, never deletes.
 
 ## Key files
 
 - `colleague/cli/_commands/clean.py` — the verb.
 - `colleague/handoff.py` — `list_colleague_branches` / `reap_colleague_branches` /
-  `empty_loose_objects`.
+  `empty_loose_objects` / `reap_finished_ledgers`.
 - `colleague/artifact.py` — `reap_artifacts`.
 - `colleague/oilcheck/stale_refs.py` — the advisory doctor check.
 
