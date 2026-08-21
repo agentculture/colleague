@@ -61,18 +61,14 @@ def test_deepthink_seat_carries_its_table_rung() -> None:
 
 
 def test_deepthink_seat_operator_override_wins() -> None:
-    seat = deepthink_engine_config(
-        _deepthink_config(reasoning_effort_seats={"deepthink": "low"})
-    )
+    seat = deepthink_engine_config(_deepthink_config(reasoning_effort_seats={"deepthink": "low"}))
     assert seat is not None
     assert _effort(seat) == "low"
 
 
 def test_deepthink_seat_kill_switch_unsets() -> None:
     seat = deepthink_engine_config(
-        _deepthink_config(
-            reasoning_effort="default", reasoning_effort_seats={"deepthink": "low"}
-        )
+        _deepthink_config(reasoning_effort="default", reasoning_effort_seats={"deepthink": "low"})
     )
     assert seat is not None
     assert _effort(seat) is None
@@ -281,9 +277,7 @@ def test_agent_seat_worker_operator_override_wins() -> None:
 def test_agent_seat_kill_switch_unsets() -> None:
     roles = _advert_roles()
     seat = agent_engine_config(
-        _parent_config(
-            reasoning_effort="default", reasoning_effort_seats={"cortex": "xhigh"}
-        ),
+        _parent_config(reasoning_effort="default", reasoning_effort_seats={"cortex": "xhigh"}),
         _profile("thinker_coder", roles),
         roles,
     )
