@@ -57,6 +57,7 @@ from colleague import lint as _lint
 from colleague import media
 from colleague import memory as _memorymod
 from colleague import salvage
+from colleague import stallguard
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
@@ -82,6 +83,7 @@ from colleague.contract import (
     ContextPacket,
     FinishRecord,
     HookFiring,
+    IncompletionRecord,
     SensesBlock,
     SensesRecord,
     Step,
@@ -184,6 +186,17 @@ _EXIT_STOPPED = "stopped"  # ended on a no-tool-call turn without ever finishing
 _EXIT_BUDGET = "budget"  # ran out of model turns (max_steps) without finishing
 _EXIT_PILOT_STOP = "pilot_stop"  # a pilot wrote a cooperative `stop` to the flight control file
 _EXIT_TOOL_PROTOCOL = "tool_protocol"  # consecutive unknown-tool calls -> channel is broken (#321)
+_EXIT_STALLED = "stalled"  # no completed step within the step-stall bound (#400)
+
+# Step-stall watchdog (#400): the operator knob (seconds; 0 or negative disables) and
+# the default policy — the bound never drops below the floor and scales to 6x the
+# observed mean turn latency once three turns have been measured, so a rig whose
+# ordinary turns are long is never cut by a fixed number. A progress bound, not a
+# duration one: the clock restarts whenever a step completes.
+_STALL_ENV = "COLLEAGUE_MAX_STEP_STALL"
+_STALL_FLOOR_SECONDS = 3600.0
+_STALL_LATENCY_MULTIPLIER = 6.0
+_STALL_MIN_SAMPLES = 3
 
 # Consecutive UnknownToolError steps tolerated before the loop stops the run as
 # ``_EXIT_TOOL_PROTOCOL`` (#321). Three failed self-corrections (each fed back the
@@ -643,6 +656,12 @@ class _Work:
     # through the binding. Read by ``_finalize_finish_states`` at every exit
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
+    # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
+    # step completed (the loop start until one does); ``_stalled`` holds the elapsed
+    # seconds once the bound was crossed — a single-element cell the frozen ``_Work``
+    # flips through the binding (the ``_last_substantive`` pattern).
+    _last_progress: list[float] = field(default_factory=list)
+    _stalled: list[float] = field(default_factory=list)
     # auto-compact-on-finish (t3): the model-authored summary produced by the last
     # fill-line compaction, kept on a dedicated cell so a later stall cannot
     # overwrite it (unlike ``_last_substantive``); used as the FALLBACK clean summary
@@ -1759,6 +1778,71 @@ def _current_backpressure(ctx: _Work) -> str:
     return ctx._backpressure_state[0] if ctx._backpressure_state else backpressure.CLEAR
 
 
+def _stall_bound(ctx: _Work) -> float | None:
+    """The step-stall bound in seconds, or ``None`` when disabled (#400).
+
+    ``COLLEAGUE_MAX_STEP_STALL`` (seconds) wins when set — ``0``/negative/unparsable
+    disables the watchdog. Otherwise the bound is ``max(floor, 6 x mean turn
+    latency)`` once three turns have been measured, else the floor alone: it
+    adapts to rig speed rather than hardcoding, and never drops below the floor.
+    """
+    raw = os.environ.get(_STALL_ENV)
+    if raw is not None and raw.strip():
+        try:
+            value = float(raw)
+        except ValueError:
+            return None
+        return value if value > 0 else None
+    latencies = ctx._turn_latencies
+    if len(latencies) >= _STALL_MIN_SAMPLES:
+        return max(
+            _STALL_FLOOR_SECONDS, _STALL_LATENCY_MULTIPLIER * (sum(latencies) / len(latencies))
+        )
+    return _STALL_FLOOR_SECONDS
+
+
+def _mark_progress(ctx: _Work) -> None:
+    """Restart the step-stall clock: a step just completed (or the loop just began)."""
+    ctx._last_progress[:] = [time.monotonic()]
+
+
+def _record_stall(ctx: _Work, seconds: float, bound: float) -> None:
+    """Record a crossed step-stall bound honestly: warning + phase notice + exit cell."""
+    ctx._stalled[:] = [seconds]
+    ctx.result.warnings.append(
+        {
+            "kind": "step-stall",
+            "seconds": round(seconds, 1),
+            "bound_seconds": round(bound, 1),
+            "step_index": len(ctx.result.steps),
+        }
+    )
+    _emit_phase(
+        ctx,
+        f"step-stall: no completed step for {seconds:.0f}s (bound {bound:.0f}s) — "
+        f"ending the episode with a partial; raise {_STALL_ENV} for longer turns",
+    )
+
+
+def _stalled_between_turns(ctx: _Work) -> bool:
+    """Between turns: has the time since the last completed step crossed the bound?
+
+    Covers transports that cannot consult :mod:`colleague.stallguard` mid-turn (a
+    blocking request, the mock engine); the in-turn check lives in
+    :func:`_timed_complete`.
+    """
+    if ctx._stalled:
+        return True
+    bound = _stall_bound(ctx)
+    if bound is None or not ctx._last_progress:
+        return False
+    elapsed = time.monotonic() - ctx._last_progress[0]
+    if elapsed <= bound:
+        return False
+    _record_stall(ctx, elapsed, bound)
+    return True
+
+
 def _timed_complete(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     """Call ``complete`` measuring wall-clock latency for backpressure (t6/#255).
 
@@ -1767,13 +1851,24 @@ def _timed_complete(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     all a request TIMEOUT, which costs the full window) is precisely the slow
     turn the classifier must see.
     """
-    if not ctx.request_timeout or ctx.request_timeout <= 0:
-        return complete(ctx.messages)
-    start = time.monotonic()
+    # Step-stall watchdog (#400): arm the progress deadline (time since the LAST
+    # completed step, not this turn's start) so a streaming transport can end a
+    # turn that is alive but not progressing; disarmed in ``finally`` so nothing
+    # leaks into the next call or a different context.
+    bound = _stall_bound(ctx)
+    since = ctx._last_progress[0] if ctx._last_progress else time.monotonic()
+    token = stallguard.arm(since=since, bound=bound) if bound is not None else None
     try:
-        return complete(ctx.messages)
+        if not ctx.request_timeout or ctx.request_timeout <= 0:
+            return complete(ctx.messages)
+        start = time.monotonic()
+        try:
+            return complete(ctx.messages)
+        finally:
+            _record_turn_latency(ctx, time.monotonic() - start)
     finally:
-        _record_turn_latency(ctx, time.monotonic() - start)
+        if token is not None:
+            stallguard.disarm(token)
 
 
 def _record_turn_latency(ctx: _Work, seconds: float) -> None:
@@ -2210,7 +2305,7 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
     than a separate ``if`` in :func:`run`) to keep ``run`` under the S3776
     cognitive-complexity threshold.
     """
-    result.not_finished = outcome == _EXIT_BUDGET
+    result.not_finished = outcome in (_EXIT_BUDGET, _EXIT_STALLED)
     result.stopped_without_finish = outcome in (
         _EXIT_STOPPED,
         _EXIT_PILOT_STOP,
@@ -2221,6 +2316,25 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
     if outcome == _EXIT_PILOT_STOP:
         note = f"Stopped by pilot after {len(result.steps)} step(s) (partial)."
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
+    if outcome == _EXIT_STALLED:
+        note = (
+            f"Stopped after {len(result.steps)} step(s): no step completed within the "
+            "step-stall bound (#400) — partial preserved (see warnings)."
+        )
+        result.summary = f"{note} {last_sub}".strip() if last_sub else note
+        if result.incompletion is None:
+            stalled = next((w for w in result.warnings if w.get("kind") == "step-stall"), {})
+            result.incompletion = IncompletionRecord(
+                reason="step-stall",
+                evidence=(
+                    f"no completed step for {stalled.get('seconds', '?')}s "
+                    f"(bound {stalled.get('bound_seconds', '?')}s)"
+                ),
+                recommendation=(
+                    f"resume with a smaller brief or raise {_STALL_ENV}; the partial "
+                    "is preserved on the artifact"
+                ),
+            )
     if outcome == _EXIT_TOOL_PROTOCOL:
         note = (
             f"Stopped after {len(result.steps)} step(s): the tool-call channel is "
@@ -2675,6 +2789,8 @@ def _maybe_flag_incompletion(ctx: "_Work", outcome: str) -> None:
     it (all-engines); omit-when-None keeps a delivering run byte-identical.
     """
     result = ctx.result
+    if outcome == _EXIT_STALLED and result.incompletion is not None:
+        return  # the step-stall record (#400) names the cause; keep it
     cell = ctx._unknown_tool_streak
     protocol_detail = ""
     if outcome == _EXIT_TOOL_PROTOCOL and cell:
@@ -2737,6 +2853,11 @@ def _complete_turn_or_retry(ctx: _Work, complete: CompleteFn) -> ModelResponse |
     """
     try:
         return _complete_with_degradation(ctx, complete)
+    except stallguard.TurnStalled as exc:
+        # Step-stall (#400): the turn was alive but no step completed within the
+        # bound — record it and let _work_loop end the episode with a partial.
+        _record_stall(ctx, exc.seconds, exc.bound)
+        return None
     except Exception as exc:  # noqa: BLE001
         # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
         # #154) — inject ONE recommendation and continue BEFORE the error would
@@ -2775,7 +2896,12 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     nudges = 0
     last_prompt_tokens = 0
     budget = max(1, max_steps)
+    _mark_progress(ctx)
     while ctx.result.stats.model_turns < budget:
+        # Step-stall watchdog (#400): a turn that crossed the bound (in-stream via
+        # stallguard, or measured here between turns) ends the episode honestly.
+        if _stalled_between_turns(ctx):
+            return _EXIT_STALLED
         # Flight-control checkpoint (piloting): at this turn boundary honor a pilot's
         # cooperative `stop` and inject any new `guidance` BEFORE the next model call.
         # A strict no-op when the work item is not a watchable flight.
@@ -2826,7 +2952,10 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         if _consume_fillline_declaration(ctx, resp, complete):
             continue
 
+        steps_before = len(ctx.result.steps)
         nudges, exit_reason = _advance_turn(ctx, resp, nudges)
+        if len(ctx.result.steps) > steps_before:
+            _mark_progress(ctx)  # a step completed: the stall clock restarts (#400)
         # Record this turn on the live flight feed (no-op when unwatched) — placed
         # after _advance_turn so the step trace + stats already reflect the turn, and
         # before the exit return so a finishing turn is still recorded.
