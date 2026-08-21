@@ -39,18 +39,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any, Mapping, Sequence
 
 try:
     import fcntl  # POSIX-only; guarded so a non-POSIX host degrades, never crashes.
 except ImportError:  # pragma: no cover - exercised only on a non-POSIX host
     fcntl = None  # type: ignore[assignment]
 
-# ---------------------------------------------------------------------------
-# Vocabulary + schema
-# ---------------------------------------------------------------------------
+# --- Vocabulary + schema -------------------------------------------------------------------------
 
 #: The current on-disk schema version; the header line's ``version`` MUST
 #: equal this exactly or :func:`read_ledger` refuses the whole file.
@@ -99,9 +97,7 @@ class LedgerUnreadable(Exception):
         self.reason = reason
 
 
-# ---------------------------------------------------------------------------
-# LedgerEvent
-# ---------------------------------------------------------------------------
+# --- LedgerEvent ---------------------------------------------------------------------------------
 
 
 def _canonical(obj: Any) -> str:
@@ -165,9 +161,7 @@ def authority_digest(events: Sequence[LedgerEvent]) -> str:
     return hashlib.sha256(_canonical(bearing).encode("utf-8")).hexdigest()
 
 
-# ---------------------------------------------------------------------------
-# TaskSnapshot — derived purely by replay
-# ---------------------------------------------------------------------------
+# --- TaskSnapshot — derived purely by replay -----------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -194,25 +188,16 @@ class TaskSnapshot:
     state_digest: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "task_id": self.task_id,
-            "original_request_ref": self.original_request_ref,
-            "active_thought": self.active_thought,
-            "constraints": [dict(x) for x in self.constraints],
-            "acceptance": [dict(x) for x in self.acceptance],
-            "plan": [dict(x) for x in self.plan],
-            "decisions": [dict(x) for x in self.decisions],
-            "open_loops": [dict(x) for x in self.open_loops],
-            "working_set": list(self.working_set),
-            "changed_paths": list(self.changed_paths),
-            "verification": [dict(x) for x in self.verification],
-            "messages": [dict(x) for x in self.messages],
-            "delegations": [dict(x) for x in self.delegations],
-            "episode": self.episode,
-            "referenced_digests": dict(self.referenced_digests),
-            "authority_digest": self.authority_digest,
-            "state_digest": self.state_digest,
-        }
+        """Plain JSON shape, field order: tuples → lists (entries copied),
+        ``referenced_digests`` copied, scalars as-is."""
+        out: dict[str, Any] = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if isinstance(value, tuple):
+                out[f.name] = [dict(x) if isinstance(x, dict) else x for x in value]
+            else:
+                out[f.name] = dict(value) if isinstance(value, dict) else value
+        return out
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "TaskSnapshot":
@@ -252,128 +237,140 @@ def _entry(e: LedgerEvent) -> dict[str, Any]:
     return d
 
 
-def derive_snapshot(events: Sequence[LedgerEvent]) -> TaskSnapshot:
-    """Replay ``events`` (sorted by ``seq``; equal seqs keep input order) into
-    a :class:`TaskSnapshot`. Pure: same events → equal snapshot + digests.
+#: Event kinds whose ``thought_id`` moves the active thought on replay.
+_THOUGHT_KINDS = frozenset({"operator_request", "operator_input", "decision", "plan_node"})
+#: The append family (kind → the snapshot list it extends), the keyed family
+#: (kind → the collection keyed by ``data["id"]``) and the ``_on_<kind>`` kinds.
+_APPEND_KINDS = {
+    "constraint": "constraints",
+    "acceptance": "acceptance",
+    "decision": "decisions",
+    "message": "messages",
+}
+_KEYED_KINDS = {"plan_node": "plan", "verification": "verification"}
+_HANDLED_KINDS = ("operator_request", "open_loop", "working_set", "changed_path")
+_HANDLED_KINDS += ("delegate", "return", "invocation", "snapshot")
+_KEYED_FIELDS = ("plan", "working_set", "changed_paths", "verification", "delegations")
+
+
+class _Replay:
+    """Mutable replay state for :func:`derive_snapshot`; ``lists`` / ``keyed`` hold
+    the snapshot's collections by field name (``working_set`` / ``changed_paths``
+    are ordered sets: path → path).
 
     Replay rules: ``plan_node`` / ``open_loop`` / ``verification`` keyed by
     ``data["id"]`` (last wins, first-seen order; an open_loop whose latest
-    ``status`` is ``closed`` drops out); ``working_set`` honours
-    ``op: add|remove``; a ``delegate`` without a matching ``return`` (by
-    ``id``) is ALSO an open loop; ``episode`` counts ``invocation`` events
-    (or takes the latest one's explicit ``episode``); the latest ``snapshot``
-    event's ``referenced_digests`` (evaluation ledger, config_events, ...)
-    are carried, never their content.
-    """
+    ``status`` is ``closed`` drops out); ``working_set`` honours ``op: add|remove``;
+    a ``delegate`` without a matching ``return`` (by ``id``) is ALSO an open loop;
+    ``episode`` counts ``invocation`` events (or takes the latest one's explicit
+    ``episode``); the latest ``snapshot`` event's ``referenced_digests``
+    (evaluation ledger, config_events, ...) are carried, never their content;
+    ``operator_input`` only moves the active thought, ``evidence`` moves nothing."""
+
+    def __init__(self) -> None:
+        self.request_ref = ""
+        self.active_thought = ""
+        self.episode = 0
+        self.referenced: dict[str, str] = {}
+        self.loops: dict[str, dict[str, Any]] = {}
+        self.lists: dict[str, list[dict[str, Any]]] = {k: [] for k in _APPEND_KINDS.values()}
+        self.keyed: dict[str, dict[str, Any]] = {k: {} for k in _KEYED_FIELDS}
+
+    def feed(self, e: LedgerEvent) -> None:
+        if "thought_id" in e.data and e.kind in _THOUGHT_KINDS:
+            self.active_thought = str(e.data["thought_id"])
+        if e.kind in _APPEND_KINDS:
+            self.lists[_APPEND_KINDS[e.kind]].append(_entry(e))
+        elif e.kind in _KEYED_KINDS:
+            self.keyed[_KEYED_KINDS[e.kind]][str(e.data.get("id", e.seq))] = _entry(e)
+        elif e.kind in _REPLAY_HANDLERS:
+            _REPLAY_HANDLERS[e.kind](self, e)
+
+    def _on_operator_request(self, e: LedgerEvent) -> None:
+        if not self.request_ref:
+            self.request_ref = _ref_of(e)
+
+    def _on_open_loop(self, e: LedgerEvent) -> None:
+        key = str(e.data.get("id", e.seq))
+        if str(e.data.get("status", "open")) == "closed":
+            self.loops.pop(key, None)
+        else:
+            self.loops[key] = _entry(e)
+
+    def _on_working_set(self, e: LedgerEvent) -> None:
+        path = str(e.data.get("path", e.data.get("ref", "")))
+        if str(e.data.get("op", "add")) == "remove":
+            self.keyed["working_set"].pop(path, None)
+        elif path:
+            self.keyed["working_set"][path] = path
+
+    def _on_changed_path(self, e: LedgerEvent) -> None:
+        path = str(e.data.get("path", ""))
+        if path:
+            self.keyed["changed_paths"][path] = path
+
+    def _on_delegate(self, e: LedgerEvent) -> None:
+        key = str(e.data.get("id", e.seq))
+        child_ref = str(e.data.get("child_ref", ""))
+        entry = dict(id=key, child_ref=child_ref, seq=e.seq, returned=False, return_ref="")
+        self.keyed["delegations"][key] = entry
+
+    def _on_return(self, e: LedgerEvent) -> None:
+        key = str(e.data.get("id", ""))
+        delegations = self.keyed["delegations"]
+        if key in delegations:
+            delegations[key] = dict(delegations[key], returned=True, return_ref=_ref_of(e))
+
+    def _on_invocation(self, e: LedgerEvent) -> None:
+        self.episode = int(e.data.get("episode", self.episode + 1) or 0)
+
+    def _on_snapshot(self, e: LedgerEvent) -> None:
+        ref = e.data.get("referenced_digests")
+        if isinstance(ref, Mapping):
+            self.referenced = {str(k): str(v) for k, v in ref.items()}
+
+    def open_loops(self) -> list[dict[str, Any]]:
+        """Ledgered open loops + every delegation without a matching return."""
+        return list(self.loops.values()) + [
+            {"id": key, "kind": "delegate", "child_ref": v["child_ref"], "seq": v["seq"]}
+            for key, v in self.keyed["delegations"].items()
+            if not v["returned"]
+        ]
+
+    def to_snapshot(self, task_id: str, ordered: Sequence[LedgerEvent]) -> TaskSnapshot:
+        return TaskSnapshot(
+            task_id=task_id,
+            original_request_ref=self.request_ref,
+            active_thought=self.active_thought,
+            open_loops=tuple(self.open_loops()),
+            episode=self.episode,
+            referenced_digests=self.referenced,
+            authority_digest=authority_digest(ordered),
+            state_digest=task_ledger_digest(ordered),
+            **{k: tuple(v) for k, v in self.lists.items()},
+            **{k: tuple(v.values()) for k, v in self.keyed.items()},
+        )
+
+
+#: Replay dispatch for the kinds outside the append / keyed families.
+_REPLAY_HANDLERS = {k: getattr(_Replay, f"_on_{k}") for k in _HANDLED_KINDS}
+
+
+def derive_snapshot(events: Sequence[LedgerEvent]) -> TaskSnapshot:
+    """Replay ``events`` (sorted by ``seq``; equal seqs keep input order) into
+    a :class:`TaskSnapshot`. Pure: same events → equal snapshot + digests.
+    The replay rules are documented on :class:`_Replay`."""
     ordered = sorted(events, key=lambda e: e.seq)
-    task_id = ordered[0].task_id if ordered else ""
-    request_ref = ""
-    active_thought = ""
-    constraints: list[dict[str, Any]] = []
-    acceptance: list[dict[str, Any]] = []
-    plan: dict[str, dict[str, Any]] = {}
-    decisions: list[dict[str, Any]] = []
-    loops: dict[str, dict[str, Any]] = {}
-    working: dict[str, None] = {}
-    changed: dict[str, None] = {}
-    verification: dict[str, dict[str, Any]] = {}
-    messages: list[dict[str, Any]] = []
-    delegations: dict[str, dict[str, Any]] = {}
-    episode = 0
-    referenced: dict[str, str] = {}
-
+    state = _Replay()
     for e in ordered:
-        d = e.data
-        if "thought_id" in d and e.kind in (
-            "operator_request",
-            "operator_input",
-            "decision",
-            "plan_node",
-        ):
-            active_thought = str(d["thought_id"])
-        if e.kind == "operator_request":
-            if not request_ref:
-                request_ref = _ref_of(e)
-        elif e.kind == "constraint":
-            constraints.append(_entry(e))
-        elif e.kind == "acceptance":
-            acceptance.append(_entry(e))
-        elif e.kind == "plan_node":
-            plan[str(d.get("id", e.seq))] = _entry(e)
-        elif e.kind == "decision":
-            decisions.append(_entry(e))
-        elif e.kind == "open_loop":
-            key = str(d.get("id", e.seq))
-            if str(d.get("status", "open")) == "closed":
-                loops.pop(key, None)
-            else:
-                loops[key] = _entry(e)
-        elif e.kind == "working_set":
-            path = str(d.get("path", d.get("ref", "")))
-            if str(d.get("op", "add")) == "remove":
-                working.pop(path, None)
-            elif path:
-                working[path] = None
-        elif e.kind == "changed_path":
-            path = str(d.get("path", ""))
-            if path:
-                changed[path] = None
-        elif e.kind == "verification":
-            verification[str(d.get("id", e.seq))] = _entry(e)
-        elif e.kind == "message":
-            messages.append(_entry(e))
-        elif e.kind == "delegate":
-            key = str(d.get("id", e.seq))
-            delegations[key] = {
-                "id": key,
-                "child_ref": str(d.get("child_ref", "")),
-                "seq": e.seq,
-                "returned": False,
-                "return_ref": "",
-            }
-        elif e.kind == "return":
-            key = str(d.get("id", ""))
-            if key in delegations:
-                delegations[key] = dict(delegations[key], returned=True, return_ref=_ref_of(e))
-        elif e.kind == "invocation":
-            episode = int(d.get("episode", episode + 1) or 0)
-        elif e.kind == "snapshot":
-            ref = d.get("referenced_digests")
-            if isinstance(ref, Mapping):
-                referenced = {str(k): str(v) for k, v in ref.items()}
-
-    open_loops = list(loops.values()) + [
-        {"id": key, "kind": "delegate", "child_ref": v["child_ref"], "seq": v["seq"]}
-        for key, v in delegations.items()
-        if not v["returned"]
-    ]
-    return TaskSnapshot(
-        task_id=task_id,
-        original_request_ref=request_ref,
-        active_thought=active_thought,
-        constraints=tuple(constraints),
-        acceptance=tuple(acceptance),
-        plan=tuple(plan.values()),
-        decisions=tuple(decisions),
-        open_loops=tuple(open_loops),
-        working_set=tuple(working),
-        changed_paths=tuple(changed),
-        verification=tuple(verification.values()),
-        messages=tuple(messages),
-        delegations=tuple(delegations.values()),
-        episode=episode,
-        referenced_digests=referenced,
-        authority_digest=authority_digest(ordered),
-        state_digest=task_ledger_digest(ordered),
-    )
+        state.feed(e)
+    return state.to_snapshot(ordered[0].task_id if ordered else "", ordered)
 
 
-# ---------------------------------------------------------------------------
-# Paths, header, reader
-# ---------------------------------------------------------------------------
+# --- Paths, header, reader -----------------------------------------------------------------------
 
 
-def ledger_path(repo_root: Union[str, Path], task_id: str) -> Path:
+def ledger_path(repo_root: str | Path, task_id: str) -> Path:
     """``<repo_root>/.colleague/ledger/<task_id>.jsonl``; refuses a task_id that
     would escape the directory."""
     tid = str(task_id)
@@ -421,7 +418,33 @@ class LedgerRead:
     snapshot: TaskSnapshot
 
 
-def read_ledger(path: Union[str, Path]) -> LedgerRead:
+def _event_at(lineno: int, line: str, task_id: str, prior: Sequence[LedgerEvent]) -> LedgerEvent:
+    """Parse ONE body line and check it fail-closed against the header + prior events:
+    JSON object, known kind, gap-free seq, no task_id drift, snapshot digests reproduce."""
+    try:
+        raw = json.loads(line)
+        if not isinstance(raw, Mapping):
+            raise ValueError("not an object")
+        event = LedgerEvent.from_dict(raw)
+    except ValueError as exc:
+        raise LedgerUnreadable(f"torn/non-JSON line {lineno}: {exc}") from None
+    if event.kind not in EVENT_KINDS:
+        raise LedgerUnreadable(f"line {lineno}: unknown event kind {event.kind!r}")
+    if event.seq != len(prior):
+        raise LedgerUnreadable(f"line {lineno}: seq {event.seq} (expected {len(prior)})")
+    if event.task_id != task_id:
+        raise LedgerUnreadable(f"line {lineno}: task_id {event.task_id!r} != header {task_id!r}")
+    if event.kind == "snapshot":
+        want_state = event.data.get("state_digest")
+        if want_state is not None and want_state != task_ledger_digest(prior):
+            raise LedgerUnreadable(f"line {lineno}: state_digest mismatch on replay")
+        want_auth = event.data.get("authority_digest")
+        if want_auth is not None and want_auth != authority_digest(prior):
+            raise LedgerUnreadable(f"line {lineno}: authority_digest mismatch on replay")
+    return event
+
+
+def read_ledger(path: str | Path) -> LedgerRead:
     """Read + validate the whole file, then derive the snapshot. Any defect —
     missing file, bad/unknown header, non-JSON or torn tail, unknown kind,
     seq gap, task_id drift, a ``snapshot`` event whose recorded
@@ -440,35 +463,11 @@ def read_ledger(path: Union[str, Path]) -> LedgerRead:
     task_id = _parse_header(lines[0])
     events: list[LedgerEvent] = []
     for lineno, line in enumerate(lines[1:], start=2):
-        try:
-            raw = json.loads(line)
-            if not isinstance(raw, Mapping):
-                raise ValueError("not an object")
-            event = LedgerEvent.from_dict(raw)
-        except ValueError as exc:
-            raise LedgerUnreadable(f"torn/non-JSON line {lineno}: {exc}") from None
-        if event.kind not in EVENT_KINDS:
-            raise LedgerUnreadable(f"line {lineno}: unknown event kind {event.kind!r}")
-        if event.seq != len(events):
-            raise LedgerUnreadable(f"line {lineno}: seq {event.seq} (expected {len(events)})")
-        if event.task_id != task_id:
-            raise LedgerUnreadable(
-                f"line {lineno}: task_id {event.task_id!r} != header {task_id!r}"
-            )
-        if event.kind == "snapshot":
-            want_state = event.data.get("state_digest")
-            if want_state is not None and want_state != task_ledger_digest(events):
-                raise LedgerUnreadable(f"line {lineno}: state_digest mismatch on replay")
-            want_auth = event.data.get("authority_digest")
-            if want_auth is not None and want_auth != authority_digest(events):
-                raise LedgerUnreadable(f"line {lineno}: authority_digest mismatch on replay")
-        events.append(event)
+        events.append(_event_at(lineno, line, task_id, events))
     return LedgerRead(task_id=task_id, events=tuple(events), snapshot=derive_snapshot(events))
 
 
-# ---------------------------------------------------------------------------
-# TaskLedger — the append-only writer
-# ---------------------------------------------------------------------------
+# --- TaskLedger — the append-only writer ---------------------------------------------------------
 
 
 class TaskLedger:
@@ -477,7 +476,7 @@ class TaskLedger:
     file (degrading, on a host without ``fcntl``, to an unlocked append plus
     ONE recorded warning on :attr:`warnings`)."""
 
-    def __init__(self, path: Union[str, Path], task_id: Optional[str] = None) -> None:
+    def __init__(self, path: str | Path, task_id: str | None = None) -> None:
         self.path = Path(path)
         self.task_id = str(task_id) if task_id is not None else self.path.stem
         self.warnings: list[str] = []
@@ -524,7 +523,7 @@ class TaskLedger:
         except (ValueError, KeyError, TypeError) as exc:
             raise LedgerUnreadable(f"torn/non-JSON tail: {exc}") from None
 
-    def append(self, kind: str, data: Optional[Mapping[str, Any]] = None) -> LedgerEvent:
+    def append(self, kind: str, data: Mapping[str, Any] | None = None) -> LedgerEvent:
         """Append one event; returns it with its ledger-assigned ``seq``.
 
         ``ValueError`` for a kind outside :data:`EVENT_KINDS`, a non-mapping
@@ -551,16 +550,14 @@ class TaskLedger:
                 handle.seek(0)
                 seq, need_header = self._next_seq(handle.read())
                 event = LedgerEvent(kind=kind, seq=seq, task_id=self.task_id, data=payload)
-                out = (
-                    (_header(self.task_id) + "\n" if need_header else "") + event.canonical() + "\n"
-                )
-                handle.write(out)
+                header = _header(self.task_id) + "\n" if need_header else ""
+                handle.write(header + event.canonical() + "\n")
                 handle.flush()
             finally:
                 self._unlock(handle)
         return event
 
-    def snapshot(self, referenced_digests: Optional[Mapping[str, str]] = None) -> LedgerEvent:
+    def snapshot(self, referenced_digests: Mapping[str, str] | None = None) -> LedgerEvent:
         """Derive the current snapshot and append a ``snapshot`` event carrying
         its ``state_digest`` + ``authority_digest`` (what :func:`read_ledger`
         later re-verifies) and the REFERENCED streams' digests — e.g.
