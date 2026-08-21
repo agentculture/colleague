@@ -113,6 +113,7 @@ def make_check(
 # must already be bound on the package when these run. (identity imports it; the
 # stubs do not yet, but the spec tells siblings to — keep the order.)
 from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see above).
+    agents,
     distillation,
     engines,
     environment,
@@ -144,6 +145,7 @@ CHECK_GROUPS: List[CheckGroup] = [
     organs.checks,
     model_membership.checks,
     three_tier.checks,
+    agents.checks,
     distillation.checks,
 ]
 
@@ -152,7 +154,7 @@ CHECK_GROUPS: List[CheckGroup] = [
 #: bare zero-arg callable. Kept as an explicit set (not a signature probe) so
 #: the aggregator's dispatch stays simple and testable.
 _REPO_AWARE_GROUPS = frozenset(
-    {provider.checks, organs.checks, model_membership.checks, three_tier.checks}
+    {provider.checks, organs.checks, model_membership.checks, three_tier.checks, agents.checks}
 )
 
 
@@ -205,6 +207,9 @@ def diagnose(probe: bool = False, repo_path=None) -> dict:
         # Three-tier worker readiness (plan task t10): opt-in probe of the
         # worker seat — role, dialability, tool-calling, model-id match.
         checks.extend(three_tier.probe_checks(repo_path=repo_path))
+        # Model-bound agents (#411 t7): opt-in probe of each reference role's
+        # advert — ready, or absent/not-ready → the recorded cortex fallback.
+        checks.extend(agents.probe_checks(repo_path=repo_path))
         # Model-membership probe (plan task t10): verify the configured MAIN
         # model id against the provider's /v1/models list.
         checks.extend(model_membership.probe_checks(repo_path=repo_path))

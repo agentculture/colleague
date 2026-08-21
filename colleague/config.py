@@ -298,6 +298,16 @@ _DEFAULT_THREE_TIER_ENABLED = False
 # mode's keys are omit-when-unarmed, the deepthink/senses/worker convention).
 _DEFAULT_THOUGHT_ACTION_EVALUATION = False
 
+# Model-bound agents arming (#411, the ELEVENTH sanctioned increment; plan task
+# t7). A THIRD, INDEPENDENT opt-in: ``COLLEAGUE_AGENTS`` env > an ``agents``
+# key in .colleague/config.json (bool, or an object whose presence — absent an
+# explicit ``{"enabled": false}`` — itself means armed, the ``three_tier``/
+# ``thought_action_evaluation`` precedent) > default-OFF. Arming it together
+# with EITHER of the other two execution modes refuses loudly (one mode owns
+# the acting seat). Unarmed is a strict no-op: the ``agents`` key is omitted
+# from ``to_dict()`` and every armed-only surface stays dormant.
+_DEFAULT_AGENTS_ENABLED = False
+
 # The seat → lobes ROLE NAME map for the thought→action→evaluation mode.
 #
 # Every seat is resolved BY ROLE NAME from the gateway's ``/capabilities``
@@ -661,6 +671,25 @@ def _load_thought_action_evaluation_override(repo_path: str | Path) -> str | Non
     """
     data = _merged_config_json(repo_path)
     section = data.get("thought_action_evaluation")
+    if section is None:
+        return None
+    if isinstance(section, dict):
+        return str(section.get("enabled", True))
+    return str(section)
+
+
+def _load_agents_override(repo_path: str | Path) -> str | None:
+    """Read the ``agents`` key from .colleague/config.json as a raw string (#411 t7).
+
+    Accepts either a bare boolean (``{"agents": true}``) or a nested object
+    (``{"agents": {"enabled": true}}`` — the object's own presence, absent an
+    explicit ``"enabled": false``, is itself treated as armed — the
+    ``three_tier`` / ``thought_action_evaluation`` tolerance). Returns the
+    stringified value, or ``None`` when the key is absent; never raises. Reads
+    via :func:`_merged_config_json` (the at-home per-key merge, #339).
+    """
+    data = _merged_config_json(repo_path)
+    section = data.get("agents")
     if section is None:
         return None
     if isinstance(section, dict):
@@ -1327,21 +1356,39 @@ def _resolve_worker(
 # ---------------------------------------------------------------------------
 
 
-def _refuse_conflicting_execution_modes(three_tier: bool, thought_action_evaluation: bool) -> None:
-    """Refuse when BOTH execution modes are armed at once (plan task t12).
+def _refuse_conflicting_execution_modes(
+    three_tier: bool, thought_action_evaluation: bool, agents: bool = False
+) -> None:
+    """Refuse when more than ONE execution mode is armed at once (plan task t12; #411 t7).
 
-    Two execution modes cannot both own the acting seat, and silently letting
-    one win by precedence is exactly the class of quiet degradation this arc
-    exists to prevent — an operator who armed both must be told, not guessed
-    at. A strict no-op unless both are armed.
+    Execution modes cannot share the acting seat, and silently letting one
+    win by precedence is exactly the class of quiet degradation this arc
+    exists to prevent — an operator who armed two must be told, not guessed
+    at. A strict no-op unless at least two are armed. The refusal NAMES both
+    modes and both switches.
     """
-    if three_tier and thought_action_evaluation:
-        raise _seat_refusal(
-            "three_tier and thought_action_evaluation are both armed — they are "
-            "independent execution modes and cannot both own the acting seat",
-            "unset one of COLLEAGUE_THREE_TIER / COLLEAGUE_THOUGHT_ACTION_EVALUATION "
-            "(or the matching .colleague/config.json key)",
+    armed = [
+        (name, switch)
+        for name, switch, on in (
+            ("three_tier", "COLLEAGUE_THREE_TIER", three_tier),
+            (
+                "thought_action_evaluation",
+                "COLLEAGUE_THOUGHT_ACTION_EVALUATION",
+                thought_action_evaluation,
+            ),
+            ("agents", "COLLEAGUE_AGENTS", agents),
         )
+        if on
+    ]
+    if len(armed) < 2:
+        return
+    names = " and ".join(name for name, _ in armed)
+    switches = " / ".join(switch for _, switch in armed)
+    raise _seat_refusal(
+        f"{names} are both armed — they are independent execution modes and "
+        "cannot both own the acting seat",
+        f"unset one of {switches} (or the matching .colleague/config.json key)",
+    )
 
 
 def _refuse_unusable_evaluation_gateway(
@@ -2097,6 +2144,22 @@ def _resolve_thought_action_evaluation_enabled(file_value: str | None) -> bool:
     if file_value is not None:
         return _parse_bool(file_value)
     return _DEFAULT_THOUGHT_ACTION_EVALUATION
+
+
+def _resolve_agents_enabled(file_value: str | None) -> bool:
+    """Resolve the model-bound-agents arming flag: env ``COLLEAGUE_AGENTS`` >
+    config.json ``agents`` > default-OFF (#411, plan task t7).
+
+    The exact precedence shape of the two sibling modes over a DELIBERATELY
+    DISTINCT key: arming this mode never arms three-tier or
+    thought→action→evaluation, and vice versa. Default-OFF, never ambient.
+    """
+    env = os.environ.get("COLLEAGUE_AGENTS")
+    if env is not None and env.strip() != "":
+        return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_AGENTS_ENABLED
 
 
 def _resolve_distiller_checkpoint(file_value: str | None) -> str | None:
@@ -2968,6 +3031,13 @@ class EngineConfig:
     # from ``three_tier`` in every direction (arming one never arms the other;
     # arming both refuses). See :func:`_resolve_thought_action_evaluation_enabled`.
     thought_action_evaluation: bool = False
+    # Model-bound agents arming (#411, the eleventh sanctioned increment; plan
+    # task t7). ``False`` (the default) = today's byte-identical behavior and
+    # the key is omitted from ``to_dict()`` entirely. A THIRD independent
+    # opt-in: arming it with either sibling mode refuses. The runtime seams
+    # that read it (agents/runtime, loop wiring) land in later tasks. See
+    # :func:`_resolve_agents_enabled`.
+    agents: bool = False
     # The mode's three resolved seats (front/worker/evaluator), each resolved
     # BY ROLE NAME from the lobes /capabilities contract. ``None`` = the mode
     # is not armed, byte-identical to today. RESOLUTION ONLY when present: an
@@ -3212,6 +3282,7 @@ class EngineConfig:
         file_three_tier: str | None = None
         file_worker: dict[str, str] = {}
         file_tae: str | None = None
+        file_agents: str | None = None
         file_distiller: str | None = None
         file_seats: dict[str, dict[str, str]] = {}
         if repo_path is not None:
@@ -3240,6 +3311,7 @@ class EngineConfig:
             # same seat name, same key, and the two modes are mutually
             # exclusive, so there is nothing to disambiguate.
             file_tae = _load_thought_action_evaluation_override(repo_path)
+            file_agents = _load_agents_override(repo_path)
             file_distiller = _load_distiller_override(repo_path)
             file_seats = {
                 "front": _load_seat_overrides(repo_path, "front"),
@@ -3381,7 +3453,10 @@ class EngineConfig:
         # evaluator roles MANDATORY and resolves each BY ROLE NAME. Both modes
         # armed at once refuses first — neither mode silently wins.
         resolved_tae = _resolve_thought_action_evaluation_enabled(file_tae)
-        _refuse_conflicting_execution_modes(resolved_three_tier, resolved_tae)
+        # Model-bound agents (#411 t7): the THIRD independent opt-in; any two
+        # armed modes refuse together, naming both.
+        resolved_agents = _resolve_agents_enabled(file_agents)
+        _refuse_conflicting_execution_modes(resolved_three_tier, resolved_tae, resolved_agents)
         resolved_seats = _resolve_evaluation_seats(
             resolved_tae,
             lobes_roles,
@@ -3760,6 +3835,10 @@ class EngineConfig:
             # `thought_action_evaluation` > default-OFF; independent of
             # `three_tier` in both directions.
             thought_action_evaluation=resolved_tae,
+            # Model-bound agents arming (#411, plan task t7) — env
+            # `COLLEAGUE_AGENTS` > config.json `agents` > default-OFF; a third
+            # independent opt-in; omitted from to_dict() when unarmed.
+            agents=resolved_agents,
             # The mode's three seats (front/worker/evaluator), each resolved BY
             # ROLE NAME from lobes /capabilities — None when the mode is not
             # armed (byte-identical); when armed, resolution above already
@@ -3821,6 +3900,10 @@ class EngineConfig:
             "compaction_cap": self.compaction_cap,
             "three_tier": self.three_tier,
         }
+        # Model-bound agents (#411 t7): present ONLY when armed, so an unarmed
+        # snapshot is byte-identical (omit-when-unarmed, the TAE convention).
+        if self.agents:
+            data["agents"] = True
         # Dual-model deepthink (t1): present ONLY when configured, so a
         # single-model snapshot is byte-identical to today (omit-when-None,
         # the destination/lint_report/capacity_decision convention). The
