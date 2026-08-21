@@ -317,7 +317,10 @@ def append_invocation(ledger: TaskLedger, record: InvocationRecord) -> Invocatio
     }
     event: LedgerEvent = ledger.append("invocation", data)
     snapshot = ledger.derive()
-    return dataclasses.replace(record, seq=event.seq, ledger_digest=snapshot.state_digest)
+    return cast(
+        InvocationRecord,
+        dataclasses.replace(record, seq=event.seq, ledger_digest=snapshot.state_digest),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +394,7 @@ class AgentsRun:
             )
 
     def _begin(self, task: Any, *, model: str, role_tools: Optional[Sequence[str]]) -> None:
-        from colleague.agents.profile import PURPOSE_ROLE, resolve_profile
-        from colleague.agents.state.ledger import ledger_path, read_ledger
+        from colleague.agents.state.ledger import ledger_path
         from colleague.agents.tools import tools_for_purpose
 
         root = getattr(task, "flight_repo_path", None) or task.repo_path
@@ -402,21 +404,7 @@ class AgentsRun:
         # Visible to every spawn closure / senses call that captured this config.
         setattr(self.config, "agents_ledger_path", self.ledger_path)
 
-        roles = self._roles()
-        fallback: Optional[str] = None
-        model_role = PURPOSE_ROLE.get(self.purpose, "cortex")
-        resolved_model = model or self.config.model
-        if roles is not None:
-            with suppress(Exception):  # no usable roles: the main seat is the floor
-                res = resolve_profile(self.purpose, roles)
-                model_role, resolved_model, fallback = (
-                    res.model_role,
-                    res.resolved_model,
-                    res.fallback_from_role,
-                )
-        elif model_role != "cortex":
-            fallback = model_role
-            model_role = "cortex"
+        model_role, resolved_model, fallback = self._resolve_identity(model)
         self.profile = AgentProfile(
             agent_id=f"{self.purpose}-{task.id}",
             purpose=self.purpose,
@@ -437,27 +425,59 @@ class AgentsRun:
         self.effective_tools = tuple(sorted(offered & set(purpose_tools)))
         self.tool_digest = tool_surface_digest(self.effective_tools)
 
-        already = False
+        self._seed_ledger(task, path)
+
+    def _resolve_identity(self, model: str) -> tuple[str, str, Optional[str]]:
+        """(model_role, resolved_model, fallback_from_role) for the acting purpose."""
+        from colleague.agents.profile import PURPOSE_ROLE, resolve_profile
+
+        roles = self._roles()
+        fallback: Optional[str] = None
+        model_role = PURPOSE_ROLE.get(self.purpose, "cortex")
+        resolved_model = model or self.config.model
+        if roles is not None:
+            with suppress(Exception):  # no usable roles: the main seat is the floor
+                res = resolve_profile(self.purpose, roles)
+                model_role, resolved_model, fallback = (
+                    res.model_role,
+                    res.resolved_model,
+                    res.fallback_from_role,
+                )
+        elif model_role != "cortex":
+            fallback = model_role
+            model_role = "cortex"
+        return model_role, resolved_model, fallback
+
+    def _seed_ledger(self, task: Any, path: Any) -> None:
+        """Seed the immutable request + constraints + acceptance ONCE.
+
+        Never re-seeded on a continued ledger — the ledger is the continuity.
+        """
+        from colleague.agents.state.ledger import read_ledger
+
+        if self.ledger is None:
+            return
         try:
             already = bool(read_ledger(path).events)
         except Exception:  # noqa: BLE001 - unreadable/absent = seed fresh
             already = False
-        if not already:
-            self.ledger.append(
-                "operator_request",
-                {
-                    "text": task.instruction,
-                    "context": getattr(task, "context", "") or "",
-                    "no_pr": bool(getattr(self.config, "no_pr", False)),
-                    "mode": getattr(self.config, "mode", None),
-                    "role": getattr(self.config, "role", None),
-                    "profile": self.purpose,
-                },
-            )
-            for c in getattr(task, "constraints", None) or []:
-                self.ledger.append("constraint", {"text": c})
-            for a in getattr(task, "acceptance", None) or []:
-                self.ledger.append("acceptance", {"text": a})
+        if already:
+            return
+        self.ledger.append(
+            "operator_request",
+            {
+                "text": task.instruction,
+                "context": getattr(task, "context", "") or "",
+                "no_pr": bool(getattr(self.config, "no_pr", False)),
+                "mode": getattr(self.config, "mode", None),
+                "role": getattr(self.config, "role", None),
+                "profile": self.purpose,
+            },
+        )
+        for c in getattr(task, "constraints", None) or []:
+            self.ledger.append("constraint", {"text": c})
+        for a in getattr(task, "acceptance", None) or []:
+            self.ledger.append("acceptance", {"text": a})
 
     def _roles(self) -> Any:
         gateway = getattr(self.config, "lobes_gateway_url", None)

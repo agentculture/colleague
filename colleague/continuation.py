@@ -355,7 +355,7 @@ def build_ledger_seed(
     )
 
     open_delegations = [d for d in snapshot.delegations if not d.get("returned")]
-    loops = [loop for loop in snapshot.open_loops if not (loop.get("kind") == "delegate")]
+    loops = [loop for loop in snapshot.open_loops if loop.get("kind") != "delegate"]
     parts.append("## Open loops\n\n" + _bullets([_label(loop) for loop in loops]) + "\n")
     parts.append(
         "## Open delegations\n\n"

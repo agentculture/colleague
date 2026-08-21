@@ -2236,6 +2236,15 @@ def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[
     return nudges, _EXIT_STOPPED
 
 
+def _advance_and_mark(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
+    """:func:`_advance_turn`, then restart the step-stall clock if a step completed (#400)."""
+    steps_before = len(ctx.result.steps)
+    nudges, exit_reason = _advance_turn(ctx, resp, nudges)
+    if len(ctx.result.steps) > steps_before:
+        _mark_progress(ctx)
+    return nudges, exit_reason
+
+
 def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
     """Process a normal (non-fill-line) turn; return ``(nudges, exit_reason_or_None)``.
 
@@ -3040,10 +3049,7 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         if _consume_fillline_declaration(ctx, resp, complete):
             continue
 
-        steps_before = len(ctx.result.steps)
-        nudges, exit_reason = _advance_turn(ctx, resp, nudges)
-        if len(ctx.result.steps) > steps_before:
-            _mark_progress(ctx)  # a step completed: the stall clock restarts (#400)
+        nudges, exit_reason = _advance_and_mark(ctx, resp, nudges)
         # Record this turn on the live flight feed (no-op when unwatched) — placed
         # after _advance_turn so the step trace + stats already reflect the turn, and
         # before the exit return so a finishing turn is still recorded.

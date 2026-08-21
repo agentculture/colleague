@@ -1327,6 +1327,27 @@ class ToolExecutor:
         last_lines = "\n".join(body.splitlines()[-20:])
         return ToolOutcome(result=f"tests FAILED (exit={proc.returncode})\n{last_lines}")
 
+    def _call_spawn(
+        self,
+        instruction: str,
+        engine: str | None,
+        model: str | None,
+        role: str | None,
+        profile: str | None,
+        context_mode: str | None,
+    ) -> "SubResult":
+        """Invoke the spawn closure — positional (legacy) or with the #411 keywords."""
+        if profile is None and context_mode is None:
+            return self._spawn(instruction, engine, model, role)  # type: ignore[misc]
+        return self._spawn(  # type: ignore[misc]
+            instruction,
+            engine,
+            model,
+            role,
+            profile=profile,
+            context_mode=context_mode or "inherit",
+        )
+
     def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Delegate a scoped sub-task to a nested child work item via the injected spawn.
 
@@ -1362,17 +1383,7 @@ class ToolExecutor:
             )
 
         try:
-            if profile is None and context_mode is None:
-                sub = self._spawn(instruction, engine, model, role)
-            else:
-                sub = self._spawn(
-                    instruction,
-                    engine,
-                    model,
-                    role,
-                    profile=profile,
-                    context_mode=context_mode or "inherit",
-                )
+            sub = self._call_spawn(instruction, engine, model, role, profile, context_mode)
         except ToolError:
             raise
         except Exception as exc:  # launcher/engine errors -> clean string for the model

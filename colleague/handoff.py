@@ -982,6 +982,16 @@ def _liveness_opinion(repo: Path, task_id: str) -> bool | None:
     return iso_worktree_is_live(str(repo), task_id)
 
 
+def _ledger_is_reapable(repo: Path, task_id: str, *, active: set, orphaned: set) -> bool:
+    """The reap predicate: NOT live, NOT resumable, and (final OR orphaned)."""
+    if not task_id or task_id in active:
+        return False
+    alive = _liveness_opinion(repo, task_id)
+    if alive is True or _artifact_is_resumable(repo, task_id):
+        return False
+    return task_id in orphaned or alive is False or _artifact_is_final(repo, task_id)
+
+
 def reap_finished_ledgers(
     repo_path: str | Path,
     *,
@@ -1016,12 +1026,7 @@ def reap_finished_ledgers(
         if not path.is_file():
             continue
         task_id = path.name[: -len(".jsonl")]
-        if not task_id or task_id in active:
-            continue
-        alive = _liveness_opinion(repo, task_id)
-        if alive is True or _artifact_is_resumable(repo, task_id):
-            continue
-        if not (task_id in orphaned or alive is False or _artifact_is_final(repo, task_id)):
+        if not _ledger_is_reapable(repo, task_id, active=active, orphaned=orphaned):
             continue
         if not dry_run:
             try:

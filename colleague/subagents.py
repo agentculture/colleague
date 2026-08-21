@@ -670,6 +670,56 @@ def make_spawn(
     return spawn
 
 
+def _build_child_config(
+    parent_config: EngineConfig,
+    spec: ChildSpec,
+    binding: "Optional[_ChildBinding]",
+    *,
+    model: Optional[str],
+    role: Optional[str],
+) -> EngineConfig:
+    """The child's EngineConfig: the armed cross-role dial (#411 t14) when a
+    binding resolved, else the legacy ``dataclasses.replace`` (byte-identical)."""
+    if binding is not None:
+        child_config = _child_config_for_profile(parent_config, spec, binding, role=role)
+        if model:
+            # An explicit model override from the caller still wins (the
+            # flag > env > config precedence, applied to the child seat).
+            child_config.model = model
+        return child_config
+    replace_kwargs: dict = {
+        "model": (model or parent_config.model),
+        "role": role,
+        "chain_episode": False,
+        "chain_prior_changed": (),
+        "until_done": False,
+        "config_lifecycle": _child_config_lifecycle(parent_config),
+    }
+    if spec.max_steps is not None:
+        replace_kwargs["max_steps"] = spec.max_steps
+    if spec.context_budget_tokens is not None:
+        replace_kwargs["context_budget_tokens"] = spec.context_budget_tokens
+    return cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
+
+
+def _delegate_event_data(
+    child_task_id: str, spec: ChildSpec, binding: "_ChildBinding", agent_id: Optional[str]
+) -> dict:
+    """The ``delegate`` ledger event payload for an armed child (#411 t14)."""
+    return {
+        "id": child_task_id,
+        "delegation_id": child_task_id,
+        "child_ref": f"sub/{child_task_id}",
+        "profile": binding.profile,
+        "context_mode": spec.context_mode,
+        "from_profile": spec.parent_profile,
+        "agent_id": agent_id,
+        "model_role": binding.model_role,
+        "resolved_model": binding.resolved_model,
+        "fallback_from_role": binding.fallback_from_role,
+    }
+
+
 def run_subagent(
     instruction: str,
     *,
@@ -796,29 +846,7 @@ def run_subagent(
     # the per-role key hygiene and the advertised context. ``binding`` stays
     # ``None`` on the unarmed path, which is byte-identical to today.
     binding = _resolve_child_binding(parent_config, spec)
-    if binding is not None:
-        child_config = _child_config_for_profile(parent_config, spec, binding, role=role)
-        if model:
-            # An explicit model override from the caller still wins (the
-            # flag > env > config precedence, applied to the child seat).
-            child_config.model = model
-    else:
-        replace_kwargs: dict = {
-            "model": (model or parent_config.model),
-            "role": role,
-            "chain_episode": False,
-            "chain_prior_changed": (),
-            "until_done": False,
-            "config_lifecycle": _child_config_lifecycle(parent_config),
-        }
-        if spec.max_steps is not None:
-            replace_kwargs["max_steps"] = spec.max_steps
-        if spec.context_budget_tokens is not None:
-            replace_kwargs["context_budget_tokens"] = spec.context_budget_tokens
-        child_config = cast(
-            EngineConfig,
-            dataclasses.replace(parent_config, **replace_kwargs),
-        )
+    child_config = _build_child_config(parent_config, spec, binding, model=model, role=role)
 
     # (c3) The parent's task ledger (armed + attached by the loop wiring, t15)
     # and the child's context packet: ``clear`` → the t10 handover summary
@@ -876,20 +904,7 @@ def run_subagent(
     # the open loop the replayed snapshot shows until ``return`` closes it.
     if binding is not None:
         _append_ledger_event(
-            ledger,
-            "delegate",
-            {
-                "id": child_task.id,
-                "delegation_id": child_task.id,
-                "child_ref": f"sub/{child_task.id}",
-                "profile": binding.profile,
-                "context_mode": spec.context_mode,
-                "from_profile": spec.parent_profile,
-                "agent_id": agent_id,
-                "model_role": binding.model_role,
-                "resolved_model": binding.resolved_model,
-                "fallback_from_role": binding.fallback_from_role,
-            },
+            ledger, "delegate", _delegate_event_data(child_task.id, spec, binding, agent_id)
         )
 
     # (f) Run the nested child work item. engine.work runs the bounded loop

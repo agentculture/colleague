@@ -1836,6 +1836,11 @@ class TaskResult:
         # ledger-less work item serializes byte-identically (no extra key).
         if self.evaluation_ledger is not None:
             extra["evaluation_ledger"] = dict(self.evaluation_ledger)
+        return self._extra_fields_tail(extra)
+
+    def _extra_fields_tail(self, extra: dict[str, Any]) -> dict[str, Any]:
+        """The second half of :meth:`_extra_fields_to_dict` (same order), split
+        purely to hold each half under the SonarCloud S3776 ceiling."""
         # agents gets the same omit-when-None treatment (#411, t13): an unarmed
         # work item serializes byte-identically (no extra key); an armed one
         # carries the versioned block with its lists copied, not aliased.
