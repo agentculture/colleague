@@ -53,6 +53,7 @@ Pure stdlib + the sibling agent modules + ``colleague.lobes`` /
 from __future__ import annotations
 
 import dataclasses
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence, cast
 from urllib.parse import urlsplit
@@ -278,10 +279,8 @@ def estimate_tokens(
     """
     make = getattr(engine, "make_count_tokens", None)
     if callable(make):
-        try:
+        with suppress(Exception):  # a failing counter degrades to chars
             return int(make(config)(list(messages))), "tokenize"
-        except Exception:  # noqa: BLE001 - a failing counter degrades to chars
-            pass
     return count_tokens_chars(list(messages)), "chars"
 
 
@@ -408,15 +407,13 @@ class AgentsRun:
         model_role = PURPOSE_ROLE.get(self.purpose, "cortex")
         resolved_model = model or self.config.model
         if roles is not None:
-            try:
+            with suppress(Exception):  # no usable roles: the main seat is the floor
                 res = resolve_profile(self.purpose, roles)
                 model_role, resolved_model, fallback = (
                     res.model_role,
                     res.resolved_model,
                     res.fallback_from_role,
                 )
-            except Exception:  # noqa: BLE001 - no usable roles: the main seat is the floor
-                pass
         elif model_role != "cortex":
             fallback = model_role
             model_role = "cortex"
@@ -576,14 +573,12 @@ class AgentsRun:
                     self.ledger.append("changed_path", {"path": path})
                 except Exception:  # noqa: BLE001
                     break
-        try:
+        with suppress(Exception):  # the fold is best-effort
             block = self.block()
             if self.warnings:
                 block["warnings"] = list(self.warnings)
             if getattr(result, "agents", None) is None:
                 result.agents = block
-        except Exception:  # noqa: BLE001 - the fold is best-effort
-            pass
 
 
 def make_agents_run(config: Any) -> Optional[AgentsRun]:
