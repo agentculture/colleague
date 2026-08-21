@@ -46,7 +46,19 @@ from colleague.contract import OK, Task
 from colleague.engines import vllm_openai
 from colleague.engines.vllm_openai import VllmOpenAIEngine
 
-_BLOCKING_PAYLOAD_KEYS = {"model", "messages", "temperature", "tools", "tool_choice"}
+# "chat_template_kwargs" joined this set in #416 t3: a default-resolved
+# EngineConfig's ACTING seat (cortex/worker) is NOT "unset" — it resolves to
+# "medium" via effort.SEAT_TABLE (t2's reasoning_effort_effective) — so this
+# opt-out pin's key-set gains exactly that one new, orthogonal key; the
+# stream/stream_options omission this test actually pins is unaffected.
+_BLOCKING_PAYLOAD_KEYS = {
+    "model",
+    "messages",
+    "temperature",
+    "tools",
+    "tool_choice",
+    "chat_template_kwargs",
+}
 
 
 class _FakeStreamResponse:
