@@ -26,6 +26,15 @@ log ARE its durable record (no separate artifact), so reaping the instant the
 pid exits would delete a finished-but-not-yet-summarized experiment. A
 genuinely live experiment is never touched.
 
+Also reaps finished-task ledgers (#411 t19): an agents-mode run ledgers at
+the OPERATOR repo (``.colleague/ledger/<id>.jsonl``), outside any throwaway
+worktree, so the file outlives the run. :func:`colleague.handoff.
+reap_finished_ledgers` removes it only once the task's artifact is final
+(ok / incomplete / error) or the task is orphaned (dead liveness marker, or
+an iso worktree this same ``clean`` just reaped); a live task's ledger
+(active flight id / alive liveness marker) is never removed, and a ledger
+with no artifact and no liveness opinion is kept.
+
 Thin presentation layer: the git-touching reap logic lives in
 :mod:`colleague.handoff` (the sanctioned subprocess consumer), the artifact
 reap in :mod:`colleague.artifact`, the background reap in
@@ -107,6 +116,17 @@ def cmd_clean(args: argparse.Namespace) -> int:
     # differs from the background reap's immediate-on-death rule) — a
     # genuinely live experiment is never touched.
     experiments = experiment.reap_experiments(repo, dry_run=dry_run)
+    # Reap finished-task ledgers (#411 t19) AFTER the iso-worktree reap: the
+    # ids of the iso worktrees reaped above are orphaned by construction (and
+    # that reap already cleared their dead markers), so they bridge into the
+    # ledger reap; a task whose artifact is final is reaped on its own evidence;
+    # the same active-flight set + an ALIVE marker spare a live task's ledger.
+    ledgers = handoff.reap_finished_ledgers(
+        repo,
+        active_task_ids=active_flights,
+        orphaned_task_ids={Path(w).name[len("iso-") :] for w in iso_worktrees},
+        dry_run=dry_run,
+    )
     empty_objects = handoff.empty_loose_objects(repo)
 
     report = {
@@ -118,6 +138,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         "flights": flights,
         "background": backgrounds,
         "experiments": experiments,
+        "ledgers": ledgers,
         "empty_loose_objects": empty_objects,
     }
     emit_result(report if json_mode else _render(report), json_mode=json_mode)
@@ -156,6 +177,10 @@ def _render(report: dict) -> str:
     if reaped_experiments:
         lines.append(f"experiments ({verb}):")
         lines += [f"  - {e['experiment']}" for e in reaped_experiments]
+    reaped_ledgers = report.get("ledgers", [])
+    if reaped_ledgers:
+        lines.append(f"ledgers ({verb}):")
+        lines += [f"  - {led}" for led in reaped_ledgers]
     if (
         not reaped_branches
         and not reaped_arts
@@ -163,10 +188,12 @@ def _render(report: dict) -> str:
         and not reaped_backgrounds
         and not reaped_experiments
         and not iso_worktrees
+        and not reaped_ledgers
     ):
         lines.append(
             "nothing to reap — no stale colleague/* branches, orphaned .colleague/ "
-            "artifacts, isolation worktrees, dead background runs, or dead experiments"
+            "artifacts, isolation worktrees, dead background runs, dead experiments, "
+            "or finished-task ledgers"
         )
     if kept:
         lines.append(
