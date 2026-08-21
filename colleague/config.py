@@ -3964,6 +3964,11 @@ class EngineConfig:
             "affected_tests_max_files": self.affected_tests_max_files,
             "compaction_cap": self.compaction_cap,
             "three_tier": self.three_tier,
+            # Per-seat thinking-effort ladder (#416 t2): always present (never
+            # None/{} omitted) so the snapshot is identical on mock/vllm-openai.
+            "reasoning_effort": self.reasoning_effort,
+            "reasoning_effort_seats": self.reasoning_effort_seats,
+            "too_long_min": self.too_long_min,
         }
         # Model-bound agents (#411 t7): present ONLY when armed, so an unarmed
         # snapshot is byte-identical (omit-when-unarmed, the TAE convention).

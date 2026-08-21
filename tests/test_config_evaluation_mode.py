@@ -230,6 +230,9 @@ _PRE_MODE_TO_DICT_KEYS = {
     "affected_tests_max_files",
     "compaction_cap",
     "three_tier",
+    "reasoning_effort",  # thinking-effort ladder, #416 t2
+    "reasoning_effort_seats",  # thinking-effort ladder, #416 t2
+    "too_long_min",  # thinking-effort ladder, #416 t2
 }
 
 

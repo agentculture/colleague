@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from colleague.cli._errors import CliError
-from colleague.config import EngineConfig, WorkerConfig
+from colleague.config import EngineConfig
 
 _ALL_ENV = (
     "COLLEAGUE_BASE_URL",
@@ -172,3 +172,59 @@ def test_unknown_value_per_seat_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(CliError):
         EngineConfig.resolve()
 
+
+# ---------------------------------------------------------------------------
+# Slice B: to_dict() keys + config show.
+# ---------------------------------------------------------------------------
+
+
+def test_to_dict_carries_reasoning_effort_keys_unset() -> None:
+    snapshot = EngineConfig.resolve().to_dict()
+    assert snapshot["reasoning_effort"] is None
+    assert snapshot["reasoning_effort_seats"] == {}
+
+
+def test_to_dict_carries_reasoning_effort_keys_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_REASONING_EFFORT", "high")
+    monkeypatch.setenv("COLLEAGUE_WORKER_REASONING_EFFORT", "xhigh")
+    snapshot = EngineConfig.resolve().to_dict()
+    assert snapshot["reasoning_effort"] == "high"
+    assert snapshot["reasoning_effort_seats"] == {"worker": "xhigh"}
+
+
+def test_to_dict_pre_existing_keys_still_present() -> None:
+    """Every pre-existing to_dict key survives (test_config_senses.py /
+    test_config_subagent.py's exact-key-set pins are updated in this same
+    slice to add the two new always-present keys)."""
+    snapshot = EngineConfig.resolve().to_dict()
+    for key in (
+        "base_url",
+        "model",
+        "max_steps",
+        "temperature",
+        "timeout",
+        "context_budget_tokens",
+        "compaction_cap",
+        "three_tier",
+    ):
+        assert key in snapshot
+
+
+def test_config_show_prints_effort_table() -> None:
+    from colleague.cli._commands.config import _config_show
+
+    rendered = _config_show(".")
+    text = rendered._text
+    assert "reasoning_effort:" in text
+    for seat in ("cortex", "worker", "deepthink", "evaluator", "senses", "design"):
+        assert f"{seat}: " in text
+
+
+def test_config_show_names_kill_switch_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    from colleague.cli._commands.config import _config_show
+
+    monkeypatch.setenv("COLLEAGUE_REASONING_EFFORT", "default")
+    rendered = _config_show(".")
+    text = rendered._text
+    assert "kill-switch" in text
+    assert "cortex: None" in text
