@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-21T03:37:39Z",
-  "updated": "2026-08-21T04:29:47Z",
+  "updated": "2026-08-21T04:37:27Z",
   "claims": [
     {
       "id": "c1",
@@ -1018,6 +1018,18 @@
       "hard_questions": [],
       "links": [],
       "instruction": "review delegation uses context_mode=clear + a handover summary built from the ledger snapshot; a reviewer verdict is evidence on the ledger, never permission",
+      "revisions": []
+    },
+    {
+      "id": "c61",
+      "kind": "decision",
+      "text": "window sizing (operator, 2026-08-21): the acting agent's sliding transcript window follows its seat's ADVERTISED context \u2014 cortex gets the bigger window now (1,048,576 per the re-probed advert), the worker gets its own (65,536) when it is ready; the pinned nucleus rides inside that window; reconstruction (delegated/clear-mind agents, rehydration) stays bounded independently of the window size",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "agent_engine_config sets context_budget_tokens from the role advert (t9); the acting loop's window budget is that seat's value when agents is armed (t15); unarmed keeps _DEFAULT_CONTEXT_BUDGET",
       "revisions": []
     }
   ],

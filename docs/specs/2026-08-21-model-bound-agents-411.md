@@ -252,6 +252,8 @@
 - unarmed resume (q8): a run resumed with agents unset ignores any ledger left by an armed run and continues via the prose recap exactly as today, emitting a warning that a ledger exists — unarmed never reads agents state
 - evaluation in agents mode (q9): quality = deterministic host gates + EXPLICIT review/challenge delegation to a thinker-profile reviewer (the read-only reviewer role); the five-boundary evaluator seat stays `thought_action_evaluation`'s; the reviewer runs with a CLEAR MIND — no parent history — and receives a handover SUMMARY (objective, acceptance, changed paths, evidence refs) for context, never the transcript
   - instruction: review delegation uses `context_mode`=clear + a handover summary built from the ledger snapshot; a reviewer verdict is evidence on the ledger, never permission
+- window sizing (operator, 2026-08-21): the acting agent's sliding transcript window follows its seat's ADVERTISED context — cortex gets the bigger window now (1,048,576 per the re-probed advert), the worker gets its own (65,536) when it is ready; the pinned nucleus rides inside that window; reconstruction (delegated/clear-mind agents, rehydration) stays bounded independently of the window size
+  - instruction: `agent_engine_config` sets `context_budget_tokens` from the role advert (t9); the acting loop's window budget is that seat's value when agents is armed (t15); unarmed keeps `_DEFAULT_CONTEXT_BUDGET`
 
 ## Open parks
 

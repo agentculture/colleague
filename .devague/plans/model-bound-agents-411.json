@@ -1,0 +1,1142 @@
+{
+  "slug": "model-bound-agents-411",
+  "title": "model-bound agents (#411)",
+  "frame_slug": "model-bound-agents-411",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-21T04:29:47Z",
+  "updated": "2026-08-21T04:37:27Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague represents model-bound agents: a typed AgentProfile (purpose, lobes role, authority ceiling, validated tool profile) with per-invocation identity + context manifest + tool-surface digest; subagents are explicit agents that may bind a different lobes role/model; agents exchange typed attributable messages (delegate/ask/inform/challenge/handoff/return); the reference topology is Talker=senses (Gemma 4 12B), Worker=worker (Nemotron 3.5 Lightning, NOT the coder), Thinker/Coder=cortex (Qwen 3.8 27B) \u2014 and when the worker role is not ready (today), cortex carries every purpose under a RECORDED fallback, subagents still spawn; byte-identical when unarmed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "an armed run on today's rig (worker not ready) completes with every invocation attributed and a recorded fallback, AND an unarmed run is byte-identical \u2014 both demonstrated, not asserted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "an AgentProfile (agent_id, purpose, model_role, resolved_model, tool_profile, authority_profile, parent_agent_id, task_id) becomes a first-class typed record; today the nearest structures are WorkerConfig/SeatConfig/EvaluationSeats (config.py:2671-2745) and roles.Role(name, prompt_fragment, tool_allowlist, skill_subset, read_only) (roles.py:27-57) \u2014 no per-invocation agent identity exists; the durable resolution stays lobes role\u2192RoleInfo(model, endpoint, path, context, ready, responsibilities, forbidden_responsibilities) via lobes.resolve_roles (lobes.py:154-171, :256)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "AgentProfile is a frozen dataclass with a schema version; vendor model names never appear in its code; resolved_model is trace data filled from RoleInfo.model \u2014 a profile validates without any network (gateway double)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "with three_tier armed and the gateway's worker role not ready, _resolve_worker REFUSES (config.py:1296-1302 'advertises no ready worker role', never falls back to cortex per :1237-1243): today's .colleague/config.json is {lobes: http://localhost:8001, three_tier: true} and the live gateway advertises worker=nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 ready:false loaded:true \u2014 so 'colleague config show' and doctor provider_config FAIL right now; the operator's stated state 'worker is off, cortex does everything' has no armed mode that expresses it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "the refusal is reproduced verbatim ('advertises no ready worker role') against the live gateway before the fix, and the 2026-08-21 /capabilities dump is attached to the delivery doc",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "worker-absent handling is an explicit, recorded fallback \u2014 never silent, never a refusal of all work: when the armed reference mode finds the worker role absent/not ready, every worker-purpose invocation is carried by the thinker/coder (cortex) agent with the fallback recorded on the agent identity (e.g. fallback_from_role=worker) and on the artifact; Qwen-required coding work never downgrades to worker (issue #411 acceptance 'Lightning can be unavailable with explicit fallback/escalation')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "the fallback is visible on THREE surfaces \u2014 the invocation record, TaskResult (omit-when-unarmed), and a doctor/config-show line \u2014 and there is no code path where a worker-purpose call silently runs on cortex without the marker",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "no automatic per-turn task\u2192model routing: model switching happens only through explicit delegation/handoff by an agent, recorded on the ledger \u2014 config._model_pin_source documents 'no code path reads task content to pick a model' (config.py:1703-1727), backpressure.py:35 'never selects a different model or backend (not a router)', CLAUDE.md v1 scope: anything beyond the ten increments is the excluded router; #411's own acceptance says 'model switching happens through explicit delegation/handoff, not invisible per-turn substitution'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "a grep-guard asserts no code path branches on task/instruction content to pick a model; the only model switch is a ledgered delegation record naming the requested profile",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "a subagent can bind a DIFFERENT lobes role/endpoint than its parent: today run_subagent inherits the parent EngineConfig via dataclasses.replace overriding only model/role (+ caps), while base_url/api_key are inherited untouched (subagents.py:468-489) so a child cannot target another role's dial; the child engine wheel is already swappable (registry.load, subagents.py:429-435)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "a child bound to another role is dialed through lobes.resolve_role_base_url exactly like a TAE seat, inherits NO parent api_key when the role's endpoint differs (same-origin key hygiene #348), and mock implements the same ChildSpec field",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "delegation can only NARROW authority and tools: a child's effective tool surface is a subset of its parent's, independent of the child's model; today this holds for Role allow-lists enforced on both sides (tools.curate_schemas :555 + ToolExecutor(allowlist=) :736/:819) and overlays that change only the prompt never the allowlist (roles.py:220-229); caps MAX_SUBAGENT_DEPTH/FANOUT/TOTAL (config.py:339-341) stay",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "a property test over random parent/child profiles: child effective tools \u2286 parent effective tools, child authority ceiling \u2264 parent's, regardless of the child's model",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "typed, attributable agent-to-agent messages (delegate / ask / inform / challenge / handoff / return) become first-class runtime records on the append-only ledger: today the ONLY child\u2192parent channel is SubResult(task_id, engine, model, status, summary, changed_files, usage, role, parent) rendered to the parent as a string (contract.py:337-366, tools.py:1343-1345); the precedent for typed attributable records is ledger.LedgerEntry(kind, thought_id, action_id, detail, seat, model, seq) with closed kind/seat vocabularies (ledger.py:99, :80-86)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "every message type is in a closed vocabulary, refuses unknown types whole (the MoveResult refuse/degrade shape), carries from/to agent ids + seq on the ledger, and has no field for rationale/chain-of-thought",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "the effective tool surface is computed as an intersection (available \u2229 model-supported \u2229 purpose \u2229 policy \u2229 environment \u2229 approvals), validated at agent creation, and its digest recorded per invocation: today narrowing is role allow-list (tools.py:555), three-tier worker.tools narrowing (tools.py:594 narrow_role_by_tool_set, ceiling=role, empty refused lattice.py:364), executor refusal (tools.py:819), policy.check_run_command token gate (policy.py:200), hooks pre_tool allow/deny/rewrite (hooks.py:85) \u2014 there is NO model-supported dimension, NO per-model schema tailoring (#89 unbuilt per docs/specs/2026-06-03 spec :11,:44) and NO tool-surface digest (only configevents.effective_digest over config events, configevents.py:215)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the effective surface is computed once at agent creation from the six dimensions, its sha256 digest lands on the invocation record, and narrowing can only shrink it; an empty result refuses whole (lattice.py:364 precedent)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "the Worker purpose profile does NOT carry generic code-authoring mutation tools (write_file/edit_file) by default: read/list/search, run_tests, separately-approved run_command, memory recall, delegate; today three-tier repoints the ACTING dial to the worker with the full curated surface (config.py:1185-1217 _resolve_acting_dial), i.e. the worker IS the coder \u2014 the exact topology #411 supersedes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "negative test on mock and vllm-openai: a Worker-profile agent's offered schemas and executor allow-list contain neither write_file nor edit_file; run_command remains approval-gated by token; delegate is available",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "the landed #397 contracts are reused, not replaced: Thought(thought_id, intent, why, supersedes, observation_refs, constraints, success_conditions, uncertainties, version) (thought.py:308), ActionProposal(thought_id, action_id, proposed_action, expected_effect, evidence_refs, consequential) (actionproposal.py:85), Evaluation(thought_id, action_id, verdict, route, reason, evidence_gaps, version) with closed routes execute|rethink|replan|block (evaluation.py:235,:179-201), EVALUATOR_BOUNDARIES (tae_control.py:23-29), host-owned consequential classification (tae_loop.py:624); alignment is never permission; evaluator \u2260 distiller",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "Thought/ActionProposal/Evaluation/LedgerEntry schemas are unchanged or versioned additively; evaluator verdicts still never write memory or grant permission",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "every agent invocation records identity + context manifest (agent_id, purpose, resolved model/revision, tool-surface digest, ledger_digest, working_set/peer-message refs, token_estimate, truncated, parent/delegation lineage): today Step is {index, tool, arguments, result, ok} (contract.py:1189-1196), tokens are work-item aggregates (Usage, WorkStats), FinishRecord(seat, finish_reason, state, truncated) is per seat once per item (contract.py:1212-1216); per-call records exist only for side lanes (DeepthinkCall, SensesRecord) \u2014 there is no per-invocation manifest",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "tokens on the manifest are labelled by source (/tokenize exact vs chars estimate) and never presented as usage; usage stays exactly the wire value per the repo convention",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "the agent runtime lands as a NEW boundary (colleague/agents/: profile, runtime, tools, messages, delegation) with thin seam calls from loop.py \u2014 not more loop.py branches: loop.py is 4951 lines, zero #399 extraction has landed (git log --grep=399 empty), and the second-engine pattern is already triplicated as replace(EngineConfig)+engine.make_complete(cfg, tools=[]) in deepthink.py:64, senses.py:669, tae_loop.py:214 \u2014 that seam becomes AgentProfile\u2192EngineConfig",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "loop.py's diff in this arc is wiring only (seam calls + one mode check); tests/test_boundary.py allow-lists are unchanged; colleague/agents/ imports no subprocess and opens no socket",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "boundary",
+      "text": "Task/TaskResult, the Engine ABC (engine.py:39 work/drive/make_complete/make_count_tokens/system_prompt), the colleague.engines plugin group and all-engines parity are preserved; mock implements every new record identically; new fields are omit-when-None so unarmed serialization is byte-identical (the contract.py:1308-1345 convention)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "Task/TaskResult/Engine ABC unchanged except additive omit-when-None fields; the mock parity suite's pinned key set is byte-identical when unarmed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Qwen 3.8 runtime truthfulness rides along where the agent boundary touches it: empty content + finish_reason=length is NOT treated as degradation today (vllm_openai.py:273 carries it raw; loop._handle_no_tool_turn :2021 treats it as an ordinary no-tool turn; only finishstate.classify_finish_state :112 sees it at run end) and reasoning tokens are not recorded (vllm_openai.py:261-263, measured as reasoning_chars/bytes) \u2014 an agent invocation record must mark such a turn truncated rather than silently continuing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "an empty-content finish_reason=length turn is recorded as truncated on the invocation record and triggers the existing degradation/retry lane instead of the no-tool nudge; pinned by a streaming test on a real os.pipe",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "the Talker IS the existing senses role \u2014 structurally tools-off (Engine.make_complete(senses_config, tools=[]) at every call site senses.py:669,:744,:807,:1104,:1237,:1410; senses_moves imports neither subprocess nor ToolExecutor :34-39; tests/test_senses_cannot_act.py pins it), never task authority, removable in headless work (cortex-only mode is byte-identical, cortex-senses.md:143-145); the Talker agent profile adds identity/manifest and typed messaging ON TOP of this, never repo tools or approval power",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "senses keeps tools=[] at every call site and the talker profile cannot hold write tools by construction (profile validation refuses)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "the reference agents are NAMED BY LOBES ROLE (Talker=senses, Worker=worker, Thinker/Coder=cortex) and never by model family: the zero-model-ids boundary is test-pinned (tests/test_deepthink_config.py:401,415 bans 'gemma'/'qwen'/'lobes' in config code; cortex-senses.md:56-60 'no vendor model string appears in colleague/ code'); Gemma/Lightning/Qwen are the RIG's answers (live /capabilities), trace data on the identity record, not authority",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Talker=senses, Worker=worker, Thinker/Coder=cortex are the only role names in code; the reference model table lives in docs + the lobes advert; the vendor-name grep guard covers colleague/agents/",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "the existing one-directional senses\u2192cortex move channel (MOVE_SCHEMA + MoveResult{move, outcome, refused, degraded, detail}, senses_moves.py:186-210,:275-305) is the precedent the typed agent messages generalise: messages are attributable records (from/to agent_id, type, subject, content, evidence_refs, requested_response), carry conclusions/evidence only \u2014 never hidden chain-of-thought \u2014 and the Talker's reply/clarify/narrate moves stay display-only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the Talker's reply/clarify/narrate outputs are display-only and can never appear as a delegate/handoff authority; senses stays tools=[] at every call site after the change (test_senses_cannot_act.py still passes)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "boundary",
+      "text": "all-engines parity stays the hard gate: tests/test_e2e_mock.py pins the exact TaskResult key set {task_id, status, summary, changed_files, steps, usage, stats, finish_states, artifacts_path, error, branch, pr_url, hook_firings, command, not_finished, stopped_without_finish} (:268-285,:311-330) with optional blocks OMIT-when-None, the identical base-six+chassis tool surface on every engine (:168-196, vllm_openai.SCHEMAS is SCHEMAS), and SubResult field parity batch vs sequential (:466-495) \u2014 every #411 record is omit-when-unarmed and mock-implemented",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "tests/test_e2e_mock.py passes unchanged; new blocks appear only when agents is armed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "boundary",
+      "text": "the thread/subprocess boundary is unchanged unless explicitly joined: _SUBPROCESS_ALLOWED (tests/test_boundary.py:526-545, 17 modules) and _THREADS_ALLOWED = {subagents.py, cli/_commands/_input_line.py, realtime.py} (:765-771) are bidirectional guards; agent messaging and delegation are in-process typed records \u2014 no socket, daemon, transport, MCP client, or new thread consumer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "tests/test_boundary.py passes unchanged \u2014 no new subprocess/thread consumer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "a durable, append-only TASK LEDGER under .colleague/ (e.g. .colleague/ledger/<task_id>.jsonl) becomes the shared source of continuity: events for the immutable operator request, accepted constraints, acceptance criteria, plan nodes (id/status/depends_on/evidence_refs), decisions, open loops, evidence/tool-result refs, working-set refs, changed paths, verification, agent messages, delegations; a derived TaskSnapshot (with state_digest + authority_digest) is reconstructable from the events + repo evidence; today nothing of this exists \u2014 persistence is artifact JSON + trace JSONL (artifact.py:117), chain state is in-memory (chain.py:245-253), and the only append-only streams are the episode-scoped evaluation ledger (ledger.py) and config_events (contract.py:1655-1675)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "the ledger file is append-only (no rewrite path), replay-deterministic (same events \u2192 same snapshot + digest), schema-versioned, and the evaluation ledger / config_events are referenced or folded \u2014 never duplicated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "authority and task state SURVIVE compaction, continuation, backgrounding and every --until-done episode: approval/policy, --no-pr, mode, role/profile, constraints, acceptance, changed paths, failed checks, unresolved plan items and promised follow-ups cannot disappear; continuation (work --continue / session /continue) REHYDRATES from the ledger snapshot instead of the prose recap it uses today (continuation.py:25 + escalation.build_continuation :187); latest explicit operator input outranks every summary and recalled record; stale or contradictory state refuses or routes to rethink instead of silently merging",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "work --continue after a SIGTERM cut rehydrates from the ledger with 0 lost changed paths / open loops / acceptance / authority flags, and a compaction drops 0 plan nodes \u2014 both as regression tests, the SIGTERM one on a real os.pipe (#410 shape)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "per-agent bounded CONTEXT RECONSTRUCTION replaces transcript windowing for agent invocations: each turn is assembled from explicit layers \u2014 nucleus (active thought/mission, constraints, acceptance, authority, active plan node, unresolved failures), working set (recent tool evidence + files/symbols for the next action), retrieved procedures/lessons (small top-k, token-capped), archive references (ids/digests loaded on demand) \u2014 purpose-specific per agent; the manifest records ledger_digest, nucleus/working_set/retrieved_memory/peer_message refs, token_estimate, truncated; no full-transcript copying between agents; today context.window_messages (context.py:232) drops oldest segments of one running transcript",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "two agents on one task get different reconstructions from one ledger; every manifest ref resolves to a ledger id; the unarmed loop still uses window_messages byte-identically",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "peer claims keep provenance and rank below evidence: operator input > current repo/tool evidence > accepted task facts > peer claims > recalled memory; a peer agent's statement is promoted into accepted shared state only through the same evidence/policy mechanisms as any other conclusion; cross-model disagreement (a challenge message and its answer) is RECORDED on the ledger, never flattened into consensus",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "an inform/challenge never mutates accepted facts by itself; both sides of a challenge are present in the ledger; a later operator instruction outranks a peer claim in the reconstruction",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "audience",
+      "text": "colleague operators on the Spark rig with lobes armed (today: cortex Qwen 3.8 ready, senses Gemma ready, worker Lightning advertised not-ready), mesh peers reading the artifact/ledger, and the lobes-cli side of #187 that advertises the roles; plus every operator NOT arming the mode, who must see byte-identical behaviour",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the spec names lobes-cli#187 as the owner of role adverts and cites the 2026-08-21 /capabilities probe; unarmed operators are named as readers whose behaviour is byte-identical",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "after_state",
+      "text": "an armed operator runs 'colleague work' on today's rig and gets: every invocation attributed (agent_id, purpose, role, resolved model, tool-surface digest, context manifest, lineage), subagents that may bind a different lobes role with a child surface \u2286 parent, typed delegate/ask/inform/challenge/handoff/return records on an append-only ledger, a Worker profile with no generic write tools, a Talker that is the tools-off senses, a cortex-backed fallback recorded wherever a role is absent, continuation that rehydrates from the ledger, and per-agent bounded reconstruction \u2014 while an unarmed operator sees byte-identical behaviour and the pinned artifact key set",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "each clause of the after-state maps to at least one confirmed requirement with a test (identity \u2192 c13, cross-role child \u2192 c7, messages \u2192 c9, worker profile \u2192 c11, talker \u2192 c19, fallback \u2192 c4/c28, rehydrate \u2192 c35, reconstruction \u2192 c36)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "why_it_matters",
+      "text": "the 2026-08-20 benchmark priced the current multi-seat topology at 100% failure vs 100% success for solo cortex on the same task, with every failure in the seams (#409/#410) \u2014 and the rolled Qwen 3.8 is both the strongest coder and reasoning-heavy (88\u201393% of completion spend), so coding authority must sit with it while routine/inspection/presence work can move to cheaper minds ONLY if every hop is attributable, bounded and recorded; meanwhile today's config.json refuses outright because the worker is off",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the benchmark figures (solo cortex 100% / three-tier 0%; 88\u201393% reasoning spend) are cited from their recorded sources (memory note 2026-08-20, live-testing.md rows 34\u201335), not restated from memory",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "success_signal",
+      "text": "unarmed = byte-identical: with 'agents' unset the full suite passes and tests/test_e2e_mock.py's pinned TaskResult key set has 0 additions; every new record is omit-when-unarmed and implemented on mock and vllm-openai alike",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "measured by running the suite + a key-set diff, not by inspection",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "success_signal",
+      "text": "attribution is complete: in an armed run 100% of model invocations (main, subagent, talker, evaluator) carry agent_id, purpose, model_role, resolved_model, tool_surface_digest, a context manifest and parent/delegation lineage on the artifact; and the negative authority test holds \u2014 a Worker-profile agent is offered 0 of {write_file, edit_file}, and in 100% of delegations the child's effective tool set \u2286 the parent's",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "measured over the artifact + ledger of a real armed run, plus the negative authority test on both engines",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c43",
+      "kind": "success_signal",
+      "text": "worker-absent works today: against a gateway double mirroring the 2026-08-21 advert (worker ready:false) a work item with \u22651 subagent completes with status ok and every worker-purpose invocation recorded as cortex-backed fallback \u2014 0 refusals; and one LIVE run on the Spark rig with agents armed completes end to end",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "the gateway double mirrors the saved 2026-08-21 advert byte-for-byte; the live row names the task id",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c44",
+      "kind": "success_signal",
+      "text": "continuity survives the cut: a run cut by SIGTERM (#410 shape) and resumed with work --continue rehydrates a snapshot whose changed_paths / open_loops / acceptance / authority fields equal the pre-cut snapshot (0 lost items), and a fillline compaction drops 0 plan nodes; reconstruction keeps ordinary turns bounded \u2014 manifest token_estimate < 50% of the seat's advertised context on every ordinary turn of the live run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "the SIGTERM test uses a real os.pipe stream; the 50% bound is read from the live run's manifests",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c45",
+      "kind": "success_signal",
+      "text": "promotion is evidence-gated: before agents mode becomes default, a matched experiment (solo-cortex legacy vs agents mode, same brief, same rig, pre-registered bars) reports quality, completion, latency, tokens per model, tool calls per model, escalation rate, invalid tool calls and corrections \u2014 recorded as a docs/live-testing.md row; until then the mode ships opt-in only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "bars are committed before the arms run; the row records both arms' numbers even if agents mode loses",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c46",
+      "kind": "boundary",
+      "text": "no transcript copying between agents and no KV/hidden-state sharing; each agent receives a bounded, purpose-specific reconstruction (c36) \u2014 the seat's context window follows the lobes advert (the operator is moving cortex to 1,048,576) and is a CEILING/escape hatch, never the default fill target; the legacy UNARMED loop keeps context.window_messages (context.py:232) and _DEFAULT_CONTEXT_BUDGET (config.py:86) untouched",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "armed: every ordinary-turn manifest token_estimate stays below 50% of the seat's advertised context (the h31 measurement, read from the live run); unarmed: tests/test_doc_config_drift.py:34 and the context windowing tests pass unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c47",
+      "kind": "requirement",
+      "text": "the task ledger lives at the OPERATOR repo on isolated runs \u2014 .colleague/ledger/<task_id>.jsonl resolved the way the flight plane already is (task.flight_repo_path or task.repo_path, loop.py:2161-2172) so a throwaway worktree never takes the ledger with it; it is local-only (gitignored by /.colleague/* at .gitignore:247, never committed); colleague clean / the handoff.py reap (scoped strictly to colleague/* refs + .colleague/ artifacts, handoff.py:697) gains the ledger dir for FINISHED/orphaned tasks and never reaps a live one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "an isolated run's ledger path equals flight_repo_path-resolution; 'git status' is clean after an armed run; clean reaps only finished-task ledgers",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "the effective tool surface is enforced TWO-SIDED for every agent \u2014 the offered schemas (tools.curate_schemas :555) AND the executor allow-list (ToolExecutor(allowlist=) :736/:819) \u2014 and composes with, never bypasses, the config-lifecycle tool_set narrowing (tools.narrow_role_by_tool_set :594); EVERY spawn wiring site (work.py:1290-1297 make_spawn/make_batch_spawn and any other caller) carries the agent profile so no spawn path yields an unidentified child",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "a Worker-profile agent that emits a write_file call is refused by the executor even if a schema slipped through; every make_spawn caller passes a profile (grep + test)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "delegation lifecycle is ledgered so a half-completed delegation is visible: a delegate event is appended BEFORE the child spawns and a return event after it; at rehydration a delegate without a return is an OPEN LOOP naming the salvageable sub/<id> worktree/branch (the existing 'spend-dead subagents leave salvageable worktrees' fact); a handoff transfers ledger ownership of a plan node ONLY \u2014 repo writes stay in the sub/<id> worktree + the sequential merge child (subagents.py:675-724), never a second write path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h36",
+      "kind": "honesty",
+      "text": "a parent killed mid-child rehydrates with the open delegation + sub/<id> branch named; handoff never changes which worktree writes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "operator input that arrives MID-RUN \u2014 flight guidance, senses guide_cortex, talk \u2014 is appended as an operator_input ledger event (not only injected as chat text, loop._fold_flight_chat :2129) so reconstruction ranks it above every peer claim and summary (c37) and rehydration replays it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h37",
+      "kind": "honesty",
+      "text": "mid-run guidance appears as an operator_input event and outranks an earlier peer inform in the rebuilt context",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c52",
+      "kind": "requirement",
+      "text": "single writer per ledger file: each agent/task id appends only to ITS OWN ledger; cross-references are by id; a parent appends child refs after the join in the main thread (the subagents.py:800-869 collect-after-join pattern); the append path takes the POSIX-guarded fcntl advisory lock worktrees.py already uses (:46, :138-169) so --background children, the resident embed and width>1 subagent threads never interleave a file; no new thread consumer joins tests/test_boundary.py",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h38",
+      "kind": "honesty",
+      "text": "a concurrency test on a real file: N threads \u00d7 M appends \u2192 N\u00d7M intact lines; non-POSIX degrades with a warning",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c53",
+      "kind": "requirement",
+      "text": "agent messaging is BOUNDED: a per-task message budget (MAX_AGENT_MESSAGES, the _AgentBudget shape subagents.py:246-289) caps ask/challenge/inform traffic so a ping-pong never runs unbounded; exhaustion is recorded honestly on the ledger and TaskResult.warnings; delegation depth/fan-out/total caps (config.py:339-341) stay as they are",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h39",
+      "kind": "honesty",
+      "text": "a scripted ask\u2194challenge loop halts at MAX_AGENT_MESSAGES with a TaskResult.warnings entry; the cap is a constant, never model-chosen",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c54",
+      "kind": "requirement",
+      "text": "rehydration fails CLOSED and LOUD: an unknown ledger schema version, a corrupt or truncated tail, or a state_digest mismatch refuses the ledger path with a recorded warning and falls back to the existing prose-recap continuation (continuation.py:25) \u2014 never a traceback, never a silent merge of stale state",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h40",
+      "kind": "honesty",
+      "text": "truncated tail / bumped schema / digest mismatch each yield a warning + prose-recap continuation; work --continue exits 0",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c55",
+      "kind": "boundary",
+      "text": "peer-message content is model-authored text: it enters another agent's context only under the peer-claims rank of c37, labelled as a peer claim with its from-agent id, never as system or operator text; the raw operator request stays verbatim and separate (the #397 preserved-input invariant); the ledger is local-only (gitignored) so no agent message or tool-result ref is ever committed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h41",
+      "kind": "honesty",
+      "text": "an inform containing tool-call markup or 'operator:' text renders as labelled peer text and executes nothing; git status clean after the run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c56",
+      "kind": "requirement",
+      "text": "observability: doctor gains an 'agents' group (mode armed; each reference role's advert ready/absent; the fallbacks that will fire) and config show prints the mode, mirroring the three_tier_armed/three_tier_gateway lines; the invocation records ride the artifact; the cockpit/tui surfacing of agent identity is parked, not built",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h42",
+      "kind": "honesty",
+      "text": "doctor with a worker-absent gateway double prints the fallback line; unarmed prints nothing for the group",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 agents/profile.py \u2014 AgentProfile + purposes + role map + fallback resolution",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/agents/__init__.py + colleague/agents/profile.py exist; AgentProfile is a frozen dataclass (agent_id, purpose, model_role, resolved_model, tool_profile, authority_profile, parent_agent_id, task_id, fallback_from_role, schema_version) with to_dict/from_dict round-trip",
+        "PURPOSES is the closed set {talker, worker, thinker_coder}; PURPOSE_ROLE maps talker\u2192senses, worker\u2192worker, thinker_coder\u2192cortex; resolve_profile(purpose, roles) returns the role's model when ready, else the cortex model with fallback_from_role set \u2014 pure function, no network (tests use a RoleInfo double mirroring the 2026-08-21 advert)",
+        "tests/test_agents_profile.py passes; it includes a grep guard that no file under colleague/agents/ contains gemma|qwen|nemotron|lightning (case-insensitive)"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h6",
+        "c20",
+        "h15"
+      ],
+      "instruction": "New package colleague/agents/. Model on roles.Role (roles.py:27-57) and lobes.RoleInfo (lobes.py:154-171). Purpose before tools: the profile names a tool_profile id (string) resolved by t2, never a tool list. No imports from loop.py. Keep it under 250 lines."
+    },
+    {
+      "id": "t2",
+      "summary": "t2 agents/tools.py \u2014 ToolProfile records, effective-surface intersection, digest, the three purpose profiles",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/agents/tools.py defines ToolProfile(canonical_id, tool_class in {read, write, external, destructive}, required_approval: bool, inheritable: bool) for every name in tools.TOOL_NAMES + deepthink, reconciling roles._WRITE_TOOLS and tae_loop.CONSEQUENTIAL_TOOLS into the single tool_class field (subagent/subagents are class write; culture/devague external)",
+        "effective_tools(available, model_supported, purpose_tools, policy_tools, env_tools, approved_tools) returns the sorted intersection and tool_surface_digest(tools) = sha256 over the sorted names; an empty intersection raises EmptyToolSurface (refuse whole, lattice.py:364 precedent)",
+        "WORKER_TOOLS excludes write_file and edit_file and includes read_file, view_media, list_dir, run_tests, run_command, memory, subagent, subagents, finish; TALKER_TOOLS is empty; THINKER_CODER_TOOLS is the full base+chassis surface; tests/test_agents_tools.py proves each and that narrowing never adds a name"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h10",
+        "c11",
+        "h11"
+      ],
+      "instruction": "Pure module, no engine imports. tools.py:112 SCHEMAS is the available set (read names from tools.TOOL_NAMES at import \u2014 do not duplicate schemas). The digest must be stable across processes (sorted, utf-8). Two-sided ENFORCEMENT is wired in t15, not here."
+    },
+    {
+      "id": "t3",
+      "summary": "t3 agents/messages.py \u2014 typed agent messages + the per-task message budget",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "AgentMessage(message_id, task_id, from_agent, to_agent, type, subject, content, evidence_refs, requested_response, seq) with MESSAGE_TYPES = frozenset({delegate, ask, inform, challenge, handoff, return}); validate_message refuses an unknown type or a missing from/to whole (MessageVerdict(allowed, reason)); the dataclass has no rationale/chain-of-thought field and to_dict emits none",
+        "MessageBudget(limit=MAX_AGENT_MESSAGES) charges atomically and refuses at the cap with reason 'message budget exhausted' (mirror subagents._AgentBudget :246-289); MAX_AGENT_MESSAGES is a constant in colleague/config.py next to MAX_SUBAGENT_TOTAL (config.py:339-341)",
+        "tests/test_agents_messages.py passes: closed vocabulary, refuse-whole, budget exhaustion, to_dict round-trip, and a test that message content containing tool-call markup stays inert data (senses_moves test_senses_cannot_act.py shape)"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h9",
+        "c21",
+        "h16",
+        "c53",
+        "h39"
+      ],
+      "instruction": "Model the refuse/degrade shape on senses_moves.MoveResult (senses_moves.py:186-210). Messages are in-process records destined for the ledger (t4) \u2014 no transport, no socket, no thread. Only touch config.py for the one constant line."
+    },
+    {
+      "id": "t4",
+      "summary": "t4 agents/state/ledger.py \u2014 append-only task ledger, snapshot, digests, locked append, fail-closed reader",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/agents/state/__init__.py + ledger.py: TaskLedger(path) appends JSONL events with a closed EVENT_KINDS vocabulary (operator_request, operator_input, constraint, acceptance, plan_node, decision, open_loop, evidence, working_set, changed_path, verification, message, delegate, return, invocation, snapshot) and a ledger-owned seq; LEDGER_SCHEMA_VERSION header line first; no rewrite path exists",
+        "derive_snapshot(events) -> TaskSnapshot(task_id, original_request_ref, active_thought, constraints, acceptance, plan, decisions, open_loops, working_set, changed_paths, verification, messages, delegations, episode, authority_digest, state_digest) is replay-deterministic: same events \u2192 equal snapshot and digests (property test over shuffled-but-seq-ordered inputs)",
+        "append takes an fcntl advisory exclusive lock when available (worktrees.py:46,138-169 pattern; non-POSIX degrades to unlocked append + a recorded warning); tests/test_agents_ledger.py runs N threads \u00d7 M appends on a real tmp file and asserts N\u00d7M intact lines",
+        "read_ledger refuses an unknown schema version, a torn/non-JSON tail, or a state_digest mismatch by raising LedgerUnreadable(reason) \u2014 never a traceback past it, never a partial snapshot",
+        "ledger_path(repo_root, task_id) = <repo_root>/.colleague/ledger/<task_id>.jsonl; tests/test_boundary.py passes unchanged (no subprocess, no thread consumer added)"
+      ],
+      "deps": [],
+      "covers": [
+        "c34",
+        "h17",
+        "c52",
+        "h38",
+        "c54"
+      ],
+      "instruction": "Reuse ledger.ledger_digest's sha256-over-replayed-sequence idea (ledger.py:277) but for the task ledger; keep the evaluation ledger + config_events as REFERENCED streams (store their digests on the snapshot), never duplicated. Events carry refs to evidence (artifact step index, file path, message id), never large payloads. fcntl import must be guarded like worktrees.py:46."
+    },
+    {
+      "id": "t5",
+      "summary": "t5 #410 \u2014 SIGTERM writes the partial artifact unconditionally (before/independent of the wedged request)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/cli/_commands/work.py's SIGTERM/SIGINT handler (work.py:322-367) writes the partial result artifact (status error, incompletion recorded) BEFORE the WIP commit path and independent of the request layer's state; the artifact path is the same <task_id>.<slug>.json the normal path writes",
+        "regression test: a run blocked inside a stream that never yields (real os.pipe, per the fake-streams gotcha) receives SIGTERM \u2192 the artifact exists with status error AND 'colleague work --continue <id>' accepts it (continuation.resolve_continuation returns a seed)",
+        "existing interrupt-safety tests (#222/#162) still pass; exit code stays 143/130"
+      ],
+      "deps": [],
+      "covers": [
+        "c44"
+      ],
+      "instruction": "Companion to the 2026-08-20 worker-wedge incident (task 3d03ebcd0879). Keep the change inside the signal handler + a small helper in work.py; do not touch loop.py. Use tests/test_work_interrupt*.py shapes if present; the stream double must be a real pipe."
+    },
+    {
+      "id": "t6",
+      "summary": "t6 #400 \u2014 progress (step-stall) watchdog: bound time-since-last-completed-step, finish partial, record honestly",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "loop.py gains ONE seam: a stall bound read from COLLEAGUE_MAX_STEP_STALL (seconds; default = 6\u00d7 the observed mean per-step latency once \u22653 steps exist, else 1800s) evaluated in _account_turn/_record_turn_latency; crossing it records {'kind': 'step-stall', 'seconds': n, 'step_index': i} on TaskResult.warnings and ends the episode with a preserved partial (not_finished=True) instead of continuing",
+        "backpressure.py's advisory actions are unchanged; the stall is measured by step_index advancing, not wall-clock of a single turn; a legitimately long single generation that DOES advance the step is never cut",
+        "tests/test_loop_step_stall.py: a scripted complete() that streams forever without a tool call trips the bound and yields a partial artifact with the warning; unset knob + fast steps \u2192 no warning (byte-identical)"
+      ],
+      "deps": [],
+      "covers": [],
+      "instruction": "Do not add 'step-stall' to chain.CONTINUABLE_REASONS in this task (pinned unchanged by the self-learning increment) \u2014 file it as the plan risk r-stall instead. Keep the diff to the latency seams (loop.py:1778 _record_turn_latency, :1999 _account_turn); wiring only."
+    },
+    {
+      "id": "t7",
+      "summary": "t7 config: the 'agents' opt-in (env > config.json > OFF), mutual-exclusion refusal, doctor 'agents' group + config show line",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "config.py: _load_agents_override reads COLLEAGUE_AGENTS then the 'agents' key of .colleague/config.json (bool or object-presence, the _load_three_tier_override :622 shape); EngineConfig.agents: bool = False; arming agents with three_tier OR thought_action_evaluation refuses via the _refuse_conflicting_execution_modes shape (config.py:1329-1343) naming both modes; config show prints agents: armed|off",
+        "livecheck.py doctor gains an 'agents' group: agents_armed; per reference role (senses/worker/cortex) 'ready' | 'absent \u2192 cortex fallback' from the same lobes resolution the three_tier_* checks use; unarmed \u2192 the group prints nothing (byte-identical doctor output, pinned by test)",
+        "tests/test_config_agents.py + tests/test_doctor_agents.py pass; a gateway double mirroring the 2026-08-21 advert (worker ready:false) yields the fallback line; tests/test_doc_config_drift.py passes"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c56",
+        "h42"
+      ],
+      "instruction": "config.py is 4200 lines \u2014 scope the edit to the three_tier/TAE loader block (config.py:272-299, :622-660) and the refusal helpers (:1329-1343); mirror names exactly. Doctor lines live in livecheck.py near three_tier_armed/three_tier_gateway. No model names anywhere."
+    },
+    {
+      "id": "t8",
+      "summary": "t8 engine truth: empty content + finish_reason=length is a recorded truncation in the degradation lane",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a model turn with empty content, no tool calls and finish_reason=='length' is classified truncated at the turn (not only at run end): loop marks the turn truncated (recorded on the invocation record once t15 lands; until then on TaskResult.warnings {'kind':'truncated-turn'}) and routes into the existing degraded-retry plan (_plan_degraded_retry :1702 shrink-for-retry) instead of _handle_no_tool_turn's nudge",
+        "streaming regression test on a real os.pipe: a stream ending with empty content + finish_reason length yields the truncation record + one shrink retry; the blocking path yields the same; finishstate.classify_finish_state still reports FINISH_TRUNCATED at run end",
+        "reasoning accounting unchanged: tokens exactly from usage, reasoning_chars/bytes as today (vllm_openai.py:261-263)"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c18",
+        "h14"
+      ],
+      "instruction": "Touch loop.py only at _handle_no_tool_turn (:2021) and the degradation classification helper; vllm_openai.py needs no change (finish_reason already carried raw :273). Serialized after t6 so the two loop.py seams never collide."
+    },
+    {
+      "id": "t9",
+      "summary": "t9 agents/runtime.py \u2014 InvocationRecord (identity + context manifest) and the ONE agent seat builder",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "InvocationRecord(agent_id, purpose, model_role, resolved_model, fallback_from_role, tool_surface_digest, ledger_digest, nucleus_refs, working_set_refs, retrieved_memory_refs, peer_message_refs, token_estimate, token_estimate_source in {tokenize, chars}, truncated, parent_agent_id, delegation_id, seq) with to_dict; token_estimate is NEVER written into Usage",
+        "agent_engine_config(config, profile, roles) returns dataclasses.replace(config, model=\u2026, base_url=resolve_role_base_url(role,\u2026), api_key=<per-role key or None, never the parent's when the origin differs>, context_budget_tokens=<role advert context>, refresh_seat=None, on_delta=None) \u2014 one builder that tae_loop.seat_engine_config, deepthink_engine_config and senses_engine_config can delegate to (they are NOT rewritten in this task; a follow-up task may fold them)",
+        "tests/test_agents_runtime.py: a worker-purpose profile against the 2026-08-21 advert double resolves to the cortex model with fallback_from_role='worker' and the record carries it; refresh_seat is None; api_key hygiene per #348; manifest digests match ledger.derive_snapshot output"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c13",
+        "h12",
+        "c4"
+      ],
+      "instruction": "Generalize tae_loop.seat_engine_config (tae_loop.py:214-232). context_budget_tokens FOLLOWS THE ROLE ADVERT (cortex 1,048,576 per the 2026-08-21 re-probe; worker 65,536 when ready) \u2014 the bigger sliding window is intended. Token estimate: use the engine's count_tokens when available (vllm_openai._make_count_tokens) else context.count_tokens_chars, and label the source. Invocation records are appended to the task ledger as 'invocation' events (t4)."
+    },
+    {
+      "id": "t10",
+      "summary": "t10 agents/state/context.py \u2014 per-agent reconstruction, pinned nucleus, context_mode, provenance ranking",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "build_nucleus(snapshot) returns the pinned block (active thought/mission, constraints, acceptance, authority digest, active plan node, unresolved failures) as ONE message the acting loop pins like the system prompt + first user message; reconstruct(snapshot, purpose, budget, recall=\u2026) returns layered messages [nucleus, working set (verbatim recent tool evidence refs resolved), retrieved procedures (top-k, token-capped), archive refs] plus the manifest fields; two purposes over one snapshot yield different reconstructions (test)",
+        "context_mode in {inherit, clear}: inherit = parent transcript windowed as today + nucleus pinned; clear = reconstruction only + a handover summary (objective, acceptance, changed paths, evidence refs) \u2014 the reviewer's 'clear mind'",
+        "ranking is explicit and tested: operator input > current repo/tool evidence > accepted task facts > peer claims > recalled memory; a peer message renders as a labelled 'peer <agent_id>:' text block, never as system/operator text; a later operator_input outranks an earlier peer inform; both sides of a challenge appear",
+        "token_estimate of an ordinary reconstruction < 50% of the seat's advertised context by construction (budget parameter); unarmed code paths are untouched (context.py unchanged)"
+      ],
+      "deps": [
+        "t4",
+        "t3"
+      ],
+      "covers": [
+        "c36",
+        "h19",
+        "c37",
+        "h20",
+        "c46",
+        "h33",
+        "c55",
+        "h41"
+      ],
+      "instruction": "Pure functions over TaskSnapshot (t4) + AgentMessage (t3); the retrieved-procedures layer calls the existing memory recall seam via an injected callable (do not import loop.py). The nucleus never contains tool calls or chain-of-thought."
+    },
+    {
+      "id": "t11",
+      "summary": "t11 agents/delegation.py \u2014 DelegationRequest envelope, child \u2286 parent property, lifecycle events, handoff semantics",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "DelegationRequest(delegation_id, from_agent, requested_agent_profile, objective, acceptance, evidence_refs, context_refs, requested_tools, authority_ceiling, return_contract, context_mode) validates: requested_tools \u2286 parent effective tools, authority_ceiling \u2264 parent's, depth/fanout/total within MAX_SUBAGENT_* \u2014 refuses whole otherwise (DelegationVerdict)",
+        "open_delegation(ledger, req) appends the 'delegate' event BEFORE spawn and returns a handle; close_delegation(handle, SubResult) appends 'return'; derive_snapshot lists a delegate without return as an open loop naming sub/<child_id>; handoff(ledger, plan_node, to_agent) changes plan-node ownership on the ledger only",
+        "property test (hypothesis-free, seeded random): for random parent/child profiles child_effective \u2286 parent_effective and ceiling \u2264 regardless of child model; tests/test_agents_delegation.py passes"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c8",
+        "h22",
+        "c50",
+        "h36"
+      ],
+      "instruction": "No spawning here \u2014 t14 wires it into subagents.run_subagent. Authority ceilings are a small closed enum (read_only, repo_patch_no_publish, repo_patch_publish) ordered; host policy still gates every route."
+    },
+    {
+      "id": "t12",
+      "summary": "t12 agents/guidance.py \u2014 the enumerated purpose\u2192role guidance table (prompt text, never a runtime branch)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GUIDANCE is a frozen tuple of (purpose, when-to-prefer bullets) rendered by build_guidance_text() into the delegating agent's system prompt fragment; the module contains no function that takes task text and returns a model/role (grep-guarded in t18)",
+        "tests/test_agents_guidance.py: rendered text names talker/worker/thinker_coder purposes only (no vendor names), is deterministic, and is absent from the prompt when agents is unarmed"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c5"
+      ],
+      "instruction": "Source the bullets from issue #411 'Routing policy' (Prefer Talker/Worker/Thinker when\u2026) reworded as guidance to the agent; the runtime never routes \u2014 model switching only via t11 delegations."
+    },
+    {
+      "id": "t13",
+      "summary": "t13 contract + artifact + mock: TaskResult.agents block (omit-when-unarmed) and mock-engine honouring of profiles",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "contract.py: TaskResult.agents: Optional[dict] = None carrying {version, invocations[], messages[], fallbacks[], ledger_path, ledger_digest}; to_dict omits it when None (contract.py:1308-1345 convention); from_dict round-trips; artifact.write unchanged otherwise",
+        "engines/mock.py honours ChildSpec profile/context_mode fields identically to vllm-openai (shape parity) and emits invocation records when config.agents is armed; tests/test_e2e_mock.py passes unchanged; a new parity test asserts the armed key shape is identical on both engines"
+      ],
+      "deps": [
+        "t9",
+        "t3"
+      ],
+      "covers": [
+        "c17",
+        "h24"
+      ],
+      "instruction": "Additive only. Keep the block small \u2014 messages/invocations are already in the ledger; the artifact carries them for the ROI/feedback readers. Do not touch loop.py (t15) or subagents.py (t14)."
+    },
+    {
+      "id": "t14",
+      "summary": "t14 subagents: a child may bind a different lobes role (cross-role dial), context_mode, identity + lifecycle events",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "subagents.ChildSpec gains profile (purpose or role name), context_mode in {inherit, clear} (default inherit); run_subagent builds the child EngineConfig via agents.runtime.agent_engine_config when config.agents is armed (role dial, own context, per-role key \u2014 never the parent api_key when the origin differs), else byte-identical to today's replace(model=\u2026)",
+        "the child's SubResult carries agent_id/resolved_model; delegate/return events bracket the spawn (t11); a child with context_mode=clear receives the handover summary (t10) instead of the parent transcript",
+        "every make_spawn/make_batch_spawn caller (work.py:1290-1297 and any other) passes the parent profile; tests/test_subagents.py + test_subagents_parallel.py + test_subagent_e2e.py pass; new tests cover cross-role dial on mock and vllm-openai (gateway double)"
+      ],
+      "deps": [
+        "t9",
+        "t11"
+      ],
+      "covers": [
+        "c7",
+        "h8",
+        "c49"
+      ],
+      "instruction": "subagents.py:468-489 is the seam; keep caps (config.py:339-341) untouched; the mock engine must accept the same ChildSpec fields (t13). Same-origin key hygiene per #348."
+    },
+    {
+      "id": "t15",
+      "summary": "t15 loop.py wiring (wiring only): mode check, invocation records at the chokepoint, ledger appends, pinned nucleus, two-sided tool surface, messages",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "when config.agents is armed: run() opens the task ledger at the operator repo (flight_repo_path precedent, loop.py:2161-2172), appends operator_request first, appends an invocation record around every _complete_with_degradation call (loop.py:1885), appends operator_input for flight guidance / guide_cortex / talk (_fold_flight_chat :2129), pins the nucleus (t10) ahead of window_messages, feeds the profile's effective tool surface to BOTH curate_schemas and ToolExecutor(allowlist=), injects the guidance text (t12), and folds TaskResult.agents (t13) on every exit path including abort",
+        "unarmed: loop.py behaviour is byte-identical (mock parity suite + the whole suite green); the loop.py diff is seam calls + one mode check \u2014 no new _maybe_* logic bodies (new logic lives in colleague/agents/)",
+        "tests/test_loop_agents_wiring.py: armed run on mock yields invocation records for every turn, operator_input ordering, and a Worker-profile child refused by the executor on write_file even if offered"
+      ],
+      "deps": [
+        "t8",
+        "t9",
+        "t10",
+        "t11",
+        "t12",
+        "t13"
+      ],
+      "covers": [
+        "c16",
+        "h13",
+        "c51",
+        "h37",
+        "c49",
+        "h35",
+        "c11"
+      ],
+      "instruction": "Claude authors this task (loop.py is 4951 lines \u2014 colleague times out on it). Keep every new body in colleague/agents/runtime.py; loop.py calls runtime.begin_task / runtime.record_invocation / runtime.end_task. Respect the chokepoint invariant: every model turn passes _complete_with_degradation. When agents is armed the acting agent's window budget is its seat's advertised context (bigger sliding window for cortex now, worker when on) with the nucleus pinned; unarmed keeps _DEFAULT_CONTEXT_BUDGET byte-identically."
+    },
+    {
+      "id": "t16",
+      "summary": "t16 talker = senses: identity + invocation records at senses call sites, talker profile refuses write tools, talk/guide as operator_input",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "senses.py / senses_loop.py call sites (senses.py:669,744,807,1104,1237,1410) record an InvocationRecord with purpose talker when agents is armed; tools=[] stays at every call site (tests/test_senses_cannot_act.py passes unchanged)",
+        "AgentProfile validation refuses a talker profile whose tool_profile contains any write-class tool (t2 classes); guide_cortex/talk/clarify outputs are operator_input or display-only events \u2014 never a delegate/handoff authority (test)",
+        "headless/cortex-only runs are unchanged (no senses \u2192 no talker record; byte-identical)"
+      ],
+      "deps": [
+        "t9",
+        "t13"
+      ],
+      "covers": [
+        "c19",
+        "h25",
+        "c21"
+      ],
+      "instruction": "Wiring only in senses.py/senses_loop.py; the record builder is t9's. Do not touch loop.py."
+    },
+    {
+      "id": "t17",
+      "summary": "t17 continuation rehydrates from the ledger (armed), fails closed to the prose recap, unarmed ignores + warns",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "continuation.resolve_continuation: when agents is armed AND <repo>/.colleague/ledger/<id>.jsonl reads cleanly, the seed is built from derive_snapshot (authority flags, --no-pr, mode, role/profile, constraints, acceptance, changed paths, failed checks, open loops, open delegations, promised follow-ups) + the verbatim original request \u2014 not escalation.build_continuation's prose; LedgerUnreadable \u2192 warning recorded + the existing prose path; unarmed \u2192 prose path + a warning that a ledger exists",
+        "tests/test_continuation_ledger.py: rehydrated snapshot equals the pre-cut snapshot for changed_paths/open_loops/acceptance/authority (0 lost items); truncated tail / bumped schema / digest mismatch each \u2192 warning + prose fallback, exit 0; latest operator_input outranks the snapshot's summaries"
+      ],
+      "deps": [
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c35",
+        "h18",
+        "c54",
+        "h40"
+      ],
+      "instruction": "continuation.py:25 + escalation.build_continuation :187 are the seams; the artifact is still the wrong-run guard's source. Works even when the artifact write failed only after t5 lands (dep)."
+    },
+    {
+      "id": "t18",
+      "summary": "t18 guards + parity tests: vendor-name grep, no-router grep, boundary allow-lists, TAE schemas unchanged, mock key-set diff 0",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_agents_boundary.py: (a) no gemma|qwen|nemotron|lightning under colleague/agents/; (b) no function under colleague/agents/ or loop.py reads task.instruction/context to choose a model (AST guard: no call that returns a model/role takes the instruction text) \u2014 the only model switch is a DelegationRequest; (c) tests/test_boundary.py _SUBPROCESS_ALLOWED/_THREADS_ALLOWED unchanged; (d) Thought/ActionProposal/Evaluation/LedgerEntry field sets unchanged or additively versioned",
+        "tests/test_e2e_mock.py passes unchanged and a new assertion diffs the unarmed to_dict key set against the pinned list = 0 additions; the armed key shape is identical on mock and vllm-openai"
+      ],
+      "deps": [
+        "t15"
+      ],
+      "covers": [
+        "c5",
+        "h21",
+        "c20",
+        "c22",
+        "h26",
+        "c23",
+        "h27",
+        "c41",
+        "h28",
+        "c12",
+        "h23"
+      ],
+      "instruction": "Tests only; pure stdlib ast/grep. These are the c41/h28 and c22/h26 proofs."
+    },
+    {
+      "id": "t19",
+      "summary": "t19 ledger location + clean/reap scope: operator-repo path on isolated runs, reap finished-task ledgers only",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an isolated run (work/drive worktree) writes .colleague/ledger/<id>.jsonl under the OPERATOR repo (task.flight_repo_path), never inside the throwaway worktree; 'git status' is clean after an armed run (gitignore /.colleague/* at .gitignore:247)",
+        "handoff.py's reap (handoff.py:697 scope) and 'colleague clean' include .colleague/ledger/ for tasks whose artifact is final or orphaned; a live task's ledger is never removed (test with a running-marker double)"
+      ],
+      "deps": [
+        "t4",
+        "t15"
+      ],
+      "covers": [
+        "c47",
+        "h34"
+      ],
+      "instruction": "Small edits in handoff.py reap helpers + cleanup docs; path resolution comes from t4's ledger_path + loop's _flight_repo_path."
+    },
+    {
+      "id": "t20",
+      "summary": "t20 fallback proof on a gateway double of the 2026-08-21 advert + doctor fallback line",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/fixtures/capabilities-2026-08-21.json is the saved advert (cortex ready 1048576; senses ready 32768; worker Lightning ready:false 65536; hand ready; muse/stt/tts not ready) served by a stdlib http double; tests/test_agents_fallback.py: an armed work item with \u22651 subagent completes status ok, 0 refusals, every worker-purpose invocation recorded as cortex-backed with fallback_from_role='worker'; TaskResult.agents.fallbacks non-empty; doctor prints the fallback line",
+        "the same double with worker ready:true yields a worker-bound invocation (proves the fallback is conditional, not hardcoded)"
+      ],
+      "deps": [
+        "t15",
+        "t7"
+      ],
+      "covers": [
+        "c43",
+        "h30",
+        "c4",
+        "h7"
+      ],
+      "instruction": "Save the dump from this session's probe verbatim (re-probe at implementation time and note any diff). The double speaks only GET /capabilities; no model calls leave the process (mock engine)."
+    },
+    {
+      "id": "t21",
+      "summary": "t21 continuity regression: SIGTERM-resume equality + compaction drops 0 plan nodes (real os.pipe)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_agents_continuity.py: an armed run blocked in a never-yielding stream (real os.pipe) receives SIGTERM \u2192 artifact exists (t5) AND ledger exists; work --continue rehydrates a snapshot equal to the pre-cut snapshot on changed_paths/open_loops/acceptance/authority (0 lost); a fillline compaction during an armed run leaves every plan_node and changed_path on the ledger (0 dropped)",
+        "a manifest audit helper (tools/\u2026 or tests util) reports max token_estimate / advertised context over a run; asserted < 0.5 on the scripted run and used by t23 on the live run"
+      ],
+      "deps": [
+        "t17",
+        "t5",
+        "t15"
+      ],
+      "covers": [
+        "c44",
+        "h31"
+      ],
+      "instruction": "Build on t5's pipe fixture and t17's rehydration. The audit helper is test-side, not a new CLI verb."
+    },
+    {
+      "id": "t22",
+      "summary": "t22 docs + scope line + changelog + version: docs/features/model-bound-agents.md, CLAUDE.md eleventh increment, CHANGELOG, minor bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/model-bound-agents.md follows the feature-doc shape (what / modes / invariants / honest limits / module list / spec+plan links) and contains a traceability table mapping every after-state clause to its requirement + test (h3); it names lobes-cli#187 as the advert owner and cites the 2026-08-21 probe (h2); why-it-matters cites the benchmark numbers from their sources (h5)",
+        "CLAUDE.md: a new architecture bullet + the v1-scope paragraph gains '(11) the model-bound-agents increment' in the established three-part form (FIXED roles BY ROLE NAME, INDEPENDENT opt-in, byte-identical unarmed, NEVER a routing policy); three-tier bullet marked superseded-by-#411 (kept); CHANGELOG top entry in the Keep-a-Changelog form; version bumped minor via the version-bump skill; markdownlint-cli2 clean"
+      ],
+      "deps": [
+        "t15",
+        "t16",
+        "t17",
+        "t18",
+        "t19",
+        "t20",
+        "t21"
+      ],
+      "covers": [
+        "c38",
+        "h2",
+        "c39",
+        "h3",
+        "c40",
+        "h5"
+      ],
+      "instruction": "Match docs/features/thought-action-evaluation.md for structure and docs/specs/2026-08-09-\u2026md:92 for the scope sentence. Honest limits must say: opt-in only until c45; acting agent keeps transcript (q7); evaluator seat is TAE's (q9)."
+    },
+    {
+      "id": "t23",
+      "summary": "t23 live proof + experiment pre-registration: refusal reproduced, armed run on the Spark rig, live-testing rows, bars before arms",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/deliveries/2026-08-21-model-bound-agents-411.md records: the pre-fix refusal reproduced verbatim against the live gateway + the 2026-08-21 /capabilities dump; one LIVE armed 'colleague work' on the Spark rig (worker ready:false) completing end to end with the task id; the artifact audit showing 100% of invocations attributed, the negative authority test result, and the manifest audit (max token_estimate / advertised context) from the run",
+        "docs/live-testing.md gains rows for the live run and for the matched experiment; the experiment's success bars (quality, completion, latency, tokens/model, tool calls/model, escalation rate, invalid tool calls, corrections) are committed in the delivery doc BEFORE the arms run; agents mode remains opt-in in config docs until the row exists"
+      ],
+      "deps": [
+        "t22"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c3",
+        "h4",
+        "c42",
+        "h29",
+        "c43",
+        "h30",
+        "c45",
+        "h32"
+      ],
+      "instruction": "Unset three_tier in .colleague/config.json first (the current refusal). Clean the stale CONVERTIBLE_MODEL export before the run so identity records carry the served cortex id. Run arm A (solo cortex legacy) and arm B (agents armed) on the same brief; record both even if B loses."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "loop.py (4951 lines) and config.py (4200 lines) edits (t6, t8, t15, t7) exceed what colleague can edit before timing out \u2014 Claude authors t15; t6/t8/t7 dispatch only with tight line-range briefs; #399 extraction stays a separate follow-up",
+      "kind": "unknown_nonblocking",
+      "task_id": "t15",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "adding 'step-stall' to chain.CONTINUABLE_REASONS (#400's suggestion) would change a surface the self-learning increment pinned unchanged \u2014 left out of t6; decide in a follow-up re-spec",
+      "kind": "follow_up",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "the local GPU serializes requests: parallel waves of colleague dispatches cap at ~2 with COLLEAGUE_TIMEOUT=300; wide waves are operational only for Claude-side tasks",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "the Lightning worker may become ready mid-arc (lobes-cli#187); t20's 'ready:true' branch is the only worker-bound proof until then \u2014 re-run t20/t23 when the role is ready",
+      "kind": "follow_up",
+      "task_id": "t20",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "the three existing seat builders (tae_loop.seat_engine_config, deepthink_engine_config, senses_engine_config) are not folded into t9's builder in this arc (c48 assumption) \u2014 a fourth copy is avoided but the triplication remains; fold is a follow-up",
+      "kind": "follow_up",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "t23's live arms need rig time (hours per run on the reasoning-heavy 3.8); the matched experiment may land after the PR as a follow-up row \u2014 the mode stays opt-in until it does (c45)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t23",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}
