@@ -73,8 +73,10 @@ def _armed_repo(tmp_path: Path, gateway: str) -> Path:
 
 
 def test_fixture_mirrors_the_live_advert_shape() -> None:
-    assert ADVERT["cortex"]["ready"] is True and ADVERT["senses"]["ready"] is True
-    assert ADVERT["worker"]["ready"] is False and "Lightning" in ADVERT["worker"]["model"]
+    assert ADVERT["cortex"]["ready"] is True
+    assert ADVERT["senses"]["ready"] is True
+    assert ADVERT["worker"]["ready"] is False
+    assert "Lightning" in ADVERT["worker"]["model"]
     assert "associate" not in ADVERT
 
 
@@ -85,7 +87,8 @@ def test_armed_work_item_with_a_subagent_completes_under_the_recorded_fallback(
     with _serving(ADVERT) as gateway:
         repo = _armed_repo(tmp_path, gateway)
         cfg = EngineConfig.resolve(repo_path=repo, discover_lobes=True)
-        assert cfg.agents is True and cfg.model == ADVERT["cortex"]["model"]
+        assert cfg.agents is True
+        assert cfg.model == ADVERT["cortex"]["model"]
         task = Task.new(str(repo), "prove the fallback")
         spawns = Spawns(
             single=make_spawn(
@@ -118,7 +121,8 @@ def test_armed_work_item_with_a_subagent_completes_under_the_recorded_fallback(
             context=ContextControls.from_config(cfg),
         )
     assert result.status == OK  # 0 refusals
-    assert result.sub_results and result.sub_results[0].status == OK
+    assert result.sub_results
+    assert result.sub_results[0].status == OK
     child = result.sub_results[0]
     # the associate purpose is NOT served: carried by cortex, fallback RECORDED
     assert child.resolved_model == ADVERT["cortex"]["model"]
@@ -126,7 +130,8 @@ def test_armed_work_item_with_a_subagent_completes_under_the_recorded_fallback(
     assert child.agent_id
     # the acting seat itself ran on cortex with every invocation attributed
     block = result.agents
-    assert block and len(block["invocations"]) >= 2
+    assert block
+    assert len(block["invocations"]) >= 2
     assert all(i["resolved_model"] == ADVERT["cortex"]["model"] for i in block["invocations"])
     assert all(i["agent_id"] and i["tool_surface_digest"] for i in block["invocations"])
     # the ledger carries the delegate/return pair
@@ -136,7 +141,8 @@ def test_armed_work_item_with_a_subagent_completes_under_the_recorded_fallback(
         if line.strip()
     ]
     kinds = [e.get("kind") for e in events]
-    assert "delegate" in kinds and "return" in kinds
+    assert "delegate" in kinds
+    assert "return" in kinds
 
 
 def test_worker_purpose_resolves_to_cortex_today_and_binds_when_ready() -> None:
@@ -144,14 +150,16 @@ def test_worker_purpose_resolves_to_cortex_today_and_binds_when_ready() -> None:
         roles = resolve_roles(gateway)
     assert roles is not None
     today = resolve_profile("worker", roles)
-    assert today.model_role == "cortex" and today.fallback_from_role == "worker"
+    assert today.model_role == "cortex"
+    assert today.fallback_from_role == "worker"
     assert today.resolved_model == ADVERT["cortex"]["model"]
     ready = json.loads(json.dumps(ADVERT))
     ready["worker"]["ready"] = True
     with _serving(ready) as gateway:
         roles_ready = resolve_roles(gateway)
     bound = resolve_profile("worker", roles_ready)
-    assert bound.model_role == "worker" and bound.fallback_from_role is None
+    assert bound.model_role == "worker"
+    assert bound.fallback_from_role is None
     assert bound.resolved_model == ADVERT["worker"]["model"]
 
 
@@ -178,7 +186,8 @@ def test_worker_ready_binds_the_child_to_the_worker_role(tmp_path: Path) -> None
             spec=ChildSpec(profile="associate"),
         )
     assert sub.status == OK
-    assert sub.resolved_model == "associate-sentinel" and sub.fallback_from_role is None
+    assert sub.resolved_model == "associate-sentinel"
+    assert sub.fallback_from_role is None
 
 
 def test_doctor_probe_prints_the_fallback_lines_from_the_same_advert(

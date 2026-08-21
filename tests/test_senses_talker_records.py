@@ -173,7 +173,8 @@ class TestEverySensesCallSiteRecordsATalkerInvocation:
 
         packet, record = run_senses_intake("add a retry", cfg, engine)
 
-        assert packet is not None and record.degraded is False
+        assert packet is not None
+        assert record.degraded is False
         assert engine.make_complete_calls == [[]]  # tools=[] stays
         _assert_one_talker_invocation(cfg)
 
@@ -183,7 +184,8 @@ class TestEverySensesCallSiteRecordsATalkerInvocation:
 
         display, record = run_senses_speakback("retry added", cfg, engine)
 
-        assert display and record.degraded is False
+        assert display
+        assert record.degraded is False
         assert engine.make_complete_calls == [[]]
         _assert_one_talker_invocation(cfg)
 
@@ -198,7 +200,8 @@ class TestEverySensesCallSiteRecordsATalkerInvocation:
             engine,
         )
 
-        assert text == "a red square" and record.degraded is False
+        assert text == "a red square"
+        assert record.degraded is False
         assert engine.make_complete_calls == [[]]
         _assert_one_talker_invocation(cfg)
 
@@ -216,7 +219,8 @@ class TestEverySensesCallSiteRecordsATalkerInvocation:
             make_count_tokens=_char_counter,
         )
 
-        assert result is not None and result["degraded"] is False
+        assert result is not None
+        assert result["degraded"] is False
         assert fake.tools_calls == [[]]
         _assert_one_talker_invocation(cfg)
 
@@ -226,7 +230,8 @@ class TestEverySensesCallSiteRecordsATalkerInvocation:
 
         result = run_senses_update(["[edit_file] colleague/config.py"], None, cfg, engine)
 
-        assert result is not None and result["degraded"] is False
+        assert result is not None
+        assert result["degraded"] is False
         assert engine.make_complete_calls == [[]]
         _assert_one_talker_invocation(cfg)
 
@@ -242,7 +247,8 @@ class TestEverySensesCallSiteRecordsATalkerInvocation:
             make_count_tokens=_char_counter,
         )
 
-        assert result is not None and result["degraded"] is False
+        assert result is not None
+        assert result["degraded"] is False
         assert fake.tools_calls == [[]]
         _assert_one_talker_invocation(cfg)
 
@@ -278,7 +284,8 @@ class TestEverySensesCallSiteRecordsATalkerInvocation:
         engine = _Dead(_INTAKE_JSON)
         packet, record = run_senses_intake("add a retry", cfg, engine)
 
-        assert packet is None and record.degraded is True
+        assert packet is None
+        assert record.degraded is True
         _assert_one_talker_invocation(cfg)
 
 
@@ -290,9 +297,11 @@ class TestRecordDetails:
         rec = record_talker_invocation(cfg, messages, engine=None)
 
         assert rec is not None
-        assert rec.token_estimate == 100 and rec.token_estimate_source == "chars"
+        assert rec.token_estimate == 100
+        assert rec.token_estimate_source == "chars"
         assert rec.seq == 0
-        assert rec.purpose == "talker" and rec.model_role == "senses"
+        assert rec.purpose == "talker"
+        assert rec.model_role == "senses"
         assert "token_estimate" not in _events(cfg)[0].data
 
     def test_engine_counter_labels_tokenize(self, tmp_path: Path) -> None:
@@ -327,7 +336,8 @@ class TestRecordDetails:
 
         packet, record = run_senses_intake("add a retry", cfg, engine)
 
-        assert packet is not None and record.degraded is False
+        assert packet is not None
+        assert record.degraded is False
         assert engine.complete_call_count == 1
 
 
@@ -356,8 +366,9 @@ class TestTalkerProfileRefusesWriteTools:
         "tool", ["write_file", "edit_file", "run_command", "subagent", "subagents"]
     )
     def test_write_class_refused(self, tool: str) -> None:
+        profile = _talker_profile()
         with pytest.raises(ValueError, match="talker profile refuses"):
-            validate_profile_tools(_talker_profile(), ["read_file", tool])
+            validate_profile_tools(profile, ["read_file", tool])
 
     @pytest.mark.parametrize("tool", ["culture", "devague"])
     def test_external_class_refused(self, tool: str) -> None:
@@ -437,7 +448,8 @@ class TestGuideCortexIsOperatorInputAndTheRestIsDisplayOnly:
         assert op["source"] == "senses-loop"
         # The verbatim-to-cortex invariant: the operator's words ride the guidance.
         assert "use the retry helper" in op["text"]
-        assert driver.injections and driver.injections[0]["text"] == op["text"]
+        assert driver.injections
+        assert driver.injections[0]["text"] == op["text"]
 
     @pytest.mark.parametrize(
         "move_obj",
@@ -484,7 +496,9 @@ class TestGuideCortexIsOperatorInputAndTheRestIsDisplayOnly:
 
         kinds = {e.kind for e in _events(cfg)}
         assert kinds <= {"invocation", "operator_input"}
-        assert "delegate" not in kinds and "return" not in kinds and "message" not in kinds
+        assert "delegate" not in kinds
+        assert "return" not in kinds
+        assert "message" not in kinds
 
     def test_operator_input_text_is_capped_with_a_truncated_flag(self, tmp_path: Path) -> None:
         cfg = _armed_config(tmp_path)
@@ -542,7 +556,8 @@ class TestUnarmedIsByteIdentical:
 
         packet, record = run_senses_intake("add a retry", cfg, engine)
 
-        assert packet is not None and record.degraded is False
+        assert packet is not None
+        assert record.degraded is False
         assert engine.make_complete_calls == [[]]
         assert not Path(cfg.agents_ledger_path).exists()
 
@@ -601,4 +616,6 @@ class TestUnarmedIsByteIdentical:
 
         rec = record_talker_invocation(cfg, [{"role": "user", "content": "q"}])
 
-        assert rec is not None and rec.seq == 1 and rec.agent_id == "talker-task-7"
+        assert rec is not None
+        assert rec.seq == 1
+        assert rec.agent_id == "talker-task-7"

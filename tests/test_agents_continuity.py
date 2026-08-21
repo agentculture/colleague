@@ -62,7 +62,7 @@ def _arm_repo(tmp_path: Path) -> tuple[Path, EngineConfig]:
     return repo, cfg
 
 
-@pytest.fixture()
+@pytest.fixture
 def armed(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("COLLEAGUE_LOBES_URL", raising=False)
     return _arm_repo(tmp_path)
@@ -184,7 +184,8 @@ def test_sigterm_resume_rehydrates_the_pre_cut_snapshot_with_zero_loss(armed) ->
     # work --continue's lane: armed + readable ledger → the ledger seed, no warning
     warnings: list[dict] = []
     task_id, seed = resolve_continuation(repo, task.id, agents_armed=True, warnings=warnings)
-    assert task_id == task.id and warnings == []
+    assert task_id == task.id
+    assert warnings == []
     assert seed.startswith(f"You are CONTINUING work item {task.id}")
     assert "hang forever on the wire (armed)" in seed  # the request, verbatim
 
@@ -205,7 +206,8 @@ def test_sigterm_resume_rehydrates_the_pre_cut_snapshot_with_zero_loss(armed) ->
     assert before.changed_paths == ("colleague/loop.py",)
     assert [loop_["id"] for loop_ in before.open_loops] == ["l1"]
     assert [a["text"] for a in before.acceptance] == ["tests pass", "docs updated"]
-    assert before.authority_digest and after.authority_digest == before.authority_digest
+    assert before.authority_digest
+    assert after.authority_digest == before.authority_digest
     # the plan node rode along too (the same replay, the same ledger)
     assert [p["id"] for p in after.plan] == ["p1"]
     # the seeded events are byte-identical on the surviving ledger
@@ -216,7 +218,8 @@ def test_sigterm_resume_rehydrates_the_pre_cut_snapshot_with_zero_loss(armed) ->
     # ...and the seed names every one of them
     assert "`colleague/loop.py`" in seed
     assert "[l1] verify the SIGTERM lane" in seed
-    assert "tests pass" in seed and "docs updated" in seed
+    assert "tests pass" in seed
+    assert "docs updated" in seed
     assert "stdlib only" in seed
     assert f"authority_digest: `{after.authority_digest}`" in seed
 
@@ -264,7 +267,8 @@ def test_fillline_compaction_leaves_every_plan_node_and_changed_path(armed) -> N
 
     result = loop.run(complete, task, max_steps=10, context=controls)
     assert result.status == OK
-    assert result.capacity_decision is not None and result.capacity_decision.kind == "compact"
+    assert result.capacity_decision is not None
+    assert result.capacity_decision.kind == "compact"
     # the transcript WAS compacted (the final turn ran on head + the summary)
     final = calls[-1]
     assert any((m.get("content") or "").startswith("[Compacted summary") for m in final)
@@ -288,14 +292,16 @@ def test_fillline_compaction_leaves_every_plan_node_and_changed_path(armed) -> N
     dropped_changed = {e.canonical() for e in pre_changed} - {
         e.canonical() for e in post if e.kind == "changed_path"
     }
-    assert dropped_plan == set() and dropped_changed == set()
+    assert dropped_plan == set()
+    assert dropped_changed == set()
     # the replayed snapshot agrees: both plan nodes, the seeded path AND the
     # real write (folded at end) — the compaction touched only the transcript
     snapshot = rehydrate_snapshot(repo, task.id)
     assert snapshot is not None
     assert [p["id"] for p in snapshot.plan] == ["p1", "p2"]
     assert set(snapshot.changed_paths) == {"docs/seeded.md", "notes.txt"}
-    assert result.agents is not None and result.agents["ledger_digest"] == snapshot.state_digest
+    assert result.agents is not None
+    assert result.agents["ledger_digest"] == snapshot.state_digest
 
 
 # ---------------------------------------------------------------------------
@@ -308,23 +314,28 @@ def test_scripted_armed_run_manifest_ratio_is_under_half(armed) -> None:
     task = Task.new(str(repo), "audit the manifest of a scripted armed run")
     controls = ContextControls.from_config(cfg)
     advertised = controls.budget or cfg.context_budget_tokens
-    assert advertised and advertised > 0
+    assert advertised
+    assert advertised > 0
     script = iter([_list_dir(), _finish()])
     result = loop.run(lambda _m: next(script), task, max_steps=4, context=controls)
     assert result.status == OK
     invocations = result.agents["invocations"]
-    assert len(invocations) == 2 and all(i["token_estimate"] > 0 for i in invocations)
+    assert len(invocations) == 2
+    assert all(i["token_estimate"] > 0 for i in invocations)
 
     ratio = manifest_ratio(result, advertised)
     assert 0.0 < ratio < 0.5, (ratio, advertised)
     assert manifest_ratio(result.agents, advertised) == ratio  # block or result: same
     assert manifest_ratio(invocations, advertised) == ratio  # or the raw list
     report = audit_report(result, advertised)
-    assert report["count"] == 2 and report["ratio"] == ratio
+    assert report["count"] == 2
+    assert report["ratio"] == ratio
     assert report["max_token_estimate"] == max(i["token_estimate"] for i in invocations)
     assert report["advertised_context"] == advertised
-    assert report["truncated"] == 0 and report["sources"] == ["chars"]
-    assert report["over_half"] is False and report["over"] is False
+    assert report["truncated"] == 0
+    assert report["sources"] == ["chars"]
+    assert report["over_half"] is False
+    assert report["over"] is False
     # the estimate never reaches Usage (exact tokens only)
     assert result.usage.total_tokens == 0
 
@@ -351,9 +362,11 @@ def test_audit_helper_accepts_records_blocks_and_empties() -> None:
     assert manifest_ratio({"invocations": [r.to_dict() for r in records]}, 1400) == 0.5
     assert len(invocations_of([r.to_dict() for r in records])) == 2
     report = audit_report(records, 1000)
-    assert report["count"] == 2 and report["truncated"] == 1
+    assert report["count"] == 2
+    assert report["truncated"] == 1
     assert report["sources"] == ["chars", "tokenize"]
-    assert report["over_half"] is True and report["over"] is False
+    assert report["over_half"] is True
+    assert report["over"] is False
     assert audit_report(records, 500)["over"] is True
     # empties: no invocations = ratio 0, never a crash
     assert manifest_ratio(None, 100) == 0.0
