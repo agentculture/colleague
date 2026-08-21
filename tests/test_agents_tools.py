@@ -31,7 +31,8 @@ _FULL = set(tools.TOOL_NAMES)
 def test_every_registry_tool_plus_deepthink_has_a_profile() -> None:
     assert set(TOOL_PROFILES) == _FULL | {"deepthink"}
     for name, prof in TOOL_PROFILES.items():
-        assert prof.canonical_id == name and prof.tool_class in TOOL_CLASSES
+        assert prof.canonical_id == name
+        assert prof.tool_class in TOOL_CLASSES
 
 
 def test_tool_class_reconciles_roles_write_set_and_tae_consequential_set() -> None:
@@ -51,7 +52,8 @@ def test_approval_and_inheritance_flags() -> None:
     assert not any(p.required_approval for n, p in TOOL_PROFILES.items() if n != "run_command")
     for spawner in ("subagent", "subagents", "deepthink"):
         assert profile_for(spawner).inheritable is False
-    assert profile_for("read_file").inheritable and profile_for("write_file").inheritable
+    assert profile_for("read_file").inheritable
+    assert profile_for("write_file").inheritable
     with pytest.raises(KeyError):
         profile_for("not_a_tool")
     with pytest.raises(ValueError):
@@ -59,7 +61,8 @@ def test_approval_and_inheritance_flags() -> None:
 
 
 def test_worker_profile_has_no_generic_code_authoring_tools() -> None:
-    assert "write_file" not in WORKER_TOOLS and "edit_file" not in WORKER_TOOLS
+    assert "write_file" not in WORKER_TOOLS
+    assert "edit_file" not in WORKER_TOOLS
     assert {
         "read_file",
         "view_media",
@@ -94,7 +97,8 @@ def test_effective_tools_is_the_sorted_intersection_and_never_adds() -> None:
         approved_tools=_FULL,
     )
     assert eff == tuple(sorted(WORKER_TOOLS - {"run_command"}))
-    assert set(eff) <= WORKER_TOOLS and "write_file" not in eff
+    assert set(eff) <= WORKER_TOOLS
+    assert "write_file" not in eff
     # narrowing any dimension can only shrink
     smaller = effective_tools(_FULL, _FULL, WORKER_TOOLS, {"read_file"}, _FULL, _FULL)
     assert smaller == ("read_file",)

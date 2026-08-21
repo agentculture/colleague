@@ -45,7 +45,7 @@ def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
 _IGNORE_RULES = "/.colleague/*\n!/.colleague/commands/\n!/.colleague/skills/\n"
 
 
-@pytest.fixture()
+@pytest.fixture
 def git_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -232,7 +232,8 @@ def test_unreadable_or_empty_artifact_is_not_final(git_repo: Path) -> None:
     led_b = _write_ledger(git_repo, "bad2")
     (artifact.artifact_dir(git_repo) / "bad2.json").write_text("", encoding="utf-8")
     assert handoff.reap_finished_ledgers(git_repo) == []
-    assert led_a.exists() and led_b.exists()
+    assert led_a.exists()
+    assert led_b.exists()
 
 
 def test_unrelated_files_are_untouched(git_repo: Path) -> None:
@@ -248,7 +249,9 @@ def test_unrelated_files_are_untouched(git_repo: Path) -> None:
     _write_artifact(git_repo, "fin9")
     led = _write_ledger(git_repo, "fin9")
     assert handoff.reap_finished_ledgers(git_repo) == [str(led)]
-    assert note.exists() and nested.exists() and other.exists()
+    assert note.exists()
+    assert nested.exists()
+    assert other.exists()
     assert not led.exists()
 
 
@@ -288,7 +291,8 @@ def test_clean_reaps_finished_ledger_and_spares_live_one(
     report = json.loads(capsys.readouterr().out)
     assert report["ledgers"] == [str(done)]
     assert not done.exists()
-    assert live.exists() and pending.exists()
+    assert live.exists()
+    assert pending.exists()
 
 
 def test_clean_dry_run_reports_ledger_without_removing(
@@ -298,7 +302,8 @@ def test_clean_dry_run_reports_ledger_without_removing(
     _write_artifact(git_repo, "done2")
     assert cmd_clean(_clean_args(git_repo, dry_run=True)) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["dry_run"] is True and report["ledgers"] == [str(done)]
+    assert report["dry_run"] is True
+    assert report["ledgers"] == [str(done)]
     assert done.exists()
 
 
@@ -315,7 +320,8 @@ def test_clean_reaps_the_ledger_of_an_orphaned_iso_worktree(
     assert cmd_clean(_clean_args(git_repo, dry_run=False)) == 0
     report = json.loads(capsys.readouterr().out)
     assert not Path(iso).exists()
-    assert report["ledgers"] == [str(led)] and not led.exists()
+    assert report["ledgers"] == [str(led)]
+    assert not led.exists()
 
 
 def test_clean_text_render_lists_ledgers(git_repo: Path, capsys: pytest.CaptureFixture) -> None:
@@ -323,7 +329,8 @@ def test_clean_text_render_lists_ledgers(git_repo: Path, capsys: pytest.CaptureF
     _write_artifact(git_repo, "done3")
     assert cmd_clean(_clean_args(git_repo, dry_run=False, json_mode=False)) == 0
     out = capsys.readouterr().out
-    assert "ledgers (reaped):" in out and "done3.jsonl" in out
+    assert "ledgers (reaped):" in out
+    assert "done3.jsonl" in out
 
 
 def test_clean_text_render_nothing_to_reap_mentions_ledgers(
@@ -332,4 +339,5 @@ def test_clean_text_render_nothing_to_reap_mentions_ledgers(
     _write_ledger(git_repo, "pend2")  # live-or-unknown: kept, so nothing to reap
     assert cmd_clean(_clean_args(git_repo, dry_run=False, json_mode=False)) == 0
     out = capsys.readouterr().out
-    assert "nothing to reap" in out and "ledgers" in out
+    assert "nothing to reap" in out
+    assert "ledgers" in out

@@ -48,7 +48,7 @@ def _finish(prompt: int = 80, completion: int = 10) -> ModelResponse:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def task(tmp_path: Path) -> Task:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -66,13 +66,17 @@ def test_truncated_turn_is_recorded_accounted_and_retried_with_a_tighter_window(
     result = loop.run(complete, task, max_steps=5, context=ContextControls(budget=5000))
     assert result.status == OK
     truncs = [w for w in result.warnings if w.get("kind") == "truncated-turn"]
-    assert len(truncs) == 1 and truncs[0]["finish_reason"] == "length"
-    assert truncs[0]["reasoning_chars"] == 40 and truncs[0]["step_index"] == 0
+    assert len(truncs) == 1
+    assert truncs[0]["finish_reason"] == "length"
+    assert truncs[0]["reasoning_chars"] == 40
+    assert truncs[0]["step_index"] == 0
     # the truncated attempt's tokens are EXACT and never dropped; both turns counted
-    assert result.usage.prompt_tokens == 180 and result.usage.completion_tokens == 60
+    assert result.usage.prompt_tokens == 180
+    assert result.usage.completion_tokens == 60
     assert result.stats.model_turns == 2
     # the retry went straight back to the model (no finish nudge appended)
-    assert len(seen) == 2 and seen[1] <= seen[0]
+    assert len(seen) == 2
+    assert seen[1] <= seen[0]
     assert result.stopped_without_finish is False
 
 
@@ -87,9 +91,11 @@ def test_without_a_budget_the_truncation_is_recorded_then_the_nudge_path_runs(ta
     result = loop.run(complete, task, max_steps=5)
     assert result.status == OK
     assert [w["kind"] for w in result.warnings] == ["truncated-turn"]
-    assert result.usage.prompt_tokens == 180 and result.usage.completion_tokens == 60
+    assert result.usage.prompt_tokens == 180
+    assert result.usage.completion_tokens == 60
     # no budget = nothing to shrink: the existing nudge path handled the empty turn
-    assert len(seen) == 2 and len(seen[1]) > len(seen[0])
+    assert len(seen) == 2
+    assert len(seen[1]) > len(seen[0])
 
 
 def test_streaming_truncation_over_a_real_pipe_is_carried_as_length(task: Task) -> None:
@@ -118,7 +124,9 @@ def test_streaming_truncation_over_a_real_pipe_is_carried_as_length(task: Task) 
         reasoning="".join(acc.reasoning_parts),
         finish_reason=acc.finish_reason,
     )
-    assert resp.finish_reason == "length" and resp.content == "" and resp.reasoning == "thinking"
+    assert resp.finish_reason == "length"
+    assert resp.content == ""
+    assert resp.reasoning == "thinking"
     assert loop._is_truncated_turn(resp)
     # and through the loop the same shape is recorded
     script = iter([resp, _finish()])
@@ -141,7 +149,8 @@ def test_blocking_path_parses_the_same_truncation() -> None:
             "usage": {"prompt_tokens": 1, "completion_tokens": 2},
         }
     )
-    assert resp.finish_reason == "length" and resp.content == ""
+    assert resp.finish_reason == "length"
+    assert resp.content == ""
     assert loop._is_truncated_turn(resp)
 
 

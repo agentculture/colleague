@@ -13,6 +13,7 @@ callable, top-k 3, None = layer absent); and the unarmed loop's
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import re
 
@@ -152,10 +153,12 @@ def test_nucleus_is_one_message_with_every_pinned_section(snapshot, events):
     # authority digest
     assert snapshot.authority_digest in body
     # the ACTIVE plan node (not the done or pending one)
-    assert "p2" in body and "add the flag + test" in body
+    assert "p2" in body
+    assert "add the flag + test" in body
     assert "read the export verb" not in body
     # unresolved failures: the failed verification, not the passing one
-    assert "v1" in body and "pytest" in body
+    assert "v1" in body
+    assert "pytest" in body
     assert "flake8" not in body
     # open loops
     assert "confirm the flag name with the operator" in body
@@ -169,7 +172,9 @@ def test_nucleus_picks_first_pending_when_no_active_plan_node():
         _ev(3, "plan_node", id="p3", status="pending", text="third"),
     ]
     body = build_nucleus(derive_snapshot(evs), evs)["content"]
-    assert "second" in body and "third" not in body and "first" not in body
+    assert "second" in body
+    assert "third" not in body
+    assert "first" not in body
 
 
 def test_nucleus_never_contains_tool_calls_or_chain_of_thought():
@@ -251,8 +256,10 @@ def test_inherit_is_nucleus_only_and_clear_is_the_layered_packet(snapshot, event
     assert clear.messages[0] == inherit.messages[0]
     assert clear.manifest["transcript"] == "none"
     layers = clear.manifest["layers"]
-    assert layers[0] == "nucleus" and layers[1] == "handover"
-    assert "working_set" in layers and "archive" in layers
+    assert layers[0] == "nucleus"
+    assert layers[1] == "handover"
+    assert "working_set" in layers
+    assert "archive" in layers
     assert layers.index("working_set") < layers.index("archive")
     # the handover summary is the reviewer's clear mind
     handover = clear.messages[1]["content"]
@@ -262,7 +269,8 @@ def test_inherit_is_nucleus_only_and_clear_is_the_layered_packet(snapshot, event
     assert "colleague/cli/_commands/export.py" in handover
     assert "artifact:step:4" in handover
     # archive refs carry the referenced streams' digests, never their content
-    assert "evaluation_ledger" in _content(clear) and "abc123" in _content(clear)
+    assert "evaluation_ledger" in _content(clear)
+    assert "abc123" in _content(clear)
     assert "archive" in clear.manifest["layers"]
     assert any("evaluation_ledger" in r for r in clear.manifest["archive_refs"])
 
@@ -290,7 +298,7 @@ def test_manifest_fields_and_message_shape(snapshot, events):
     assert man["budget"] == 8000
     assert man["token_estimate"] == sum(len(m["content"]) for m in recon.messages) // 4
     # frozen record
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         recon.messages = []  # type: ignore[misc]
 
 
@@ -326,8 +334,9 @@ def test_rank_is_explicit_and_ordered():
     ]
     # within one rank, ledger order (seq) is kept
     assert [i.seq for i in ranked[:2]] == [5, 9]
+    unknown = SourceItem("vibes", 0, "x", "x")
     with pytest.raises(ValueError, match="unknown source"):
-        rank_sources([SourceItem("vibes", 0, "x", "x")])
+        rank_sources([unknown])
 
 
 def test_later_operator_input_outranks_earlier_peer_inform(snapshot, events):
@@ -480,7 +489,8 @@ def test_recall_layer_is_top_k_capped_and_absent_when_none(snapshot, events):
     assert RECALL_TOP_K == 3
     assert recon.manifest["retrieved_memory_refs"] == ["mem:0", "mem:1", "mem:2"]
     assert "procedure 3" not in _content(recon)
-    assert seen and "Add a --dry-run flag" in seen[0]
+    assert seen
+    assert "Add a --dry-run flag" in seen[0]
     assert "retrieved_memory" in recon.manifest["layers"]
 
     absent = reconstruct(snapshot, "thinker_coder", 8000, context_mode="clear", events=events)

@@ -45,7 +45,8 @@ def test_armed_agents_block_has_identical_key_shape_on_both_engines(
     assert cfg.agents is True
 
     mock_result, vllm_result = _run_both(tmp_path, cfg)
-    assert mock_result.status == OK and vllm_result.status == OK
+    assert mock_result.status == OK
+    assert vllm_result.status == OK
 
     # Both carry the key, both with the versioned shape.
     for result in (mock_result, vllm_result):
@@ -89,9 +90,12 @@ def test_armed_block_is_loop_authored_and_identical_in_shape_on_both_engines(
     cfg = dataclasses.replace(EngineConfig.resolve(), agents=True)
     mock_result, vllm_result = _run_both(tmp_path, cfg)
     for res in (mock_result, vllm_result):
-        assert res.agents is not None and res.agents != empty_agents_block()
-        assert res.agents["version"] == 1 and res.agents["invocations"]
-        assert res.agents["ledger_path"] and res.agents["ledger_digest"]
+        assert res.agents is not None
+        assert res.agents != empty_agents_block()
+        assert res.agents["version"] == 1
+        assert res.agents["invocations"]
+        assert res.agents["ledger_path"]
+        assert res.agents["ledger_digest"]
         assert {
             "version",
             "invocations",
@@ -109,7 +113,8 @@ def test_mock_work_accepts_the_profile_bearing_child_config(tmp_path: Path) -> N
     accepted, and a child config carrying ``agents=True`` run through the
     mock yields the armed block — no per-engine divergence."""
     spec = ChildSpec(profile="associate", context_mode="clear")
-    assert spec.profile == "associate" and spec.context_mode == "clear"
+    assert spec.profile == "associate"
+    assert spec.context_mode == "clear"
     cfg = dataclasses.replace(EngineConfig.resolve(), agents=True)
     repo = tmp_path / "repo"
     repo.mkdir()
