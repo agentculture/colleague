@@ -59,6 +59,7 @@ from urllib.parse import urlsplit
 
 from colleague.agents.profile import AgentProfile
 from colleague.agents.state.ledger import LedgerEvent, TaskLedger
+from colleague.agents.tools import tool_surface_digest
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.lobes import resolve_role_base_url
@@ -318,3 +319,274 @@ def append_invocation(ledger: TaskLedger, record: InvocationRecord) -> Invocatio
     event: LedgerEvent = ledger.append("invocation", data)
     snapshot = ledger.derive()
     return dataclasses.replace(record, seq=event.seq, ledger_digest=snapshot.state_digest)
+
+
+# ---------------------------------------------------------------------------
+# The per-work-item runtime the loop wires (#411, plan task t15 — bodies live
+# HERE; colleague/loop.py carries only the seam calls)
+# ---------------------------------------------------------------------------
+
+#: Schema version of the ``TaskResult.agents`` block this runtime folds.
+AGENTS_BLOCK_VERSION = 1
+
+#: The acting seat's default purpose when the operator names none.
+DEFAULT_ACTING_PURPOSE = "thinker_coder"
+
+
+def _closed_authority(config: EngineConfig) -> str:
+    """The acting seat's authority ceiling: publish unless ``--no-pr``/read-only role."""
+    if getattr(config, "no_pr", False):
+        return "repo_patch_no_publish"
+    return "repo_patch_publish"
+
+
+class AgentsRun:
+    """The bound agents-mode runtime for ONE work item (the loop's seam target).
+
+    Built by :func:`make_agents_run` from the resolved :class:`EngineConfig`
+    (``None`` when the mode is unarmed — every seam call is then a strict
+    no-op and the loop is byte-identical). Owns: the task ledger at the
+    OPERATOR repo (``task.flight_repo_path or task.repo_path``, the flight
+    plane precedent), the acting seat's :class:`AgentProfile` (purpose
+    ``config.agents_profile`` or :data:`DEFAULT_ACTING_PURPOSE`, resolved BY
+    ROLE NAME from lobes with the recorded cortex fallback), the effective
+    tool surface + its digest, the invocation records, mid-run operator
+    inputs, and the final ``TaskResult.agents`` fold. Every method degrades
+    (never raises past the seam) so an agents-mode bookkeeping failure can
+    never lose the work item.
+    """
+
+    def __init__(self, config: EngineConfig) -> None:
+        self.config = config
+        self.purpose: str = getattr(config, "agents_profile", None) or DEFAULT_ACTING_PURPOSE
+        self.ledger: Optional[TaskLedger] = None
+        self.ledger_path: Optional[str] = None
+        self.profile: Optional[AgentProfile] = None
+        self.effective_tools: tuple[str, ...] = ()
+        self.tool_digest: str = ""
+        self.invocations: list[InvocationRecord] = []
+        self.messages: list[dict[str, Any]] = []
+        self.fallbacks: list[dict[str, Any]] = []
+        self.warnings: list[dict[str, Any]] = []
+        self._began = False
+
+    # -- begin -------------------------------------------------------------
+
+    def begin(
+        self, task: Any, *, model: str = "", role_tools: Optional[Sequence[str]] = None
+    ) -> None:
+        """Open the ledger, resolve the acting profile, seed the immutable request.
+
+        Idempotent. A ledger that already carries events (a continued run) is
+        NOT re-seeded with the operator request — the ledger is the
+        continuity, not this call.
+        """
+        if self._began:
+            return
+        self._began = True
+        try:
+            self._begin(task, model=model, role_tools=role_tools)
+        except Exception as exc:  # noqa: BLE001 - bookkeeping never loses the work item
+            self.warnings.append(
+                {"kind": "agents-begin-failed", "detail": f"{type(exc).__name__}: {exc}"}
+            )
+
+    def _begin(self, task: Any, *, model: str, role_tools: Optional[Sequence[str]]) -> None:
+        from colleague.agents.profile import PURPOSE_ROLE, resolve_profile
+        from colleague.agents.state.ledger import ledger_path, read_ledger
+        from colleague.agents.tools import tools_for_purpose
+
+        root = getattr(task, "flight_repo_path", None) or task.repo_path
+        path = ledger_path(root, task.id)
+        self.ledger_path = str(path)
+        self.ledger = TaskLedger(path)
+        # Visible to every spawn closure / senses call that captured this config.
+        setattr(self.config, "agents_ledger_path", self.ledger_path)
+
+        roles = self._roles()
+        fallback: Optional[str] = None
+        model_role = PURPOSE_ROLE.get(self.purpose, "cortex")
+        resolved_model = model or self.config.model
+        if roles is not None:
+            try:
+                res = resolve_profile(self.purpose, roles)
+                model_role, resolved_model, fallback = (
+                    res.model_role,
+                    res.resolved_model,
+                    res.fallback_from_role,
+                )
+            except Exception:  # noqa: BLE001 - no usable roles: the main seat is the floor
+                pass
+        elif model_role != "cortex":
+            fallback = model_role
+            model_role = "cortex"
+        self.profile = AgentProfile(
+            agent_id=f"{self.purpose}-{task.id}",
+            purpose=self.purpose,
+            model_role=model_role,
+            resolved_model=resolved_model,
+            tool_profile=self.purpose,
+            authority_profile=_closed_authority(self.config),
+            parent_agent_id=None,
+            task_id=task.id,
+            fallback_from_role=fallback,
+        )
+        if fallback:
+            self.fallbacks.append(
+                {"purpose": self.purpose, "from_role": fallback, "resolved_model": resolved_model}
+            )
+        purpose_tools = tools_for_purpose(self.purpose)
+        offered = set(role_tools) if role_tools is not None else set(purpose_tools)
+        self.effective_tools = tuple(sorted(offered & set(purpose_tools)))
+        self.tool_digest = tool_surface_digest(self.effective_tools)
+
+        already = False
+        try:
+            already = bool(read_ledger(path).events)
+        except Exception:  # noqa: BLE001 - unreadable/absent = seed fresh
+            already = False
+        if not already:
+            self.ledger.append(
+                "operator_request",
+                {
+                    "text": task.instruction,
+                    "context": getattr(task, "context", "") or "",
+                    "no_pr": bool(getattr(self.config, "no_pr", False)),
+                    "mode": getattr(self.config, "mode", None),
+                    "role": getattr(self.config, "role", None),
+                    "profile": self.purpose,
+                },
+            )
+            for c in getattr(task, "constraints", None) or []:
+                self.ledger.append("constraint", {"text": c})
+            for a in getattr(task, "acceptance", None) or []:
+                self.ledger.append("acceptance", {"text": a})
+
+    def _roles(self) -> Any:
+        gateway = getattr(self.config, "lobes_gateway_url", None)
+        if not gateway:
+            return None
+        try:
+            from colleague import lobes as _lobes
+
+            return _lobes.resolve_roles(gateway)
+        except Exception:  # noqa: BLE001 - unreachable gateway: main seat is the floor
+            return None
+
+    # -- prompt material ----------------------------------------------------
+
+    def system_addendum(self) -> str:
+        """Guidance table + the STATIC nucleus, appended ONCE to the system prompt.
+
+        Static by design (cache-friendly): the request, constraints, acceptance
+        and authority never change mid-run; dynamic state lives on the ledger.
+        """
+        from colleague.agents.guidance import build_guidance_text
+        from colleague.agents.state.context import build_nucleus
+
+        parts = [build_guidance_text()]
+        if self.ledger is not None:
+            with_suppress = None
+            try:
+                read = self.ledger.read() if hasattr(self.ledger, "read") else None
+                events = getattr(read, "events", None)
+                snapshot = self.ledger.derive()
+                with_suppress = build_nucleus(snapshot, events)
+            except Exception:  # noqa: BLE001 - nucleus is advisory
+                with_suppress = None
+            if with_suppress:
+                parts.append(str(with_suppress.get("content", "")))
+        return "\n\n".join(p for p in parts if p)
+
+    # -- per-invocation --------------------------------------------------------
+
+    def record_invocation(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        *,
+        truncated: bool = False,
+        count_tokens: Any = None,
+    ) -> Optional[InvocationRecord]:
+        """Append ONE invocation record (identity + manifest) for a model call."""
+        if self.ledger is None or self.profile is None:
+            return None
+        try:
+            if callable(count_tokens):
+                estimate, source = int(count_tokens(list(messages))), "tokenize"
+            else:
+                estimate, source = count_tokens_chars(list(messages)), "chars"
+        except Exception:  # noqa: BLE001
+            estimate, source = count_tokens_chars(list(messages)), "chars"
+        try:
+            record = InvocationRecord(
+                agent_id=self.profile.agent_id,
+                purpose=self.profile.purpose,
+                model_role=self.profile.model_role,
+                resolved_model=self.profile.resolved_model,
+                fallback_from_role=self.profile.fallback_from_role,
+                tool_surface_digest=self.tool_digest,
+                ledger_digest="",
+                token_estimate=estimate,
+                token_estimate_source=source,
+                truncated=truncated,
+            )
+            record = append_invocation(self.ledger, record)
+        except Exception as exc:  # noqa: BLE001 - bookkeeping never loses the turn
+            self.warnings.append(
+                {"kind": "agents-record-failed", "detail": f"{type(exc).__name__}: {exc}"}
+            )
+            return None
+        self.invocations.append(record)
+        return record
+
+    def operator_input(self, text: str, *, via: str) -> None:
+        """Ledger a mid-run operator input (flight guidance, talk, guide_cortex)."""
+        if self.ledger is None or not text:
+            return
+        try:
+            self.ledger.append("operator_input", {"text": text, "via": via})
+        except Exception as exc:  # noqa: BLE001
+            self.warnings.append({"kind": "agents-operator-input-failed", "detail": str(exc)})
+
+    # -- end -------------------------------------------------------------------
+
+    def block(self) -> dict[str, Any]:
+        """The ``TaskResult.agents`` block (schema :data:`AGENTS_BLOCK_VERSION`)."""
+        digest = None
+        if self.ledger is not None:
+            try:
+                digest = self.ledger.derive().state_digest
+            except Exception:  # noqa: BLE001
+                digest = None
+        return {
+            "version": AGENTS_BLOCK_VERSION,
+            "invocations": [r.to_dict() for r in self.invocations],
+            "messages": list(self.messages),
+            "fallbacks": list(self.fallbacks),
+            "ledger_path": self.ledger_path,
+            "ledger_digest": digest,
+        }
+
+    def end(self, result: Any) -> None:
+        """Fold changed paths + the block onto *result* (every exit path; never raises)."""
+        if self.ledger is not None:
+            for path in getattr(result, "changed_files", None) or []:
+                try:
+                    self.ledger.append("changed_path", {"path": path})
+                except Exception:  # noqa: BLE001
+                    break
+        try:
+            block = self.block()
+            if self.warnings:
+                block["warnings"] = list(self.warnings)
+            if getattr(result, "agents", None) is None:
+                result.agents = block
+        except Exception:  # noqa: BLE001 - the fold is best-effort
+            pass
+
+
+def make_agents_run(config: Any) -> Optional[AgentsRun]:
+    """Bind the agents runtime for *config* — ``None`` (a strict no-op) when unarmed."""
+    if not getattr(config, "agents", False):
+        return None
+    return AgentsRun(config)

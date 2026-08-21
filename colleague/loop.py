@@ -59,6 +59,7 @@ from colleague import memory as _memorymod
 from colleague import salvage, stallguard
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
+from colleague.agents import runtime as _agents_runtime
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
 from colleague.config import MAX_SUBAGENT_FANOUT
@@ -662,6 +663,10 @@ class _Work:
     # flips through the binding (the ``_last_substantive`` pattern).
     _last_progress: list[float] = field(default_factory=list)
     _stalled: list[float] = field(default_factory=list)
+    # Model-bound agents runtime (#411, t15): the bound ``AgentsRun`` (identity,
+    # ledger, invocation records, the TaskResult.agents fold) — ``None`` when the
+    # mode is unarmed; every seam call is then a strict no-op (byte-identical).
+    agents: Any = None
     # auto-compact-on-finish (t3): the model-authored summary produced by the last
     # fill-line compaction, kept on a dedicated cell so a later stall cannot
     # overwrite it (unlike ``_last_substantive``); used as the FALLBACK clean summary
@@ -1778,6 +1783,37 @@ def _current_backpressure(ctx: _Work) -> str:
     return ctx._backpressure_state[0] if ctx._backpressure_state else backpressure.CLEAR
 
 
+def _agents_begin(ctx: _Work, model: str, executor: Any) -> None:
+    """Seam (#411 t15): begin the agents runtime; append its static system addendum."""
+    if ctx.agents is None:
+        return
+    allow = getattr(executor, "_allowlist_names", None)
+    ctx.agents.begin(ctx.task, model=model, role_tools=allow)
+    with suppress(Exception):
+        addendum = ctx.agents.system_addendum()
+        if addendum and ctx.messages and ctx.messages[0].get("role") == "system":
+            ctx.messages[0]["content"] = f"{ctx.messages[0]['content']}\n\n{addendum}"
+
+
+def _agents_record(ctx: _Work, resp: ModelResponse | None) -> None:
+    """Seam (#411 t15): one invocation record per model call (truncation flagged)."""
+    if ctx.agents is None:
+        return
+    with suppress(Exception):
+        truncated = resp is not None and _is_truncated_turn(resp)
+        ctx.agents.record_invocation(
+            ctx.messages, truncated=truncated, count_tokens=ctx.count_tokens
+        )
+
+
+def _agents_end(ctx: _Work) -> None:
+    """Seam (#411 t15): fold changed paths + the TaskResult.agents block (every exit)."""
+    if ctx.agents is None:
+        return
+    with suppress(Exception):
+        ctx.agents.end(ctx.result)
+
+
 def _stall_bound(ctx: _Work) -> float | None:
     """The step-stall bound in seconds, or ``None`` when disabled (#400).
 
@@ -1858,17 +1894,21 @@ def _timed_complete(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     bound = _stall_bound(ctx)
     since = ctx._last_progress[0] if ctx._last_progress else time.monotonic()
     token = stallguard.arm(since=since, bound=bound) if bound is not None else None
+    resp: ModelResponse | None = None
     try:
         if not ctx.request_timeout or ctx.request_timeout <= 0:
-            return complete(ctx.messages)
+            resp = complete(ctx.messages)
+            return resp
         start = time.monotonic()
         try:
-            return complete(ctx.messages)
+            resp = complete(ctx.messages)
+            return resp
         finally:
             _record_turn_latency(ctx, time.monotonic() - start)
     finally:
         if token is not None:
             stallguard.disarm(token)
+        _agents_record(ctx, resp)  # #411 t15: one invocation record per model call
 
 
 def _record_turn_latency(ctx: _Work, seconds: float) -> None:
@@ -2266,6 +2306,8 @@ def _record_applied_injection(ctx: _Work, message: str) -> None:
             stats=ctx.result.stats.to_dict(),
         )
     _record_senses_injection(ctx.result, {"text": message, "at": time.time(), "source": "guidance"})
+    if ctx.agents is not None:  # #411 t15: mid-run operator input outranks every summary
+        ctx.agents.operator_input(message, via="guidance")
 
 
 def _fold_flight_chat(ctx: _Work) -> None:
@@ -3160,6 +3202,10 @@ class ContextControls:
     # from_config from config.senses.multimodal) arms it; when armed it is PREFERRED
     # over the deepthink bridge. compare=False: a closure, not comparable config.
     senses_run: Callable[..., Any] | None = field(default=None, compare=False, repr=False)
+    # Model-bound agents runtime (#411, t15): ``runtime.make_agents_run(config)`` —
+    # ``None`` unarmed. Bound here (the deepthink_run/senses_run precedent) so the
+    # loop never sees the config itself.
+    agents_run: Any = field(default=None, compare=False, repr=False)
     senses_media_bridge: bool = False
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
@@ -3299,6 +3345,7 @@ class ContextControls:
         return cls(
             budget=config.context_budget_tokens,
             count_tokens=count_tokens,
+            agents_run=_agents_runtime.make_agents_run(config),
             autosplit_target=config.autosplit_target_tokens,
             fillline_threshold=config.fillline_threshold,
             fanout_files=config.fanout_files,
@@ -3453,11 +3500,26 @@ def resolve_role(config, repo_path: str):
     separately by the role-aware :meth:`colleague.engine.Engine.system_prompt`.
     """
     name = getattr(config, "role", None)
-    if not name:
-        return None
-    from colleague.roles import load_role
+    role = None
+    if name:
+        from colleague.roles import load_role
 
-    return load_role(name, repo_path, config.model)
+        role = load_role(name, repo_path, config.model)
+    # Model-bound agents (#411 t15): a purpose with a NARROWER surface than the
+    # registry (the dormant worker) narrows the role through the SAME value both
+    # halves consume — curate_schemas (offered) and ToolExecutor(allowlist=)
+    # (refused) — so a worker-purpose seat is never offered write_file/edit_file
+    # and is refused if it calls them anyway. thinker_coder/associate carry the
+    # full surface (no-op); unarmed is byte-identical.
+    if getattr(config, "agents", False):
+        from colleague.agents.tools import PURPOSE_TOOLS
+        from colleague.tools import TOOL_NAMES, narrow_role_by_tool_set
+
+        purpose = getattr(config, "agents_profile", None) or _agents_runtime.DEFAULT_ACTING_PURPOSE
+        purpose_tools = PURPOSE_TOOLS.get(purpose)
+        if purpose_tools is not None and purpose_tools and set(purpose_tools) < set(TOOL_NAMES):
+            role = narrow_role_by_tool_set(role, tuple(sorted(purpose_tools)))
+    return role
 
 
 def _build_user_message(task: Task) -> str:
@@ -4873,6 +4935,7 @@ def run(
         max_continue_nudges=_resolve_nudge_cap(_context),
         request_timeout=_context.request_timeout,
         fanout_throttle=_context.throttle_fanout,
+        agents=_context.agents_run,
         escalate_timeout=_context.escalate_timeout,
         flight=flight_session,
         lint_enabled=bool(_context.lint),
@@ -4895,6 +4958,10 @@ def run(
     # Thought->action->evaluation initial-plan commit (t13): the FRONT commits
     # the episode's first typed thought and it is injected as a user turn, so
     # the worker acts under a named thought_id. A strict no-op when unarmed.
+    # Model-bound agents (#411, t15): open the ledger at the operator repo, resolve
+    # the acting profile, seed the immutable request, and append the STATIC
+    # guidance + nucleus to the system prompt ONCE (cache-friendly). No-op unarmed.
+    _agents_begin(ctx, model or "", executor)
     _tae_commit_initial_plan(ctx)
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -5074,6 +5141,7 @@ def run(
         # Wrapped in suppress so any escalation failure never masks the work item result.
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
+        _agents_end(ctx)
         salvage.unregister(task.id)
         raise WorkAborted(result) from aborted
 
@@ -5128,5 +5196,6 @@ def run(
     if result.not_finished:
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
+    _agents_end(ctx)
     salvage.unregister(task.id)
     return result
