@@ -1561,7 +1561,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
 
     continue_ref: str | None = getattr(args, "continue_ref", None)
     if continue_ref is not None:
-        return _build_continued_task(args, repo, engine, continue_ref, positional_tokens)
+        return _build_continued_task(args, repo, engine, continue_ref, positional_tokens, config)
 
     if not has_instruction and not has_command:
         raise CliError(
@@ -1605,6 +1605,7 @@ def _build_continued_task(
     engine: str,
     continue_ref: str,
     positional_tokens: list[str],
+    config: EngineConfig | None,
 ) -> Task:
     """Seed a Task from a prior work item's persisted artifact (#167).
 
@@ -1615,6 +1616,11 @@ def _build_continued_task(
     (a template would fight the seed for the instruction). The resolved prior
     id rides ``args._continued_from_resolved`` so :func:`cmd_work` can thread
     it into :func:`execute_work` for the lineage stamp.
+
+    ``config`` (the resolved :class:`~colleague.config.EngineConfig`) supplies
+    the ``agents`` mode flag: when armed, the continuation seed rehydrates from
+    the task ledger instead of the prose recap (Qodo, PR #414). ``None`` (a
+    test double that never resolved a config) keeps the unarmed prose path.
     """
     # Lazy import: the continue path is opt-in; keep work's import graph flat.
     from colleague.continuation import ContinuationError, resolve_continuation
@@ -1632,14 +1638,22 @@ def _build_continued_task(
             "--continue needs a work item reference",
             "pass an explicit task id, or 'last' for the most recent work item",
         )
+    warnings: list[dict] = []
     try:
-        prior_id, seed = resolve_continuation(repo, ref)
+        prior_id, seed = resolve_continuation(
+            repo,
+            ref,
+            agents_armed=bool(getattr(config, "agents", False)),
+            warnings=warnings,
+        )
     except ContinuationError as exc:
         raise CliError(
             EXIT_USER_ERROR,
             str(exc),
             "list recent work items with: colleague feedback list --repo <path>",
         ) from exc
+    for warning in warnings:
+        emit_diagnostic(f"continuation: {warning['detail']}")
     instruction = seed
     if positional_tokens:
         instruction += "\n\nAdditional operator guidance:\n" + " ".join(positional_tokens)
@@ -1686,7 +1700,13 @@ def _resolve_chain_arming(args: argparse.Namespace, config: EngineConfig) -> tup
 
 
 def _chain_should_start_next(
-    repo: Path, result: TaskResult, state, *, progressed: bool | None, watch: bool
+    repo: Path,
+    result: TaskResult,
+    state,
+    *,
+    progressed: bool | None,
+    watch: bool,
+    agents_armed: bool = False,
 ) -> tuple[tuple[str, str] | None, "object"]:
     """Decide the chain's move at ONE episode boundary — the t6 extension seam.
 
@@ -1727,7 +1747,12 @@ def _chain_should_start_next(
                 f"{state.episode_count + 1} was never dispatched"
             ),
         )
-    seed, halt = chainmod.resolve_chain_seed(repo, result.task_id)
+    warnings: list[dict] = []
+    seed, halt = chainmod.resolve_chain_seed(
+        repo, result.task_id, agents_armed=agents_armed, warnings=warnings
+    )
+    for warning in warnings:
+        emit_diagnostic(f"continuation: {warning['detail']}")
     if halt is not None:
         return None, halt
     return seed, verdict
@@ -2135,7 +2160,12 @@ def execute_work_chain(
             episode_branch=episode_branch,
         )
         seed, verdict = _chain_should_start_next(
-            repo, result, state, progressed=progressed, watch=task.watch
+            repo,
+            result,
+            state,
+            progressed=progressed,
+            watch=task.watch,
+            agents_armed=bool(getattr(config, "agents", False)),
         )
         if seed is None:
             break

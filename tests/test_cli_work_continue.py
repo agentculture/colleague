@@ -20,8 +20,10 @@ from pathlib import Path
 
 import pytest
 
+from colleague.agents.state import TaskLedger, ledger_path
 from colleague.artifact import find_artifact
 from colleague.cli._commands.work import _build_task
+from colleague.config import EngineConfig
 from colleague.continuation import ContinuationError, resolve_continuation
 from colleague.contract import OK
 
