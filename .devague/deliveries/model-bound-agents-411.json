@@ -2,7 +2,7 @@
   "plan_slug": "model-bound-agents-411",
   "schema_version": 1,
   "created": "2026-08-21T05:02:29Z",
-  "updated": "2026-08-21T06:27:56Z",
+  "updated": "2026-08-21T10:09:46Z",
   "deviations": [
     {
       "id": "d1",
@@ -86,6 +86,18 @@
       ],
       "origin": "user",
       "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d7",
+      "what": "t20 (fallback proof tests) is ALSO built by Claude in a parallel worktree (agent/411-t20c) while colleague's run is resumed a second time; whichever satisfies the acceptance criteria cleanly is merged, the other dropped",
+      "task_ref": "t20",
+      "reason": "two colleague runs (~1h + ~1h, 60-step budget, streaming on, resumed per operator guidance) spent their turns reading and never wrote the test file; t20 is the last task gating the PR (gate 3); reversible \u2014 the colleague resume keeps running",
+      "affects": [
+        "t23"
+      ],
+      "origin": "llm",
+      "status": "proposed",
       "classification": "acceptable"
     }
   ]
