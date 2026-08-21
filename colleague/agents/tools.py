@@ -52,6 +52,8 @@ __all__ = [
     "TOOL_PROFILES",
     "ToolProfile",
     "WORKER_TOOLS",
+    "WRITE_CAPABLE_CLASSES",
+    "assert_purpose_surface",
     "effective_tools",
     "profile_for",
     "tool_surface_digest",
@@ -67,6 +69,12 @@ CANONICAL_TOOLS: tuple[str, ...] = tuple(TOOL_NAMES) + (DEEPTHINK_TOOL,)
 
 #: The closed tool-class vocabulary.
 TOOL_CLASSES: frozenset[str] = frozenset({"read", "write", "external", "destructive"})
+
+#: Every class that can change the world: ``write`` (the repo / a spawn),
+#: ``external`` (a shell-out to a write-capable operator CLI) and
+#: ``destructive`` (reserved). The talker purpose may hold NONE of these —
+#: :func:`assert_purpose_surface` refuses (t16, spec c19/h25).
+WRITE_CAPABLE_CLASSES: frozenset[str] = frozenset({"write", "external", "destructive"})
 
 # The reconciled write set: roles._WRITE_TOOLS ∪ tae_loop.CONSEQUENTIAL_TOOLS.
 _WRITE_CLASS = frozenset({"write_file", "edit_file", "run_command", "subagent", "subagents"})
@@ -200,3 +208,36 @@ def tool_surface_digest(tools: Iterable[str]) -> str:
     """sha256 over the SORTED, newline-joined, utf-8 names — stable across processes."""
     canonical = "\n".join(sorted(set(tools))).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def assert_purpose_surface(purpose: str, tool_names: Iterable[str]) -> None:
+    """Refuse a *purpose* + tool surface pairing that breaks a structural invariant.
+
+    Today ONE rule, for the ``talker`` purpose (t16, spec c19/h25): the talker
+    is the tools-off senses, so its surface may never hold a write-capable
+    tool — any name whose :class:`ToolProfile` class is in
+    :data:`WRITE_CAPABLE_CLASSES` (``write`` / ``external`` / ``destructive``)
+    raises ``ValueError``. An UNKNOWN name (no profile → no class to check)
+    also refuses for the talker: fail closed, never guess. Every other
+    purpose passes unchanged (their surfaces are narrowed by
+    :func:`effective_tools`, not refused here). Pure; never touches a tool.
+    """
+    if purpose != "talker":
+        return
+    offending: list[str] = []
+    unknown: list[str] = []
+    for name in sorted(set(tool_names)):
+        profile = TOOL_PROFILES.get(name)
+        if profile is None:
+            unknown.append(name)
+        elif profile.tool_class in WRITE_CAPABLE_CLASSES:
+            offending.append(f"{name} ({profile.tool_class})")
+    if offending or unknown:
+        parts = []
+        if offending:
+            parts.append("write-capable tool(s): " + ", ".join(offending))
+        if unknown:
+            parts.append("unknown tool(s): " + ", ".join(unknown))
+        raise ValueError(
+            "talker profile refuses " + "; ".join(parts) + " — the talker is tools-off"
+        )
