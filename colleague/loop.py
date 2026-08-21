@@ -56,6 +56,7 @@ from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import media
 from colleague import memory as _memorymod
+from colleague import salvage
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
@@ -4637,6 +4638,9 @@ def run(
     ]
 
     result = TaskResult(task_id=task.id, status=OK)
+    # Interrupt salvage (#410): expose the live partial so the work CLI's
+    # SIGTERM/SIGINT handler can write the artifact before the process unwinds.
+    salvage.register(task.id, result)
 
     # Neighbour clone lifecycle — runtime-owned (all-engines rule).
     # clone_all() runs before the loop so allow-listed neighbours are available
@@ -4895,6 +4899,7 @@ def run(
         # Wrapped in suppress so any escalation failure never masks the work item result.
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
+        salvage.unregister(task.id)
         raise WorkAborted(result) from aborted
 
     # Outcome flags + honest status (#106 t5 + colleague#142 + colleague#192):
@@ -4948,4 +4953,5 @@ def run(
     if result.not_finished:
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
+    salvage.unregister(task.id)
     return result
