@@ -225,7 +225,9 @@ class TestCorruptArtifact:
 
 
 class TestModuleConstraints:
-    """The module must only import from colleague.{artifact,feedback,escalation,contract}."""
+    """The module must only import from
+    colleague.{artifact,feedback,escalation,contract,agents.state} (the task
+    ledger is the t17 continuation seam)."""
 
     def test_imports_only_allowed_modules(self) -> None:
         """continuation.py imports only stdlib + allowed colleague modules."""
@@ -241,6 +243,7 @@ class TestModuleConstraints:
             "colleague.feedback",
             "colleague.escalation",
             "colleague.contract",
+            "colleague.agents.state",
             "json",
             "pathlib",
             "typing",
