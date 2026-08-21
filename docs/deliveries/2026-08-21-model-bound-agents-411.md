@@ -95,7 +95,7 @@ continuity regression · t22 docs · t23 live proof.
 | t17 | merged | continuation rehydrates from the ledger |
 | t18 | merged | `tests/test_agents_boundary.py` + `tests/test_file_length_ratchet.py` + baseline (d6) — colleague-built |
 | t19 | merged | ledger at the operator repo + `clean` reaps ok-only ledgers (resumable runs keep theirs) |
-| t20 | pending | fallback proof on the saved advert — colleague run cut at 50 min, **resumed** with `work --continue` |
+| t20 | merged | `tests/test_agents_fallback.py` — Claude-built (d7) after two colleague runs (each ~1 h, resumed with `work --continue`) spent their turns reading; colleague's third run left to finish for grading |
 | t21 | merged | `tests/test_agents_continuity.py` + `tests/_agents_audit.py` |
 | t22 | merged | `docs/features/model-bound-agents.md`, CLAUDE.md eleventh increment, CHANGELOG, v1.61.0 |
 | t23 | live proof DONE; experiment pending | two live armed runs on the Spark rig (`216d1110b1bc`, `0ff226c60ebe` — `docs/live-testing.md` row 37): 100 % attribution, manifest ratio ≤ 0.0054, ledger at the operator repo, child bound via `profile: associate` with the recorded `fallback_from_role`, delegate/return events; run 1 exposed and run 2 confirmed the fix for the missing model-facing `profile`/`context_mode` tool params; matched experiment arms (row 38) pending rig hours |
@@ -105,7 +105,7 @@ continuity regression · t22 docs · t23 live proof.
 Quoted from the delivery ledger (`devague deviate --list`): d1 (t5 loop seam,
 approved), d2 + d4 (stall floor 3600 → 5400 s, approved), d3 (operator:
 worker dormant, `associate` reserved — approved), d5 (t2 Claude-built in
-parallel, approved), d6 (operator: file-length ratchet in t18, approved).
+parallel, approved), d6 (operator: file-length ratchet in t18, approved), d7 (t20 Claude-built in parallel to two stalled colleague resumes, proposed → the Claude build merged; colleague's third run graded on arrival).
 Integration fixes outside the plan text: t19's reap narrowed to ok-only
 (resumable runs keep their ledger, c35); t13's parity pin updated once t15
 made the block loop-authored.
@@ -127,7 +127,7 @@ made the block loop-authored.
 
 ## Remaining Work / Follow-up
 
-- t20 resume (in flight); the matched experiment arms (rig hours, row 38).
+- the matched experiment arms (rig hours, row 38); grade colleague's third t20 run when it lands.
 - #412 / #413 — the big-file extraction (loop.py 5132+ lines, three seat builders to fold).
 - Per-role API key source for cross-origin child dials (same-origin hygiene sends none today).
 - The dormant `worker` / reserved `associate` become live when lobes-cli#187 lands a ready role.
