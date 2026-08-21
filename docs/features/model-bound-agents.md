@@ -106,7 +106,23 @@ five-boundary evaluator seat stays TAE's; alignment is still not permission.
   picks a model per turn (the v1 no-router line; pinned by the AST guard in
   `tests/test_agents_boundary.py`).
 - **Delegation only narrows** — child effective tools ⊆ parent's, child
-  ceiling ≤ parent's, regardless of the child's model.
+  ceiling ≤ parent's, regardless of the child's model. **Enforced on the spawn
+  path**: `subagents._enforce_delegation_bounds` calls
+  `delegation.validate_delegation` before the `delegate` event and before the
+  child engine runs — and **before the global budget charge**, so a refusal
+  costs nothing. The check is gated on ARMING, never on a declared profile: a
+  spawn that omits `profile` inherits the parent's purpose and is validated
+  like any other (gating on the profile would let a caller skip the check by
+  omitting one argument). A widening delegation refuses whole (`SubagentError`)
+  and records nothing; the batch path ranks every item before the first
+  worktree exists, so one widening item never aborts a batch midway. The
+  `delegate` event records the `requested_tools` + `authority_ceiling` the
+  decision was made on. `fanout`/`total` stay with the shared agent budget, and
+  nested delegation is still permitted.
+- **An empty purpose surface means NO tools** — the tools-off `talker` seat is
+  narrowed to the empty set in `loop.resolve_role` (an empty `tool_set` is the
+  lattice's not-narrowed sentinel, so it needs its own tools-off role), and the
+  invocation manifest is derived from the executor's real allow-list.
 - **Tokens are exact** — `token_estimate` is manifest data, never `Usage`.
 - **Peer claims rank below evidence** and render as labelled peer text, never
   as system/operator text; both sides of a challenge stay on the ledger.
@@ -120,7 +136,7 @@ five-boundary evaluator seat stays TAE's; alignment is still not permission.
 | after-state clause | requirement | test |
 |---|---|---|
 | every invocation attributed | c13 | `tests/test_agents_runtime.py`, `tests/test_loop_agents_wiring.py` |
-| cross-role child, surface ⊆ parent | c7, c8 | `tests/test_subagents_cross_role.py`, `tests/test_agents_delegation.py` |
+| cross-role child, surface ⊆ parent | c7, c8 | `tests/test_subagents_cross_role.py`, `tests/test_agents_delegation.py`, `tests/test_agents_delegation_bounds.py` |
 | typed messages | c9 | `tests/test_agents_messages.py` |
 | worker profile without write tools | c11 | `tests/test_agents_tools.py`, `tests/test_loop_agents_wiring.py` |
 | talker = tools-off senses | c19 | `tests/test_senses_talker_records.py`, `tests/test_senses_cannot_act.py` |
@@ -142,6 +158,10 @@ five-boundary evaluator seat stays TAE's; alignment is still not permission.
 - **loop.py grew** during the arc (the #400 / #410 / t8 policies) — tracked in
   #412 / #413; the file-length ratchet (`tests/test_file_length_ratchet.py`)
   guards further growth.
+- **The `repo_patch_no_publish` ceiling rung is unreachable today** —
+  `seat_ceiling` reads `no_pr`, but `--no-pr` becomes `open_pr` on the CLI args
+  and is never set on an `EngineConfig`, so the enum collapses to `read_only`
+  vs `repo_patch_publish`. Carrying publish intent onto the seat is a follow-up.
 - **A cross-origin child dial sends no key** (same-origin hygiene) — a per-role
   key source is the follow-up.
 - `drift` beyond the evaluator: cross-model disagreement is recorded as

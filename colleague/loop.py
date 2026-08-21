@@ -1787,8 +1787,15 @@ def _agents_begin(ctx: _Work, model: str, executor: Any) -> None:
     """Seam (#411 t15): begin the agents runtime; append its static system addendum."""
     if ctx.agents is None:
         return
-    allow = getattr(executor, "_allowlist_names", None)
-    ctx.agents.begin(ctx.task, model=model, role_tools=allow)
+    # The executor's REAL allow-list (``_allowlist``: a set, or None when the
+    # surface is unrestricted) — the manifest must record what the loop
+    # actually offered, not the purpose's nominal set. The former
+    # ``_allowlist_names`` never existed, so this was always None and the
+    # digest always over-/under-claimed.
+    allow = getattr(executor, "_allowlist", None)
+    ctx.agents.begin(
+        ctx.task, model=model, role_tools=(sorted(allow) if allow is not None else None)
+    )
     with suppress(Exception):
         addendum = ctx.agents.system_addendum()
         if addendum and ctx.messages and ctx.messages[0].get("role") == "system":
@@ -3523,9 +3530,39 @@ def resolve_role(config, repo_path: str):
 
         purpose = getattr(config, "agents_profile", None) or _agents_runtime.DEFAULT_ACTING_PURPOSE
         purpose_tools = PURPOSE_TOOLS.get(purpose)
-        if purpose_tools is not None and purpose_tools and set(purpose_tools) < set(TOOL_NAMES):
-            role = narrow_role_by_tool_set(role, tuple(sorted(purpose_tools)))
+        if purpose_tools is not None and set(purpose_tools) < set(TOOL_NAMES):
+            # An EMPTY purpose surface (the tools-off talker) means NO tools —
+            # not "no narrowing". ``narrow_role_by_tool_set`` reads an empty
+            # tool_set as the lattice's not-narrowed sentinel (c26 makes
+            # narrow-to-nothing unrepresentable THERE), so the talker would
+            # otherwise fall through to the FULL registry surface while its
+            # ledger manifest claimed the empty set. Build the tools-off role
+            # explicitly instead, so both halves — the offered schemas and the
+            # executor's refusal allow-list — see the same empty surface.
+            role = (
+                _tools_off_role(purpose)
+                if not purpose_tools
+                else narrow_role_by_tool_set(role, tuple(sorted(purpose_tools)))
+            )
     return role
+
+
+def _tools_off_role(purpose: str):
+    """A role whose curated surface is EMPTY — the tools-off seat (#411).
+
+    ``curate_schemas`` offers nothing for it and ``ToolExecutor(allowlist=…)``
+    refuses every name, so a tools-off purpose provably cannot reach a tool.
+    Read-only by construction: a seat with no tools can mutate nothing.
+    """
+    from colleague.roles import Role
+
+    return Role(
+        name=purpose,
+        prompt_fragment="",
+        tool_allowlist=(),
+        skill_subset=None,
+        read_only=True,
+    )
 
 
 def _build_user_message(task: Task) -> str:

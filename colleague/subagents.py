@@ -365,6 +365,128 @@ def default_parent_profile(config: EngineConfig) -> Optional[str]:
     return str(explicit) if explicit else "thinker_coder"
 
 
+def _seat_purpose(config: EngineConfig) -> str:
+    """The purpose whose tool surface THIS seat's own loop narrows itself to.
+
+    Read back from the same place the loop's ``resolve_role`` reads it (t15):
+    an explicit ``agents_profile`` attribute, else the acting default
+    (``thinker_coder``, the full surface). Parent and child are therefore
+    always ranked on the SAME rule.
+    """
+    from colleague.agents.runtime import DEFAULT_ACTING_PURPOSE
+
+    return str(getattr(config, "agents_profile", None) or DEFAULT_ACTING_PURPOSE)
+
+
+def _child_purpose(parent_config: EngineConfig, spec: ChildSpec) -> str:
+    """The purpose the CHILD seat will actually run on.
+
+    Its own when ``spec.profile`` names one; otherwise the PARENT's — a bare
+    lobes role name switches the model, never the tool surface, and a spawn
+    with NO profile inherits the parent's seat (the ``subagent`` tool's own
+    documented contract). Never ``DEFAULT_ACTING_PURPOSE``: defaulting there
+    would silently widen a narrow parent's child to the full surface.
+    """
+    from colleague.agents.tools import PURPOSE_TOOLS
+
+    if spec.profile in PURPOSE_TOOLS:
+        return str(spec.profile)
+    return _seat_purpose(parent_config)
+
+
+def _delegation_bounds(
+    parent_config: EngineConfig,
+    spec: ChildSpec,
+    *,
+    instruction: str,
+    depth: int,
+    role: Optional[str],
+) -> tuple[str, str, "object"]:
+    """``(child_purpose, child_ceiling, verdict)`` for one proposed delegation."""
+    from colleague.agents.delegation import DelegationRequest, validate_delegation
+    from colleague.agents.runtime import seat_ceiling
+    from colleague.agents.tools import tools_for_purpose
+
+    parent_purpose = _seat_purpose(parent_config)
+    child_purpose = _child_purpose(parent_config, spec)
+    # The child inherits the parent's publish intent; only its ROLE can lower
+    # the ceiling further, so the child's ceiling is ranked off the parent's
+    # config with the CHILD's role applied.
+    child_ceiling = seat_ceiling(parent_config, role)
+    request = DelegationRequest(
+        delegation_id="",  # validation only — nothing is recorded from here
+        from_agent=spec.parent_profile or parent_purpose,
+        requested_agent_profile=spec.profile or child_purpose,
+        objective=instruction,
+        acceptance="",
+        requested_tools=tuple(sorted(tools_for_purpose(child_purpose))),
+        authority_ceiling=child_ceiling,
+        context_mode=spec.context_mode,
+        depth=depth,
+    )
+    verdict = validate_delegation(
+        request,
+        parent_effective_tools=tools_for_purpose(parent_purpose),
+        parent_ceiling=seat_ceiling(parent_config, getattr(parent_config, "role", None)),
+    )
+    return child_purpose, child_ceiling, verdict
+
+
+def _enforce_delegation_bounds(
+    parent_config: EngineConfig,
+    spec: ChildSpec,
+    *,
+    instruction: str,
+    depth: int,
+    role: Optional[str],
+) -> tuple[tuple[str, ...], str]:
+    """Validate ONE armed delegation against the parent's bounds — refuse whole.
+
+    Returns the ``(requested_tools, authority_ceiling)`` the delegation was
+    ranked on, for the ``delegate`` event to record (empty when unarmed).
+
+    The enforcement half of t11 (Qodo, PR #414): ``validate_delegation`` owned
+    the arithmetic — child tools ``⊆`` parent tools, child ceiling ``≤``
+    parent ceiling, depth/fanout/total within the ``MAX_SUBAGENT_*`` caps,
+    ``context_mode`` in the closed set — but nothing on the spawn path called
+    it, so a narrow parent could hand a child a WIDER surface by naming a
+    different profile (a ``worker`` seat, which holds no ``write_file`` /
+    ``edit_file``, delegating a ``thinker_coder`` child that does).
+
+    Called on EVERY armed spawn — gated on ``config.agents``, NOT on a
+    declared profile: a delegation that omits ``profile`` inherits the
+    parent's seat, and gating on the profile would have let the model skip the
+    check by simply not naming one. Runs BEFORE the global budget charge,
+    before the ``delegate`` event and before the child engine runs, so a
+    refused delegation costs nothing, records nothing and spawns nothing. Refusal surfaces as
+    :class:`SubagentError` — the same clean, model-visible refusal as the
+    depth and budget caps.
+
+    Because a non-subset REFUSES, the child's effective surface is a subset of
+    the parent's by construction — narrowing can only ever shrink. Two bounds
+    are deliberately NOT re-derived here: ``fanout``/``total`` (the shared
+    ``_AgentBudget`` charges and refuses them upstream, before any work) and
+    the ``_NOT_INHERITABLE`` tool classes (nested delegation is explicitly
+    permitted — a child gets its own depth-bound spawn callbacks).
+
+    Alignment is not permission: this is the delegation's own arithmetic, and
+    the host's policy/approval gate still gates every route it allows.
+    """
+    if not getattr(parent_config, "agents", False):
+        return (), ""  # unarmed: no purposes, no bounds — byte-identical today
+    child_purpose, ceiling, verdict = _delegation_bounds(
+        parent_config, spec, instruction=instruction, depth=depth, role=role
+    )
+    if not verdict.allowed:
+        raise SubagentError(
+            f"delegation refused: {child_purpose!r} under "
+            f"{_seat_purpose(parent_config)!r} — {verdict.reason}"
+        )
+    from colleague.agents.tools import tools_for_purpose
+
+    return tuple(sorted(tools_for_purpose(child_purpose))), ceiling
+
+
 @dataclasses.dataclass(frozen=True)
 class _ChildBinding:
     """How ONE child's ``profile`` resolved — the trace record behind the armed
@@ -538,6 +660,15 @@ def _child_config_for_profile(
 
     if spec.profile in PURPOSE_TOOLS:
         setattr(child, "agents_profile", spec.profile)
+    else:
+        # A BARE lobes role name (``cortex``/``muse``/…) switches the child's
+        # MODEL, never its tool surface. Carry the PARENT's purpose explicitly:
+        # ``agents_profile`` is a dynamic attribute, so ``dataclasses.replace``
+        # does not copy it, and an unset child would fall back to
+        # ``DEFAULT_ACTING_PURPOSE`` (the FULL thinker_coder surface) in the
+        # child's own ``resolve_role`` — a narrow parent would silently widen
+        # its child. Inheriting keeps the child's surface == the parent's.
+        setattr(child, "agents_profile", _seat_purpose(parent_config))
     return child
 
 
@@ -699,11 +830,24 @@ def _build_child_config(
         replace_kwargs["max_steps"] = spec.max_steps
     if spec.context_budget_tokens is not None:
         replace_kwargs["context_budget_tokens"] = spec.context_budget_tokens
-    return cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
+    child = cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
+    if getattr(parent_config, "agents", False):
+        # ARMED, no binding (no profile named): the child inherits the PARENT's
+        # purpose. ``agents_profile`` is a dynamic attribute, so
+        # ``dataclasses.replace`` drops it and the child's own ``resolve_role``
+        # would fall back to the full ``thinker_coder`` surface — a narrow
+        # parent silently widening its child (the hole the bounds check would
+        # never see, because no profile was named).
+        setattr(child, "agents_profile", _seat_purpose(parent_config))
+    return child
 
 
 def _delegate_event_data(
-    child_task_id: str, spec: ChildSpec, binding: "_ChildBinding", agent_id: Optional[str]
+    child_task_id: str,
+    spec: ChildSpec,
+    binding: "_ChildBinding",
+    agent_id: Optional[str],
+    bounds: tuple[tuple[str, ...], str] = ((), ""),
 ) -> dict:
     """The ``delegate`` ledger event payload for an armed child (#411 t14)."""
     return {
@@ -717,6 +861,10 @@ def _delegate_event_data(
         "model_role": binding.model_role,
         "resolved_model": binding.resolved_model,
         "fallback_from_role": binding.fallback_from_role,
+        # What the t11 bounds check ranked this delegation on, so a ledger
+        # replay can audit the decision instead of taking it on trust.
+        "requested_tools": list(bounds[0]),
+        "authority_ceiling": bounds[1],
     }
 
 
@@ -797,10 +945,17 @@ def run_subagent(
     # (thread-safe) so concurrent batch children can't race past the cap. When no
     # budget is threaded (counter is None) this is skipped entirely — byte-identical
     # to the pre-budget behavior.
+    spec = spec or ChildSpec()
+
+    # (a3) Delegation bounds (t11 enforcement) BEFORE the budget charge, so a
+    # refused delegation never burns a slot the counter can't refund: a child
+    # may only ever NARROW its parent's tool surface and authority ceiling.
+    bounds = _enforce_delegation_bounds(
+        parent_config, spec, instruction=instruction, depth=depth, role=role
+    )
+
     if counter is not None:
         counter.charge()
-
-    spec = spec or ChildSpec()
 
     # (b) Resolve + load the child engine by name. A bad name surfaces as a clean
     # SubagentError (never an unrelated crash upstream).
@@ -904,7 +1059,9 @@ def run_subagent(
     # the open loop the replayed snapshot shows until ``return`` closes it.
     if binding is not None:
         _append_ledger_event(
-            ledger, "delegate", _delegate_event_data(child_task.id, spec, binding, agent_id)
+            ledger,
+            "delegate",
+            _delegate_event_data(child_task.id, spec, binding, agent_id, bounds),
         )
 
     # (f) Run the nested child work item. engine.work runs the bounded loop
@@ -1327,6 +1484,28 @@ def _run_batch(
     # does zero work and leaks no worktree. This is a best-effort snapshot; each
     # child is also charged authoritatively (thread-safe) inside run_subagent, which
     # catches the deep-nested-concurrent race the snapshot cannot.
+    # (a2b) Delegation bounds PRE-CHECK — same reason, same place: every item's
+    # bounds are ranked BEFORE the first worktree exists, so one widening item
+    # refuses the WHOLE batch cleanly instead of aborting midway (the batch's
+    # ``finally`` removes every child worktree with delete_branch=True, which
+    # would discard the work of siblings that already ran and committed).
+    for index, item in enumerate(items):
+        item_spec = ChildSpec(
+            profile=(item.get("profile") or None),
+            context_mode=str(item.get("context_mode") or "inherit"),
+            parent_profile=parent_profile,
+        )
+        try:
+            _enforce_delegation_bounds(
+                parent_config,
+                item_spec,
+                instruction=str(item.get("instruction", "")),
+                depth=depth,
+                role=(item.get("role") or role),
+            )
+        except SubagentError as exc:
+            raise SubagentError(f"batch item {index}: {exc}") from exc
+
     if counter is not None and counter.remaining() < len(items):
         raise SubagentError(
             f"global agent budget ({counter.limit}) exceeded: batch of "
