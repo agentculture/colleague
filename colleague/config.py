@@ -339,6 +339,7 @@ _DEFAULT_ENGINE = "vllm-openai"
 MAX_SUBAGENT_DEPTH = 4
 MAX_SUBAGENT_FANOUT = 4
 MAX_SUBAGENT_TOTAL = 24
+MAX_AGENT_MESSAGES = 64
 
 # The persistent per-repo config file, resolved under .colleague/ (configdir).
 _CONFIG_FILENAME = "config.json"
