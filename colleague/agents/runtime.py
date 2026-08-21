@@ -59,7 +59,6 @@ from urllib.parse import urlsplit
 
 from colleague.agents.profile import AgentProfile
 from colleague.agents.state.ledger import LedgerEvent, TaskLedger
-from colleague.agents.tools import tool_surface_digest
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.lobes import resolve_role_base_url
