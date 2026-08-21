@@ -476,6 +476,22 @@ def read_ledger(path: str | Path) -> LedgerRead:
 # --- TaskLedger — the append-only writer ---------------------------------------------------------
 
 
+def _tail_line(handle: Any, size: int, chunk: int = 65536) -> tuple[str, bool]:
+    """(last line, torn) from the file tail, read in ONE bounded chunk — never
+    the whole body. ``handle`` is a binary handle; ``size`` is the file size in
+    bytes. ``torn`` is True when the final line is not newline-terminated (a
+    crash mid-write); the caller fails closed on it. Every ledger line is at
+    most :data:`MAX_EVENT_BYTES` + 1, so one chunk always spans the last
+    complete line."""
+    handle.seek(max(0, size - chunk))
+    buf = handle.read(chunk)
+    if buf.endswith(b"\n"):
+        i = buf.rfind(b"\n", 0, len(buf) - 1)
+        return buf[i + 1 : len(buf) - 1].decode("utf-8"), False
+    i = buf.rfind(b"\n")
+    return buf[i + 1 :].decode("utf-8"), True
+
+
 class TaskLedger:
     """Append-only JSONL writer for one task. Opens the file in append mode
     only; every ``append`` takes an exclusive advisory ``fcntl`` lock on the
@@ -513,19 +529,29 @@ class TaskLedger:
 
     # -- writing ------------------------------------------------------------
 
-    def _next_seq(self, body: str) -> tuple[int, bool]:
-        """(next seq, header needed) derived from the current file body."""
-        lines = _lines(body)
-        if not lines:
+    def _next_seq(self, handle: Any, size: int) -> tuple[int, bool]:
+        """(next seq, header needed) derived from the file's header + tail
+        line only — the body is never read in full. Fail-closed on a torn
+        tail, a non-JSON tail, or a foreign header, exactly as before."""
+        if size == 0:
             return 0, True
-        task_id = _parse_header(lines[0])
+        handle.seek(0)
+        header_line = handle.readline()
+        if not header_line.endswith(b"\n"):
+            raise LedgerUnreadable("torn tail: last line is not newline-terminated")
+        task_id = _parse_header(header_line.decode("utf-8"))
         if task_id != self.task_id:
             raise LedgerUnreadable(f"ledger belongs to task {task_id!r}, not {self.task_id!r}")
-        if len(lines) == 1:
+        if size == len(header_line):
             return 0, False
+        last, torn = _tail_line(handle, size)
+        if torn:
+            raise LedgerUnreadable("torn tail: last line is not newline-terminated")
         try:
-            last = json.loads(lines[-1])
-            return int(last["seq"]) + 1, False
+            raw = json.loads(last)
+            if not isinstance(raw, Mapping):
+                raise ValueError("not an object")
+            return int(raw["seq"]) + 1, False
         except (ValueError, KeyError, TypeError) as exc:
             raise LedgerUnreadable(f"torn/non-JSON tail: {exc}") from None
 
@@ -550,14 +576,13 @@ class TaskLedger:
                 "not the payload"
             )
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "a+", encoding="utf-8") as handle:
+        with open(self.path, "a+b") as handle:
             self._lock(handle)
             try:
-                handle.seek(0)
-                seq, need_header = self._next_seq(handle.read())
+                seq, need_header = self._next_seq(handle, handle.seek(0, 2))
                 event = LedgerEvent(kind=kind, seq=seq, task_id=self.task_id, data=payload)
                 header = _header(self.task_id) + "\n" if need_header else ""
-                handle.write(header + event.canonical() + "\n")
+                handle.write((header + event.canonical() + "\n").encode("utf-8"))
                 handle.flush()
             finally:
                 self._unlock(handle)

@@ -10,6 +10,7 @@ tail, state_digest mismatch); ledger_path; and the module's own boundary
 
 from __future__ import annotations
 
+import builtins
 import inspect
 import json
 import random
@@ -315,6 +316,55 @@ def test_non_posix_degrades_to_unlocked_append_with_recorded_warning(
     assert len(led.warnings) == 1
     assert "unlocked" in led.warnings[0]
     assert [e.seq for e in led.events()] == [0, 1]
+
+
+def test_append_derives_seq_from_header_and_tail_only(tmp_path: Path, monkeypatch) -> None:
+    """The fix: ``append`` must not read the whole body under the lock. It
+    derives the next seq from the header line + a bounded tail chunk, so a
+    large ledger's body is never read in full. We spy on the handle's ``read``
+    calls and assert no single read exceeds the tail chunk and the body is not
+    read in full — while the seq still continues correctly."""
+    led = _populated(tmp_path)
+    for i in range(2000):  # grow the body well past one tail chunk
+        led.append("message", {"id": f"m-{i}"})
+    size = led.path.stat().st_size
+    assert size > 65536  # body larger than the bounded tail chunk
+
+    reads: list[int] = []
+    real_open = builtins.open
+
+    class _Spy:
+        def __init__(self, fh) -> None:
+            self._fh = fh
+
+        def read(self, n: int = -1):
+            data = self._fh.read(n)
+            reads.append(len(data))
+            return data
+
+        def __getattr__(self, name):
+            return getattr(self._fh, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return self._fh.__exit__(*exc)
+
+    def spy_open(path, *args, **kwargs):
+        return _Spy(real_open(path, *args, **kwargs))
+
+    monkeypatch.setattr(builtins, "open", spy_open)
+    try:
+        expected = len(led.events())
+        ev = led.append("message", {"id": "m-final"})
+    finally:
+        monkeypatch.undo()
+
+    assert ev.seq == expected  # seq still continues correctly
+    assert reads, "append should read the header/tail to derive the seq"
+    assert max(reads) <= 65536  # no single read exceeds the bounded tail chunk
+    assert sum(reads) < size  # the whole body is never read in full
 
 
 # ---------------------------------------------------------------------------
