@@ -159,6 +159,37 @@ def resolve_effort(
     return None
 
 
+def resolve_acting_effort(
+    *,
+    worker_armed: bool,
+    seats: dict,
+    global_value: Optional[str],
+    role: Optional[str],
+) -> Optional[str]:
+    """Resolve the ACTING seat's effective thinking-effort rung (#416 t2, c26/h17).
+
+    The acting seat is ``"worker"`` when ``worker_armed`` (three-tier's worker
+    seat is resolved), else ``"cortex"`` — colleague's acting-dial rule.
+    Precedence: the global kill-switch (``global_value == DEFAULT_SENTINEL``)
+    > an explicit override (``seats[seat]``, else ``global_value`` unless it
+    IS the sentinel) > the top-level ``--role explorer`` rule
+    (:data:`TOP_LEVEL_ROLE_TABLE`, "low" — "off" stays selectable via an
+    explicit override) > the seat table default ("medium" for cortex/worker
+    alike). Pure function over already-resolved config state — the caller
+    (``EngineConfig.reasoning_effort_effective``) supplies ``role`` because it
+    is set by the CLI AFTER ``resolve()`` returns.
+    """
+    seat = "worker" if worker_armed else "cortex"
+    override = seats.get(seat)
+    if override is None and global_value not in (None, DEFAULT_SENTINEL):
+        override = global_value
+    if override is None and role == "explorer":
+        override = TOP_LEVEL_ROLE_TABLE["explorer"]
+    return resolve_effort(
+        kill_switch=global_value == DEFAULT_SENTINEL, seat_override=override, seat=seat
+    )
+
+
 def to_chat_template_kwargs(effort_value: Optional[str]) -> Optional[dict]:
     """Render a resolved rung into the chat-template payload fragment.
 
