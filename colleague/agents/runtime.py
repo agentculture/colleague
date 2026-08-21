@@ -245,7 +245,7 @@ def agent_engine_config(config: EngineConfig, profile: AgentProfile, roles: Any)
     gateway_url = getattr(config, "lobes_gateway_url", None)
     base_url = _role_base_url(role, gateway_url, config.base_url)
     seat_context = int(getattr(role, "context", 0) or 0) if role is not None else 0
-    return cast(
+    seat = cast(
         EngineConfig,
         dataclasses.replace(
             config,
@@ -257,6 +257,16 @@ def agent_engine_config(config: EngineConfig, profile: AgentProfile, roles: Any)
             on_delta=None,
         ),
     )
+    # The seat's PURPOSE rides along explicitly. ``agents_profile`` is a dynamic
+    # attribute, so ``dataclasses.replace`` drops it — and the purpose is what
+    # ``loop.resolve_role`` narrows the seat's tool surface by, and what
+    # ``subagents._seat_purpose`` ranks a delegation's bounds against. A seat
+    # built without it silently widens to the full ``thinker_coder`` surface,
+    # which is exactly the delegation hole the t11 enforcement closes; the
+    # pending fold of ``subagents._child_config_for_profile`` onto this builder
+    # (#412) must therefore keep carrying it.
+    setattr(seat, "agents_profile", profile.purpose)
+    return seat
 
 
 # ---------------------------------------------------------------------------

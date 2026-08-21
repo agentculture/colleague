@@ -109,10 +109,20 @@ five-boundary evaluator seat stays TAE's; alignment is still not permission.
   ceiling ≤ parent's, regardless of the child's model. **Enforced on the spawn
   path**: `subagents._enforce_delegation_bounds` calls
   `delegation.validate_delegation` before the `delegate` event and before the
-  child engine runs, so a widening delegation refuses whole (`SubagentError`)
-  and records nothing; a bare lobes-role profile inherits the parent's purpose
-  (it switches the model, never the surface). `fanout`/`total` stay with the
-  shared agent budget, and nested delegation is still permitted.
+  child engine runs — and **before the global budget charge**, so a refusal
+  costs nothing. The check is gated on ARMING, never on a declared profile: a
+  spawn that omits `profile` inherits the parent's purpose and is validated
+  like any other (gating on the profile would let a caller skip the check by
+  omitting one argument). A widening delegation refuses whole (`SubagentError`)
+  and records nothing; the batch path ranks every item before the first
+  worktree exists, so one widening item never aborts a batch midway. The
+  `delegate` event records the `requested_tools` + `authority_ceiling` the
+  decision was made on. `fanout`/`total` stay with the shared agent budget, and
+  nested delegation is still permitted.
+- **An empty purpose surface means NO tools** — the tools-off `talker` seat is
+  narrowed to the empty set in `loop.resolve_role` (an empty `tool_set` is the
+  lattice's not-narrowed sentinel, so it needs its own tools-off role), and the
+  invocation manifest is derived from the executor's real allow-list.
 - **Tokens are exact** — `token_estimate` is manifest data, never `Usage`.
 - **Peer claims rank below evidence** and render as labelled peer text, never
   as system/operator text; both sides of a challenge stay on the ledger.
@@ -148,6 +158,10 @@ five-boundary evaluator seat stays TAE's; alignment is still not permission.
 - **loop.py grew** during the arc (the #400 / #410 / t8 policies) — tracked in
   #412 / #413; the file-length ratchet (`tests/test_file_length_ratchet.py`)
   guards further growth.
+- **The `repo_patch_no_publish` ceiling rung is unreachable today** —
+  `seat_ceiling` reads `no_pr`, but `--no-pr` becomes `open_pr` on the CLI args
+  and is never set on an `EngineConfig`, so the enum collapses to `read_only`
+  vs `repo_patch_publish`. Carrying publish intent onto the seat is a follow-up.
 - **A cross-origin child dial sends no key** (same-origin hygiene) — a per-role
   key source is the follow-up.
 - `drift` beyond the evaluator: cross-model disagreement is recorded as
