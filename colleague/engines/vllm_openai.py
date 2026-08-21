@@ -25,6 +25,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
+from colleague import stallguard
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
@@ -323,6 +324,10 @@ def _iter_sse_frames(
     trigger, see ``_post_json_stream``).
     """
     for raw_line in response:
+        # Step-stall watchdog (#400): a no-op unless the loop armed a progress
+        # deadline for this turn; raises TurnStalled past it (never a fallback
+        # error — it propagates to the loop, which ends the episode honestly).
+        stallguard.check()
         line = raw_line.decode("utf-8").strip()
         if not line or line.startswith(":"):
             continue
