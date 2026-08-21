@@ -205,6 +205,11 @@ class LobesRoles:
     embedder: RoleInfo | None = None
     muse: RoleInfo | None = None
     worker: RoleInfo | None = None
+    #: The reserved fast-coder role (#411 deviation d3): OPTIONAL like the
+    #: others — absent on the gateway today; parsed here so a cross-role
+    #: subagent dial (``colleague/subagents.py``) can bind it the day it is
+    #: advertised, and falls back to cortex (recorded) until then.
+    associate: RoleInfo | None = None
 
 
 def _parse_role(raw: object) -> RoleInfo | None:
@@ -300,13 +305,14 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
             return None
         resolved[name] = role
 
-    # Voice roles (stt/tts), the embedder, muse, and worker are OPTIONAL:
-    # parse them but never fail resolution (the same rule for all five).
+    # Voice roles (stt/tts), the embedder, muse, worker, and associate are
+    # OPTIONAL: parse them but never fail resolution (the same rule for all six).
     stt_role = _parse_role(payload.get("stt"))
     tts_role = _parse_role(payload.get("tts"))
     embedder_role = _parse_role(payload.get("embedder"))
     muse_role = _parse_role(payload.get("muse"))
     worker_role = _parse_role(payload.get("worker"))
+    associate_role = _parse_role(payload.get("associate"))
 
     return LobesRoles(
         cortex=resolved["cortex"],
@@ -316,6 +322,7 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
         embedder=embedder_role,
         muse=muse_role,
         worker=worker_role,
+        associate=associate_role,
     )
 
 
