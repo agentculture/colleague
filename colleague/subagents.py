@@ -530,7 +530,15 @@ def _child_config_for_profile(
     }
     if spec.max_steps is not None:
         replace_kwargs["max_steps"] = spec.max_steps
-    return cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
+    child = cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
+    # #411 t15: a purpose-bearing child carries its purpose so the child engine's
+    # resolve_role narrows BOTH halves of its tool surface by purpose (the dormant
+    # worker never sees write_file/edit_file); a bare role name carries none.
+    from colleague.agents.tools import PURPOSE_TOOLS
+
+    if spec.profile in PURPOSE_TOOLS:
+        setattr(child, "agents_profile", spec.profile)
+    return child
 
 
 def _parent_ledger(parent_config: EngineConfig):
