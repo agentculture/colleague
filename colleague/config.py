@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Collection, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
-from colleague import configdir
+from colleague import configdir, effort
 from colleague.fillline import DEFAULT_COMPACTION_CAP
 
 if TYPE_CHECKING:
@@ -72,6 +72,8 @@ _DEFAULT_MODEL = "unsloth/Qwen3.8-27B-NVFP4"
 _DEFAULT_MAX_STEPS = 40
 _DEFAULT_TEMPERATURE = 0.0
 _DEFAULT_TIMEOUT = 120.0
+# t8's "too long" advisory threshold, in minutes (#416 t2).
+_DEFAULT_TOO_LONG_MIN = 20
 # Proactive context budget in tokens. Counted exactly via the served model's
 # /tokenize endpoint when reachable; char-based fallback otherwise (best-effort
 # exact, char-approximate fallback, never token-exact-guaranteed — no tokenizer
@@ -2005,6 +2007,25 @@ def _load_chain_overrides(repo_path: str | Path) -> tuple[str | None, str | None
     )
 
 
+def _load_reasoning_effort_overrides(
+    repo_path: str | Path,
+) -> tuple[str | None, dict[str, str], str | None]:
+    """Read ``reasoning_effort``/``reasoning_effort_seats``/``too_long_min``
+    from .colleague/config.json (#416 t2); ``(None, {}, None)`` on absence."""
+    data = _merged_config_json(repo_path)
+    global_value = data.get("reasoning_effort")
+    seats = data.get("reasoning_effort_seats")
+    seats_dict = (
+        {k: str(v) for k, v in seats.items() if v is not None} if isinstance(seats, dict) else {}
+    )
+    too_long_min = data.get("too_long_min")
+    return (
+        None if global_value is None else str(global_value),
+        seats_dict,
+        None if too_long_min is None else str(too_long_min),
+    )
+
+
 def _resolve_until_done_enabled(file_value: str | None) -> bool:
     """Resolve the chain-arming flag: env ``COLLEAGUE_UNTIL_DONE`` > config.json >
     default-OFF (indefinite-run decision c21 — armed, never ambient).
@@ -2995,6 +3016,14 @@ class EngineConfig:
     # DOES appear in :meth:`to_dict` — the artifact snapshot is meant to
     # surface the effective cap (h4/h7), not stay byte-identical.
     compaction_cap: int = DEFAULT_COMPACTION_CAP
+    # Per-seat thinking-effort ladder (#416 t2, see colleague.effort):
+    # ``reasoning_effort`` is the GLOBAL override ("default" = kill-switch);
+    # ``reasoning_effort_seats`` maps a seat name to its own override. Both
+    # default unset, byte-identical to today.
+    reasoning_effort: Optional[str] = None
+    reasoning_effort_seats: dict = field(default_factory=dict)
+    # t8's "too long" advisory threshold, in minutes (#416 t2).
+    too_long_min: int = _DEFAULT_TOO_LONG_MIN
     # Dual-model deepthink escalation target (t1). ``None`` = single-model,
     # byte-identical to today (the pre-feature default). See
     # :class:`DeepthinkConfig` and :func:`_resolve_deepthink`.
@@ -3285,6 +3314,9 @@ class EngineConfig:
         file_agents: str | None = None
         file_distiller: str | None = None
         file_seats: dict[str, dict[str, str]] = {}
+        file_reasoning_effort: str | None = None
+        file_reasoning_effort_seats: dict[str, str] = {}
+        file_too_long_min: str | None = None
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -3318,6 +3350,9 @@ class EngineConfig:
                 "worker": file_worker,
                 "evaluator": _load_seat_overrides(repo_path, "evaluator"),
             }
+            file_reasoning_effort, file_reasoning_effort_seats, file_too_long_min = (
+                _load_reasoning_effort_overrides(repo_path)
+            )
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -3585,6 +3620,33 @@ class EngineConfig:
                 resolved_api_key,
                 resolved_context_budget_tokens,
             ),
+        )
+
+        # Per-seat thinking-effort ladder (#416 t2): validated via
+        # effort.validate_effort (c37); "default" is the kill-switch sentinel.
+        resolved_reasoning_effort = (
+            _pick(None, "COLLEAGUE_REASONING_EFFORT", default=file_reasoning_effort or "") or None
+        )
+        if resolved_reasoning_effort is not None:
+            resolved_reasoning_effort = effort.validate_effort(resolved_reasoning_effort)
+        resolved_reasoning_effort_seats: dict[str, str] = {}
+        for _seat in effort.SEAT_TABLE:
+            _raw = (
+                _pick(
+                    None,
+                    f"COLLEAGUE_{_seat.upper()}_REASONING_EFFORT",
+                    default=file_reasoning_effort_seats.get(_seat, ""),
+                )
+                or None
+            )
+            if _raw is not None:
+                resolved_reasoning_effort_seats[_seat] = effort.validate_effort(_raw)
+        resolved_too_long_min = int(
+            _pick(
+                None,
+                "COLLEAGUE_TOO_LONG_MIN",
+                default=file_too_long_min or str(_DEFAULT_TOO_LONG_MIN),
+            )
         )
 
         return cls(
@@ -3865,6 +3927,9 @@ class EngineConfig:
             model_refresh_warnings=(
                 (model_refresh_warning,) if model_refresh_warning is not None else ()
             ),
+            reasoning_effort=resolved_reasoning_effort,
+            reasoning_effort_seats=resolved_reasoning_effort_seats,
+            too_long_min=resolved_too_long_min,
         )
 
     def to_dict(self) -> dict[str, object]:
