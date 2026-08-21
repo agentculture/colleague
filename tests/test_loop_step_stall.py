@@ -28,7 +28,7 @@ def _list_dir() -> ModelResponse:
     return ModelResponse(tool_calls=[ToolCall("l", "list_dir", {"path": "."})])
 
 
-@pytest.fixture()
+@pytest.fixture
 def task(tmp_path: Path) -> Task:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -49,8 +49,11 @@ def test_streaming_turn_that_never_progresses_trips_the_bound(task: Task, monkey
     assert result.status == INCOMPLETE
     assert result.not_finished is True
     stalls = [w for w in result.warnings if w.get("kind") == "step-stall"]
-    assert len(stalls) == 1 and stalls[0]["seconds"] >= 0.3 and stalls[0]["step_index"] == 0
-    assert result.incompletion is not None and result.incompletion.reason == "step-stall"
+    assert len(stalls) == 1
+    assert stalls[0]["seconds"] >= 0.3
+    assert stalls[0]["step_index"] == 0
+    assert result.incompletion is not None
+    assert result.incompletion.reason == "step-stall"
     # not continuable: the #400 exit is NOT in the pinned allow-list
     assert chain.exit_reason(result) == "step-stall"
     assert "step-stall" not in chain.CONTINUABLE_REASONS
@@ -69,7 +72,8 @@ def test_blocking_turn_detected_between_turns(task: Task, monkeypatch) -> None:
         return ModelResponse(content="still thinking")
 
     result = loop.run(slow_no_tool, task, max_steps=5)
-    assert result.status == INCOMPLETE and result.not_finished
+    assert result.status == INCOMPLETE
+    assert result.not_finished
     assert [w["kind"] for w in result.warnings] == ["step-stall"]
     assert len(calls) == 1  # the stall is seen before a second turn is spent
 
@@ -107,7 +111,8 @@ def test_knob_zero_disables_the_watchdog(task: Task, monkeypatch) -> None:
         return next(script)
 
     result = loop.run(complete, task, max_steps=2)
-    assert result.status == OK and result.warnings == []
+    assert result.status == OK
+    assert result.warnings == []
 
 
 def test_default_bound_policy_floor_and_latency_scaling() -> None:

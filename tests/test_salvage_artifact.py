@@ -108,11 +108,10 @@ def test_finalize_interrupted_is_idempotent_and_keeps_summary() -> None:
     )
     assert result.status == ERROR
     assert result.summary == "did two things"  # never overwritten
-    assert result.mode == "explore" and result.continued_from == "prev"
-    assert (
-        result.incompletion is not None
-        and "work --continue abc" in result.incompletion.recommendation
-    )
+    assert result.mode == "explore"
+    assert result.continued_from == "prev"
+    assert result.incompletion is not None
+    assert "work --continue abc" in result.incompletion.recommendation
 
 
 def test_arm_without_worktree_or_writer_installs_nothing() -> None:

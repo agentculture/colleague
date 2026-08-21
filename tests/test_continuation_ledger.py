@@ -52,7 +52,7 @@ PROSE_HEADINGS = (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / ".colleague").mkdir()
     return tmp_path
@@ -150,13 +150,17 @@ class TestArmedRehydrates:
         assert "stdlib only, no new base deps" in seed
         assert "tests/test_feature.py passes" in seed
         assert "no prose recap headings in seed" in seed
-        assert "src/feature.py" in seed and "tests/test_feature.py" in seed
+        assert "src/feature.py" in seed
+        assert "tests/test_feature.py" in seed
         assert "wire the session /continue caller" in seed
         assert "temporary loop" not in seed  # closed loop dropped by replay
-        assert "sub-1" in seed and "task-child-1" in seed
+        assert "sub-1" in seed
+        assert "task-child-1" in seed
         delegations = _section(seed, "Open delegations")
-        assert "sub-1" in delegations and "sub-2" not in delegations  # returned → not open
-        assert "pytest -q" in seed and "failed" in seed
+        assert "sub-1" in delegations
+        assert "sub-2" not in delegations  # returned → not open
+        assert "pytest -q" in seed
+        assert "failed" in seed
         assert "open an issue for the docs" in seed
         assert "rehydrate from the ledger, not prose" in seed
 

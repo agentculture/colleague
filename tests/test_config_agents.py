@@ -63,7 +63,9 @@ def test_config_file_bool_and_object_forms(tmp_path: Path, monkeypatch) -> None:
 def test_arming_agents_never_arms_the_siblings(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("COLLEAGUE_AGENTS", "1")
     cfg = EngineConfig.resolve(repo_path=_repo(tmp_path), discover_lobes=False)
-    assert cfg.agents and not cfg.three_tier and not cfg.thought_action_evaluation
+    assert cfg.agents
+    assert not cfg.three_tier
+    assert not cfg.thought_action_evaluation
 
 
 def test_refusal_names_both_modes() -> None:
@@ -81,9 +83,11 @@ def test_refusal_names_both_modes() -> None:
 def test_agents_plus_tae_refuses_end_to_end(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("COLLEAGUE_AGENTS", "1")
     monkeypatch.setenv("COLLEAGUE_THOUGHT_ACTION_EVALUATION", "1")
+    repo = _repo(tmp_path)
     with pytest.raises(CliError) as excinfo:
-        EngineConfig.resolve(repo_path=_repo(tmp_path), discover_lobes=False)
-    assert "agents" in str(excinfo.value) and "thought_action_evaluation" in str(excinfo.value)
+        EngineConfig.resolve(repo_path=repo, discover_lobes=False)
+    assert "agents" in str(excinfo.value)
+    assert "thought_action_evaluation" in str(excinfo.value)
 
 
 def test_config_show_prints_the_mode(tmp_path: Path, monkeypatch) -> None:

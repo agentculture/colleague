@@ -215,8 +215,9 @@ def test_resolve_thinker_coder_uses_cortex():
 
 
 def test_resolve_unknown_purpose_raises():
+    roles = _advert_roles()
     with pytest.raises(ValueError):
-        resolve_profile("bogus", _advert_roles())
+        resolve_profile("bogus", roles)
 
 
 def test_resolve_is_pure_and_deterministic():
@@ -246,10 +247,12 @@ def test_no_vendor_model_names_under_agents():
 
 
 def test_associate_purpose_is_reserved_and_falls_back_to_cortex_when_absent():
-    assert "associate" in PURPOSES and PURPOSE_ROLE["associate"] == "associate"
+    assert "associate" in PURPOSES
+    assert PURPOSE_ROLE["associate"] == "associate"
     roles = _advert_roles()  # today's gateway advertises no associate role at all
     r = resolve_profile("associate", roles)
-    assert r.model_role == "cortex" and r.fallback_from_role == "associate"
+    assert r.model_role == "cortex"
+    assert r.fallback_from_role == "associate"
     assert r.resolved_model == roles.cortex.model
 
 

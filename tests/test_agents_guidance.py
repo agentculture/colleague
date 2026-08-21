@@ -34,7 +34,8 @@ def test_guidance_is_a_frozen_tuple_of_pairs():
         assert isinstance(entry, tuple)
         assert len(entry) == 2
         purpose, bullets = entry
-        assert isinstance(purpose, str) and purpose
+        assert isinstance(purpose, str)
+        assert purpose
         assert isinstance(bullets, tuple)
         assert all(isinstance(b, str) and b for b in bullets)
 
@@ -64,7 +65,8 @@ def test_guidance_table_is_immutable():
 
 
 def test_rendered_text_is_deterministic():
-    assert build_guidance_text() == build_guidance_text()
+    first = build_guidance_text()
+    assert first == build_guidance_text()
 
 
 def test_rendered_text_names_every_purpose():
@@ -84,7 +86,8 @@ def test_rendered_text_routes_routine_coding_to_associate_else_thinker_coder():
     text = build_guidance_text()
     # Deviation d3: routine coding goes to associate when present, else
     # thinker_coder — never to worker.
-    assert "associate" in text and "thinker_coder" in text
+    assert "associate" in text
+    assert "thinker_coder" in text
     assert "never to the dormant **worker** purpose" in text
 
 

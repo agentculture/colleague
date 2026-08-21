@@ -147,8 +147,9 @@ def test_record_round_trip():
 
 
 def test_record_refuses_unknown_estimate_source():
+    profile = _worker_profile(_advert_roles())
     with pytest.raises(ValueError, match="token_estimate_source"):
-        _record(_worker_profile(_advert_roles()), token_estimate_source="guess")
+        _record(profile, token_estimate_source="guess")
 
 
 # ---------------------------------------------------------------------------
