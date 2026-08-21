@@ -1,0 +1,92 @@
+{
+  "plan_slug": "model-bound-agents-411",
+  "schema_version": 1,
+  "created": "2026-08-21T05:02:29Z",
+  "updated": "2026-08-21T06:27:56Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t5 adds a 2-line seam in loop.py (salvage.register after the result is created; salvage.unregister on both exits) plus the new leaf colleague/salvage.py \u2014 the t5 instruction said 'do not touch loop.py'",
+      "task_ref": "t5",
+      "reason": "the SIGTERM interrupt is a SystemExit (BaseException) by #222 design so it bypasses every 'except Exception' including the loop's WorkAborted partial-preservation path; the live partial TaskResult is created inside loop.run and is otherwise unreachable from work.py \u2014 no work.py-only fix can write the partial artifact. Already implemented + merged (wave 1) before this record: flagged for explicit approval",
+      "affects": [
+        "c44",
+        "t15"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t6's default step-stall bound is max(3600s floor, 6 x mean turn latency once 3 turns are measured) instead of the plan text '6 x mean once >=3 steps exist, else 1800s'; the bound never drops below the floor",
+      "task_ref": "t6",
+      "reason": "the #400 issue's own table records a LEGIT 2780s single turn that completed with streaming; a 1800s floor (or 6 x a 370s mean = 2220s) would have cut a known-good turn \u2014 a regression for real operators on the reasoning-heavy 3.8. COLLEAGUE_MAX_STEP_STALL still overrides. Already implemented + merged (wave 1) before this record: flagged for explicit approval",
+      "affects": [
+        "c26"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "the reference topology's third agent is NOT the non-coding 'worker': the worker purpose stays DORMANT (its profile exists, the role is never bound; a worker-purpose request resolves to cortex under the recorded fallback \u2014 today's rig state) until a FAST CODER model is introduced; that agent is named 'associate' \u2014 a new lobes role/purpose reserved NOW (PURPOSES gains 'associate' -> role 'associate', coder-class tool profile, authority <= thinker_coder; absent on the gateway today -> the same recorded cortex fallback). Guidance/table and docs route routine coding to 'associate' when present, else thinker/coder \u2014 never to 'worker'",
+      "task_ref": "t1",
+      "reason": "operator: 'worker that can't do actual work is a conflict. Worker stays dormant until fast coder introduced. Will use associate as new lobe when arrives. Semantic but meaningful.' \u2014 a worker purpose whose tool profile forbids authoring has no useful dispatch target in this repo; naming the fast-coder role now keeps the code stable when the model lands",
+      "affects": [
+        "t2",
+        "t9",
+        "t12",
+        "t14",
+        "t20",
+        "t22",
+        "t23",
+        "c20",
+        "c11",
+        "c4",
+        "c43"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "step-stall default floor raised 3600s -> 5400s (90 min): above every recorded legitimate single turn on the Spark rig (46-50 min) with margin, still under #400's 2h pathological turn; 6x mean turn latency still scales it up; COLLEAGUE_MAX_STEP_STALL overrides (amends d2)",
+      "task_ref": "t6",
+      "reason": "operator on confirming d2: 'consider a higher limit' \u2014 the number is the agent's proposal",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "t2 (agents/tools.py) is ALSO built by Claude in a parallel worktree (agent/411-t2c) while colleague's dispatch keeps running; on arrival colleague's result is graded and whichever satisfies the acceptance criteria cleanly is merged (the other branch is dropped)",
+      "task_ref": "t2",
+      "reason": "colleague's t2 run has been inside a single composing turn for 44 minutes with no file written (the #400 shape) and t2 gates t9, t11 and t14; reversible \u2014 no plan text changes",
+      "affects": [
+        "t9",
+        "t11",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d6",
+      "what": "t18 ALSO ships a file-length ratchet test (tests/test_file_length_ratchet.py): a checked-in per-file line-count baseline for every colleague/**/*.py; a module that GROWS past its recorded baseline FAILS (ratchet only tightens \u2014 shrinking updates the baseline), and any module over 1000 lines emits a WARNING (pytest warning / report line, not a failure); new modules must start under 1000 lines",
+      "task_ref": "t18",
+      "reason": "operator: 'After refactor, we need to verify we have a file line length test (breaks on breaking existing limit, and warns on over 1000 lines)' \u2014 guards the #399 concern after the agents refactor",
+      "affects": [
+        "t15",
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    }
+  ]
+}

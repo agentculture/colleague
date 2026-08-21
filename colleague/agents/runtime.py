@@ -558,14 +558,15 @@ class AgentsRun:
                 digest = self.ledger.derive().state_digest
             except Exception:  # noqa: BLE001
                 digest = None
-        return {
-            "version": AGENTS_BLOCK_VERSION,
-            "invocations": [r.to_dict() for r in self.invocations],
-            "messages": list(self.messages),
-            "fallbacks": list(self.fallbacks),
-            "ledger_path": self.ledger_path,
-            "ledger_digest": digest,
-        }
+        from colleague.agents.artifact_block import build_agents_block
+
+        return build_agents_block(
+            list(self.invocations),
+            list(self.messages),
+            fallbacks=list(self.fallbacks),
+            ledger_path=self.ledger_path,
+            ledger_digest=digest,
+        )
 
     def end(self, result: Any) -> None:
         """Fold changed paths + the block onto *result* (every exit path; never raises)."""

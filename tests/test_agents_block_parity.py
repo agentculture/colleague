@@ -79,18 +79,28 @@ def test_unarmed_omits_the_key_on_both_engines_byte_identically(
     assert _key_shape(mock_result.to_dict()) == _key_shape(vllm_result.to_dict())
 
 
-def test_armed_engine_floor_is_the_empty_block_until_the_loop_authors_one(
+def test_armed_block_is_loop_authored_and_identical_in_shape_on_both_engines(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Honest pin of what the engine-side fold claims TODAY: the armed key is
-    the empty-lists floor (no invocation records are authored at the engine
-    level — the loop-side wiring appends them; this test must be updated, not
-    deleted, when it does)."""
+    """The loop wiring (t15) authors the block: real invocation records on BOTH
+    engines (one per model call), the same key shape, a ledger path + digest;
+    the engine-side fold is only the floor (it never overwrites)."""
     _mock_vllm_http(monkeypatch)
     cfg = dataclasses.replace(EngineConfig.resolve(), agents=True)
     mock_result, vllm_result = _run_both(tmp_path, cfg)
-    assert mock_result.agents == empty_agents_block()
-    assert vllm_result.agents == empty_agents_block()
+    for res in (mock_result, vllm_result):
+        assert res.agents is not None and res.agents != empty_agents_block()
+        assert res.agents["version"] == 1 and res.agents["invocations"]
+        assert res.agents["ledger_path"] and res.agents["ledger_digest"]
+        assert {
+            "version",
+            "invocations",
+            "messages",
+            "fallbacks",
+            "ledger_path",
+            "ledger_digest",
+        } <= set(res.agents)
+    assert _key_shape(mock_result.agents) == _key_shape(vllm_result.agents)
 
 
 def test_mock_work_accepts_the_profile_bearing_child_config(tmp_path: Path) -> None:
