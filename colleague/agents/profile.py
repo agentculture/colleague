@@ -24,14 +24,23 @@ ready, :func:`resolve_profile` carries the purpose on the *cortex* model under
 a RECORDED fallback (``fallback_from_role`` = the purpose's role). It never
 refuses all work and never falls back silently.
 
+**The talker can never hold a write tool.** :func:`validate_profile_tools`
+refuses (``ValueError``) a ``talker`` profile whose concrete tool surface
+carries any write-class name (t2's ``write`` / ``external`` / ``destructive``
+classes — ``colleague.agents.tools.assert_purpose_surface``), so the
+structurally tools-off senses seat cannot be handed a mutation path by
+configuration (t16, spec c19/h25).
+
 Modelled on ``roles.Role`` (roles.py:27-57) and ``lobes.RoleInfo``
-(lobes.py:154-171). Stdlib only; no imports from ``colleague/loop.py``.
+(lobes.py:154-171). Stdlib only at import time (the tool-class check is a
+lazy import of the sibling ``tools`` module); no imports from
+``colleague/loop.py``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterable, Optional
 
 __all__ = [
     "AgentProfile",
@@ -41,6 +50,7 @@ __all__ = [
     "Resolution",
     "SCHEMA_VERSION",
     "resolve_profile",
+    "validate_profile_tools",
 ]
 
 #: Schema version of the :class:`AgentProfile` record. Bump additively when a
@@ -200,3 +210,18 @@ def resolve_profile(purpose: str, roles) -> Resolution:
         resolved_model=floor.model,
         fallback_from_role=fallback,
     )
+
+
+def validate_profile_tools(profile: AgentProfile, tool_names: Iterable[str]) -> None:
+    """Refuse a *profile* whose concrete tool surface breaks its purpose's invariant.
+
+    Delegates to ``colleague.agents.tools.assert_purpose_surface``: a
+    ``talker`` profile (the tools-off senses) REFUSES with ``ValueError`` when
+    any name in *tool_names* is write-capable (class ``write`` / ``external``
+    / ``destructive``) or unknown; every other purpose passes. Pure — nothing
+    is resolved, nothing is executed. (The sibling module is imported lazily
+    so this module's import graph stays stdlib-only.)
+    """
+    from colleague.agents.tools import assert_purpose_surface  # lazy: stdlib-only graph
+
+    assert_purpose_surface(profile.purpose, tool_names)

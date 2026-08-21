@@ -51,6 +51,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
+from colleague.agents.talker import record_operator_input as _record_operator_input
+from colleague.agents.talker import recording_complete as _talker_recorded
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import SENSES_LOOP_POINT_PREFIX, ContextPacket, SensesRecord
@@ -433,6 +435,13 @@ class SensesLoopDriver:
             # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
             # senses loop turn structurally cannot carry a tool schema on the wire.
             complete = self._make_complete(self._senses_config, tools=[])
+            # Talker record (#411 t16): identity only, armed-only, never a tool.
+            complete = _talker_recorded(
+                complete,
+                self._senses_config,
+                engine=None,
+                truncation_marker=_TRUNCATION_NOTE,
+            )
             simple = robust_simple_complete(meter.wrap(complete))
             raw = simple(_LOOP_SYSTEM_PROMPT, user_prompt)
             if not raw.strip():
@@ -680,6 +689,15 @@ class SensesLoopDriver:
             self.chat.append(turn.chat_entry)
         if turn.injection is not None:
             self.injections.append(turn.injection)
+            # A guide_cortex injection carries the operator's words into the
+            # run: an ``operator_input`` ledger event when agents are armed
+            # (#411 t16) — never a delegate/handoff; reply/clarify/narrate are
+            # display-only and are deliberately NOT ledgered.
+            _record_operator_input(
+                self._senses_config,
+                str(turn.injection.get("text") or ""),
+                source=turn.injection.get("source"),
+            )
 
     @staticmethod
     def _summarize(move: str, result: Any) -> str:

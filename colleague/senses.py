@@ -92,6 +92,16 @@ guarantee is enforced in :mod:`colleague.senses_loop` for the coordination
 loop's ``reply_to_operator`` move. Four additive counters
 (``verbatim_presence``, ``knowledge_repetition``, ``fallback``, ``truncated``)
 land on the :class:`~colleague.contract.SensesRecord` surface.
+
+Talker identity (#411, task t16): when model-bound agents are ARMED
+(``config.agents`` + the loop-set ``config.agents_ledger_path``), every
+tools-off completion issued here is wrapped by
+:func:`colleague.agents.talker.recording_complete`, which appends ONE
+``invocation`` event (purpose ``talker``, model_role ``senses``, the digest of
+the EMPTY tool surface) to the task ledger before calling through — identity
+only, never a tool, never an authority; a failing ledger never breaks the
+senses call. Unarmed, the wrapper is the identity and every call site is
+byte-identical (``tools=[]`` stays on the wire at each one).
 """
 
 from __future__ import annotations
@@ -102,6 +112,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, cast
 
 from colleague import media, registry
+from colleague.agents.talker import recording_complete as _talker_recorded
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import ContextPacket, SensesRecord
@@ -278,7 +289,7 @@ def senses_engine_config(
     # cast: dataclasses.replace()'s generic signature infers DataclassInstance,
     # not EngineConfig specifically (SonarCloud S5886); mirrors
     # colleague.deepthink.deepthink_engine_config's identical cast.
-    return cast(
+    seat = cast(
         EngineConfig,
         dataclasses.replace(
             config,
@@ -290,6 +301,14 @@ def senses_engine_config(
             on_delta=on_delta,
         ),
     )
+    # Talker records (#411 t16): the armed loop hands the task-ledger path to
+    # the parent config as ``agents_ledger_path``; ``dataclasses.replace``
+    # copies declared fields only, so a runtime-set attribute is carried over
+    # here explicitly (a no-op when it is a declared field or absent).
+    ledger_path = getattr(config, "agents_ledger_path", None)
+    if ledger_path is not None and getattr(seat, "agents_ledger_path", None) is None:
+        seat.agents_ledger_path = ledger_path  # type: ignore[attr-defined]
+    return seat
 
 
 def make_senses_display_delta(
@@ -667,6 +686,9 @@ def run_senses_intake(
         # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a senses
         # request structurally cannot carry a tool schema on the wire.
         complete = engine.make_complete(senses_config, tools=[])
+        complete = _talker_recorded(
+            complete, senses_config, engine=engine, truncation_marker=_TRUNCATION_NOTE
+        )
         simple = robust_simple_complete(meter.wrap(complete))
         raw = simple(_INTAKE_SYSTEM_PROMPT, user_prompt)
         if not raw.strip():
@@ -742,6 +764,9 @@ def run_senses_speakback(
             count_tokens=counter,
         )
         complete = engine.make_complete(senses_config, tools=[])  # tools-off ALWAYS
+        complete = _talker_recorded(
+            complete, senses_config, engine=engine, truncation_marker=_TRUNCATION_NOTE
+        )
         simple = robust_simple_complete(meter.wrap(complete))
         display = simple(_SPEAKBACK_SYSTEM_PROMPT, user_prompt)
         if not display.strip():
@@ -804,7 +829,12 @@ def run_senses_media_bridge(
         )
         # Tools-off ALWAYS: an explicit empty tool list — a senses completion
         # structurally cannot carry a tool schema on the wire.
-        complete = meter.wrap(engine.make_complete(senses_config, tools=[]))
+        complete = engine.make_complete(senses_config, tools=[])
+        complete = meter.wrap(
+            _talker_recorded(
+                complete, senses_config, engine=engine, truncation_marker=_TRUNCATION_NOTE
+            )
+        )
         response = complete(
             [
                 {"role": "user", "content": user_prompt},
@@ -1102,6 +1132,7 @@ def run_senses_talk(
         # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
         # senses talk turn structurally cannot carry a tool schema on the wire.
         complete = make_complete(senses_config, tools=[])
+        complete = _talker_recorded(complete, senses_config, truncation_marker=_TRUNCATION_NOTE)
         simple = robust_simple_complete(meter.wrap(complete))
         raw = simple(_TALK_SYSTEM_PROMPT, user_prompt)
         if not raw.strip():
@@ -1235,6 +1266,9 @@ def run_senses_update(
         )
         # Tools-off ALWAYS: an explicit empty tool list, never ``None``.
         complete = engine.make_complete(senses_config, tools=[])
+        complete = _talker_recorded(
+            complete, senses_config, engine=engine, truncation_marker=_TRUNCATION_NOTE
+        )
         simple = robust_simple_complete(meter.wrap(complete))
         raw = simple(_UPDATE_SYSTEM_PROMPT, user_prompt)
         if not raw.strip():
@@ -1408,6 +1442,7 @@ def run_senses_frontdoor(
         # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
         # front-door answer structurally cannot carry a tool schema on the wire.
         complete = make_complete(senses_config, tools=[])
+        complete = _talker_recorded(complete, senses_config, truncation_marker=_TRUNCATION_NOTE)
         simple = robust_simple_complete(meter.wrap(complete))
         raw = simple(_FRONTDOOR_SYSTEM_PROMPT, user_prompt)
         if not raw.strip():
