@@ -312,7 +312,13 @@ class _Replay:
     def _on_delegate(self, e: LedgerEvent) -> None:
         key = str(e.data.get("id", e.seq))
         child_ref = str(e.data.get("child_ref", ""))
-        entry = dict(id=key, child_ref=child_ref, seq=e.seq, returned=False, return_ref="")
+        entry = {
+            "id": key,
+            "child_ref": child_ref,
+            "seq": e.seq,
+            "returned": False,
+            "return_ref": "",
+        }
         self.keyed["delegations"][key] = entry
 
     def _on_return(self, e: LedgerEvent) -> None:
