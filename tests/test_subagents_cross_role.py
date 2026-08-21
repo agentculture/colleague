@@ -609,7 +609,12 @@ def test_grandchild_spawn_inherits_profile_as_parent_profile(
     tmp_path: Path, capture: _Capture
 ) -> None:
     """A child's own nested spawn closure carries the CHILD's profile as the
-    grandchild's ``parent_profile`` (lineage one hop at a time)."""
+    grandchild's ``parent_profile`` (lineage one hop at a time).
+
+    The pair is chosen to NARROW (``thinker_coder`` → ``worker``): a widening
+    pair is refused by the t11 bounds enforcement, which
+    ``tests/test_agents_delegation_bounds.py`` pins separately.
+    """
     ledger_file = tmp_path / ".colleague" / "ledger" / "p3.jsonl"
     _seed_ledger(ledger_file, "p3")
     parent = _armed_parent(None)
@@ -620,13 +625,13 @@ def test_grandchild_spawn_inherits_profile_as_parent_profile(
         parent_config=parent,
         parent_engine="mock",
         depth=1,
-        spec=ChildSpec(profile="talker"),
+        spec=ChildSpec(profile="thinker_coder"),
     )
     _task, child_cfg = capture.calls[0]
     # The child's closure: spawn a grandchild and look at its delegate event's
-    # from_profile — it must name the child's profile ("talker"), not the root's.
+    # from_profile — it must name the child's profile, not the root's.
     child_cfg.agents_ledger_path = str(ledger_file)
-    child_cfg.subagent_spawn("grandchild", profile="thinker_coder")
+    child_cfg.subagent_spawn("grandchild", profile="worker")
     events = read_ledger(ledger_file).events
     delegates = [e for e in events if e.kind == "delegate"]
-    assert delegates[-1].data["from_profile"] == "talker"
+    assert delegates[-1].data["from_profile"] == "thinker_coder"

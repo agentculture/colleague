@@ -71,6 +71,7 @@ __all__ = [
     "agent_engine_config",
     "append_invocation",
     "estimate_tokens",
+    "seat_ceiling",
 ]
 
 #: The closed vocabulary of ``token_estimate_source`` labels. ``tokenize`` —
@@ -335,11 +336,33 @@ AGENTS_BLOCK_VERSION = 1
 DEFAULT_ACTING_PURPOSE = "thinker_coder"
 
 
-def _closed_authority(config: EngineConfig) -> str:
-    """The acting seat's authority ceiling: publish unless ``--no-pr``/read-only role."""
+def seat_ceiling(config: EngineConfig, role: Optional[str] = None) -> str:
+    """One seat's authority ceiling on the closed ``AUTHORITY_CEILINGS`` enum.
+
+    THE single definition of a seat's ceiling — the acting seat reads it here
+    and :mod:`colleague.subagents` reads it here when it validates a
+    delegation against its parent's bounds (t11's ``validate_delegation``), so
+    parent and child are never ranked on two different rules.
+
+    ``read_only`` when *role* is a built-in read-only role (its curated surface
+    withholds every write tool — :func:`colleague.roles.is_read_only`);
+    otherwise ``repo_patch_no_publish`` under ``--no-pr`` and
+    ``repo_patch_publish`` when the seat may publish. Host policy/approvals
+    still gate every route — a ceiling is the delegation's own arithmetic, not
+    a permission.
+    """
+    from colleague.roles import is_read_only
+
+    if is_read_only(role):
+        return "read_only"
     if getattr(config, "no_pr", False):
         return "repo_patch_no_publish"
     return "repo_patch_publish"
+
+
+def _closed_authority(config: EngineConfig) -> str:
+    """The acting seat's ceiling (kept as the loop-facing name)."""
+    return seat_ceiling(config, getattr(config, "role", None))
 
 
 class AgentsRun:

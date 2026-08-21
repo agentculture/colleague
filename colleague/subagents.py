@@ -365,6 +365,83 @@ def default_parent_profile(config: EngineConfig) -> Optional[str]:
     return str(explicit) if explicit else "thinker_coder"
 
 
+def _seat_purpose(config: EngineConfig) -> str:
+    """The purpose whose tool surface THIS seat's own loop narrows itself to.
+
+    Read back from the same place the loop's ``resolve_role`` reads it (t15):
+    an explicit ``agents_profile`` attribute, else the acting default
+    (``thinker_coder``, the full surface). Parent and child are therefore
+    always ranked on the SAME rule.
+    """
+    from colleague.agents.runtime import DEFAULT_ACTING_PURPOSE
+
+    return str(getattr(config, "agents_profile", None) or DEFAULT_ACTING_PURPOSE)
+
+
+def _enforce_delegation_bounds(
+    parent_config: EngineConfig,
+    child_config: EngineConfig,
+    spec: ChildSpec,
+    *,
+    instruction: str,
+    depth: int,
+    role: Optional[str],
+    delegation_id: str,
+) -> None:
+    """Validate ONE armed delegation against the parent's bounds — refuse whole.
+
+    The enforcement half of t11 (Qodo, PR #414): ``validate_delegation`` owned
+    the arithmetic — child tools ``⊆`` parent tools, child ceiling ``≤``
+    parent ceiling, depth/fanout/total within the ``MAX_SUBAGENT_*`` caps,
+    ``context_mode`` in the closed set — but nothing on the spawn path called
+    it, so a narrow parent could hand a child a WIDER surface by naming a
+    different profile (a ``worker`` seat, which holds no ``write_file`` /
+    ``edit_file``, delegating a ``thinker_coder`` child that does).
+
+    Called only on the ARMED cross-role path (a resolved binding), BEFORE the
+    ``delegate`` event and before the child engine runs, so a refused
+    delegation records nothing and spawns nothing. Refusal surfaces as
+    :class:`SubagentError` — the same clean, model-visible refusal as the
+    depth and budget caps.
+
+    Because a non-subset REFUSES, the child's effective surface is a subset of
+    the parent's by construction — narrowing can only ever shrink. Two bounds
+    are deliberately NOT re-derived here: ``fanout``/``total`` (the shared
+    ``_AgentBudget`` charges and refuses them upstream, before any work) and
+    the ``_NOT_INHERITABLE`` tool classes (nested delegation is explicitly
+    permitted — a child gets its own depth-bound spawn callbacks).
+
+    Alignment is not permission: this is the delegation's own arithmetic, and
+    the host's policy/approval gate still gates every route it allows.
+    """
+    from colleague.agents.delegation import DelegationRequest, validate_delegation
+    from colleague.agents.runtime import seat_ceiling
+    from colleague.agents.tools import tools_for_purpose
+
+    parent_purpose = _seat_purpose(parent_config)
+    child_purpose = _seat_purpose(child_config)
+    request = DelegationRequest(
+        delegation_id=delegation_id,
+        from_agent=spec.parent_profile or parent_purpose,
+        requested_agent_profile=spec.profile or child_purpose,
+        objective=instruction,
+        acceptance="",
+        requested_tools=tuple(sorted(tools_for_purpose(child_purpose))),
+        authority_ceiling=seat_ceiling(child_config, role),
+        context_mode=spec.context_mode,
+        depth=depth,
+    )
+    verdict = validate_delegation(
+        request,
+        parent_effective_tools=tools_for_purpose(parent_purpose),
+        parent_ceiling=seat_ceiling(parent_config, getattr(parent_config, "role", None)),
+    )
+    if not verdict.allowed:
+        raise SubagentError(
+            f"delegation refused: {child_purpose!r} under {parent_purpose!r} — {verdict.reason}"
+        )
+
+
 @dataclasses.dataclass(frozen=True)
 class _ChildBinding:
     """How ONE child's ``profile`` resolved — the trace record behind the armed
@@ -538,6 +615,15 @@ def _child_config_for_profile(
 
     if spec.profile in PURPOSE_TOOLS:
         setattr(child, "agents_profile", spec.profile)
+    else:
+        # A BARE lobes role name (``cortex``/``muse``/…) switches the child's
+        # MODEL, never its tool surface. Carry the PARENT's purpose explicitly:
+        # ``agents_profile`` is a dynamic attribute, so ``dataclasses.replace``
+        # does not copy it, and an unset child would fall back to
+        # ``DEFAULT_ACTING_PURPOSE`` (the FULL thinker_coder surface) in the
+        # child's own ``resolve_role`` — a narrow parent would silently widen
+        # its child. Inheriting keeps the child's surface == the parent's.
+        setattr(child, "agents_profile", _seat_purpose(parent_config))
     return child
 
 
@@ -899,6 +985,20 @@ def run_subagent(
         parent_task_id=child_task.id,
         parent_profile=spec.profile,
     )
+
+    # (e1) Delegation bounds (t11 enforcement, Qodo PR #414) — armed path only,
+    # BEFORE the delegate event and before any child work: a child may only ever
+    # NARROW its parent's tool surface and authority, never widen either.
+    if binding is not None:
+        _enforce_delegation_bounds(
+            parent_config,
+            child_config,
+            spec,
+            instruction=instruction,
+            depth=depth,
+            role=role,
+            delegation_id=child_task.id,
+        )
 
     # (e2) ``delegate`` BEFORE the child runs (armed + ledger attached only):
     # the open loop the replayed snapshot shows until ``return`` closes it.

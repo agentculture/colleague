@@ -106,7 +106,13 @@ five-boundary evaluator seat stays TAE's; alignment is still not permission.
   picks a model per turn (the v1 no-router line; pinned by the AST guard in
   `tests/test_agents_boundary.py`).
 - **Delegation only narrows** — child effective tools ⊆ parent's, child
-  ceiling ≤ parent's, regardless of the child's model.
+  ceiling ≤ parent's, regardless of the child's model. **Enforced on the spawn
+  path**: `subagents._enforce_delegation_bounds` calls
+  `delegation.validate_delegation` before the `delegate` event and before the
+  child engine runs, so a widening delegation refuses whole (`SubagentError`)
+  and records nothing; a bare lobes-role profile inherits the parent's purpose
+  (it switches the model, never the surface). `fanout`/`total` stay with the
+  shared agent budget, and nested delegation is still permitted.
 - **Tokens are exact** — `token_estimate` is manifest data, never `Usage`.
 - **Peer claims rank below evidence** and render as labelled peer text, never
   as system/operator text; both sides of a challenge stay on the ledger.
@@ -120,7 +126,7 @@ five-boundary evaluator seat stays TAE's; alignment is still not permission.
 | after-state clause | requirement | test |
 |---|---|---|
 | every invocation attributed | c13 | `tests/test_agents_runtime.py`, `tests/test_loop_agents_wiring.py` |
-| cross-role child, surface ⊆ parent | c7, c8 | `tests/test_subagents_cross_role.py`, `tests/test_agents_delegation.py` |
+| cross-role child, surface ⊆ parent | c7, c8 | `tests/test_subagents_cross_role.py`, `tests/test_agents_delegation.py`, `tests/test_agents_delegation_bounds.py` |
 | typed messages | c9 | `tests/test_agents_messages.py` |
 | worker profile without write tools | c11 | `tests/test_agents_tools.py`, `tests/test_loop_agents_wiring.py` |
 | talker = tools-off senses | c19 | `tests/test_senses_talker_records.py`, `tests/test_senses_cannot_act.py` |
