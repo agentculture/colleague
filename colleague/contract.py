@@ -364,6 +364,20 @@ class SubResult:
     bookkeeping. Populated structurally by the caller that mints the child
     (plan t16), never inferred. Omitted from ``to_dict`` when ``None`` so a
     child recorded without lineage serializes byte-identically to today."""
+    agent_id: Optional[str] = None
+    """The model-bound agent identity this child ran as (#411 plan task t14) —
+    set ONLY when the parent's ``agents`` mode is armed and the child carried a
+    ``profile``; ``None`` otherwise and omitted from ``to_dict`` so an unarmed
+    child serializes byte-identically to today."""
+    resolved_model: Optional[str] = None
+    """The served model id the child's profile RESOLVED to (trace data from the
+    lobes advert, or the parent's main model under the no-gateway degrade) —
+    armed-only, omit-when-None like ``agent_id``."""
+    fallback_from_role: Optional[str] = None
+    """The lobes role the child's profile was carried FROM when it fell back to
+    the cortex/main model (absent, not-ready, dormant per d3, or no gateway) —
+    a RECORDED fallback, never silent. ``None`` when the child ran on its own
+    ready role (or unarmed); omitted from ``to_dict`` when ``None``."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -382,6 +396,13 @@ class SubResult:
         # without a parent link serializes byte-identically to today.
         if self.parent is not None:
             d["parent"] = self.parent
+        # Armed-only identity fields (#411 t14): omit-when-None, same convention.
+        if self.agent_id is not None:
+            d["agent_id"] = self.agent_id
+        if self.resolved_model is not None:
+            d["resolved_model"] = self.resolved_model
+        if self.fallback_from_role is not None:
+            d["fallback_from_role"] = self.fallback_from_role
         return d
 
     @classmethod
@@ -396,6 +417,9 @@ class SubResult:
             usage=Usage.from_dict(data.get("usage", {})),
             role=data.get("role"),
             parent=data.get("parent"),
+            agent_id=data.get("agent_id"),
+            resolved_model=data.get("resolved_model"),
+            fallback_from_role=data.get("fallback_from_role"),
         )
 
 
@@ -1617,6 +1641,22 @@ class TaskResult:
     ``media``/``lint_report``, the serialized key is OMITTED (not null) when
     ``None``, so a work item with no ledger serializes byte-identically to
     today's artifact."""
+    agents: Optional[dict[str, Any]] = None
+    """The model-bound-agents block for this work item (#411, plan t13; spec
+    c17/h24), or ``None`` when the ``agents`` increment never armed. A plain
+    dict of shape ``{"version", "invocations", "messages", "fallbacks",
+    "ledger_path", "ledger_digest"}`` built by
+    :func:`colleague.agents.artifact_block.build_agents_block` — the
+    invocation records (``InvocationRecord.to_dict()``), the agent-to-agent
+    messages (``AgentMessage.to_dict()``), the recorded role fallbacks
+    (``{"purpose", "from_role", "resolved_model"}``) and the task-ledger
+    pointer + state digest. Kept SMALL: the ledger is the authority, this is
+    the read-side mirror the ROI/feedback readers consume from the artifact.
+    An ARMED run always carries the key (the engine-level fold supplies the
+    empty-lists floor when the loop authored nothing) with the SAME shape on
+    every backend (all-engines rule). Like ``evaluation_ledger``/``senses``,
+    the serialized key is OMITTED (not null) when ``None``, so an unarmed run
+    serializes byte-identically to today's artifact."""
     senses: Optional[SensesBlock] = None
     """The cortex/senses front-door record for this work item (cortex/senses,
     t2), or ``None`` when no senses model ran (a plain cortex-only drive). A
@@ -1796,6 +1836,16 @@ class TaskResult:
         # ledger-less work item serializes byte-identically (no extra key).
         if self.evaluation_ledger is not None:
             extra["evaluation_ledger"] = dict(self.evaluation_ledger)
+        return self._extra_fields_tail(extra)
+
+    def _extra_fields_tail(self, extra: dict[str, Any]) -> dict[str, Any]:
+        """The second half of :meth:`_extra_fields_to_dict` (same order), split
+        purely to hold each half under the SonarCloud S3776 ceiling."""
+        # agents gets the same omit-when-None treatment (#411, t13): an unarmed
+        # work item serializes byte-identically (no extra key); an armed one
+        # carries the versioned block with its lists copied, not aliased.
+        if self.agents is not None:
+            extra["agents"] = _copy_agents_block(self.agents)
         # senses gets the same omit-when-None treatment as deepthink (cortex/senses,
         # t2): a run with no senses front door serializes byte-identically to
         # today's artifact (no extra key).
@@ -1895,6 +1945,9 @@ class TaskResult:
                 if isinstance(data.get("evaluation_ledger"), dict)
                 else None
             ),
+            agents=(
+                _copy_agents_block(data["agents"]) if isinstance(data.get("agents"), dict) else None
+            ),
             senses=(
                 SensesBlock.from_dict(data["senses"])
                 if isinstance(data.get("senses"), dict)
@@ -1916,6 +1969,22 @@ class TaskResult:
             tip_sha=data.get("tip_sha"),
             warnings=list(data.get("warnings", [])),
         )
+
+
+def _copy_agents_block(block: dict[str, Any]) -> dict[str, Any]:
+    """A detached copy of a ``TaskResult.agents`` block: the top-level dict
+    plus one level of list/dict-entry copies, so serializing or re-reading an
+    artifact never aliases the in-memory lists (``invocations``/``messages``/
+    ``fallbacks``) the loop keeps appending to. Tolerant of a malformed
+    artifact: a non-list where a list is expected is kept as-is, never raises.
+    """
+    out: dict[str, Any] = {}
+    for key, value in block.items():
+        if isinstance(value, list):
+            out[key] = [dict(v) if isinstance(v, dict) else v for v in value]
+        else:
+            out[key] = value
+    return out
 
 
 def _coerce_omissions(value: Any) -> list[str]:

@@ -56,12 +56,15 @@ from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import media
 from colleague import memory as _memorymod
+from colleague import salvage, stallguard
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
+from colleague.agents import runtime as _agents_runtime
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import (
+    TruncatedTurn,
     classify_degradable,
     count_tokens_chars,
     is_media_rejection,
@@ -81,6 +84,7 @@ from colleague.contract import (
     ContextPacket,
     FinishRecord,
     HookFiring,
+    IncompletionRecord,
     SensesBlock,
     SensesRecord,
     Step,
@@ -183,6 +187,17 @@ _EXIT_STOPPED = "stopped"  # ended on a no-tool-call turn without ever finishing
 _EXIT_BUDGET = "budget"  # ran out of model turns (max_steps) without finishing
 _EXIT_PILOT_STOP = "pilot_stop"  # a pilot wrote a cooperative `stop` to the flight control file
 _EXIT_TOOL_PROTOCOL = "tool_protocol"  # consecutive unknown-tool calls -> channel is broken (#321)
+_EXIT_STALLED = "stalled"  # no completed step within the step-stall bound (#400)
+
+# Step-stall watchdog (#400): the operator knob (seconds; 0 or negative disables) and
+# the default policy — the bound never drops below the floor and scales to 6x the
+# observed mean turn latency once three turns have been measured, so a rig whose
+# ordinary turns are long is never cut by a fixed number. A progress bound, not a
+# duration one: the clock restarts whenever a step completes.
+_STALL_ENV = "COLLEAGUE_MAX_STEP_STALL"
+_STALL_FLOOR_SECONDS = 5400.0
+_STALL_LATENCY_MULTIPLIER = 6.0
+_STALL_MIN_SAMPLES = 3
 
 # Consecutive UnknownToolError steps tolerated before the loop stops the run as
 # ``_EXIT_TOOL_PROTOCOL`` (#321). Three failed self-corrections (each fed back the
@@ -642,6 +657,16 @@ class _Work:
     # through the binding. Read by ``_finalize_finish_states`` at every exit
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
+    # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
+    # step completed (the loop start until one does); ``_stalled`` holds the elapsed
+    # seconds once the bound was crossed — a single-element cell the frozen ``_Work``
+    # flips through the binding (the ``_last_substantive`` pattern).
+    _last_progress: list[float] = field(default_factory=list)
+    _stalled: list[float] = field(default_factory=list)
+    # Model-bound agents runtime (#411, t15): the bound ``AgentsRun`` (identity,
+    # ledger, invocation records, the TaskResult.agents fold) — ``None`` when the
+    # mode is unarmed; every seam call is then a strict no-op (byte-identical).
+    agents: Any = None
     # auto-compact-on-finish (t3): the model-authored summary produced by the last
     # fill-line compaction, kept on a dedicated cell so a later stall cannot
     # overwrite it (unlike ``_last_substantive``); used as the FALLBACK clean summary
@@ -1715,7 +1740,7 @@ def _plan_degraded_retry(
     signal = classify_degradable(str(exc))
     if signal is None:
         return None  # non-degradable: propagate immediately (unchanged)
-    saw_overflow = saw_overflow or signal == "overflow"
+    saw_overflow = saw_overflow or signal in ("overflow", "truncated")
     if signal == "timeout":
         # #268 ask 1: raise the per-turn timeout (bounded, once) BEFORE the retry
         # so the retry gets real headroom — a shrunken window alone cannot help
@@ -1758,6 +1783,109 @@ def _current_backpressure(ctx: _Work) -> str:
     return ctx._backpressure_state[0] if ctx._backpressure_state else backpressure.CLEAR
 
 
+def _agents_begin(ctx: _Work, model: str, executor: Any) -> None:
+    """Seam (#411 t15): begin the agents runtime; append its static system addendum."""
+    if ctx.agents is None:
+        return
+    # The executor's REAL allow-list (``_allowlist``: a set, or None when the
+    # surface is unrestricted) — the manifest must record what the loop
+    # actually offered, not the purpose's nominal set. The former
+    # ``_allowlist_names`` never existed, so this was always None and the
+    # digest always over-/under-claimed.
+    allow = getattr(executor, "_allowlist", None)
+    ctx.agents.begin(
+        ctx.task, model=model, role_tools=(sorted(allow) if allow is not None else None)
+    )
+    with suppress(Exception):
+        addendum = ctx.agents.system_addendum()
+        if addendum and ctx.messages and ctx.messages[0].get("role") == "system":
+            ctx.messages[0]["content"] = f"{ctx.messages[0]['content']}\n\n{addendum}"
+
+
+def _agents_record(ctx: _Work, resp: ModelResponse | None) -> None:
+    """Seam (#411 t15): one invocation record per model call (truncation flagged)."""
+    if ctx.agents is None:
+        return
+    with suppress(Exception):
+        truncated = resp is not None and _is_truncated_turn(resp)
+        ctx.agents.record_invocation(
+            ctx.messages, truncated=truncated, count_tokens=ctx.count_tokens
+        )
+
+
+def _agents_end(ctx: _Work) -> None:
+    """Seam (#411 t15): fold changed paths + the TaskResult.agents block (every exit)."""
+    if ctx.agents is None:
+        return
+    with suppress(Exception):
+        ctx.agents.end(ctx.result)
+
+
+def _stall_bound(ctx: _Work) -> float | None:
+    """The step-stall bound in seconds, or ``None`` when disabled (#400).
+
+    ``COLLEAGUE_MAX_STEP_STALL`` (seconds) wins when set — ``0``/negative/unparsable
+    disables the watchdog. Otherwise the bound is ``max(floor, 6 x mean turn
+    latency)`` once three turns have been measured, else the floor alone: it
+    adapts to rig speed rather than hardcoding, and never drops below the floor.
+    """
+    raw = os.environ.get(_STALL_ENV)
+    if raw is not None and raw.strip():
+        try:
+            value = float(raw)
+        except ValueError:
+            return None
+        return value if value > 0 else None
+    latencies = ctx._turn_latencies
+    if len(latencies) >= _STALL_MIN_SAMPLES:
+        return max(
+            _STALL_FLOOR_SECONDS, _STALL_LATENCY_MULTIPLIER * (sum(latencies) / len(latencies))
+        )
+    return _STALL_FLOOR_SECONDS
+
+
+def _mark_progress(ctx: _Work) -> None:
+    """Restart the step-stall clock: a step just completed (or the loop just began)."""
+    ctx._last_progress[:] = [time.monotonic()]
+
+
+def _record_stall(ctx: _Work, seconds: float, bound: float) -> None:
+    """Record a crossed step-stall bound honestly: warning + phase notice + exit cell."""
+    ctx._stalled[:] = [seconds]
+    ctx.result.warnings.append(
+        {
+            "kind": "step-stall",
+            "seconds": round(seconds, 1),
+            "bound_seconds": round(bound, 1),
+            "step_index": len(ctx.result.steps),
+        }
+    )
+    _emit_phase(
+        ctx,
+        f"step-stall: no completed step for {seconds:.0f}s (bound {bound:.0f}s) — "
+        f"ending the episode with a partial; raise {_STALL_ENV} for longer turns",
+    )
+
+
+def _stalled_between_turns(ctx: _Work) -> bool:
+    """Between turns: has the time since the last completed step crossed the bound?
+
+    Covers transports that cannot consult :mod:`colleague.stallguard` mid-turn (a
+    blocking request, the mock engine); the in-turn check lives in
+    :func:`_timed_complete`.
+    """
+    if ctx._stalled:
+        return True
+    bound = _stall_bound(ctx)
+    if bound is None or not ctx._last_progress:
+        return False
+    elapsed = time.monotonic() - ctx._last_progress[0]
+    if elapsed <= bound:
+        return False
+    _record_stall(ctx, elapsed, bound)
+    return True
+
+
 def _timed_complete(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     """Call ``complete`` measuring wall-clock latency for backpressure (t6/#255).
 
@@ -1766,13 +1894,28 @@ def _timed_complete(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     all a request TIMEOUT, which costs the full window) is precisely the slow
     turn the classifier must see.
     """
-    if not ctx.request_timeout or ctx.request_timeout <= 0:
-        return complete(ctx.messages)
-    start = time.monotonic()
+    # Step-stall watchdog (#400): arm the progress deadline (time since the LAST
+    # completed step, not this turn's start) so a streaming transport can end a
+    # turn that is alive but not progressing; disarmed in ``finally`` so nothing
+    # leaks into the next call or a different context.
+    bound = _stall_bound(ctx)
+    since = ctx._last_progress[0] if ctx._last_progress else time.monotonic()
+    token = stallguard.arm(since=since, bound=bound) if bound is not None else None
+    resp: ModelResponse | None = None
     try:
-        return complete(ctx.messages)
+        if not ctx.request_timeout or ctx.request_timeout <= 0:
+            resp = complete(ctx.messages)
+            return resp
+        start = time.monotonic()
+        try:
+            resp = complete(ctx.messages)
+            return resp
+        finally:
+            _record_turn_latency(ctx, time.monotonic() - start)
     finally:
-        _record_turn_latency(ctx, time.monotonic() - start)
+        if token is not None:
+            stallguard.disarm(token)
+        _agents_record(ctx, resp)  # #411 t15: one invocation record per model call
 
 
 def _record_turn_latency(ctx: _Work, seconds: float) -> None:
@@ -1851,6 +1994,38 @@ def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
 _RETRY_IMMEDIATE = object()
 
 
+def _is_truncated_turn(resp: ModelResponse) -> bool:
+    """An empty-content, tool-less turn the server cut at ``finish_reason=length`` (#411 t8)."""
+    return not resp.content and not resp.tool_calls and resp.finish_reason == "length"
+
+
+def _record_truncated_turn(ctx: _Work, resp: ModelResponse, *, account: bool) -> None:
+    """Record a truncated turn honestly (warning + phase notice; tokens exact).
+
+    The turn DID cost prompt + completion tokens (the completion was reasoning that
+    never reached an answer), so it is never dropped: ``account=True`` accounts it
+    here because the caller discards ``resp`` for a retry; ``account=False`` when
+    ``resp`` flows on to ``_work_loop`` (which accounts every returned turn itself)
+    — never both. Recorded on ``TaskResult.warnings`` (the per-invocation record
+    takes over once the agents runtime lands, plan t15).
+    """
+    if account:
+        _account_turn(ctx, resp)
+    ctx.result.warnings.append(
+        {
+            "kind": "truncated-turn",
+            "finish_reason": resp.finish_reason,
+            "reasoning_chars": len(resp.reasoning or ""),
+            "step_index": len(ctx.result.steps),
+        }
+    )
+    _emit_phase(
+        ctx,
+        "truncated turn: the model hit its output budget (finish_reason=length) before "
+        "any answer — recorded; retrying with a tighter window",
+    )
+
+
 def _attempt_completion_or_retry_plan(
     ctx: _Work,
     complete: CompleteFn,
@@ -1872,7 +2047,7 @@ def _attempt_completion_or_retry_plan(
     the give-up path, so :func:`run` preserves the partial.
     """
     try:
-        return _timed_complete(ctx, complete), None
+        resp = _timed_complete(ctx, complete)
     except Exception as exc:  # noqa: BLE001
         if _flatten_on_media_rejection(ctx, exc):
             return None, _RETRY_IMMEDIATE
@@ -1880,6 +2055,16 @@ def _attempt_completion_or_retry_plan(
         if plan is None:
             raise
         return None, plan
+    if _is_truncated_turn(resp):
+        # #411 t8: an empty-content finish_reason=length turn is a truncation, not an
+        # answer — record it and ride the SAME shrink-and-retry plan; at the floor
+        # the empty turn falls through to the ordinary no-tool handling (honest:
+        # nothing left to shrink).
+        plan = _plan_degraded_retry(ctx, TruncatedTurn(), effective, saw_overflow)
+        _record_truncated_turn(ctx, resp, account=plan is not None)
+        if plan is not None:
+            return None, plan
+    return resp, None
 
 
 def _complete_with_degradation(
@@ -1926,11 +2111,15 @@ def _complete_with_degradation(
         # ONE exception (t9, c7): a media-refusing endpoint still degrades to a
         # text-only retry — that handling must not depend on the budget feature.
         try:
-            return _timed_complete(ctx, complete)
+            resp = _timed_complete(ctx, complete)
         except Exception as exc:  # noqa: BLE001
             if _flatten_on_media_rejection(ctx, exc):
                 return _timed_complete(ctx, complete)
             raise
+        if _is_truncated_turn(resp):
+            # no budget = nothing to shrink: recorded only; _work_loop accounts resp
+            _record_truncated_turn(ctx, resp, account=False)
+        return resp
 
     # Adaptive backpressure (t6/#255): under ARMED/ESCALATED the next turn's
     # window is proactively tightened — smaller prompts make faster turns, the
@@ -2054,6 +2243,15 @@ def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[
     return nudges, _EXIT_STOPPED
 
 
+def _advance_and_mark(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
+    """:func:`_advance_turn`, then restart the step-stall clock if a step completed (#400)."""
+    steps_before = len(ctx.result.steps)
+    nudges, exit_reason = _advance_turn(ctx, resp, nudges)
+    if len(ctx.result.steps) > steps_before:
+        _mark_progress(ctx)
+    return nudges, exit_reason
+
+
 def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
     """Process a normal (non-fill-line) turn; return ``(nudges, exit_reason_or_None)``.
 
@@ -2124,6 +2322,8 @@ def _record_applied_injection(ctx: _Work, message: str) -> None:
             stats=ctx.result.stats.to_dict(),
         )
     _record_senses_injection(ctx.result, {"text": message, "at": time.time(), "source": "guidance"})
+    if ctx.agents is not None:  # #411 t15: mid-run operator input outranks every summary
+        ctx.agents.operator_input(message, via="guidance")
 
 
 def _fold_flight_chat(ctx: _Work) -> None:
@@ -2209,7 +2409,7 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
     than a separate ``if`` in :func:`run`) to keep ``run`` under the S3776
     cognitive-complexity threshold.
     """
-    result.not_finished = outcome == _EXIT_BUDGET
+    result.not_finished = outcome in (_EXIT_BUDGET, _EXIT_STALLED)
     result.stopped_without_finish = outcome in (
         _EXIT_STOPPED,
         _EXIT_PILOT_STOP,
@@ -2220,6 +2420,25 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
     if outcome == _EXIT_PILOT_STOP:
         note = f"Stopped by pilot after {len(result.steps)} step(s) (partial)."
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
+    if outcome == _EXIT_STALLED:
+        note = (
+            f"Stopped after {len(result.steps)} step(s): no step completed within the "
+            "step-stall bound (#400) — partial preserved (see warnings)."
+        )
+        result.summary = f"{note} {last_sub}".strip() if last_sub else note
+        if result.incompletion is None:
+            stalled = next((w for w in result.warnings if w.get("kind") == "step-stall"), {})
+            result.incompletion = IncompletionRecord(
+                reason="step-stall",
+                evidence=(
+                    f"no completed step for {stalled.get('seconds', '?')}s "
+                    f"(bound {stalled.get('bound_seconds', '?')}s)"
+                ),
+                recommendation=(
+                    f"resume with a smaller brief or raise {_STALL_ENV}; the partial "
+                    "is preserved on the artifact"
+                ),
+            )
     if outcome == _EXIT_TOOL_PROTOCOL:
         note = (
             f"Stopped after {len(result.steps)} step(s): the tool-call channel is "
@@ -2674,6 +2893,8 @@ def _maybe_flag_incompletion(ctx: "_Work", outcome: str) -> None:
     it (all-engines); omit-when-None keeps a delivering run byte-identical.
     """
     result = ctx.result
+    if outcome == _EXIT_STALLED and result.incompletion is not None:
+        return  # the step-stall record (#400) names the cause; keep it
     cell = ctx._unknown_tool_streak
     protocol_detail = ""
     if outcome == _EXIT_TOOL_PROTOCOL and cell:
@@ -2736,6 +2957,11 @@ def _complete_turn_or_retry(ctx: _Work, complete: CompleteFn) -> ModelResponse |
     """
     try:
         return _complete_with_degradation(ctx, complete)
+    except stallguard.TurnStalled as exc:
+        # Step-stall (#400): the turn was alive but no step completed within the
+        # bound — record it and let _work_loop end the episode with a partial.
+        _record_stall(ctx, exc.seconds, exc.bound)
+        return None
     except Exception as exc:  # noqa: BLE001
         # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
         # #154) — inject ONE recommendation and continue BEFORE the error would
@@ -2774,7 +3000,12 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     nudges = 0
     last_prompt_tokens = 0
     budget = max(1, max_steps)
+    _mark_progress(ctx)
     while ctx.result.stats.model_turns < budget:
+        # Step-stall watchdog (#400): a turn that crossed the bound (in-stream via
+        # stallguard, or measured here between turns) ends the episode honestly.
+        if _stalled_between_turns(ctx):
+            return _EXIT_STALLED
         # Flight-control checkpoint (piloting): at this turn boundary honor a pilot's
         # cooperative `stop` and inject any new `guidance` BEFORE the next model call.
         # A strict no-op when the work item is not a watchable flight.
@@ -2825,7 +3056,7 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         if _consume_fillline_declaration(ctx, resp, complete):
             continue
 
-        nudges, exit_reason = _advance_turn(ctx, resp, nudges)
+        nudges, exit_reason = _advance_and_mark(ctx, resp, nudges)
         # Record this turn on the live flight feed (no-op when unwatched) — placed
         # after _advance_turn so the step trace + stats already reflect the turn, and
         # before the exit return so a finishing turn is still recorded.
@@ -2984,6 +3215,10 @@ class ContextControls:
     # from_config from config.senses.multimodal) arms it; when armed it is PREFERRED
     # over the deepthink bridge. compare=False: a closure, not comparable config.
     senses_run: Callable[..., Any] | None = field(default=None, compare=False, repr=False)
+    # Model-bound agents runtime (#411, t15): ``runtime.make_agents_run(config)`` —
+    # ``None`` unarmed. Bound here (the deepthink_run/senses_run precedent) so the
+    # loop never sees the config itself.
+    agents_run: Any = field(default=None, compare=False, repr=False)
     senses_media_bridge: bool = False
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
@@ -3123,6 +3358,7 @@ class ContextControls:
         return cls(
             budget=config.context_budget_tokens,
             count_tokens=count_tokens,
+            agents_run=_agents_runtime.make_agents_run(config),
             autosplit_target=config.autosplit_target_tokens,
             fillline_threshold=config.fillline_threshold,
             fanout_files=config.fanout_files,
@@ -3277,11 +3513,56 @@ def resolve_role(config, repo_path: str):
     separately by the role-aware :meth:`colleague.engine.Engine.system_prompt`.
     """
     name = getattr(config, "role", None)
-    if not name:
-        return None
-    from colleague.roles import load_role
+    role = None
+    if name:
+        from colleague.roles import load_role
 
-    return load_role(name, repo_path, config.model)
+        role = load_role(name, repo_path, config.model)
+    # Model-bound agents (#411 t15): a purpose with a NARROWER surface than the
+    # registry (the dormant worker) narrows the role through the SAME value both
+    # halves consume — curate_schemas (offered) and ToolExecutor(allowlist=)
+    # (refused) — so a worker-purpose seat is never offered write_file/edit_file
+    # and is refused if it calls them anyway. thinker_coder/associate carry the
+    # full surface (no-op); unarmed is byte-identical.
+    if getattr(config, "agents", False):
+        from colleague.agents.tools import PURPOSE_TOOLS
+        from colleague.tools import TOOL_NAMES, narrow_role_by_tool_set
+
+        purpose = getattr(config, "agents_profile", None) or _agents_runtime.DEFAULT_ACTING_PURPOSE
+        purpose_tools = PURPOSE_TOOLS.get(purpose)
+        if purpose_tools is not None and set(purpose_tools) < set(TOOL_NAMES):
+            # An EMPTY purpose surface (the tools-off talker) means NO tools —
+            # not "no narrowing". ``narrow_role_by_tool_set`` reads an empty
+            # tool_set as the lattice's not-narrowed sentinel (c26 makes
+            # narrow-to-nothing unrepresentable THERE), so the talker would
+            # otherwise fall through to the FULL registry surface while its
+            # ledger manifest claimed the empty set. Build the tools-off role
+            # explicitly instead, so both halves — the offered schemas and the
+            # executor's refusal allow-list — see the same empty surface.
+            role = (
+                _tools_off_role(purpose)
+                if not purpose_tools
+                else narrow_role_by_tool_set(role, tuple(sorted(purpose_tools)))
+            )
+    return role
+
+
+def _tools_off_role(purpose: str):
+    """A role whose curated surface is EMPTY — the tools-off seat (#411).
+
+    ``curate_schemas`` offers nothing for it and ``ToolExecutor(allowlist=…)``
+    refuses every name, so a tools-off purpose provably cannot reach a tool.
+    Read-only by construction: a seat with no tools can mutate nothing.
+    """
+    from colleague.roles import Role
+
+    return Role(
+        name=purpose,
+        prompt_fragment="",
+        tool_allowlist=(),
+        skill_subset=None,
+        read_only=True,
+    )
 
 
 def _build_user_message(task: Task) -> str:
@@ -4637,6 +4918,9 @@ def run(
     ]
 
     result = TaskResult(task_id=task.id, status=OK)
+    # Interrupt salvage (#410): expose the live partial so the work CLI's
+    # SIGTERM/SIGINT handler can write the artifact before the process unwinds.
+    salvage.register(task.id, result)
 
     # Neighbour clone lifecycle — runtime-owned (all-engines rule).
     # clone_all() runs before the loop so allow-listed neighbours are available
@@ -4694,6 +4978,7 @@ def run(
         max_continue_nudges=_resolve_nudge_cap(_context),
         request_timeout=_context.request_timeout,
         fanout_throttle=_context.throttle_fanout,
+        agents=_context.agents_run,
         escalate_timeout=_context.escalate_timeout,
         flight=flight_session,
         lint_enabled=bool(_context.lint),
@@ -4716,6 +5001,10 @@ def run(
     # Thought->action->evaluation initial-plan commit (t13): the FRONT commits
     # the episode's first typed thought and it is injected as a user turn, so
     # the worker acts under a named thought_id. A strict no-op when unarmed.
+    # Model-bound agents (#411, t15): open the ledger at the operator repo, resolve
+    # the acting profile, seed the immutable request, and append the STATIC
+    # guidance + nucleus to the system prompt ONCE (cache-friendly). No-op unarmed.
+    _agents_begin(ctx, model or "", executor)
     _tae_commit_initial_plan(ctx)
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -4895,6 +5184,8 @@ def run(
         # Wrapped in suppress so any escalation failure never masks the work item result.
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
+        _agents_end(ctx)
+        salvage.unregister(task.id)
         raise WorkAborted(result) from aborted
 
     # Outcome flags + honest status (#106 t5 + colleague#142 + colleague#192):
@@ -4948,4 +5239,6 @@ def run(
     if result.not_finished:
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
+    _agents_end(ctx)
+    salvage.unregister(task.id)
     return result

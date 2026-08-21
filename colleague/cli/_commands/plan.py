@@ -45,7 +45,7 @@ from colleague.plan.cli_driver import (
     robust_simple_complete,
 )
 from colleague.plan.orchestrator import PlanRunContext, run_plan_mode
-from colleague.subagents import make_batch_spawn, new_agent_budget
+from colleague.subagents import default_parent_profile, make_batch_spawn, new_agent_budget
 
 _PLAN_ID = "plan"
 
@@ -298,7 +298,13 @@ def run_plan_request(
     simple = robust_simple_complete(complete)
     # ONE shared agent budget so the global MAX_SUBAGENT_TOTAL cap is enforced for
     # the plan workforce fan-out too (#t4 Q3 wiring fix).
-    batch_spawn = make_batch_spawn(str(repo), config, engine_name, counter=new_agent_budget(config))
+    # `parent_profile` (#411 t14): the parent's own purpose, passed ONLY when
+    # the `agents` mode is armed — the unarmed call is byte-identical to today.
+    spawn_kwargs: dict = {"counter": new_agent_budget(config)}
+    parent_profile = default_parent_profile(config)
+    if parent_profile is not None:
+        spawn_kwargs["parent_profile"] = parent_profile
+    batch_spawn = make_batch_spawn(str(repo), config, engine_name, **spawn_kwargs)
 
     # #309: arm a flight plane at the OPERATOR repo (plan mode runs in-place, so
     # this is not the #310 worktree case) so an operator can steer the plan at the

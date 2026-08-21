@@ -66,11 +66,15 @@ import threading
 from typing import Callable, List, Optional, cast
 
 from colleague import registry, worktrees
+from colleague.agents.profile import DORMANT_PURPOSES, PURPOSE_ROLE, PURPOSES
+from colleague.agents.state.context import CONTEXT_MODES
 from colleague.config import (
     MAX_SUBAGENT_DEPTH,
     MAX_SUBAGENT_FANOUT,
     MAX_SUBAGENT_TOTAL,
     EngineConfig,
+    _role_dial_base_url,
+    _same_origin,
     effective_concurrency,
 )
 from colleague.configlifecycle import EpisodeConfigSnapshot
@@ -101,6 +105,44 @@ class ChildSpec:
     goal: Optional[str] = None
     acceptance: Optional[List[str]] = None
     parent_task_id: Optional[str] = None
+    #: Model-bound agents (#411, plan task t14): the child's *profile* — a
+    #: purpose name from :data:`colleague.agents.profile.PURPOSES` (``talker``
+    #: / ``worker`` / ``thinker_coder`` / ``associate``) or a bare bindable
+    #: lobes role name (:data:`BINDABLE_ROLES`). ``None`` (the default) = no
+    #: profile: the child inherits the parent seat exactly as today. The
+    #: profile is INERT unless the parent config's ``agents`` mode is armed.
+    profile: Optional[str] = None
+    #: ``inherit`` (the default, today's behaviour) or ``clear`` (the child
+    #: receives the handover summary — t10 — as its ``Task.context`` instead
+    #: of the parent's transcript). Anything else is refused whole.
+    context_mode: str = "inherit"
+    #: The PARENT's own profile/purpose (lineage one hop up), recorded on the
+    #: child's ``delegate`` event as ``from_profile``; threaded by
+    #: :func:`make_spawn` / :func:`make_batch_spawn`'s ``parent_profile``.
+    parent_profile: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.context_mode not in CONTEXT_MODES:
+            raise ValueError(
+                f"unknown context_mode: {self.context_mode!r} (expected one of {CONTEXT_MODES})"
+            )
+        if self.profile is not None and (
+            self.profile not in PURPOSES and self.profile not in BINDABLE_ROLES
+        ):
+            raise ValueError(
+                f"unknown profile: {self.profile!r} (expected a purpose in "
+                f"{sorted(PURPOSES)} or a lobes role in {sorted(BINDABLE_ROLES)})"
+            )
+
+
+#: The lobes roles a child ``profile`` may name DIRECTLY (a bare role name
+#: instead of a purpose). Chat-capable seats only — ``stt``/``tts``/
+#: ``embedder`` are not seats a child work item can run on.
+BINDABLE_ROLES = frozenset({"cortex", "senses", "worker", "muse", "associate"})
+
+#: The floor role every profile falls back to (spec q1: cortex runs ALL roles
+#: for now) — mirrors ``colleague.agents.profile._FALLBACK_ROLE``.
+_FALLBACK_ROLE = "cortex"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -227,11 +269,13 @@ SpawnFn = Callable[..., SubResult]
 BatchSpawnFn = Callable[..., List[SubResult]]
 
 __all__ = [
+    "BINDABLE_ROLES",
     "ChildSpec",
     "FrozenChildConfigLifecycle",
     "SpawnFn",
     "BatchSpawnFn",
     "SubagentError",
+    "default_parent_profile",
     "make_spawn",
     "run_subagent",
     "make_batch_spawn",
@@ -300,6 +344,392 @@ def new_agent_budget(config: Optional[EngineConfig] = None) -> "_AgentBudget":
     return _AgentBudget(limit)
 
 
+# ---------------------------------------------------------------------------
+# Cross-role dial (#411, plan task t14): a child may bind a different lobes role.
+# ---------------------------------------------------------------------------
+
+
+def default_parent_profile(config: EngineConfig) -> Optional[str]:
+    """The profile the TOP-LEVEL spawn wiring hands to :func:`make_spawn` /
+    :func:`make_batch_spawn` as ``parent_profile``.
+
+    Unarmed (``config.agents`` False) → ``None`` — byte-identical to today.
+    Armed → an explicit ``config.agents_profile`` attribute when the loop
+    wiring (t15) set one, else ``thinker_coder`` (cortex runs the acting seat
+    today, spec q1). Every caller passes this so every spawn path carries the
+    parent's purpose.
+    """
+    if not getattr(config, "agents", False):
+        return None
+    explicit = getattr(config, "agents_profile", None)
+    return str(explicit) if explicit else "thinker_coder"
+
+
+def _seat_purpose(config: EngineConfig) -> str:
+    """The purpose whose tool surface THIS seat's own loop narrows itself to.
+
+    Read back from the same place the loop's ``resolve_role`` reads it (t15):
+    an explicit ``agents_profile`` attribute, else the acting default
+    (``thinker_coder``, the full surface). Parent and child are therefore
+    always ranked on the SAME rule.
+    """
+    from colleague.agents.runtime import DEFAULT_ACTING_PURPOSE
+
+    return str(getattr(config, "agents_profile", None) or DEFAULT_ACTING_PURPOSE)
+
+
+def _child_purpose(parent_config: EngineConfig, spec: ChildSpec) -> str:
+    """The purpose the CHILD seat will actually run on.
+
+    Its own when ``spec.profile`` names one; otherwise the PARENT's — a bare
+    lobes role name switches the model, never the tool surface, and a spawn
+    with NO profile inherits the parent's seat (the ``subagent`` tool's own
+    documented contract). Never ``DEFAULT_ACTING_PURPOSE``: defaulting there
+    would silently widen a narrow parent's child to the full surface.
+    """
+    from colleague.agents.tools import PURPOSE_TOOLS
+
+    if spec.profile in PURPOSE_TOOLS:
+        return str(spec.profile)
+    return _seat_purpose(parent_config)
+
+
+def _delegation_bounds(
+    parent_config: EngineConfig,
+    spec: ChildSpec,
+    *,
+    instruction: str,
+    depth: int,
+    role: Optional[str],
+) -> tuple[str, str, "object"]:
+    """``(child_purpose, child_ceiling, verdict)`` for one proposed delegation."""
+    from colleague.agents.delegation import DelegationRequest, validate_delegation
+    from colleague.agents.runtime import seat_ceiling
+    from colleague.agents.tools import tools_for_purpose
+
+    parent_purpose = _seat_purpose(parent_config)
+    child_purpose = _child_purpose(parent_config, spec)
+    # The child inherits the parent's publish intent; only its ROLE can lower
+    # the ceiling further, so the child's ceiling is ranked off the parent's
+    # config with the CHILD's role applied.
+    child_ceiling = seat_ceiling(parent_config, role)
+    request = DelegationRequest(
+        delegation_id="",  # validation only — nothing is recorded from here
+        from_agent=spec.parent_profile or parent_purpose,
+        requested_agent_profile=spec.profile or child_purpose,
+        objective=instruction,
+        acceptance="",
+        requested_tools=tuple(sorted(tools_for_purpose(child_purpose))),
+        authority_ceiling=child_ceiling,
+        context_mode=spec.context_mode,
+        depth=depth,
+    )
+    verdict = validate_delegation(
+        request,
+        parent_effective_tools=tools_for_purpose(parent_purpose),
+        parent_ceiling=seat_ceiling(parent_config, getattr(parent_config, "role", None)),
+    )
+    return child_purpose, child_ceiling, verdict
+
+
+def _enforce_delegation_bounds(
+    parent_config: EngineConfig,
+    spec: ChildSpec,
+    *,
+    instruction: str,
+    depth: int,
+    role: Optional[str],
+) -> tuple[tuple[str, ...], str]:
+    """Validate ONE armed delegation against the parent's bounds — refuse whole.
+
+    Returns the ``(requested_tools, authority_ceiling)`` the delegation was
+    ranked on, for the ``delegate`` event to record (empty when unarmed).
+
+    The enforcement half of t11 (Qodo, PR #414): ``validate_delegation`` owned
+    the arithmetic — child tools ``⊆`` parent tools, child ceiling ``≤``
+    parent ceiling, depth/fanout/total within the ``MAX_SUBAGENT_*`` caps,
+    ``context_mode`` in the closed set — but nothing on the spawn path called
+    it, so a narrow parent could hand a child a WIDER surface by naming a
+    different profile (a ``worker`` seat, which holds no ``write_file`` /
+    ``edit_file``, delegating a ``thinker_coder`` child that does).
+
+    Called on EVERY armed spawn — gated on ``config.agents``, NOT on a
+    declared profile: a delegation that omits ``profile`` inherits the
+    parent's seat, and gating on the profile would have let the model skip the
+    check by simply not naming one. Runs BEFORE the global budget charge,
+    before the ``delegate`` event and before the child engine runs, so a
+    refused delegation costs nothing, records nothing and spawns nothing. Refusal surfaces as
+    :class:`SubagentError` — the same clean, model-visible refusal as the
+    depth and budget caps.
+
+    Because a non-subset REFUSES, the child's effective surface is a subset of
+    the parent's by construction — narrowing can only ever shrink. Two bounds
+    are deliberately NOT re-derived here: ``fanout``/``total`` (the shared
+    ``_AgentBudget`` charges and refuses them upstream, before any work) and
+    the ``_NOT_INHERITABLE`` tool classes (nested delegation is explicitly
+    permitted — a child gets its own depth-bound spawn callbacks).
+
+    Alignment is not permission: this is the delegation's own arithmetic, and
+    the host's policy/approval gate still gates every route it allows.
+    """
+    if not getattr(parent_config, "agents", False):
+        return (), ""  # unarmed: no purposes, no bounds — byte-identical today
+    child_purpose, ceiling, verdict = _delegation_bounds(
+        parent_config, spec, instruction=instruction, depth=depth, role=role
+    )
+    if not verdict.allowed:
+        raise SubagentError(
+            f"delegation refused: {child_purpose!r} under "
+            f"{_seat_purpose(parent_config)!r} — {verdict.reason}"
+        )
+    from colleague.agents.tools import tools_for_purpose
+
+    return tuple(sorted(tools_for_purpose(child_purpose))), ceiling
+
+
+@dataclasses.dataclass(frozen=True)
+class _ChildBinding:
+    """How ONE child's ``profile`` resolved — the trace record behind the armed
+    child config and the ``SubResult.agent_id`` / ``resolved_model`` /
+    ``fallback_from_role`` fields.
+
+    ``role_info`` is the lobes ``RoleInfo`` the child dials (``None`` when the
+    gateway was absent/unreachable — the child then stays on the parent's
+    main endpoint). ``gateway_url`` is the gateway the roles came from.
+    """
+
+    profile: str
+    requested_role: str
+    model_role: str
+    resolved_model: str
+    fallback_from_role: Optional[str]
+    role_info: object
+    gateway_url: Optional[str]
+
+
+def _requested_role(profile: str) -> str:
+    """The lobes role a profile names: a purpose maps through the enumerated
+    :data:`~colleague.agents.profile.PURPOSE_ROLE` table; a bare role name is
+    itself."""
+    return PURPOSE_ROLE[profile] if profile in PURPOSES else profile
+
+
+def _resolve_child_binding(parent_config: EngineConfig, spec: ChildSpec) -> Optional[_ChildBinding]:
+    """Resolve ``spec.profile`` against the lobes gateway — ``None`` when unarmed.
+
+    Armed (``parent_config.agents`` True) AND ``spec.profile`` set, the roles
+    come from :func:`colleague.lobes.resolve_roles` over the parent's
+    ``lobes_gateway_url``; the requested role binds when present AND ready,
+    else the child is carried on the cortex model under a RECORDED fallback
+    (``fallback_from_role`` = the requested role — the
+    :func:`colleague.agents.profile.resolve_profile` doctrine: fallback, never
+    refusal, never silent). Two further rules:
+
+    - **d3 dormancy**: a DORMANT purpose (``worker``) is NEVER bound even when
+      its role is ready — it resolves to the cortex floor, fallback recorded.
+    - **no gateway** (unarmed lobes, or unreachable): the child degrades to
+      the parent's MAIN model/endpoint with the fallback recorded; a
+      ``thinker_coder``/``cortex`` profile on the main seat records no
+      fallback (it IS the floor).
+
+    Pure except for the one GET :func:`colleague.lobes.resolve_roles` issues
+    (which never raises — it degrades to ``None``).
+    """
+    profile = spec.profile
+    if not getattr(parent_config, "agents", False) or profile is None:
+        return None
+    # Lazy import: keeps the unarmed import graph of this module byte-identical
+    # (lobes pulls urllib) and lets tests monkeypatch the gateway resolver.
+    from colleague import lobes as _lobes
+
+    requested = _requested_role(profile)
+    gateway = getattr(parent_config, "lobes_gateway_url", None)
+    roles = _lobes.resolve_roles(gateway) if gateway else None
+    if roles is None:
+        # Gateway absent/unreachable: the parent's main seat IS the floor.
+        return _ChildBinding(
+            profile=profile,
+            requested_role=requested,
+            model_role=_FALLBACK_ROLE,
+            resolved_model=parent_config.model,
+            fallback_from_role=(requested if requested != _FALLBACK_ROLE else None),
+            role_info=None,
+            gateway_url=None,
+        )
+    role = getattr(roles, requested, None)
+    dormant = profile in DORMANT_PURPOSES or requested in DORMANT_PURPOSES
+    if role is not None and getattr(role, "ready", False) and not dormant:
+        return _ChildBinding(
+            profile=profile,
+            requested_role=requested,
+            model_role=requested,
+            resolved_model=role.model,
+            fallback_from_role=None,
+            role_info=role,
+            gateway_url=gateway,
+        )
+    floor = getattr(roles, _FALLBACK_ROLE)
+    return _ChildBinding(
+        profile=profile,
+        requested_role=requested,
+        model_role=_FALLBACK_ROLE,
+        resolved_model=floor.model,
+        fallback_from_role=(requested if requested != _FALLBACK_ROLE else None),
+        role_info=floor,
+        gateway_url=gateway,
+    )
+
+
+def _child_config_for_profile(
+    parent_config: EngineConfig,
+    spec: ChildSpec,
+    binding: Optional[_ChildBinding] = None,
+    *,
+    role: Optional[str] = None,
+) -> EngineConfig:
+    """Build the ARMED child's :class:`EngineConfig` for its resolved profile.
+
+    A SMALL local seam owned by this module. The intended single seat builder
+    is plan task t9's ``colleague.agents.runtime.agent_engine_config(config,
+    profile, roles)`` (the one builder ``tae_loop.seat_engine_config``,
+    ``deepthink_engine_config`` and ``senses_engine_config`` will also
+    delegate to); t9 lands in parallel with this task, so this helper builds
+    the SAME shape locally and SHOULD delegate to ``agent_engine_config`` once
+    t9 is merged — a follow-up fold, not part of t14.
+
+    The shape (the t9 contract, applied here):
+
+    - ``model`` ← the binding's resolved model;
+    - ``base_url`` ← the role's OWN dial target
+      (:func:`colleague.config._role_dial_base_url` over
+      :func:`colleague.lobes.resolve_role_base_url`, ``/v1``-shaped like every
+      lobes-derived base_url) when a role advert is present, else the
+      parent's base_url (no-gateway degrade);
+    - ``api_key`` ← the parent's key ONLY when the dial origin
+      (scheme+host+port) equals the parent's origin — **same-origin key
+      hygiene (#348)**: a different origin gets ``None``, never the parent's
+      credential forwarded to a host a wire payload advertised;
+    - ``context_budget_tokens`` ← the role advert's ``context`` when present
+      (the bigger sliding window is intended, t9), unless the spec carries an
+      explicit budget (a per-item override or the t12 width share — explicit
+      beats derived);
+    - ``refresh_seat=None`` / ``on_delta=None`` (no stale-pin refresh for a
+      seat that is not the main seat; no delta sink — the parent's belongs to
+      the parent's cockpit);
+    - ``role`` ← the typed subagent role; ``chain_episode`` /
+      ``chain_prior_changed`` / ``until_done`` reset and ``config_lifecycle``
+      frozen exactly as the unarmed path does (see :func:`run_subagent`).
+
+    ``binding=None`` resolves it here (one gateway call); callers that already
+    resolved pass it in. Never mutates ``parent_config``.
+    """
+    if binding is None:
+        binding = _resolve_child_binding(parent_config, spec)
+    if binding is None:  # pragma: no cover - guarded by the caller's armed check
+        raise ValueError("_child_config_for_profile needs an armed parent + a profile")
+    base_url = parent_config.base_url
+    context_budget = parent_config.context_budget_tokens
+    if binding.role_info is not None and binding.gateway_url:
+        base_url = _role_dial_base_url(binding.role_info, binding.gateway_url)
+        context_budget = int(
+            getattr(binding.role_info, "context", context_budget) or context_budget
+        )
+    api_key = parent_config.api_key if _same_origin(base_url, parent_config.base_url) else None
+    replace_kwargs: dict = {
+        "model": binding.resolved_model,
+        "base_url": base_url,
+        "api_key": api_key,
+        "context_budget_tokens": (
+            spec.context_budget_tokens if spec.context_budget_tokens is not None else context_budget
+        ),
+        "refresh_seat": None,
+        "on_delta": None,
+        "role": role,
+        "chain_episode": False,
+        "chain_prior_changed": (),
+        "until_done": False,
+        "config_lifecycle": _child_config_lifecycle(parent_config),
+    }
+    if spec.max_steps is not None:
+        replace_kwargs["max_steps"] = spec.max_steps
+    child = cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
+    # #411 t15: a purpose-bearing child carries its purpose so the child engine's
+    # resolve_role narrows BOTH halves of its tool surface by purpose (the dormant
+    # worker never sees write_file/edit_file); a bare role name carries none.
+    from colleague.agents.tools import PURPOSE_TOOLS
+
+    if spec.profile in PURPOSE_TOOLS:
+        setattr(child, "agents_profile", spec.profile)
+    else:
+        # A BARE lobes role name (``cortex``/``muse``/…) switches the child's
+        # MODEL, never its tool surface. Carry the PARENT's purpose explicitly:
+        # ``agents_profile`` is a dynamic attribute, so ``dataclasses.replace``
+        # does not copy it, and an unset child would fall back to
+        # ``DEFAULT_ACTING_PURPOSE`` (the FULL thinker_coder surface) in the
+        # child's own ``resolve_role`` — a narrow parent would silently widen
+        # its child. Inheriting keeps the child's surface == the parent's.
+        setattr(child, "agents_profile", _seat_purpose(parent_config))
+    return child
+
+
+def _parent_ledger(parent_config: EngineConfig):
+    """The parent's :class:`~colleague.agents.state.ledger.TaskLedger` when the
+    loop wiring (t15) attached an ``agents_ledger_path`` to the armed parent
+    config; ``None`` otherwise (events are then skipped silently)."""
+    if not getattr(parent_config, "agents", False):
+        return None
+    path = getattr(parent_config, "agents_ledger_path", None)
+    if not path:
+        return None
+    from colleague.agents.state.ledger import TaskLedger
+
+    return TaskLedger(path)
+
+
+def _append_ledger_event(ledger, kind: str, data: dict) -> None:
+    """Append one delegate/return event; a bookkeeping failure (a torn or
+    foreign ledger, an over-size line, an I/O error) never fails the child
+    work item — the ledger writer is fail-closed on its own terms, the spawn
+    is not the place to lose a child's work over it."""
+    if ledger is None:
+        return
+    from colleague.agents.state.ledger import LedgerUnreadable
+
+    try:
+        ledger.append(kind, data)
+    except (ValueError, LedgerUnreadable, OSError):
+        return
+
+
+def _minimal_handover(instruction: str) -> str:
+    return "\n".join(
+        [
+            "# Handover summary",
+            "",
+            "## Objective",
+            instruction,
+            "",
+            "(no task ledger readable — minimal handover: the objective above is "
+            "the whole packet)",
+        ]
+    )
+
+
+def _child_context(ledger, instruction: str) -> str:
+    """The ``context_mode=clear`` packet: t10's handover summary over the
+    parent's ledger when one is readable, else the minimal handover."""
+    if ledger is None:
+        return _minimal_handover(instruction)
+    from colleague.agents.state.context import build_handover_summary
+    from colleague.agents.state.ledger import LedgerUnreadable
+
+    try:
+        read = ledger.read()
+    except LedgerUnreadable:
+        return _minimal_handover(instruction)
+    return build_handover_summary(read.snapshot, read.events)
+
+
 def make_spawn(
     repo_path: str,
     parent_config: EngineConfig,
@@ -308,6 +738,7 @@ def make_spawn(
     *,
     counter: Optional["_AgentBudget"] = None,
     parent_task_id: Optional[str] = None,
+    parent_profile: Optional[str] = None,
 ) -> SpawnFn:
     """Build a depth-bound spawn callback over :func:`run_subagent`.
 
@@ -322,7 +753,10 @@ def make_spawn(
     ``config.subagent_spawn``; the tool executor then calls
     ``spawn(instruction, engine, model, role)`` per delegation.
     ``parent_task_id=None`` (the default) omits lineage — byte-identical to the
-    pre-t16 behavior.
+    pre-t16 behavior. ``parent_profile`` (#411 t14) is the PARENT's own
+    profile/purpose, recorded on every delegate event this closure opens
+    (:func:`default_parent_profile` is what the top-level wiring passes);
+    ``None`` (the default) keeps callers byte-identical.
 
     Each launched child is itself handed a spawn callback bound to ``depth + 1``,
     the SAME ``counter``, and ITS OWN task id as ``parent_task_id`` inside
@@ -335,12 +769,16 @@ def make_spawn(
         engine: Optional[str] = None,
         model: Optional[str] = None,
         role: Optional[str] = None,
+        profile: Optional[str] = None,
+        context_mode: str = "inherit",
     ) -> SubResult:
         """Run one child subagent, optionally typed by ``role`` (#t4).
 
         Drives the given instruction through the same bounded tool-loop in an
         isolated throwaway git worktree on a ``sub/<id>`` branch, and returns the
-        child's :class:`~colleague.contract.SubResult`.
+        child's :class:`~colleague.contract.SubResult`. ``profile`` /
+        ``context_mode`` (#411 t14) ride onto the :class:`ChildSpec`; both
+        default to the pre-t14 shape (no profile, inherit).
         """
         return run_subagent(
             instruction,
@@ -352,10 +790,82 @@ def make_spawn(
             model=model,
             role=role,
             counter=counter,
-            spec=ChildSpec(parent_task_id=parent_task_id),
+            spec=ChildSpec(
+                parent_task_id=parent_task_id,
+                profile=profile,
+                context_mode=context_mode,
+                parent_profile=parent_profile,
+            ),
         )
 
     return spawn
+
+
+def _build_child_config(
+    parent_config: EngineConfig,
+    spec: ChildSpec,
+    binding: "Optional[_ChildBinding]",
+    *,
+    model: Optional[str],
+    role: Optional[str],
+) -> EngineConfig:
+    """The child's EngineConfig: the armed cross-role dial (#411 t14) when a
+    binding resolved, else the legacy ``dataclasses.replace`` (byte-identical)."""
+    if binding is not None:
+        child_config = _child_config_for_profile(parent_config, spec, binding, role=role)
+        if model:
+            # An explicit model override from the caller still wins (the
+            # flag > env > config precedence, applied to the child seat).
+            child_config.model = model
+        return child_config
+    replace_kwargs: dict = {
+        "model": (model or parent_config.model),
+        "role": role,
+        "chain_episode": False,
+        "chain_prior_changed": (),
+        "until_done": False,
+        "config_lifecycle": _child_config_lifecycle(parent_config),
+    }
+    if spec.max_steps is not None:
+        replace_kwargs["max_steps"] = spec.max_steps
+    if spec.context_budget_tokens is not None:
+        replace_kwargs["context_budget_tokens"] = spec.context_budget_tokens
+    child = cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
+    if getattr(parent_config, "agents", False):
+        # ARMED, no binding (no profile named): the child inherits the PARENT's
+        # purpose. ``agents_profile`` is a dynamic attribute, so
+        # ``dataclasses.replace`` drops it and the child's own ``resolve_role``
+        # would fall back to the full ``thinker_coder`` surface — a narrow
+        # parent silently widening its child (the hole the bounds check would
+        # never see, because no profile was named).
+        setattr(child, "agents_profile", _seat_purpose(parent_config))
+    return child
+
+
+def _delegate_event_data(
+    child_task_id: str,
+    spec: ChildSpec,
+    binding: "_ChildBinding",
+    agent_id: Optional[str],
+    bounds: tuple[tuple[str, ...], str] = ((), ""),
+) -> dict:
+    """The ``delegate`` ledger event payload for an armed child (#411 t14)."""
+    return {
+        "id": child_task_id,
+        "delegation_id": child_task_id,
+        "child_ref": f"sub/{child_task_id}",
+        "profile": binding.profile,
+        "context_mode": spec.context_mode,
+        "from_profile": spec.parent_profile,
+        "agent_id": agent_id,
+        "model_role": binding.model_role,
+        "resolved_model": binding.resolved_model,
+        "fallback_from_role": binding.fallback_from_role,
+        # What the t11 bounds check ranked this delegation on, so a ledger
+        # replay can audit the decision instead of taking it on trust.
+        "requested_tools": list(bounds[0]),
+        "authority_ceiling": bounds[1],
+    }
 
 
 def run_subagent(
@@ -409,6 +919,20 @@ def run_subagent(
     ITS immediate parent (this child), not the top-level root — so it can
     delegate further (nested batches now permitted), still globally bounded.
 
+    **Cross-role dial (#411 t14).** When the parent's ``agents`` mode is armed
+    AND ``spec.profile`` is set, the child's config is built by
+    :func:`_child_config_for_profile` instead (the role's own dial target,
+    model and advertised context; the parent's api_key ONLY toward the same
+    origin, #348; a recorded fallback to cortex / the main seat when the role
+    is absent, not ready, dormant, or the gateway is unreachable); the
+    returned ``SubResult`` then carries ``agent_id`` / ``resolved_model`` /
+    ``fallback_from_role``; a ``delegate`` event is appended to the parent's
+    task ledger BEFORE the child runs and a ``return`` event AFTER (when the
+    loop wiring attached ``agents_ledger_path``; skipped silently otherwise);
+    and ``context_mode="clear"`` hands the child the t10 handover summary as
+    its ``Task.context`` instead of nothing (``inherit`` = today). Unarmed, or
+    armed without a profile, is the EXISTING path byte-identical.
+
     The work item runs via ``engine.work`` — the bounded loop, **no** git handoff,
     fully synchronous.
     """
@@ -421,10 +945,17 @@ def run_subagent(
     # (thread-safe) so concurrent batch children can't race past the cap. When no
     # budget is threaded (counter is None) this is skipped entirely — byte-identical
     # to the pre-budget behavior.
+    spec = spec or ChildSpec()
+
+    # (a3) Delegation bounds (t11 enforcement) BEFORE the budget charge, so a
+    # refused delegation never burns a slot the counter can't refund: a child
+    # may only ever NARROW its parent's tool surface and authority ceiling.
+    bounds = _enforce_delegation_bounds(
+        parent_config, spec, instruction=instruction, depth=depth, role=role
+    )
+
     if counter is not None:
         counter.charge()
-
-    spec = spec or ChildSpec()
 
     # (b) Resolve + load the child engine by name. A bad name surfaces as a clean
     # SubagentError (never an unrelated crash upstream).
@@ -463,22 +994,23 @@ def run_subagent(
     # rule (children never propose, never observe turns) forbids. Always
     # explicitly set — even to ``None`` when the parent carries no
     # attachment — so a child's inherited value is never an accidental copy.
-    replace_kwargs: dict = {
-        "model": (model or parent_config.model),
-        "role": role,
-        "chain_episode": False,
-        "chain_prior_changed": (),
-        "until_done": False,
-        "config_lifecycle": _child_config_lifecycle(parent_config),
-    }
-    if spec.max_steps is not None:
-        replace_kwargs["max_steps"] = spec.max_steps
-    if spec.context_budget_tokens is not None:
-        replace_kwargs["context_budget_tokens"] = spec.context_budget_tokens
-    child_config = cast(
-        EngineConfig,
-        dataclasses.replace(parent_config, **replace_kwargs),
-    )
+    #
+    # (c2) ARMED cross-role dial (#411 t14): with ``agents`` armed and a
+    # ``profile`` on the spec, the child config comes from
+    # ``_child_config_for_profile`` instead — same resets, plus the role dial,
+    # the per-role key hygiene and the advertised context. ``binding`` stays
+    # ``None`` on the unarmed path, which is byte-identical to today.
+    binding = _resolve_child_binding(parent_config, spec)
+    child_config = _build_child_config(parent_config, spec, binding, model=model, role=role)
+
+    # (c3) The parent's task ledger (armed + attached by the loop wiring, t15)
+    # and the child's context packet: ``clear`` → the t10 handover summary
+    # (or the minimal handover when no ledger is readable); ``inherit`` → ""
+    # exactly as today.
+    ledger = _parent_ledger(parent_config) if binding is not None else None
+    child_context = ""
+    if binding is not None and spec.context_mode == "clear":
+        child_context = _child_context(ledger, instruction)
 
     # (d) Build the child's own Task FIRST (goal/acceptance carried structurally,
     # t16), so its id is known when we build ITS nested spawn/batch-spawn
@@ -488,9 +1020,13 @@ def run_subagent(
         repo_path,
         instruction,
         engine=child_engine,
+        context=child_context,
         goal=spec.goal,
         acceptance=list(spec.acceptance) if spec.acceptance is not None else None,
     )
+    # The child's agent identity (armed only): stable for the child's life,
+    # derived from its task id so a SubResult/ledger reader can join the two.
+    agent_id = f"agent-{child_task.id}" if binding is not None else None
 
     # (e) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
     # and the SAME global budget, so it can delegate further (single OR batch),
@@ -507,6 +1043,7 @@ def run_subagent(
         depth + 1,
         counter=counter,
         parent_task_id=child_task.id,
+        parent_profile=spec.profile,
     )
     child_config.subagent_batch_spawn = make_batch_spawn(
         repo_path,
@@ -515,13 +1052,39 @@ def run_subagent(
         depth + 1,
         counter=counter,
         parent_task_id=child_task.id,
+        parent_profile=spec.profile,
     )
+
+    # (e2) ``delegate`` BEFORE the child runs (armed + ledger attached only):
+    # the open loop the replayed snapshot shows until ``return`` closes it.
+    if binding is not None:
+        _append_ledger_event(
+            ledger,
+            "delegate",
+            _delegate_event_data(child_task.id, spec, binding, agent_id, bounds),
+        )
 
     # (f) Run the nested child work item. engine.work runs the bounded loop
     # and never hands off; the call is synchronous (no thread/process/socket).
     result = eng.work(child_task, child_config)
 
+    # (f2) ``return`` AFTER — closes the delegation on the parent's ledger.
+    if binding is not None:
+        _append_ledger_event(
+            ledger,
+            "return",
+            {
+                "id": child_task.id,
+                "ref": f"task:{result.task_id}",
+                "status": result.status,
+                "changed_files": len(result.changed_files),
+                "agent_id": agent_id,
+            },
+        )
+
     # (g) Project the child's TaskResult onto the nested-only SubResult shape.
+    # The three armed-only identity fields stay ``None`` (omitted from
+    # ``to_dict``) on the unarmed path — the mock/vllm parity key set holds.
     return SubResult(
         task_id=result.task_id,
         engine=child_engine,
@@ -532,6 +1095,9 @@ def run_subagent(
         usage=result.usage,
         role=role,
         parent=spec.parent_task_id,
+        agent_id=agent_id,
+        resolved_model=(binding.resolved_model if binding is not None else None),
+        fallback_from_role=(binding.fallback_from_role if binding is not None else None),
     )
 
 
@@ -754,12 +1320,15 @@ def make_batch_spawn(
     *,
     counter: Optional["_AgentBudget"] = None,
     parent_task_id: Optional[str] = None,
+    parent_profile: Optional[str] = None,
 ) -> BatchSpawnFn:
     """Build a batch spawn callback that fans children out and merges them back.
 
     Analogous to :func:`make_spawn`, but for a BATCH: the returned closure takes a
     list of items (``{"instruction", "engine", "model"}``, optionally carrying
-    ``"goal"``/``"acceptance"`` per item, t16) and returns a FLAT
+    ``"goal"``/``"acceptance"`` per item, t16, and ``"profile"``/
+    ``"context_mode"`` per item, #411 t14 — ``parent_profile`` is recorded on
+    every child's delegate event exactly as :func:`make_spawn` does) and returns a FLAT
     ``list[SubResult]`` — the N child results in INPUT ORDER followed by exactly
     one merge child ("child C"). The loop wiring (t5) calls
     ``make_batch_spawn(task.repo_path, config, task.engine, parent_task_id=task.id)``
@@ -793,6 +1362,7 @@ def make_batch_spawn(
             role=role,
             counter=counter,
             parent_task_id=parent_task_id,
+            parent_profile=parent_profile,
         )
 
     return batch_spawn
@@ -810,6 +1380,7 @@ def _spawn_children(
     role: Optional[str],
     counter: Optional["_AgentBudget"],
     parent_task_id: Optional[str] = None,
+    parent_profile: Optional[str] = None,
 ) -> List[Optional[SubResult]]:
     """Run every batch child and return the results in INPUT ORDER.
 
@@ -850,6 +1421,11 @@ def _spawn_children(
                 goal=(item.get("goal") or None),
                 acceptance=(item.get("acceptance") or None),
                 parent_task_id=parent_task_id,
+                # Cross-role dial (#411 t14): per-item profile / context_mode;
+                # an invalid value is refused whole by ChildSpec itself.
+                profile=(item.get("profile") or None),
+                context_mode=str(item.get("context_mode") or "inherit"),
+                parent_profile=parent_profile,
             ),
         )
 
@@ -878,6 +1454,7 @@ def _run_batch(
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
     parent_task_id: Optional[str] = None,
+    parent_profile: Optional[str] = None,
 ) -> List[SubResult]:
     """Fan a batch of children out concurrently, then merge their branches.
 
@@ -907,6 +1484,28 @@ def _run_batch(
     # does zero work and leaks no worktree. This is a best-effort snapshot; each
     # child is also charged authoritatively (thread-safe) inside run_subagent, which
     # catches the deep-nested-concurrent race the snapshot cannot.
+    # (a2b) Delegation bounds PRE-CHECK — same reason, same place: every item's
+    # bounds are ranked BEFORE the first worktree exists, so one widening item
+    # refuses the WHOLE batch cleanly instead of aborting midway (the batch's
+    # ``finally`` removes every child worktree with delete_branch=True, which
+    # would discard the work of siblings that already ran and committed).
+    for index, item in enumerate(items):
+        item_spec = ChildSpec(
+            profile=(item.get("profile") or None),
+            context_mode=str(item.get("context_mode") or "inherit"),
+            parent_profile=parent_profile,
+        )
+        try:
+            _enforce_delegation_bounds(
+                parent_config,
+                item_spec,
+                instruction=str(item.get("instruction", "")),
+                depth=depth,
+                role=(item.get("role") or role),
+            )
+        except SubagentError as exc:
+            raise SubagentError(f"batch item {index}: {exc}") from exc
+
     if counter is not None and counter.remaining() < len(items):
         raise SubagentError(
             f"global agent budget ({counter.limit}) exceeded: batch of "
@@ -945,6 +1544,7 @@ def _run_batch(
             role=role,
             counter=counter,
             parent_task_id=parent_task_id,
+            parent_profile=parent_profile,
         )
 
         # (d) SEQUENTIAL merge child, AFTER the join — never races child writes.

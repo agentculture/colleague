@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
 from colleague import configlifecycle as _configlifecycle
 from colleague.continuation import ContinuationError, resolve_continuation
@@ -278,7 +278,11 @@ class ChainState:
 
 
 def resolve_chain_seed(
-    repo: str | Path, task_id: str
+    repo: str | Path,
+    task_id: str,
+    *,
+    agents_armed: bool = False,
+    warnings: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[Optional[tuple[str, str]], Optional[ChainVerdict]]:
     """Resolve the next episode's continuation seed — a clean halt on failure.
 
@@ -289,12 +293,17 @@ def resolve_chain_seed(
     a corrupt one each end the chain cleanly with the error text as
     ``detail``.
 
+    ``agents_armed`` (the chain driver's resolved ``agents`` mode flag) and
+    ``warnings`` are threaded through to :func:`resolve_continuation` so a
+    chained episode rehydrates from the task ledger when agents mode is armed
+    (Qodo, PR #414) and an unreadable ledger is surfaced, not silent.
+
     Returns ``((resolved_task_id, seed_text), None)`` on success, or
     ``(None, halt_verdict)`` when continuation cannot be honored — exactly one
     of the pair is ``None``.
     """
     try:
-        resolved = resolve_continuation(repo, task_id)
+        resolved = resolve_continuation(repo, task_id, agents_armed=agents_armed, warnings=warnings)
     except ContinuationError as exc:
         return None, ChainVerdict(
             should_continue=False,

@@ -328,6 +328,23 @@ SCHEMAS: list[dict[str, Any]] = [
                         "type": "string",
                         "description": "Role name for the subagent (e.g. 'explorer', 'writer').",
                     },
+                    "profile": {
+                        "type": "string",
+                        "description": (
+                            "Agent purpose for the child (agents mode, #411): one of "
+                            "'thinker_coder', 'associate', 'worker', 'talker' — binds the "
+                            "child to that purpose's lobes role when served (a recorded "
+                            "cortex fallback otherwise); omit to inherit the parent's seat."
+                        ),
+                    },
+                    "context_mode": {
+                        "type": "string",
+                        "enum": ["inherit", "clear"],
+                        "description": (
+                            "'inherit' (default) carries the parent context; 'clear' gives the "
+                            "child a fresh mind with only a handover summary (use for reviewers)."
+                        ),
+                    },
                 },
                 "required": ["instruction"],
             },
@@ -717,6 +734,16 @@ def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
                 "engine": item.get("engine") or None,
                 "model": item.get("model") or None,
                 "role": item.get("role") or None,
+                **(
+                    {"profile": item["profile"]}
+                    if isinstance(item.get("profile"), str) and item.get("profile")
+                    else {}
+                ),
+                **(
+                    {"context_mode": item["context_mode"]}
+                    if isinstance(item.get("context_mode"), str) and item.get("context_mode")
+                    else {}
+                ),
             }
         )
     return items
@@ -1300,6 +1327,27 @@ class ToolExecutor:
         last_lines = "\n".join(body.splitlines()[-20:])
         return ToolOutcome(result=f"tests FAILED (exit={proc.returncode})\n{last_lines}")
 
+    def _call_spawn(
+        self,
+        instruction: str,
+        engine: str | None,
+        model: str | None,
+        role: str | None,
+        profile: str | None,
+        context_mode: str | None,
+    ) -> "SubResult":
+        """Invoke the spawn closure — positional (legacy) or with the #411 keywords."""
+        if profile is None and context_mode is None:
+            return self._spawn(instruction, engine, model, role)  # type: ignore[misc]
+        return self._spawn(  # type: ignore[misc]
+            instruction,
+            engine,
+            model,
+            role,
+            profile=profile,
+            context_mode=context_mode or "inherit",
+        )
+
     def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Delegate a scoped sub-task to a nested child work item via the injected spawn.
 
@@ -1323,6 +1371,11 @@ class ToolExecutor:
         engine = arguments.get("engine") or None
         model = arguments.get("model") or None
         role = arguments.get("role") or None
+        # Agents mode (#411): the model-facing profile / context_mode ride onto the
+        # ChildSpec through the spawn closure's keyword seam; absent = the pre-#411
+        # positional call, byte-identical.
+        profile = arguments.get("profile") or None
+        context_mode = arguments.get("context_mode") or None
 
         if len(self.sub_results) >= MAX_SUBAGENT_FANOUT:
             raise ToolError(
@@ -1330,7 +1383,7 @@ class ToolExecutor:
             )
 
         try:
-            sub = self._spawn(instruction, engine, model, role)
+            sub = self._call_spawn(instruction, engine, model, role, profile, context_mode)
         except ToolError:
             raise
         except Exception as exc:  # launcher/engine errors -> clean string for the model

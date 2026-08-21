@@ -56,6 +56,23 @@ _SUBAGENT_SCHEMA_SNAPSHOT = {
                     "type": "string",
                     "description": "Role name for the subagent (e.g. 'explorer', 'writer').",
                 },
+                "profile": {
+                    "type": "string",
+                    "description": (
+                        "Agent purpose for the child (agents mode, #411): one of "
+                        "'thinker_coder', 'associate', 'worker', 'talker' — binds the "
+                        "child to that purpose's lobes role when served (a recorded "
+                        "cortex fallback otherwise); omit to inherit the parent's seat."
+                    ),
+                },
+                "context_mode": {
+                    "type": "string",
+                    "enum": ["inherit", "clear"],
+                    "description": (
+                        "'inherit' (default) carries the parent context; 'clear' gives the "
+                        "child a fresh mind with only a handover summary (use for reviewers)."
+                    ),
+                },
             },
             "required": ["instruction"],
         },
@@ -138,7 +155,8 @@ def test_subagents_schema_instructions_required():
 
 def test_subagent_schema_matches_snapshot():
     """The single-child 'subagent' tool schema must match the pinned snapshot
-    (which now includes the optional typed-subagent 'role' param, #t4)."""
+    (which now includes the optional typed-subagent 'role' param, #t4, and the
+    #411 'profile' / 'context_mode' params)."""
     schema = next(s for s in SCHEMAS if s["function"]["name"] == "subagent")
     assert schema == _SUBAGENT_SCHEMA_SNAPSHOT, (
         "The 'subagent' tool schema was modified — it must stay byte-identical. "

@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import background, flight, media, registry, rig, worktrees
+from colleague import background, flight, media, registry, rig, salvage, worktrees
 from colleague.artifact import (
     artifact_dir,
     failed_result,
@@ -53,7 +53,15 @@ from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, apply_mode_profile, resolve_engine
-from colleague.contract import INCOMPLETE, OK, ChainView, Task, TaskResult
+from colleague.contract import (
+    ERROR,
+    INCOMPLETE,
+    OK,
+    ChainView,
+    IncompletionRecord,
+    Task,
+    TaskResult,
+)
 from colleague.feedback import capture_uncaptured_predecessor, set_last_work
 from colleague.handoff import (
     HandoffError,
@@ -67,7 +75,12 @@ from colleague.handoff import (
     working_tree_dirty,
 )
 from colleague.roles import is_read_only
-from colleague.subagents import make_batch_spawn, make_spawn, new_agent_budget
+from colleague.subagents import (
+    default_parent_profile,
+    make_batch_spawn,
+    make_spawn,
+    new_agent_budget,
+)
 from colleague.telemetry import Telemetry, load_telemetry
 
 
@@ -318,8 +331,93 @@ def _setup_isolation(
     )
 
 
-def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:
+def finalize_interrupted(
+    result: TaskResult,
+    *,
+    reason: str,
+    command_name: str | None,
+    mode: str | None,
+    continued_from: str | None,
+) -> TaskResult:
+    """Stamp the interrupt onto a live partial so its artifact is an honest seed (#410).
+
+    ``status`` becomes ``error`` with the signal named; an incompletion record
+    points the operator at ``work --continue``; ``command``/``mode``/
+    ``continued_from`` mirror what the normal write path records. Idempotent —
+    a second signal stamps the same facts.
+    """
+    steps = len(result.steps)
+    result.status = ERROR
+    result.error = f"interrupted by {reason} after {steps} step(s)"
+    if not result.summary:
+        result.summary = f"interrupted by {reason} after {steps} step(s) (partial)"
+    result.incompletion = IncompletionRecord(
+        reason="interrupted",
+        evidence=result.error,
+        recommendation=f"resume with: colleague work --continue {result.task_id}",
+    )
+    result.command = command_name
+    result.mode = mode
+    result.continued_from = continued_from
+    return result
+
+
+def _make_salvage_writer(
+    task: Task,
+    repo: Path,
+    *,
+    command_name: str | None,
+    mode: str | None,
+    continued_from: str | None,
+) -> Callable[[str], None]:
+    """Build the SIGTERM/SIGINT salvage writer for *task* (#410).
+
+    Reads the loop's live partial (:func:`colleague.salvage.peek`), stamps it via
+    :func:`finalize_interrupted`, and writes the artifact + ``last_work`` pointer
+    under the OPERATOR repo — the same location the normal path writes, so
+    ``work --continue`` finds it. No live partial (the loop never started) →
+    a ``failed_result`` is written instead, so the artifact is UNCONDITIONAL.
+    """
+
+    def _write(reason: str) -> None:
+        partial = salvage.peek(task.id)
+        if partial is None:
+            partial = failed_result(
+                task.id,
+                f"interrupted by {reason} before the loop started",
+                request=task.instruction,
+            )
+        if not partial.stats.request:
+            # The loop stamps the request at its own finalize — which this
+            # interrupt never reaches — so carry it here: the artifact keeps the
+            # normal <id>.<slug>.json name and stays discoverable by request.
+            partial.stats.request = task.instruction
+        finalize_interrupted(
+            partial,
+            reason=reason,
+            command_name=command_name,
+            mode=mode,
+            continued_from=continued_from,
+        )
+        write(partial, artifact_dir(repo))
+        with suppress(Exception):
+            set_last_work(repo, partial.task_id)
+        salvage.unregister(task.id)
+
+    return _write
+
+
+def _arm_interrupt_commit(
+    worktree_path: str | None, *, salvage_write: Callable[[str], None] | None = None
+) -> Callable[[], None]:
     """Install SIGTERM+SIGINT handlers that commit the iso worktree's WIP before exit (#222).
+
+    #410: when *salvage_write* is given it runs FIRST — before the WIP commit and
+    independent of whatever state the request layer is stuck in — writing the
+    partial result artifact (the continuation seed) from the loop's live partial
+    (:mod:`colleague.salvage`); a failure there never blocks the WIP commit. A
+    ``None`` worktree with a salvage writer still arms the handlers (the artifact
+    write is worktree-independent); neither → nothing is installed.
 
     The isolated work path's success teardown lives in a ``finally`` that a SIGTERM
     (a caller's ``timeout``) bypasses entirely, stranding the model's WIP as
@@ -339,14 +437,19 @@ def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:
     unsupported platform degrades gracefully (handlers simply not installed) — never
     breaking a work item. Signals are stdlib: no new dependency, daemon, or thread.
     """
-    if worktree_path is None:
+    if worktree_path is None and salvage_write is None:
         return lambda: None
 
     previous: dict[int, object] = {}
 
     def _handler(signum: int, _frame: object) -> None:
-        with suppress(Exception):
-            worktrees.commit_iso_worktree_wip(worktree_path, reason=signal.Signals(signum).name)
+        reason = signal.Signals(signum).name
+        if salvage_write is not None:
+            with suppress(Exception):
+                salvage_write(reason)
+        if worktree_path is not None:
+            with suppress(Exception):
+                worktrees.commit_iso_worktree_wip(worktree_path, reason=reason)
         # Restore prior handlers before exiting so a second signal can't re-enter this
         # handler mid-commit; SystemExit unwinds through the normal finally blocks
         # (cockpit close, telemetry flush, worktree remove) and exits without a traceback.
@@ -1206,7 +1309,12 @@ def execute_work(
     # process exits, instead of stranding it as uncommitted files in an orphan
     # worktree. A None worktree (the in-place session path) arms nothing. Restored
     # in the finally.
-    _restore_signals: Callable[[], None] = _arm_interrupt_commit(worktree_path)
+    _restore_signals: Callable[[], None] = _arm_interrupt_commit(
+        worktree_path,
+        salvage_write=_make_salvage_writer(
+            task, repo, command_name=command_name, mode=mode, continued_from=continued_from
+        ),
+    )
 
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
@@ -1286,20 +1394,17 @@ def execute_work(
             # `parent_task_id=task.id` (spec R6 / plan t16 / #259) records THIS
             # work item's id on every direct child's `SubResult.parent`, so a
             # subagent tree is walkable from artifacts alone.
+            # `parent_profile` (#411 t14): the parent's own purpose, recorded on
+            # every delegate event — passed ONLY when the `agents` mode is
+            # armed, so the unarmed calls are byte-identical to today.
             budget = new_agent_budget(config)
-            config.subagent_spawn = make_spawn(
-                task.repo_path,
-                config,
-                task.engine,
-                counter=budget,
-                parent_task_id=task.id,
-            )
+            spawn_kwargs: dict = {"counter": budget, "parent_task_id": task.id}
+            parent_profile = default_parent_profile(config)
+            if parent_profile is not None:
+                spawn_kwargs["parent_profile"] = parent_profile
+            config.subagent_spawn = make_spawn(task.repo_path, config, task.engine, **spawn_kwargs)
             config.subagent_batch_spawn = make_batch_spawn(
-                task.repo_path,
-                config,
-                task.engine,
-                counter=budget,
-                parent_task_id=task.id,
+                task.repo_path, config, task.engine, **spawn_kwargs
             )
             # Rig-level cooperative concurrency budget (t13 / spec R5 / #258): hold
             # ONE slot for the whole model-driving loop, so concurrent TOP-LEVEL
@@ -1456,7 +1561,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
 
     continue_ref: str | None = getattr(args, "continue_ref", None)
     if continue_ref is not None:
-        return _build_continued_task(args, repo, engine, continue_ref, positional_tokens)
+        return _build_continued_task(args, repo, engine, continue_ref, positional_tokens, config)
 
     if not has_instruction and not has_command:
         raise CliError(
@@ -1500,6 +1605,7 @@ def _build_continued_task(
     engine: str,
     continue_ref: str,
     positional_tokens: list[str],
+    config: EngineConfig | None,
 ) -> Task:
     """Seed a Task from a prior work item's persisted artifact (#167).
 
@@ -1510,6 +1616,11 @@ def _build_continued_task(
     (a template would fight the seed for the instruction). The resolved prior
     id rides ``args._continued_from_resolved`` so :func:`cmd_work` can thread
     it into :func:`execute_work` for the lineage stamp.
+
+    ``config`` (the resolved :class:`~colleague.config.EngineConfig`) supplies
+    the ``agents`` mode flag: when armed, the continuation seed rehydrates from
+    the task ledger instead of the prose recap (Qodo, PR #414). ``None`` (a
+    test double that never resolved a config) keeps the unarmed prose path.
     """
     # Lazy import: the continue path is opt-in; keep work's import graph flat.
     from colleague.continuation import ContinuationError, resolve_continuation
@@ -1527,14 +1638,22 @@ def _build_continued_task(
             "--continue needs a work item reference",
             "pass an explicit task id, or 'last' for the most recent work item",
         )
+    warnings: list[dict] = []
     try:
-        prior_id, seed = resolve_continuation(repo, ref)
+        prior_id, seed = resolve_continuation(
+            repo,
+            ref,
+            agents_armed=bool(getattr(config, "agents", False)),
+            warnings=warnings,
+        )
     except ContinuationError as exc:
         raise CliError(
             EXIT_USER_ERROR,
             str(exc),
             "list recent work items with: colleague feedback list --repo <path>",
         ) from exc
+    for warning in warnings:
+        emit_diagnostic(f"continuation: {warning['detail']}")
     instruction = seed
     if positional_tokens:
         instruction += "\n\nAdditional operator guidance:\n" + " ".join(positional_tokens)
@@ -1581,7 +1700,13 @@ def _resolve_chain_arming(args: argparse.Namespace, config: EngineConfig) -> tup
 
 
 def _chain_should_start_next(
-    repo: Path, result: TaskResult, state, *, progressed: bool | None, watch: bool
+    repo: Path,
+    result: TaskResult,
+    state,
+    *,
+    progressed: bool | None,
+    watch: bool,
+    agents_armed: bool = False,
 ) -> tuple[tuple[str, str] | None, "object"]:
     """Decide the chain's move at ONE episode boundary — the t6 extension seam.
 
@@ -1622,7 +1747,12 @@ def _chain_should_start_next(
                 f"{state.episode_count + 1} was never dispatched"
             ),
         )
-    seed, halt = chainmod.resolve_chain_seed(repo, result.task_id)
+    warnings: list[dict] = []
+    seed, halt = chainmod.resolve_chain_seed(
+        repo, result.task_id, agents_armed=agents_armed, warnings=warnings
+    )
+    for warning in warnings:
+        emit_diagnostic(f"continuation: {warning['detail']}")
     if halt is not None:
         return None, halt
     return seed, verdict
@@ -2030,7 +2160,12 @@ def execute_work_chain(
             episode_branch=episode_branch,
         )
         seed, verdict = _chain_should_start_next(
-            repo, result, state, progressed=progressed, watch=task.watch
+            repo,
+            result,
+            state,
+            progressed=progressed,
+            watch=task.watch,
+            agents_armed=bool(getattr(config, "agents", False)),
         )
         if seed is None:
             break

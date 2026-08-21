@@ -1690,11 +1690,19 @@ class _Session:
         from colleague.continuation import ContinuationError, resolve_continuation
 
         ref = (ref or "last").strip() or "last"
+        warnings: list[dict] = []
         try:
-            prior_id, seed = resolve_continuation(self.repo, ref)
+            prior_id, seed = resolve_continuation(
+                self.repo,
+                ref,
+                agents_armed=bool(getattr(self.config, "agents", False)),
+                warnings=warnings,
+            )
         except ContinuationError as exc:
             self._error(f"error: {exc}")
             return
+        for warning in warnings:
+            self._error(f"continuation: {warning['detail']}")
         self._log(f"→ continue: resuming {prior_id}")
         if not self._heal_dirty_tree_if_needed():
             return

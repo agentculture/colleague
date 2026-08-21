@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.61.0] - 2026-08-21
+
+### Added
+
+- **Model-bound agents (#411) — the eleventh sanctioned increment.** A THIRD independent opt-in (`agents` / `COLLEAGUE_AGENTS`; arming it with `three_tier` or `thought_action_evaluation` refuses, naming both): a typed `AgentProfile` per agent (purpose → lobes role → served model as trace data, validated tool profile, authority ceiling, lineage), a per-invocation `InvocationRecord` (context manifest + tool-surface digest; `token_estimate` never enters `Usage`), the append-only task ledger at the operator repo (`.colleague/ledger/<id>.jsonl`, fcntl-locked, replay-deterministic snapshot + digests, fail-closed reader), per-agent context reconstruction (pinned nucleus, `context_mode` inherit|clear, explicit provenance rank), typed `delegate|ask|inform|challenge|handoff|return` messages with a `MAX_AGENT_MESSAGES` budget, `DelegationRequest` envelopes that only NARROW (child ⊆ parent), subagents that may bind a DIFFERENT lobes role, continuation that rehydrates from the ledger, talker (senses) invocation records, `TaskResult.agents` (omit-when-unarmed, mock parity), a `doctor` `agents` group and `config show` line. Reference topology by role: Talker=`senses`, Worker=`worker` (dormant, deviation d3), Thinker/Coder=`cortex`, Associate=`associate` (reserved fast coder); a missing role is a RECORDED cortex fallback, never a refusal. Docs: `docs/features/model-bound-agents.md`.
+- **#410 — SIGTERM writes the partial artifact unconditionally**: `colleague/salvage.py` exposes the loop's live partial; the signal handler writes the stamped artifact (status error, incompletion `interrupted`) BEFORE the WIP commit, so `work --continue` always has its seed.
+- **#400 — step-stall watchdog**: `colleague/stallguard.py` + `COLLEAGUE_MAX_STEP_STALL` — a PROGRESS bound (time since the last completed step; default `max(5400 s, 6× mean turn latency)`), consulted per SSE frame; crossing it ends the episode with a preserved partial + `{kind: step-stall}` warning (not continuable).
+- **Truncated turns**: an empty-content `finish_reason=length` turn is accounted exactly, recorded as `{kind: truncated-turn}` and routed through the shrink-and-retry lane instead of the finish nudge.
+
+### Changed
+
+- `three_tier` is superseded by the agents increment (kept as the benchmark baseline); `_refuse_conflicting_execution_modes` now refuses any two armed modes naming both.
+
 ## [1.60.0] - 2026-08-20
 
 ### Added

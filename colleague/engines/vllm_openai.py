@@ -25,6 +25,8 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
+from colleague import stallguard
+from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
@@ -323,6 +325,10 @@ def _iter_sse_frames(
     trigger, see ``_post_json_stream``).
     """
     for raw_line in response:
+        # Step-stall watchdog (#400): a no-op unless the loop armed a progress
+        # deadline for this turn; raises TurnStalled past it (never a fallback
+        # error — it propagates to the loop, which ends the episode honestly).
+        stallguard.check()
         line = raw_line.decode("utf-8").strip()
         if not line or line.startswith(":"):
             continue
@@ -1050,7 +1056,7 @@ class VllmOpenAIEngine(Engine):
             if config.worker is not None or getattr(config, "thought_action_evaluation", False)
             else "cortex"
         )
-        return run(
+        result = run(
             self._make_complete(config, tools=offered_tools),
             task,
             max_steps=config.max_steps,
@@ -1087,3 +1093,9 @@ class VllmOpenAIEngine(Engine):
                 tae_session=make_tae_session(config, self.name),
             ),
         )
+        # Model-bound agents (#411, t13): an ARMED config always returns the
+        # versioned ``agents`` block with the SAME shape on every backend
+        # (all-engines rule) — the fold only fills a still-``None`` field, so
+        # the loop-authored block (when the loop wired it) wins; unarmed is a
+        # strict no-op (key absent, byte-identical artifact).
+        return fold_agents_block(result, config)

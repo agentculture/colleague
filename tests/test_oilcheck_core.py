@@ -182,6 +182,7 @@ def test_check_groups_registered_in_order() -> None:
     # The canonical group order. Note: the opt-in reachability probe is
     # deliberately NOT registered here (it is invoked only by diagnose(probe=True)).
     from colleague.oilcheck import (
+        agents,
         distillation,
         engines,
         environment,
@@ -206,6 +207,7 @@ def test_check_groups_registered_in_order() -> None:
         organs.checks,
         model_membership.checks,
         three_tier.checks,
+        agents.checks,
         distillation.checks,
     ]
 

@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-09T16:50:21Z",
-  "updated": "2026-08-09T17:37:40Z",
+  "updated": "2026-08-09T18:22:34Z",
   "targets": [
     {
       "id": "c1",
@@ -829,6 +829,22 @@
       "text": "experiments and live validation are operator-gated on the reference rig's availability (t2, t14)",
       "kind": "unknown_nonblocking",
       "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "COLLEAGUE_STREAM is not discoverable via 'config show' or 'doctor' \u2014 t1 read it at payload-build time (not resolved onto EngineConfig) deliberately, to keep the artifact's config snapshot byte-identical. A doctor environment-group probe would give discoverability without changing artifact shape; out of t1's confirmed criteria, so recorded as a follow-up rather than added silently",
+      "kind": "follow_up",
+      "task_id": "t1",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "t4's evaluator/distiller authority guard reads config.evaluator_checkpoint and config.distiller_checkpoint via getattr \u2014 NO config path sets either today, so the guard is inert until t12's arming populates them. t12 MUST declare those fields (or tell t4's seam what shape it uses) or the evaluator silently regains distillation authority in the armed mode, defeating c38/h30",
+      "kind": "unknown_blocking",
+      "task_id": "t12",
       "resolved": false,
       "resolution": ""
     }

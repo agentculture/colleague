@@ -80,6 +80,7 @@ serialized as `[]`).
 | `memory` | dict | The eidetic memory recall/remember cycle ran — see [`memory`](#memory-dict). |
 | `media` | dict | The task carried attachments and their delivery was classified — see [`media`](#media-dict). |
 | `senses` | SensesBlock | A cortex/senses split (or live-presence talk lane) ran — see [`senses`](#sensesblock-senses). |
+| `agents` | dict | The model-bound-agents increment (#411) was armed — see [`agents`](#agents-dict). |
 | `config_events` | ConfigEvent[] | At least one config event (baseline/proposed/refused/verified/applied/reverted) was recorded — see [`config_event`](#configevent-config_events-item). |
 | `config_digest` | string | `config_events` is non-empty — the deterministic digest over that replayed sequence, see [`config_event`](#configevent-config_events-item). |
 
@@ -94,6 +95,7 @@ equals this block.
 ```text
 acceptance_outcomes
 affected_tests_report
+agents
 announcement
 artifacts_path
 branch
@@ -421,6 +423,45 @@ status
 `status` is `"delivered"` \| `"dropped"` \| `"unknown"` \| `"bridged"` — a
 token-contribution verdict (the attachment reached the prompt), never a claim
 that the model *understood* it.
+
+#### `agents` (dict)
+
+The model-bound-agents block (#411; spec c17/h24), built by
+`colleague.agents.artifact_block.build_agents_block` — present only when the
+`agents` increment is armed (`COLLEAGUE_AGENTS` / config.json `agents`). Kept
+small: the task ledger is the authority, this is the read-side mirror the
+ROI/feedback readers consume. An armed run always carries the key with the
+SAME shape on every backend (the engine-side fold supplies the empty-lists
+floor when the loop authored nothing); unarmed, the key is omitted.
+
+<!-- contract:keys:agents -->
+```text
+fallbacks
+invocations
+ledger_digest
+ledger_path
+messages
+version
+```
+
+`version` is `1`. `invocations[]` items are `InvocationRecord.to_dict()`
+(identity + context manifest: refs and digests, never payloads);
+`messages[]` items are `AgentMessage.to_dict()` (no rationale field, ever);
+`ledger_path` / `ledger_digest` are the task-ledger pointer and its state
+digest (`null` when no ledger was written).
+
+##### `agents.fallbacks[]` item
+
+<!-- contract:keys:agents_fallback -->
+```text
+from_role
+purpose
+resolved_model
+```
+
+One entry per invocation whose purpose ran on a fallback seat (its
+`fallback_from_role` names the role it was carried *from*); `resolved_model`
+is the served model id — trace data, never a constant.
 
 #### `SensesBlock` (`senses`)
 

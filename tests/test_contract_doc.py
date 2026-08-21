@@ -19,6 +19,7 @@ import pytest
 
 from colleague import feedback as fb
 from colleague.affectedtests import AffectedTestsReport
+from colleague.agents.artifact_block import build_agents_block
 from colleague.configevents import ConfigEvent
 from colleague.contract import (
     OK,
@@ -155,6 +156,21 @@ def _maximal_task_result() -> TaskResult:
         finish_recovered="literal-markup",
         memory={"query": "q", "recalled": 1, "injected_chars": 10, "lesson_recorded": True},
         media={"attachments": [{"path": "img.png", "status": "delivered"}]},
+        agents=build_agents_block(
+            invocations=[
+                {
+                    "agent_id": "agent-1",
+                    "purpose": "worker",
+                    "model_role": "cortex",
+                    "resolved_model": "served-id",
+                    "fallback_from_role": "worker",
+                    "tool_surface_digest": "t",
+                    "ledger_digest": "d",
+                }
+            ],
+            ledger_path=".colleague/agents/max1.ledger.jsonl",
+            ledger_digest="d",
+        ),
         senses=SensesBlock(
             mode="split",
             packet=ContextPacket(
@@ -299,6 +315,13 @@ def test_media_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
     d = result.to_dict()
     assert set(d["media"].keys()) == doc_blocks["media"]
     assert set(d["media"]["attachments"][0].keys()) == doc_blocks["media_attachment"]
+
+
+def test_agents_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
+    result = _maximal_task_result()
+    d = result.to_dict()
+    assert set(d["agents"].keys()) == doc_blocks["agents"]
+    assert set(d["agents"]["fallbacks"][0].keys()) == doc_blocks["agents_fallback"]
 
 
 def test_senses_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
