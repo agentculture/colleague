@@ -88,6 +88,10 @@ AUTHORITY_KEYS: tuple[str, ...] = ("approval_ref", "no_pr", "mode", "role", "tho
 
 _LEDGER_SUBDIR = Path(".colleague") / "ledger"
 
+#: The fail-closed reason for a final line that is not newline-terminated
+#: (a crash mid-write) — one message, shared by the reader and the writer.
+_TORN_TAIL_MESSAGE = "torn tail: last line is not newline-terminated"
+
 
 class LedgerUnreadable(Exception):
     """The ledger file cannot be trusted; ``reason`` says why. Never partial."""
@@ -411,7 +415,7 @@ def _lines(text: str) -> list[str]:
     if not text:
         return []
     if not text.endswith("\n"):
-        raise LedgerUnreadable("torn tail: last line is not newline-terminated")
+        raise LedgerUnreadable(_TORN_TAIL_MESSAGE)
     return text.split("\n")[:-1]
 
 
@@ -538,7 +542,7 @@ class TaskLedger:
         handle.seek(0)
         header_line = handle.readline()
         if not header_line.endswith(b"\n"):
-            raise LedgerUnreadable("torn tail: last line is not newline-terminated")
+            raise LedgerUnreadable(_TORN_TAIL_MESSAGE)
         task_id = _parse_header(header_line.decode("utf-8"))
         if task_id != self.task_id:
             raise LedgerUnreadable(f"ledger belongs to task {task_id!r}, not {self.task_id!r}")
@@ -546,7 +550,7 @@ class TaskLedger:
             return 0, False
         last, torn = _tail_line(handle, size)
         if torn:
-            raise LedgerUnreadable("torn tail: last line is not newline-terminated")
+            raise LedgerUnreadable(_TORN_TAIL_MESSAGE)
         try:
             raw = json.loads(last)
             if not isinstance(raw, Mapping):
