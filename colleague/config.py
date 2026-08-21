@@ -3243,6 +3243,21 @@ class EngineConfig:
     chain_episode: bool = field(default=False, compare=False, repr=False)
     chain_prior_changed: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
+    @property
+    def reasoning_effort_effective(self) -> Optional[str]:
+        """The ACTING seat's resolved thinking-effort rung — see
+        :func:`colleague.effort.resolve_acting_effort` (c26/h17). A property,
+        not a ``resolve()``-time field: :attr:`role` is set by the CLI AFTER
+        ``resolve()`` returns (``colleague/cli/_commands/work.py``'s
+        ``config.role = ...``), so only a lazy read reflects it correctly.
+        """
+        return effort.resolve_acting_effort(
+            worker_armed=self.worker is not None,
+            seats=self.reasoning_effort_seats,
+            global_value=self.reasoning_effort,
+            role=self.role,
+        )
+
     @classmethod
     def resolve(
         cls,

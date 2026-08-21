@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from colleague.cli._errors import CliError
-from colleague.config import EngineConfig
+from colleague.config import EngineConfig, WorkerConfig
 
 _ALL_ENV = (
     "COLLEAGUE_BASE_URL",
@@ -228,3 +228,89 @@ def test_config_show_names_kill_switch_layer(monkeypatch: pytest.MonkeyPatch) ->
     text = rendered._text
     assert "kill-switch" in text
     assert "cortex: None" in text
+
+
+# ---------------------------------------------------------------------------
+# Slice C: acting-seat effective effort, top-level --role explorer, too_long_min.
+# ---------------------------------------------------------------------------
+
+
+def test_acting_seat_effective_defaults_medium_cortex() -> None:
+    cfg = EngineConfig.resolve()
+    assert cfg.worker is None
+    assert cfg.reasoning_effort_effective == "medium"
+
+
+def test_acting_seat_effective_prefers_worker_when_armed() -> None:
+    cfg = EngineConfig.resolve()
+    cfg.worker = WorkerConfig(
+        model="worker-model", base_url="http://worker/v1", api_key="k", context=32768
+    )
+    # Worker seat table default is also "medium", but the per-seat lookup
+    # must key off "worker", not "cortex" — pin that via an explicit worker
+    # override that would be invisible if the wrong seat were consulted.
+    cfg.reasoning_effort_seats = {"cortex": "off"}
+    assert cfg.reasoning_effort_effective == "medium"
+    cfg.reasoning_effort_seats = {"worker": "xhigh"}
+    assert cfg.reasoning_effort_effective == "xhigh"
+
+
+def test_explorer_role_defaults_low() -> None:
+    cfg = EngineConfig.resolve()
+    cfg.role = "explorer"
+    assert cfg.reasoning_effort_effective == "low"
+
+
+def test_explorer_role_explicit_override_wins_off_selectable() -> None:
+    cfg = EngineConfig.resolve()
+    cfg.role = "explorer"
+    cfg.reasoning_effort_seats = {"cortex": "off"}
+    assert cfg.reasoning_effort_effective == "off"
+
+
+def test_explorer_role_explicit_global_override_wins() -> None:
+    cfg = EngineConfig.resolve()
+    cfg.role = "explorer"
+    cfg.reasoning_effort = "xhigh"
+    assert cfg.reasoning_effort_effective == "xhigh"
+
+
+def test_non_explorer_role_keeps_acting_seat_value() -> None:
+    cfg = EngineConfig.resolve()
+    cfg.role = "writer"
+    assert cfg.reasoning_effort_effective == "medium"
+
+
+def test_kill_switch_effective_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_REASONING_EFFORT", "default")
+    cfg = EngineConfig.resolve()
+    assert cfg.reasoning_effort_effective is None
+    cfg.role = "explorer"
+    assert cfg.reasoning_effort_effective is None
+
+
+def test_too_long_min_default() -> None:
+    cfg = EngineConfig.resolve()
+    assert cfg.too_long_min == 20
+    assert cfg.to_dict()["too_long_min"] == 20
+
+
+def test_too_long_min_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_TOO_LONG_MIN", "45")
+    cfg = EngineConfig.resolve()
+    assert cfg.too_long_min == 45
+
+
+def test_too_long_min_config_json(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"too_long_min": 5})
+    cfg = EngineConfig.resolve(repo_path=tmp_path, discover_lobes=False)
+    assert cfg.too_long_min == 5
+
+
+def test_too_long_min_env_beats_config_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _write_config(tmp_path, {"too_long_min": 5})
+    monkeypatch.setenv("COLLEAGUE_TOO_LONG_MIN", "99")
+    cfg = EngineConfig.resolve(repo_path=tmp_path, discover_lobes=False)
+    assert cfg.too_long_min == 99
