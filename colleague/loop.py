@@ -194,7 +194,7 @@ _EXIT_STALLED = "stalled"  # no completed step within the step-stall bound (#400
 # ordinary turns are long is never cut by a fixed number. A progress bound, not a
 # duration one: the clock restarts whenever a step completes.
 _STALL_ENV = "COLLEAGUE_MAX_STEP_STALL"
-_STALL_FLOOR_SECONDS = 3600.0
+_STALL_FLOOR_SECONDS = 5400.0
 _STALL_LATENCY_MULTIPLIER = 6.0
 _STALL_MIN_SAMPLES = 3
 

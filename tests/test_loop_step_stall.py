@@ -112,16 +112,16 @@ def test_knob_zero_disables_the_watchdog(task: Task, monkeypatch) -> None:
 
 def test_default_bound_policy_floor_and_latency_scaling() -> None:
     """The default never drops below the floor and scales to 6x the mean turn latency."""
-    assert loop._STALL_FLOOR_SECONDS == 3600.0
+    assert loop._STALL_FLOOR_SECONDS == 5400.0
 
     class _Ctx:  # the two fields _stall_bound reads
         _turn_latencies: list[float]
 
     ctx = _Ctx()
     ctx._turn_latencies = []
-    assert loop._stall_bound(ctx) == 3600.0  # type: ignore[arg-type]
+    assert loop._stall_bound(ctx) == 5400.0  # type: ignore[arg-type]
     ctx._turn_latencies = [100.0, 100.0, 100.0]
-    assert loop._stall_bound(ctx) == 3600.0  # 6x100 < floor -> floor
+    assert loop._stall_bound(ctx) == 5400.0  # 6x100 < floor -> floor
     ctx._turn_latencies = [1000.0, 1000.0, 1000.0]
     assert loop._stall_bound(ctx) == 6000.0  # 6x mean once >= 3 samples
 
