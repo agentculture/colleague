@@ -12,8 +12,9 @@ keeps the identity record free of any tool-shape coupling, so a profile
 validates without any network.
 
 **No vendor model names.** The reference topology (Talker=senses,
-Worker=worker, Thinker/Coder=cortex) is named *by lobes role*, never by model
-family. ``resolved_model`` is trace data filled from ``RoleInfo.model`` at
+Worker=worker — dormant per deviation d3, Thinker/Coder=cortex, and the
+reserved fast-coder Associate=associate) is named *by lobes role*, never by
+model family. ``resolved_model`` is trace data filled from ``RoleInfo.model`` at
 resolution time — it is never a constant in this module. A grep guard in
 ``tests/test_agents_profile.py`` pins that no file under ``colleague/agents/``
 names a vendor model.
@@ -34,6 +35,7 @@ from typing import Optional
 
 __all__ = [
     "AgentProfile",
+    "DORMANT_PURPOSES",
     "PURPOSES",
     "PURPOSE_ROLE",
     "Resolution",
@@ -47,7 +49,7 @@ SCHEMA_VERSION = 1
 
 #: The closed set of agent purposes. A purpose is *what the agent is for*,
 #: resolved to a lobes role by :data:`PURPOSE_ROLE` — never to a model family.
-PURPOSES = frozenset({"talker", "worker", "thinker_coder"})
+PURPOSES = frozenset({"talker", "worker", "thinker_coder", "associate"})
 
 #: The enumerated purpose→role map (spec q5: an enumerated table, not a
 #: router). talker→senses (the tools-off front door), worker→worker (the
@@ -57,7 +59,16 @@ PURPOSE_ROLE = {
     "talker": "senses",
     "worker": "worker",
     "thinker_coder": "cortex",
+    "associate": "associate",
 }
+
+#: Deviation d3 (operator, 2026-08-21): the non-coding ``worker`` purpose stays
+#: DORMANT — its profile exists, the role is never bound — until a FAST CODER
+#: model arrives; that agent is the ``associate`` purpose, reserved by name now
+#: (lobes role ``associate``; absent on the gateway today → the same recorded
+#: cortex fallback). Routine coding routes to ``associate`` when present, else
+#: ``thinker_coder`` — never to ``worker``.
+DORMANT_PURPOSES = frozenset({"worker"})
 
 #: The floor role every purpose falls back to when its own role is absent or
 #: not ready (spec q1: "for now cortex runs ALL roles").
@@ -163,9 +174,9 @@ def resolve_profile(purpose: str, roles) -> Resolution:
     """Resolve *purpose* to a served model against *roles* (pure, no network).
 
     *roles* is a ``lobes.LobesRoles`` (or a test double) exposing ``.cortex``,
-    ``.senses``, and ``.worker`` — each a ``RoleInfo``-like with ``.model`` and
-    ``.ready`` (``.worker`` may be ``None`` when the gateway didn't advertise
-    one).
+    ``.senses``, ``.worker`` and (once advertised) ``.associate`` — each a
+    ``RoleInfo``-like with ``.model`` and ``.ready`` (``.worker`` / ``.associate``
+    may be ``None`` or simply absent when the gateway didn't advertise one).
 
     When the purpose's role is present and ready, it resolves to that role's
     model (no fallback). Otherwise the purpose is carried on the *cortex* model

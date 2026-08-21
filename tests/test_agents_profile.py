@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from colleague.agents.profile import (
+    DORMANT_PURPOSES,
     PURPOSE_ROLE,
     PURPOSES,
     SCHEMA_VERSION,
@@ -92,7 +93,7 @@ def _make_profile(**overrides):
 
 
 def test_purposes_is_closed_set():
-    assert PURPOSES == frozenset({"talker", "worker", "thinker_coder"})
+    assert PURPOSES == frozenset({"talker", "worker", "thinker_coder", "associate"})
 
 
 def test_purpose_role_map():
@@ -100,6 +101,7 @@ def test_purpose_role_map():
         "talker": "senses",
         "worker": "worker",
         "thinker_coder": "cortex",
+        "associate": "associate",
     }
 
 
@@ -238,3 +240,19 @@ def test_no_vendor_model_names_under_agents():
             if pattern.search(text):
                 offenders.append(str(path.relative_to(REPO_ROOT)))
     assert not offenders, f"vendor model names found under colleague/agents/: {offenders}"
+
+
+# --- deviation d3: worker dormant, fast-coder 'associate' reserved by name ---
+
+
+def test_associate_purpose_is_reserved_and_falls_back_to_cortex_when_absent():
+    assert "associate" in PURPOSES and PURPOSE_ROLE["associate"] == "associate"
+    roles = _advert_roles()  # today's gateway advertises no associate role at all
+    r = resolve_profile("associate", roles)
+    assert r.model_role == "cortex" and r.fallback_from_role == "associate"
+    assert r.resolved_model == roles.cortex.model
+
+
+def test_worker_is_dormant_by_declaration():
+    assert DORMANT_PURPOSES == frozenset({"worker"})
+    assert "worker" in PURPOSES  # the profile still exists; it is never bound
