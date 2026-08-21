@@ -56,14 +56,14 @@ from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import media
 from colleague import memory as _memorymod
-from colleague import salvage
-from colleague import stallguard
+from colleague import salvage, stallguard
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import (
+    TruncatedTurn,
     classify_degradable,
     count_tokens_chars,
     is_media_rejection,
@@ -1735,7 +1735,7 @@ def _plan_degraded_retry(
     signal = classify_degradable(str(exc))
     if signal is None:
         return None  # non-degradable: propagate immediately (unchanged)
-    saw_overflow = saw_overflow or signal == "overflow"
+    saw_overflow = saw_overflow or signal in ("overflow", "truncated")
     if signal == "timeout":
         # #268 ask 1: raise the per-turn timeout (bounded, once) BEFORE the retry
         # so the retry gets real headroom — a shrunken window alone cannot help
@@ -1947,6 +1947,38 @@ def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
 _RETRY_IMMEDIATE = object()
 
 
+def _is_truncated_turn(resp: ModelResponse) -> bool:
+    """An empty-content, tool-less turn the server cut at ``finish_reason=length`` (#411 t8)."""
+    return not resp.content and not resp.tool_calls and resp.finish_reason == "length"
+
+
+def _record_truncated_turn(ctx: _Work, resp: ModelResponse, *, account: bool) -> None:
+    """Record a truncated turn honestly (warning + phase notice; tokens exact).
+
+    The turn DID cost prompt + completion tokens (the completion was reasoning that
+    never reached an answer), so it is never dropped: ``account=True`` accounts it
+    here because the caller discards ``resp`` for a retry; ``account=False`` when
+    ``resp`` flows on to ``_work_loop`` (which accounts every returned turn itself)
+    — never both. Recorded on ``TaskResult.warnings`` (the per-invocation record
+    takes over once the agents runtime lands, plan t15).
+    """
+    if account:
+        _account_turn(ctx, resp)
+    ctx.result.warnings.append(
+        {
+            "kind": "truncated-turn",
+            "finish_reason": resp.finish_reason,
+            "reasoning_chars": len(resp.reasoning or ""),
+            "step_index": len(ctx.result.steps),
+        }
+    )
+    _emit_phase(
+        ctx,
+        "truncated turn: the model hit its output budget (finish_reason=length) before "
+        "any answer — recorded; retrying with a tighter window",
+    )
+
+
 def _attempt_completion_or_retry_plan(
     ctx: _Work,
     complete: CompleteFn,
@@ -1968,7 +2000,7 @@ def _attempt_completion_or_retry_plan(
     the give-up path, so :func:`run` preserves the partial.
     """
     try:
-        return _timed_complete(ctx, complete), None
+        resp = _timed_complete(ctx, complete)
     except Exception as exc:  # noqa: BLE001
         if _flatten_on_media_rejection(ctx, exc):
             return None, _RETRY_IMMEDIATE
@@ -1976,6 +2008,16 @@ def _attempt_completion_or_retry_plan(
         if plan is None:
             raise
         return None, plan
+    if _is_truncated_turn(resp):
+        # #411 t8: an empty-content finish_reason=length turn is a truncation, not an
+        # answer — record it and ride the SAME shrink-and-retry plan; at the floor
+        # the empty turn falls through to the ordinary no-tool handling (honest:
+        # nothing left to shrink).
+        plan = _plan_degraded_retry(ctx, TruncatedTurn(), effective, saw_overflow)
+        _record_truncated_turn(ctx, resp, account=plan is not None)
+        if plan is not None:
+            return None, plan
+    return resp, None
 
 
 def _complete_with_degradation(
@@ -2022,11 +2064,15 @@ def _complete_with_degradation(
         # ONE exception (t9, c7): a media-refusing endpoint still degrades to a
         # text-only retry — that handling must not depend on the budget feature.
         try:
-            return _timed_complete(ctx, complete)
+            resp = _timed_complete(ctx, complete)
         except Exception as exc:  # noqa: BLE001
             if _flatten_on_media_rejection(ctx, exc):
                 return _timed_complete(ctx, complete)
             raise
+        if _is_truncated_turn(resp):
+            # no budget = nothing to shrink: recorded only; _work_loop accounts resp
+            _record_truncated_turn(ctx, resp, account=False)
+        return resp
 
     # Adaptive backpressure (t6/#255): under ARMED/ESCALATED the next turn's
     # window is proactively tightened — smaller prompts make faster turns, the

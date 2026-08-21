@@ -353,13 +353,36 @@ def is_request_timeout(text: str) -> bool:
     return any(phrase in lower for phrase in _TIMEOUT_PHRASES)
 
 
-def classify_degradable(text: str) -> str | None:
-    """Classify a degradable engine error: 'overflow', 'timeout', or None for neither.
+# A model turn that returned EMPTY content, no tool calls and finish_reason="length"
+# (#405 §3 / #411 t8): the output budget was consumed (on a reasoning-heavy
+# checkpoint, by reasoning) before any answer — a truncation, not a valid empty
+# answer. The loop raises this marker through the SAME degradable classification
+# the error-text signals use, so the bounded shrink-and-retry lane handles it.
+TRUNCATED_TURN_MARKER = "truncated turn: empty content with finish_reason=length"
 
-    Overflow takes precedence over timeout.
+
+class TruncatedTurn(Exception):
+    """Internal signal for an empty-content ``finish_reason=length`` turn (#411 t8)."""
+
+    def __init__(self) -> None:
+        super().__init__(TRUNCATED_TURN_MARKER)
+
+
+def is_truncated_turn(text: str) -> bool:
+    """Does *text* carry the truncated-turn marker (see :data:`TRUNCATED_TURN_MARKER`)?"""
+    return TRUNCATED_TURN_MARKER in text
+
+
+def classify_degradable(text: str) -> str | None:
+    """Classify a degradable engine error: 'overflow', 'timeout', 'truncated', or None.
+
+    Overflow takes precedence over timeout; the truncated-turn marker (#411 t8) is
+    its own signal — retried on the overflow cap, since each attempt is cheap.
     """
     if is_context_overflow(text):
         return "overflow"
     if is_request_timeout(text):
         return "timeout"
+    if is_truncated_turn(text):
+        return "truncated"
     return None
