@@ -180,7 +180,7 @@
   "colleague/telemetry/_otel.py": 347,
   "colleague/testintegrity.py": 285,
   "colleague/thought.py": 566,
-  "colleague/tools.py": 1419,
+  "colleague/tools.py": 1461,
   "colleague/tui/__init__.py": 14,
   "colleague/tui/from_work.py": 110,
   "colleague/tui/render/__init__.py": 8,
