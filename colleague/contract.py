@@ -1641,6 +1641,22 @@ class TaskResult:
     ``media``/``lint_report``, the serialized key is OMITTED (not null) when
     ``None``, so a work item with no ledger serializes byte-identically to
     today's artifact."""
+    agents: Optional[dict[str, Any]] = None
+    """The model-bound-agents block for this work item (#411, plan t13; spec
+    c17/h24), or ``None`` when the ``agents`` increment never armed. A plain
+    dict of shape ``{"version", "invocations", "messages", "fallbacks",
+    "ledger_path", "ledger_digest"}`` built by
+    :func:`colleague.agents.artifact_block.build_agents_block` — the
+    invocation records (``InvocationRecord.to_dict()``), the agent-to-agent
+    messages (``AgentMessage.to_dict()``), the recorded role fallbacks
+    (``{"purpose", "from_role", "resolved_model"}``) and the task-ledger
+    pointer + state digest. Kept SMALL: the ledger is the authority, this is
+    the read-side mirror the ROI/feedback readers consume from the artifact.
+    An ARMED run always carries the key (the engine-level fold supplies the
+    empty-lists floor when the loop authored nothing) with the SAME shape on
+    every backend (all-engines rule). Like ``evaluation_ledger``/``senses``,
+    the serialized key is OMITTED (not null) when ``None``, so an unarmed run
+    serializes byte-identically to today's artifact."""
     senses: Optional[SensesBlock] = None
     """The cortex/senses front-door record for this work item (cortex/senses,
     t2), or ``None`` when no senses model ran (a plain cortex-only drive). A
@@ -1820,6 +1836,11 @@ class TaskResult:
         # ledger-less work item serializes byte-identically (no extra key).
         if self.evaluation_ledger is not None:
             extra["evaluation_ledger"] = dict(self.evaluation_ledger)
+        # agents gets the same omit-when-None treatment (#411, t13): an unarmed
+        # work item serializes byte-identically (no extra key); an armed one
+        # carries the versioned block with its lists copied, not aliased.
+        if self.agents is not None:
+            extra["agents"] = _copy_agents_block(self.agents)
         # senses gets the same omit-when-None treatment as deepthink (cortex/senses,
         # t2): a run with no senses front door serializes byte-identically to
         # today's artifact (no extra key).
@@ -1919,6 +1940,9 @@ class TaskResult:
                 if isinstance(data.get("evaluation_ledger"), dict)
                 else None
             ),
+            agents=(
+                _copy_agents_block(data["agents"]) if isinstance(data.get("agents"), dict) else None
+            ),
             senses=(
                 SensesBlock.from_dict(data["senses"])
                 if isinstance(data.get("senses"), dict)
@@ -1940,6 +1964,22 @@ class TaskResult:
             tip_sha=data.get("tip_sha"),
             warnings=list(data.get("warnings", [])),
         )
+
+
+def _copy_agents_block(block: dict[str, Any]) -> dict[str, Any]:
+    """A detached copy of a ``TaskResult.agents`` block: the top-level dict
+    plus one level of list/dict-entry copies, so serializing or re-reading an
+    artifact never aliases the in-memory lists (``invocations``/``messages``/
+    ``fallbacks``) the loop keeps appending to. Tolerant of a malformed
+    artifact: a non-list where a list is expected is kept as-is, never raises.
+    """
+    out: dict[str, Any] = {}
+    for key, value in block.items():
+        if isinstance(value, list):
+            out[key] = [dict(v) if isinstance(v, dict) else v for v in value]
+        else:
+            out[key] = value
+    return out
 
 
 def _coerce_omissions(value: Any) -> list[str]:
