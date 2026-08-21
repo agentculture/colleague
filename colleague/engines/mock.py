@@ -13,6 +13,7 @@ import re
 from contextlib import suppress
 from typing import Callable
 
+from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 from colleague.deepthink import make_deepthink_run
@@ -190,7 +191,7 @@ class MockEngine(Engine):
             if config.worker is not None or getattr(config, "thought_action_evaluation", False)
             else "cortex"
         )
-        return run(
+        result = run(
             complete,
             task,
             max_steps=config.max_steps,
@@ -225,3 +226,9 @@ class MockEngine(Engine):
                 tae_session=make_tae_session(config, self.name),
             ),
         )
+        # Model-bound agents (#411, t13): an ARMED config always returns the
+        # versioned ``agents`` block with the SAME shape on every backend
+        # (all-engines rule) — the fold only fills a still-``None`` field, so
+        # the loop-authored block (when the loop wired it) wins; unarmed is a
+        # strict no-op (key absent, byte-identical artifact).
+        return fold_agents_block(result, config)
