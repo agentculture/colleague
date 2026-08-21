@@ -21,7 +21,8 @@ def _sub(**kw) -> SubResult:
 def test_subagent_schema_exposes_profile_and_context_mode() -> None:
     schema = next(s for s in tools.SCHEMAS if s["function"]["name"] == "subagent")
     props = schema["function"]["parameters"]["properties"]
-    assert "profile" in props and props["context_mode"]["enum"] == ["inherit", "clear"]
+    assert "profile" in props
+    assert props["context_mode"]["enum"] == ["inherit", "clear"]
 
 
 def test_subagent_passes_profile_and_context_mode_to_the_spawn(tmp_path: Path) -> None:
@@ -59,7 +60,9 @@ def test_batch_items_keep_profile_and_context_mode() -> None:
             {"instruction": "b"},
         ]
     )
-    assert items[0]["profile"] == "associate" and items[0]["context_mode"] == "clear"
-    assert "profile" not in items[1] and "context_mode" not in items[1]
+    assert items[0]["profile"] == "associate"
+    assert items[0]["context_mode"] == "clear"
+    assert "profile" not in items[1]
+    assert "context_mode" not in items[1]
     with pytest.raises(tools.ToolError):
         tools._parse_batch_items([{"nope": 1}])

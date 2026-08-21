@@ -85,7 +85,8 @@ def test_armed_static_lines_and_probe_fallback_lines(tmp_path: Path, monkeypatch
     with _serving(_ADVERT) as url:
         repo = _repo(tmp_path, {"agents": True, "lobes": url})
         static = {c["id"]: c for c in agents.checks(repo_path=repo)}
-        assert static["agents_armed"]["passed"] and static["agents_gateway"]["passed"]
+        assert static["agents_armed"]["passed"]
+        assert static["agents_gateway"]["passed"]
         probe = {c["id"]: c for c in agents.probe_checks(repo_path=repo)}
     assert "ready" in probe["agents_role_cortex"]["message"]
     assert "ready" in probe["agents_role_senses"]["message"]

@@ -255,7 +255,8 @@ def test_build_block_refuses_non_record_entries() -> None:
 
 
 def test_build_block_is_pure() -> None:
-    assert _populated_block() == _populated_block()
+    first = _populated_block()
+    assert first == _populated_block()
 
 
 # ---------------------------------------------------------------------------

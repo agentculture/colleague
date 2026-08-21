@@ -183,9 +183,11 @@ def test_derive_snapshot_contents(tmp_path: Path) -> None:
         {"id": "d2", "kind": "delegate", "child_ref": "sub/t-1-d2", "seq": 12},
     )
     dl = {d["id"]: d for d in snap.delegations}
-    assert dl["d1"]["returned"] is True and dl["d1"]["return_ref"] == "artifact:sub:d1"
+    assert dl["d1"]["returned"] is True
+    assert dl["d1"]["return_ref"] == "artifact:sub:d1"
     assert dl["d2"]["returned"] is False
-    assert len(snap.state_digest) == 64 and len(snap.authority_digest) == 64
+    assert len(snap.state_digest) == 64
+    assert len(snap.authority_digest) == 64
     assert snap.state_digest == task_ledger_digest(led.events())
     assert snap.authority_digest == authority_digest(led.events())
 
@@ -310,7 +312,8 @@ def test_non_posix_degrades_to_unlocked_append_with_recorded_warning(
     led = TaskLedger(tmp_path / "t.jsonl", task_id="t")
     led.append("message", {"id": "m-1"})
     led.append("message", {"id": "m-2"})
-    assert len(led.warnings) == 1 and "unlocked" in led.warnings[0]
+    assert len(led.warnings) == 1
+    assert "unlocked" in led.warnings[0]
     assert [e.seq for e in led.events()] == [0, 1]
 
 
@@ -334,8 +337,9 @@ def test_read_ledger_refuses_unknown_schema_version(tmp_path: Path) -> None:
     with pytest.raises(LedgerUnreadable, match="unknown schema version 99"):
         read_ledger(p)
     # The writer refuses to extend a foreign-version file too.
+    writer = TaskLedger(p, task_id="t")
     with pytest.raises(LedgerUnreadable):
-        TaskLedger(p, task_id="t").append("message", {"id": "m"})
+        writer.append("message", {"id": "m"})
 
 
 def test_read_ledger_refuses_missing_header(tmp_path: Path) -> None:
@@ -439,7 +443,8 @@ def test_read_is_never_partial_every_failure_is_ledger_unreadable(tmp_path: Path
 
 def test_ledger_unreadable_carries_reason() -> None:
     exc = LedgerUnreadable("because")
-    assert exc.reason == "because" and str(exc) == "because"
+    assert exc.reason == "because"
+    assert str(exc) == "because"
     assert isinstance(exc, Exception)
 
 
