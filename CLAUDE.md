@@ -51,7 +51,7 @@ minds. The architecture, part by part:
   **enumerated** escalation surface; absent = byte-identical. Doc: `deepthink.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
-- **Three-tier execution** — worker acts / senses relays / cortex configures,
+- **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
   resolved BY ROLE NAME from the lobes gateway (worker role), opt-in via config;
   byte-identical when unconfigured; deepthink absent in three-tier mode;
   the configurator a further opt-in (default off); the consumption lane is
@@ -73,6 +73,20 @@ minds. The architecture, part by part:
   whole chain lands append-only on `TaskResult.evaluation_ledger` with real
   seat/model attribution. Byte-identical when unarmed. Doc:
   `thought-action-evaluation.md`.
+- **Model-bound agents (#411)** — a THIRD independent opt-in (`agents` /
+  `COLLEAGUE_AGENTS`; arming it with `three_tier` or `thought_action_evaluation`
+  refuses, naming both): every model invocation is an attributable agent — a
+  typed `AgentProfile` (purpose → lobes role → served model as trace data,
+  validated tool profile, authority ceiling, lineage) with a per-invocation
+  context manifest + tool-surface digest on the append-only **task ledger** at
+  the operator repo (`.colleague/ledger/<id>.jsonl`); subagents may bind a
+  DIFFERENT lobes role (child surface ⊆ parent, `context_mode` inherit|clear);
+  agents exchange typed `delegate|ask|inform|challenge|handoff|return` messages
+  (no chain-of-thought field, bounded by `MAX_AGENT_MESSAGES`); continuation
+  rehydrates from the ledger; reference topology BY ROLE NAME — Talker=`senses`,
+  Worker=`worker` (dormant, d3), Thinker/Coder=`cortex`, Associate=`associate`
+  (reserved fast coder); a missing role is a RECORDED cortex fallback, never a
+  refusal. Byte-identical when unarmed. Doc: `model-bound-agents.md`.
 - **Media input** — images/audio ride to a multimodal main model;
   delivery **verified** onto `TaskResult.media`.
   Doc: `media-input.md`.
@@ -279,9 +293,20 @@ unarmed. The evaluator sits on FIVE enumerated boundaries, never every tool
 call. **Alignment is never permission** — host policy/approvals still gate every
 route; the evaluator cannot write memory, and evaluator/distiller stay separate
 authority contracts even on one checkpoint. NEVER an automatic task-to-model
-routing policy.
+routing policy; (11) **the model-bound-agents increment** (spec
+`docs/specs/2026-08-21-model-bound-agents-411.md`): explicit agents bound to
+lobes roles — Talker=`senses`, Worker=`worker` (dormant), Thinker/Coder=`cortex`,
+Associate=`associate` (reserved) — a typed `AgentProfile` + per-invocation
+identity/manifest/tool-surface digest, cross-role subagents that only NARROW,
+typed attributable messages, the append-only task ledger + per-agent
+reconstruction, an INDEPENDENT opt-in (`agents` / `COLLEAGUE_AGENTS`; arming it
+with either sibling mode REFUSES), byte-identical when unarmed; model switching
+ONLY through an explicit ledgered delegation — the runtime never picks a model
+per turn (pinned by an AST guard). `three_tier` is superseded by this increment
+and kept as the benchmark baseline. NEVER an automatic task-to-model routing
+policy.
 
-Anything beyond those ten is still the excluded router; document the distinction
+Anything beyond those eleven is still the excluded router; document the distinction
 honestly. **Still explicitly OUT**, each parked pending its own re-spec: the
 **retrieval-consumption lane of #277** (`embedder`/`reranker` roles are
 discoverable in the lobes `/capabilities` contract but colleague consumes only
