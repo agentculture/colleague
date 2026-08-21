@@ -1,6 +1,6 @@
 # Delivery Summary — model-bound agents (#411)
 
-plan: `model-bound-agents-411` · run: `in progress (live proof pending)` · date: `2026-08-21`
+plan: `model-bound-agents-411` · run: `complete (experiment arms pending)` · date: `2026-08-21`
 baseline: the confirmed 23-task / 7-wave plan `docs/plans/2026-08-21-model-bound-agents-411.md`
 
 ## Intent
@@ -98,7 +98,7 @@ continuity regression · t22 docs · t23 live proof.
 | t20 | pending | fallback proof on the saved advert — colleague run cut at 50 min, **resumed** with `work --continue` |
 | t21 | merged | `tests/test_agents_continuity.py` + `tests/_agents_audit.py` |
 | t22 | merged | `docs/features/model-bound-agents.md`, CLAUDE.md eleventh increment, CHANGELOG, v1.61.0 |
-| t23 | in progress | live armed run on the Spark rig (task id recorded below when it lands); matched experiment arms pending rig hours |
+| t23 | live proof DONE; experiment pending | two live armed runs on the Spark rig (`216d1110b1bc`, `0ff226c60ebe` — `docs/live-testing.md` row 37): 100 % attribution, manifest ratio ≤ 0.0054, ledger at the operator repo, child bound via `profile: associate` with the recorded `fallback_from_role`, delegate/return events; run 1 exposed and run 2 confirmed the fix for the missing model-facing `profile`/`context_mode` tool params; matched experiment arms (row 38) pending rig hours |
 
 ## Mid-work Decisions
 
@@ -116,18 +116,18 @@ made the block loop-authored.
   were three lobes tests that read the MAIN checkout's local operator
   `.colleague/config.json` (environmental — pass in every worktree).
 - Live SIGTERM salvage (#410) exercised for real twice (t9, t20 runs).
-- Live run and experiment rows: see `docs/live-testing.md` rows 37–38.
+- Live runs: `docs/live-testing.md` row 37 (two armed runs, both `ok`; run 1 found the missing `profile`/`context_mode` tool params, fixed before run 2). Experiment: row 38 (pre-registered, pending).
 
 ## Delivery Claims
 
 - Unarmed = byte-identical (pinned key set; `tests/test_e2e_mock.py` unchanged) — **verified**.
-- Worker-absent fallback recorded on identity, artifact and doctor — **verified (tests)**; live run pending.
+- Worker-absent / associate-absent fallback recorded on identity, artifact and doctor — **verified** (tests + live run 2: `fallback_from_role: associate`).
 - Model switching only by ledgered delegation (AST guard) — **verified**.
 - Matched-experiment promotion — **unverified** (bars above; arms pending).
 
 ## Remaining Work / Follow-up
 
-- t20 resume + t23 live run and rows; the matched experiment arms (rig hours).
+- t20 resume (in flight); the matched experiment arms (rig hours, row 38).
 - #412 / #413 — the big-file extraction (loop.py 5132+ lines, three seat builders to fold).
 - Per-role API key source for cross-origin child dials (same-origin hygiene sends none today).
 - The dormant `worker` / reserved `associate` become live when lobes-cli#187 lands a ready role.
