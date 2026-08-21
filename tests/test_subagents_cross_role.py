@@ -230,7 +230,8 @@ def test_unarmed_child_config_identical_to_replace(tmp_path: Path, capture: _Cap
     sub = run_subagent(
         "t", repo_path=str(tmp_path), parent_config=parent, parent_engine="mock", depth=1
     )
-    assert sub.agent_id is None and sub.resolved_model is None
+    assert sub.agent_id is None
+    assert sub.resolved_model is None
     assert sub.fallback_from_role is None
     assert set(sub.to_dict()) == {
         "task_id",
@@ -249,9 +250,11 @@ def test_armed_without_profile_is_the_existing_path(tmp_path: Path, capture: _Ca
         "t", repo_path=str(tmp_path), parent_config=parent, parent_engine="mock", depth=1
     )
     _task, cfg = capture.calls[0]
-    assert cfg.base_url == parent.base_url and cfg.api_key == parent.api_key
+    assert cfg.base_url == parent.base_url
+    assert cfg.api_key == parent.api_key
     assert cfg.model == parent.model
-    assert sub.agent_id is None and sub.resolved_model is None
+    assert sub.agent_id is None
+    assert sub.resolved_model is None
 
 
 def test_binding_is_none_when_unarmed() -> None:
@@ -284,18 +287,23 @@ def test_cross_role_dial_to_associate_on_vllm_openai(tmp_path: Path, capture: _C
     # Own context: the role advert's window, not the parent's budget.
     assert cfg.context_budget_tokens == 262144
     # Seat hygiene per the t9 contract: no stale-pin refresh seat, no delta sink.
-    assert cfg.refresh_seat is None and cfg.on_delta is None
-    assert cfg.chain_episode is False and cfg.until_done is False
+    assert cfg.refresh_seat is None
+    assert cfg.on_delta is None
+    assert cfg.chain_episode is False
+    assert cfg.until_done is False
     # The parent object is untouched.
-    assert parent.api_key == "parent-secret" and parent.base_url == _MAIN_ENDPOINT + "/v1"
+    assert parent.api_key == "parent-secret"
+    assert parent.base_url == _MAIN_ENDPOINT + "/v1"
     # The SubResult carries the identity.
     assert sub.engine == "vllm-openai"
     assert sub.model == _ASSOCIATE_MODEL
     assert sub.resolved_model == _ASSOCIATE_MODEL
-    assert sub.agent_id and sub.agent_id.endswith(task.id)
+    assert sub.agent_id
+    assert sub.agent_id.endswith(task.id)
     assert sub.fallback_from_role is None
     d = sub.to_dict()
-    assert d["agent_id"] == sub.agent_id and d["resolved_model"] == _ASSOCIATE_MODEL
+    assert d["agent_id"] == sub.agent_id
+    assert d["resolved_model"] == _ASSOCIATE_MODEL
     assert "fallback_from_role" not in d
     assert SubResult.from_dict(d) == sub
 
@@ -413,7 +421,8 @@ def test_gateway_absent_degrades_to_parent_model_recorded(
         )
         _task, cfg = capture.calls[0]
         assert cfg.model == "main-model"
-        assert cfg.base_url == parent.base_url and cfg.api_key == parent.api_key
+        assert cfg.base_url == parent.base_url
+        assert cfg.api_key == parent.api_key
         assert cfg.context_budget_tokens == parent.context_budget_tokens
         assert sub.resolved_model == "main-model"
         assert sub.fallback_from_role == "associate"
@@ -535,11 +544,14 @@ def test_make_spawn_threads_profile_and_context_mode(tmp_path: Path, capture: _C
         # … and the new kwargs ride along.
         sub1 = spawn("fast", profile="associate", context_mode="clear")
     assert sub0.agent_id is None
-    assert sub1.model == _ASSOCIATE_MODEL and sub1.agent_id
+    assert sub1.model == _ASSOCIATE_MODEL
+    assert sub1.agent_id
     _t0, cfg0 = capture.calls[0]
     t1, cfg1 = capture.calls[1]
-    assert cfg0.model == _CORTEX_MODEL and cfg0.api_key == "parent-secret"
-    assert cfg1.base_url == _ASSOCIATE_ENDPOINT + "/v1" and cfg1.api_key is None
+    assert cfg0.model == _CORTEX_MODEL
+    assert cfg0.api_key == "parent-secret"
+    assert cfg1.base_url == _ASSOCIATE_ENDPOINT + "/v1"
+    assert cfg1.api_key is None
     assert t1.context.startswith("# Handover summary")
 
 
@@ -567,9 +579,12 @@ def test_batch_items_carry_profile_and_context_mode(tmp_path: Path, capture: _Ca
         )
     children = results[:-1]
     assert [c.resolved_model for c in children] == [_ASSOCIATE_MODEL, _CORTEX_MODEL, None]
-    assert children[0].agent_id and children[1].agent_id and children[2].agent_id is None
+    assert children[0].agent_id
+    assert children[1].agent_id
+    assert children[2].agent_id is None
     cfgs = [c for _t, c in capture.calls]
-    assert cfgs[0].base_url == _ASSOCIATE_ENDPOINT + "/v1" and cfgs[0].api_key is None
+    assert cfgs[0].base_url == _ASSOCIATE_ENDPOINT + "/v1"
+    assert cfgs[0].api_key is None
     assert cfgs[1].api_key == "parent-secret"
     assert capture.calls[1][0].context.startswith("# Handover summary")
     assert capture.calls[2][0].context == ""
