@@ -93,6 +93,10 @@ def _config_show(repo: str = ".") -> object:
     if gateway is not None:
         lines.append(f"lobes: armed (gateway={gateway!r}) — resolved model={cfg.model}")
         data = {**data, "lobes": {"armed": True, "gateway": gateway, "resolved_model": cfg.model}}
+    # Model-bound agents (#411 t7): reflect the mode so an operator can see it
+    # before a run; the payload carries the key only when armed (to_dict()'s
+    # omit-when-unarmed convention).
+    lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
     return rendered(data, "\n".join(lines))
 
 
