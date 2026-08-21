@@ -2,7 +2,7 @@
   "plan_slug": "per-seat-thinking-effort-416",
   "schema_version": 1,
   "created": "2026-08-21T22:52:26Z",
-  "updated": "2026-08-21T22:52:26Z",
+  "updated": "2026-08-21T23:56:44Z",
   "deviations": [
     {
       "id": "d1",
@@ -13,6 +13,16 @@
         "t2",
         "t3"
       ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t5 (both slices) moves to a Claude sonnet subagent after two failed colleague attempts at medium (09e58827e8db: 19-min silent turn; 77217458648f: 8 exploratory steps then write-no-changes).",
+      "task_ref": "t5",
+      "reason": "blocker rule approved in the split plan: a task that stalls twice \u2192 issue + take over; Ori's standing allowance: sonnet/opus when colleague cannot deliver",
+      "affects": [],
       "origin": "user",
       "status": "approved",
       "classification": "acceptable"
