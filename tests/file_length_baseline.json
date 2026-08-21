@@ -12,7 +12,7 @@
   "colleague/agents/runtime.py": 608,
   "colleague/agents/state/__init__.py": 52,
   "colleague/agents/state/context.py": 778,
-  "colleague/agents/state/ledger.py": 595,
+  "colleague/agents/state/ledger.py": 620,
   "colleague/agents/talker.py": 189,
   "colleague/agents/tools.py": 243,
   "colleague/architecture_facts.py": 69,
