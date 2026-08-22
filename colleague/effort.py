@@ -146,24 +146,6 @@ def resolve_effort(
         return validate_effort(SEAT_TABLE[seat])
     return None
 
-    for candidate in (parent_override, seat_override):
-        if candidate is None:
-            continue
-        if candidate == DEFAULT_SENTINEL:
-            return None
-        return validate_effort(candidate)
-
-    if site is not None and site in DESIGN_SITE_TABLE:
-        return validate_effort(DESIGN_SITE_TABLE[site])
-
-    if role is not None and role in ROLE_TABLE:
-        return validate_effort(ROLE_TABLE[role])
-
-    if seat is not None and seat in SEAT_TABLE:
-        return validate_effort(SEAT_TABLE[seat])
-
-    return None
-
 
 def resolve_acting_effort(
     *,
