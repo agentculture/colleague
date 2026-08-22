@@ -918,3 +918,49 @@ def test_session_parser_has_voice_flag() -> None:
     assert ns.voice is True
     ns2 = p.parse_args([])
     assert ns2.voice is False
+
+
+# ── qwen-direct (t7): the single-model default path keeps voice/speak dormant ──
+
+
+def test_voice_toggle_unarmed_senses_prints_dormant_line_no_dial(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """config.senses None (the default) → `/voice` is one honest dormant line:
+    no capture armed, the wanted preference untouched, never a raise."""
+    from colleague.cli._commands.session import _VOICE_SENSES_UNARMED_LINE
+
+    sess, _o, _e = _session(tmp_path, config=_config(realtime=True, senses=False))
+    _install_seams(monkeypatch)
+    line = sess._toggle_voice()
+    assert line == _VOICE_SENSES_UNARMED_LINE
+    assert sess._voice_session is None and sess._voice_capture is None
+    assert sess._voice_wanted is False
+
+
+def test_speak_toggle_unarmed_senses_prints_dormant_line(tmp_path: Path) -> None:
+    from colleague.cli._commands.session import _SPEAK_SENSES_UNARMED_LINE
+
+    sess, _o, _e = _session(tmp_path, config=_config(realtime=True, senses=False))
+    assert sess._toggle_speak() == _SPEAK_SENSES_UNARMED_LINE
+    assert sess._speak_only is False
+
+
+def test_voice_flag_unarmed_senses_one_dormant_line_ansi_only(tmp_path: Path, monkeypatch) -> None:
+    """--voice on the default path renders exactly ONE dormant line on the colour
+    TTY and nothing off-TTY (the byte-identical floor)."""
+    from colleague.cli._commands.session import _VOICE_SENSES_UNARMED_LINE
+
+    sess, _o, _e = _session(tmp_path, config=_config(realtime=True, senses=False))
+    rendered: list[str] = []
+    monkeypatch.setattr(sess, "_render_voice_line", lambda line: rendered.append(line))
+    sess._voice_wanted = True
+    sess._begin_voice_lane()
+    sess._begin_voice_lane()
+    assert rendered == [_VOICE_SENSES_UNARMED_LINE]
+    md, _o2, _e2 = _session(tmp_path, view="markdown", config=_config(realtime=True, senses=False))
+    md_rendered: list[str] = []
+    monkeypatch.setattr(md, "_render_voice_line", lambda line: md_rendered.append(line))
+    md._voice_wanted = True
+    md._begin_voice_lane()
+    assert md_rendered == []

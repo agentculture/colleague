@@ -242,6 +242,15 @@ _SPEAK_STATE_LINES: dict[str, str] = {
 }
 #: The ONE honest notice for ``/speak`` when no tts endpoint resolved.
 _SPEAK_UNAVAILABLE_LINE = "speak · unavailable · no tts endpoint resolved — staying text-only"
+#: qwen-direct (t7): voice/realtime/speak are senses consumers; with no senses
+#: seat resolved (the single-model default) they are dormant — ONE honest line,
+#: never a dial, never a raise. Opt in with the lobes sentinel or a model id.
+_VOICE_SENSES_UNARMED_LINE = (
+    "voice · dormant · senses not armed — opt in with COLLEAGUE_SENSES_MODEL=lobes"
+)
+_SPEAK_SENSES_UNARMED_LINE = (
+    "speak · dormant · senses not armed — opt in with COLLEAGUE_SENSES_MODEL=lobes"
+)
 
 
 def _reply_text_from_turns(turns: object) -> str:
@@ -2956,6 +2965,13 @@ class _Session:
         honest notice, no dial. A strict no-op (byte-identical, zero output) when
         the talk lane isn't active — i.e. off-TTY / no senses / ``--cortex-only``,
         the same surfaces the typed talk lane stays silent on."""
+        if getattr(self.config, "senses", None) is None:
+            # qwen-direct (t7): --voice on the single-model default path — one
+            # honest dormant line (colour TTY only; off-TTY stays byte-identical).
+            if self._voice_wanted and not self._voice_unavailable_noticed and self.view == "ansi":
+                self._voice_unavailable_noticed = True
+                self._render_voice_line(_VOICE_SENSES_UNARMED_LINE)
+            return
         if not self._talk_active:
             return
         if not self._voice_available():
@@ -3143,6 +3159,8 @@ class _Session:
         (muted → live). ``degraded`` stays degraded — a toggle can't un-break a
         dead lane. Off a work item (no talk lane) it flips the wanted preference,
         which the next work item's talk lane honors."""
+        if getattr(self.config, "senses", None) is None:
+            return _VOICE_SENSES_UNARMED_LINE
         if not self._voice_available():
             return _VOICE_UNAVAILABLE_LINE
         self._voice_wanted = True
@@ -3186,6 +3204,8 @@ class _Session:
         ``--speak`` are its ONLY writers). No tts resolved → one honest
         notice through the SAME label·state·consequence line seam
         ``/voice`` uses, and stays off (never raises)."""
+        if getattr(self.config, "senses", None) is None:
+            return _SPEAK_SENSES_UNARMED_LINE
         if not self._speak_available():
             return _SPEAK_UNAVAILABLE_LINE
         self._speak_only = not self._speak_only
