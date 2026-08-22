@@ -934,7 +934,8 @@ def test_voice_toggle_unarmed_senses_prints_dormant_line_no_dial(
     _install_seams(monkeypatch)
     line = sess._toggle_voice()
     assert line == _VOICE_SENSES_UNARMED_LINE
-    assert sess._voice_session is None and sess._voice_capture is None
+    assert sess._voice_session is None
+    assert sess._voice_capture is None
     assert sess._voice_wanted is False
 
 

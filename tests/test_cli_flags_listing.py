@@ -20,6 +20,7 @@ from colleague.cli._commands._listing import (
     register_listing_flags,
     served_model_listing,
 )
+from colleague.cli._errors import CliError
 from colleague.config import EngineConfig
 
 
@@ -50,7 +51,8 @@ def test_served_model_listing_distinguishes_none_roster_empty_and_unarmed() -> N
     none_text, none_payload = served_model_listing(
         current_model="m", roster=None, roles=None, lobes_armed=True
     )
-    assert "roster unavailable" in none_text and none_payload["served"] is None
+    assert "roster unavailable" in none_text
+    assert none_payload["served"] is None
     empty_text, _ = served_model_listing(current_model="m", roster=[], roles=None, lobes_armed=True)
     assert "nothing served" in empty_text
     unarmed_text, _ = served_model_listing(
@@ -76,7 +78,7 @@ def test_effort_table_reflects_defaults_overrides_and_kill_switch(tmp_path: Path
 
 def test_apply_effort_rejects_a_bad_rung_before_mutating(tmp_path: Path) -> None:
     cfg = EngineConfig.resolve(repo_path=tmp_path)
-    with pytest.raises(Exception):
+    with pytest.raises(CliError):
         apply_effort(cfg, "turbo")
     assert not cfg.reasoning_effort_seats
 
@@ -85,10 +87,12 @@ def test_register_listing_flags_no_value_yields_sentinel() -> None:
     p = argparse.ArgumentParser()
     register_listing_flags(p)
     args = p.parse_args(["--model", "--effort"])
-    assert args.model == LIST_SENTINEL and args.effort == LIST_SENTINEL
+    assert args.model == LIST_SENTINEL
+    assert args.effort == LIST_SENTINEL
     assert model_arg(args) is None
     args2 = p.parse_args(["--model", "x/y", "--effort", "low"])
-    assert model_arg(args2) == "x/y" and args2.effort == "low"
+    assert model_arg(args2) == "x/y"
+    assert args2.effort == "low"
 
 
 def test_work_bare_model_and_effort_print_and_exit_zero(
@@ -100,7 +104,8 @@ def test_work_bare_model_and_effort_print_and_exit_zero(
         ["work", "noop", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--model"], capsys
     )
     assert code == 0
-    assert "current model:" in out and "lobes not armed" in out
+    assert "current model:" in out
+    assert "lobes not armed" in out
     code, out = _capture(
         [
             "work",

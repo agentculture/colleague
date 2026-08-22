@@ -74,7 +74,8 @@ def test_default_path_arms_exactly_one_model(monkeypatch: pytest.MonkeyPatch) ->
     assert cfg.senses is None
     assert cfg.deepthink is None
     assert getattr(cfg, "worker", None) is None
-    assert cfg.three_tier is False and cfg.thought_action_evaluation is False
+    assert cfg.three_tier is False
+    assert cfg.thought_action_evaluation is False
     # Every model id the resolved config carries is the cortex model.
     models = {
         v for k, v in cfg.to_dict().items() if k.endswith("model") and isinstance(v, str) and v
@@ -88,8 +89,10 @@ def test_opt_in_sentinel_is_the_only_way_to_a_second_seat(monkeypatch: pytest.Mo
         monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
         monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")
         cfg = EngineConfig.resolve()
-    assert cfg.senses is not None and cfg.senses.model == "stub/gemma-senses"
-    assert cfg.deepthink is not None and cfg.deepthink.model == "stub/gemma-muse"
+    assert cfg.senses is not None
+    assert cfg.senses.model == "stub/gemma-senses"
+    assert cfg.deepthink is not None
+    assert cfg.deepthink.model == "stub/gemma-muse"
 
 
 def test_lobes_fallbacks_are_reached_only_under_the_sentinel() -> None:

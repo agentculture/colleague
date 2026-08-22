@@ -269,8 +269,8 @@ def apply_operator_effort(config: object, value: str, seat: str = "cortex") -> s
     rung = validate_effort(value)
     if seat == "all":
         config.reasoning_effort = rung
-        return rung
-    seats = dict(getattr(config, "reasoning_effort_seats", {}) or {})
-    seats[seat] = rung
-    config.reasoning_effort_seats = seats
+    else:
+        seats = dict(getattr(config, "reasoning_effort_seats", {}) or {})
+        seats[seat] = rung
+        config.reasoning_effort_seats = seats
     return rung

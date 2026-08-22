@@ -29,6 +29,38 @@ _OPT_IN_ROLES: Mapping[str, str] = {
 }
 
 
+def _roster_lines(roster: Optional[Sequence[str]], current_model: str) -> list[str]:
+    """One line per served id (``None`` roster = could not fetch; ``[]`` = nothing served)."""
+    if roster is None:
+        return ["roster unavailable — /v1/models did not answer (down, 401, or malformed)"]
+    if not roster:
+        return ["served: (nothing served)"]
+    return [
+        f"served: {model_id}{'  ◀ current' if model_id == current_model else ''}"
+        for model_id in roster
+    ]
+
+
+def _role_lines(roles: Optional[Mapping[str, str]], consumed_roles: Sequence[str]) -> list[str]:
+    """One ``role → model (status)`` line per advertised role."""
+    out: list[str] = []
+    for role, model_id in (roles or {}).items():
+        if role in consumed_roles:
+            status = "consumed"
+        elif role in _OPT_IN_ROLES:
+            status = f"not consumed — opt-in: {_OPT_IN_ROLES[role]}"
+        else:
+            status = "not consumed"
+        out.append(f"role {role} → {model_id} ({status})")
+    return out
+
+
+def _effort_source(seats: Mapping[str, str], seat: str, kill_switch: bool) -> str:
+    if seats.get(seat):
+        return "override"
+    return "kill-switch" if kill_switch else "table"
+
+
 def served_model_listing(
     *,
     current_model: str,
@@ -57,22 +89,8 @@ def served_model_listing(
     if not lobes_armed:
         lines.append("lobes not armed — no served roster to list (set COLLEAGUE_LOBES_URL)")
         return "\n".join(lines), payload
-    if roster is None:
-        lines.append("roster unavailable — /v1/models did not answer (down, 401, or malformed)")
-    elif not roster:
-        lines.append("served: (nothing served)")
-    else:
-        for model_id in roster:
-            mark = "  ◀ current" if model_id == current_model else ""
-            lines.append(f"served: {model_id}{mark}")
-    for role, model_id in (roles or {}).items():
-        if role in consumed_roles:
-            status = "consumed"
-        elif role in _OPT_IN_ROLES:
-            status = f"not consumed — opt-in: {_OPT_IN_ROLES[role]}"
-        else:
-            status = "not consumed"
-        lines.append(f"role {role} → {model_id} ({status})")
+    lines.extend(_roster_lines(roster, current_model))
+    lines.extend(_role_lines(roles, consumed_roles))
     lines.append(
         "switch: --model <id> (CLI) or /model <id> (session) — an explicit choice, never automatic"
     )
@@ -106,7 +124,7 @@ def effort_table(config: object) -> tuple[str, dict[str, Any]]:
         "reasoning effort per seat (ladder: " + "|".join(_effort.LADDER) + " | default = unset):"
     ]
     for seat, rung in rows.items():
-        src = "override" if seats.get(seat) else ("kill-switch" if kill_switch else "table")
+        src = _effort_source(seats, seat, kill_switch)
         lines.append(f"  {seat:<10} {rung if rung is not None else 'unset':<7} ({src})")
     lines.append("switch: --effort <rung> (CLI, acting seat) or /effort <rung> [seat] (session)")
     payload = {
@@ -116,10 +134,6 @@ def effort_table(config: object) -> tuple[str, dict[str, Any]]:
         "overrides": dict(seats),
     }
     return "\n".join(lines), payload
-    seats = dict(getattr(config, "reasoning_effort_seats", {}) or {})
-    seats[seat] = rung
-    config.reasoning_effort_seats = seats
-    return rung
 
 
 def print_listings(
