@@ -7,8 +7,9 @@ imports from the loop:
   (``reasoning_effort_seat``) and the global knob (``reasoning_effort``) are
   written ONLY in the sanctioned set: ``config.py`` (resolve), ``effort.py``
   (the tables/fragment), ``roles.py`` (Role.effort), the five seat builders
-  (``deepthink.py``, ``senses.py``, ``tae_loop.py``, ``agents/runtime.py``)
-  and the ``subagents.py`` child builds. Nothing under the loop's per-turn
+  (``deepthink.py``, ``senses.py``, ``tae_loop.py``, ``agents/runtime.py``),
+  the ``subagents.py`` child builds, and ``design.py`` (the design
+  call-site seat builder, #416 t6). Nothing under the loop's per-turn
   path — ``loop.py`` step handling, ``senses_loop.py`` moves — writes or
   rewrites it. A per-turn effort choice would be the same excluded router
   that ``tests/test_agents_boundary.py``'s no-router guard pins (s6).
@@ -53,6 +54,7 @@ _SANCTIONED_ASSIGN_FILES = frozenset(
         "colleague/agents/runtime.py",
         "colleague/subagents.py",
         "colleague/cli/_commands/config.py",
+        "colleague/design.py",
     }
 )
 

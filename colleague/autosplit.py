@@ -20,8 +20,9 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from colleague.config import autosplit_children
+from colleague.config import EngineConfig, autosplit_children
 from colleague.context import count_tokens_chars
+from colleague.design import design_seat_config as _design_seat_config
 
 __all__ = [
     "estimate_instruction_tokens",
@@ -30,7 +31,23 @@ __all__ = [
     "build_upfront_hint",
     "build_mapping_fanout_recommendation",
     "build_review_fanout_recommendation",
+    "design_seat_config",
 ]
+
+
+def design_seat_config(config: EngineConfig) -> EngineConfig:
+    """The 'autosplit' design call-site seat (#416 t6, c14/h9): xhigh by default.
+
+    Honest limit: the reactive split recommendation this module builds is
+    injected as an ordinary message the loop's SINGLE per-turn completion
+    consumes on its next turn (:func:`colleague.loop._inject_split_recommendation`)
+    — the loop has no per-turn-selectable completion to route that one turn
+    through a different seat without threading a second completion in from
+    the engine adapter (out of this task's scope). This builder is pinned
+    here, ready for that future wiring; it is unit-tested at the builder
+    level (``tests/test_design_call_site.py``), not exercised end-to-end.
+    """
+    return _design_seat_config(config, "autosplit")
 
 
 def estimate_instruction_tokens(

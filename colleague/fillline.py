@@ -33,9 +33,12 @@ runtime dependencies; no subprocess, threading, sockets, or network.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from colleague.context import window_messages
+
+if TYPE_CHECKING:  # pragma: no cover - type-checking only, avoids the config->fillline cycle
+    from colleague.config import EngineConfig
 
 __all__ = [
     "DEFAULT_THRESHOLD",
@@ -52,7 +55,28 @@ __all__ = [
     "apply_compaction",
     "validate_compaction",
     "build_handoff_instruction",
+    "design_seat_config",
 ]
+
+
+def design_seat_config(config: EngineConfig) -> EngineConfig:
+    """The 'fillline.split' design call-site seat (#416 t6, c14/h9): xhigh by default.
+
+    Honest limit: the fill-line decision prompt this module builds
+    (:func:`build_decision_prompt`) is injected as an ordinary message the
+    loop's SINGLE per-turn completion consumes on its next turn
+    (:func:`colleague.loop._offer_fillline`/``_resolve_fillline``) — the
+    ``split`` move is classified from that SAME declaring turn's tool calls,
+    not a dedicated model call this module (or the loop) can route through a
+    different seat without threading a second completion in from the engine
+    adapter (out of this task's scope). This builder is pinned here, ready
+    for that future wiring; it is unit-tested at the builder level
+    (``tests/test_design_call_site.py``), not exercised end-to-end.
+    """
+    from colleague.design import design_seat_config as _design_seat_config
+
+    return _design_seat_config(config, "fillline.split")
+
 
 # Fraction of the context budget at which the fill-line decision is offered.
 # 0.8 leaves headroom for the decision prompt + the model's declaring turn before a

@@ -38,6 +38,7 @@ from colleague.cli._output import JSON_HELP, emit_diagnostic, emit_result
 from colleague.config import EngineConfig, resolve_engine
 from colleague.context import count_tokens_chars
 from colleague.deepthink import deepthink_engine_config, window_messages
+from colleague.design import design_seat_config
 from colleague.plan import checkpoint as ckpt
 from colleague.plan.cli_driver import (
     make_propose_claims,
@@ -278,24 +279,44 @@ def run_plan_request(
     except registry.UnknownEngine as exc:
         raise CliError(EXIT_USER_ERROR, str(exc), "see 'colleague backends list'") from exc
 
+    # Per-seat thinking effort (#416 t6, c14/h9): the spec stage and plan
+    # stage are separate design call sites (``plan.spec_stage`` / xhigh,
+    # ``plan.plan_stage`` / high per c36) — each gets its own completion built
+    # from :func:`colleague.design.design_seat_config` (the cortex/acting
+    # seat's own model, the design-site table's heavier
+    # ``reasoning_effort_seat`` rung) rather than a literal effort string at
+    # the call site. Dual-model routing (spec c10(b)) still applies on top of
+    # each, unchanged. The spec-stage build is skipped when ``quick`` (the
+    # spec stage never runs then, :func:`colleague.plan.orchestrator.run_plan_mode`)
+    # so the completion-build count stays exactly what it was pre-#416 for a
+    # quick/no-spec run.
+    simple = None
+    if not quick:
+        try:
+            complete = engine.make_complete(design_seat_config(config, "plan.spec_stage"))
+        except NotImplementedError as exc:
+            raise CliError(
+                EXIT_ENV_ERROR,
+                str(exc),
+                "use a live backend, e.g. --engine vllm-openai",
+            ) from exc
+        if config.deepthink is not None:
+            complete = _route_proposals_through_deepthink(engine, config, complete)
+        simple = robust_simple_complete(complete)
+
     try:
-        complete = engine.make_complete(config)
+        complete_plan_stage = engine.make_complete(design_seat_config(config, "plan.plan_stage"))
     except NotImplementedError as exc:
         raise CliError(
             EXIT_ENV_ERROR,
             str(exc),
             "use a live backend, e.g. --engine vllm-openai",
         ) from exc
-
-    # Dual-model (spec c10(b), task t6): when the operator has declared a
-    # deepthink model, plan-mode proposals are exactly the hard-reasoning
-    # moment it exists for — route them there, with a per-call fallback to
-    # the main model above. No dual config → `complete` is untouched, so this
-    # path is byte-identical to before dual-model existed.
     if config.deepthink is not None:
-        complete = _route_proposals_through_deepthink(engine, config, complete)
-
-    simple = robust_simple_complete(complete)
+        complete_plan_stage = _route_proposals_through_deepthink(
+            engine, config, complete_plan_stage
+        )
+    simple_plan_stage = robust_simple_complete(complete_plan_stage)
     # ONE shared agent budget so the global MAX_SUBAGENT_TOTAL cap is enforced for
     # the plan workforce fan-out too (#t4 Q3 wiring fix).
     # `parent_profile` (#411 t14): the parent's own purpose, passed ONLY when
@@ -324,7 +345,7 @@ def run_plan_request(
                 request,
                 propose_claims=make_propose_claims(simple, repo_path=str(repo), plan_id=plan_id),
                 decide=decide,
-                propose_plan_items=make_propose_plan_items(simple),
+                propose_plan_items=make_propose_plan_items(simple_plan_stage),
                 batch_spawn=batch_spawn,
                 engine=engine_name,
                 model=config.model,

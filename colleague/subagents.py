@@ -79,6 +79,7 @@ from colleague.config import (
 )
 from colleague.configlifecycle import EpisodeConfigSnapshot
 from colleague.contract import ERROR, OK, SubResult, Task, Usage
+from colleague.design import design_seat_config as _design_seat_config
 from colleague.roles import is_read_only
 
 # Floors for the width-scaled child budget share (t12 / spec R5): a child's
@@ -354,6 +355,21 @@ def new_agent_budget(config: Optional[EngineConfig] = None) -> "_AgentBudget":
     """
     limit = getattr(config, "subagent_total", MAX_SUBAGENT_TOTAL) if config else MAX_SUBAGENT_TOTAL
     return _AgentBudget(limit)
+
+
+def decomposition_seat_config(config: EngineConfig) -> EngineConfig:
+    """The 'subagents.decompose' design call-site seat (#416 t6, c14/h9): xhigh.
+
+    Honest limit: this module dispatches each child as a full ``Task`` through
+    ``Engine.work`` (:func:`make_spawn`/:func:`make_batch_spawn`), so a child's
+    OWN completion is built by the engine at the child's own role/seat effort
+    (t5) — there is no separate "decide how to decompose" completion in this
+    module to route through the design seat instead. This builder is pinned
+    here, ready for a future dedicated decomposition-planning call; it is
+    unit-tested at the builder level (``tests/test_design_call_site.py``), not
+    exercised end-to-end.
+    """
+    return _design_seat_config(config, "subagents.decompose")
 
 
 # ---------------------------------------------------------------------------
