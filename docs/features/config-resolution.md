@@ -44,6 +44,31 @@ colleague config overview
 The `--repo` default is the cwd, so a bare `colleague doctor` outside a repo (or
 in one without `.colleague/config.json`) is unchanged — env + defaults only.
 
+## The thinking-effort knobs (#416)
+
+The per-seat thinking-effort ladder resolves through the same knob contract
+(flag > env > `config.json` > default), beside `temperature`:
+
+- **`COLLEAGUE_REASONING_EFFORT`** / `config.json` `reasoning_effort` — the
+  global knob. The value `default` is the **kill switch**: it forces every
+  seat, role, and design call-site to unset (the byte-identical pre-increment
+  wire) in one env var, no redeploy.
+- **`COLLEAGUE_<SEAT>_REASONING_EFFORT`** (SEAT ∈ `CORTEX` | `WORKER` |
+  `DEEPTHINK` | `SENSES` | `EVALUATOR` | `DESIGN`) / `config.json`
+  `reasoning_effort_seats` — per-seat overrides.
+- **`COLLEAGUE_TOO_LONG_MIN`** / `config.json` `too_long_min` (default 20) —
+  the wall-clock signal for the retroactive split-next-time record.
+
+`EngineConfig.to_dict()` carries `reasoning_effort` and `reasoning_effort_seats`
+on `mock` and `vllm-openai` identically (the all-engines rule holds on the
+result shape); with nothing set both are `None`/`{}`. `colleague config show`
+prints the resolved table (one line per seat) and names the winning layer when
+the kill switch is set. An unknown value in env or `config.json` raises
+`CliError` at `resolve()` naming the ladder. The ladder, the v3 default table,
+the precedence order, and the honest limits live in
+[thinking-effort.md](thinking-effort.md) — this doc points at them, it does not
+duplicate the table.
+
 ## Per-key merge for all override loaders (#339)
 
 All `config.json` override loaders now read via the per-key merge: user-level
@@ -76,6 +101,8 @@ coverage uploads 404 until it is.
 
 ## Related
 
+- [thinking-effort.md](thinking-effort.md) — the per-seat thinking-effort
+  ladder and its knobs.
 - [model-selection.md](model-selection.md) — the `--model` / `--base-url` surface.
 - [layered-config.md](layered-config.md) — AGENTS + skills composition.
 - [per-model-configuration.md](per-model-configuration.md) — per-model overlays.
