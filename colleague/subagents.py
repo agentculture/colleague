@@ -120,6 +120,14 @@ class ChildSpec:
     #: child's ``delegate`` event as ``from_profile``; threaded by
     #: :func:`make_spawn` / :func:`make_batch_spawn`'s ``parent_profile``.
     parent_profile: Optional[str] = None
+    #: An explicit per-child thinking-effort override (#416 t5, c28/h19) — one
+    #: of :data:`colleague.effort.LADDER` or the kill-switch sentinel
+    #: ``"default"``. ``None`` (the default) means "no override": the child's
+    #: builder resolves its effort from the role/seat tables instead. Threaded
+    #: from the ``subagent``/``subagents`` tool args (:mod:`colleague.tools`)
+    #: as ``resolve_effort``'s ``parent_override`` — the HIGHEST-precedence
+    #: input, above the role/seat tables.
+    effort: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.context_mode not in CONTEXT_MODES:
@@ -133,6 +141,10 @@ class ChildSpec:
                 f"unknown profile: {self.profile!r} (expected a purpose in "
                 f"{sorted(PURPOSES)} or a lobes role in {sorted(BINDABLE_ROLES)})"
             )
+        if self.effort is not None:
+            from colleague import effort as _effort
+
+            _effort.validate_effort(self.effort)
 
 
 #: The lobes roles a child ``profile`` may name DIRECTLY (a bare role name
@@ -669,6 +681,28 @@ def _child_config_for_profile(
         # child's own ``resolve_role`` — a narrow parent would silently widen
         # its child. Inheriting keeps the child's surface == the parent's.
         setattr(child, "agents_profile", _seat_purpose(parent_config))
+    # Per-seat thinking effort (#416 t5, c13/h8/c28): the child's own rung is
+    # resolved fresh — keyed on the CHILD's role + the CHILD's seat
+    # (``binding.model_role``, the resolved lobes role) — never inherited from
+    # the parent: ``dataclasses.replace`` above already dropped the parent's
+    # own ``reasoning_effort_seat`` (a dynamic attribute), so a parent at
+    # "off" delegating to a cortex/thinker child does NOT carry that "off"
+    # forward (c28) — the child gets the role/seat table's own rung instead,
+    # unless the spec carries an explicit per-child override (the highest
+    # precedence input, above the tables).
+    from colleague import effort as _effort
+
+    setattr(
+        child,
+        "reasoning_effort_seat",
+        _effort.resolve_effort(
+            kill_switch=(parent_config.reasoning_effort == "default"),
+            parent_override=spec.effort,
+            seat_override=parent_config.reasoning_effort_seats.get(binding.model_role),
+            role=role,
+            seat=binding.model_role,
+        ),
+    )
     return child
 
 
@@ -771,6 +805,7 @@ def make_spawn(
         role: Optional[str] = None,
         profile: Optional[str] = None,
         context_mode: str = "inherit",
+        effort: Optional[str] = None,
     ) -> SubResult:
         """Run one child subagent, optionally typed by ``role`` (#t4).
 
@@ -778,7 +813,9 @@ def make_spawn(
         isolated throwaway git worktree on a ``sub/<id>`` branch, and returns the
         child's :class:`~colleague.contract.SubResult`. ``profile`` /
         ``context_mode`` (#411 t14) ride onto the :class:`ChildSpec`; both
-        default to the pre-t14 shape (no profile, inherit).
+        default to the pre-t14 shape (no profile, inherit). ``effort`` (#416
+        t5) is an explicit per-child thinking-effort override — ``None`` (the
+        default) lets the child resolve its rung from the role/seat tables.
         """
         return run_subagent(
             instruction,
@@ -795,6 +832,7 @@ def make_spawn(
                 profile=profile,
                 context_mode=context_mode,
                 parent_profile=parent_profile,
+                effort=effort,
             ),
         )
 
@@ -839,6 +877,27 @@ def _build_child_config(
         # parent silently widening its child (the hole the bounds check would
         # never see, because no profile was named).
         setattr(child, "agents_profile", _seat_purpose(parent_config))
+    # Per-seat thinking effort (#416 t5, c13/h8/c28): the bare-role build has
+    # no lobes binding, so the child's seat is always the cortex floor — the
+    # SAME structural rule as the armed-profile builder above, just with a
+    # fixed seat name instead of ``binding.model_role``. The child's rung is
+    # resolved fresh (never inherited — ``dataclasses.replace`` already
+    # dropped the parent's own ``reasoning_effort_seat``), keyed on the
+    # CHILD's typed role, with the spec's explicit override winning above the
+    # tables.
+    from colleague import effort as _effort
+
+    setattr(
+        child,
+        "reasoning_effort_seat",
+        _effort.resolve_effort(
+            kill_switch=(parent_config.reasoning_effort == "default"),
+            parent_override=spec.effort,
+            seat_override=parent_config.reasoning_effort_seats.get("cortex"),
+            role=role,
+            seat="cortex",
+        ),
+    )
     return child
 
 
@@ -848,8 +907,18 @@ def _delegate_event_data(
     binding: "_ChildBinding",
     agent_id: Optional[str],
     bounds: tuple[tuple[str, ...], str] = ((), ""),
+    resolved_effort: Optional[str] = None,
 ) -> dict:
-    """The ``delegate`` ledger event payload for an armed child (#411 t14)."""
+    """The ``delegate`` ledger event payload for an armed child (#411 t14).
+
+    ``resolved_effort`` (#416 t5, c28/h19) is the CHILD's resolved thinking-
+    effort rung (the same value :func:`_child_config_for_profile` set as the
+    child config's ``reasoning_effort_seat``) — recorded beside
+    ``effort_override`` (``True`` when ``spec.effort`` named an explicit
+    per-child override, the highest-precedence input) so a ledger replay can
+    audit not just the tools/ceiling a delegation was ranked on but the
+    effort it actually ran with.
+    """
     return {
         "id": child_task_id,
         "delegation_id": child_task_id,
@@ -865,6 +934,8 @@ def _delegate_event_data(
         # replay can audit the decision instead of taking it on trust.
         "requested_tools": list(bounds[0]),
         "authority_ceiling": bounds[1],
+        "effort": resolved_effort,
+        "effort_override": spec.effort is not None,
     }
 
 
@@ -1061,7 +1132,14 @@ def run_subagent(
         _append_ledger_event(
             ledger,
             "delegate",
-            _delegate_event_data(child_task.id, spec, binding, agent_id, bounds),
+            _delegate_event_data(
+                child_task.id,
+                spec,
+                binding,
+                agent_id,
+                bounds,
+                resolved_effort=getattr(child_config, "reasoning_effort_seat", None),
+            ),
         )
 
     # (f) Run the nested child work item. engine.work runs the bounded loop
@@ -1426,6 +1504,9 @@ def _spawn_children(
                 profile=(item.get("profile") or None),
                 context_mode=str(item.get("context_mode") or "inherit"),
                 parent_profile=parent_profile,
+                # Per-child thinking-effort override (#416 t5): an invalid
+                # value is refused whole by ChildSpec itself.
+                effort=(item.get("effort") or None),
             ),
         )
 

@@ -90,6 +90,13 @@ class DelegationRequest:
     open, and the agents it would charge against the shared budget).
     ``evidence_refs`` / ``context_refs`` / ``return_contract`` carry refs, never
     payloads. ``context_mode`` is one of :data:`CONTEXT_MODES`.
+
+    ``effort`` (#416 t5, c28/h19) is the child's RESOLVED thinking-effort
+    rung (one of :data:`colleague.effort.LADDER`, or ``None`` when unset);
+    ``effort_override`` is ``True`` when that rung came from an explicit
+    per-child override rather than the role/seat tables. Both are recorded
+    on the ``delegate`` event by :func:`open_delegation`, purely as trace
+    data — this module computes/records, it never resolves the rung itself.
     """
 
     delegation_id: str
@@ -106,6 +113,8 @@ class DelegationRequest:
     depth: int = 1
     fanout: int = 1
     total: int = 1
+    effort: str | None = None
+    effort_override: bool = False
 
 
 @dataclass(frozen=True)
@@ -224,6 +233,8 @@ def open_delegation(ledger: TaskLedger, req: DelegationRequest) -> DelegationHan
             "authority_ceiling": req.authority_ceiling,
             "return_contract": req.return_contract,
             "context_mode": req.context_mode,
+            "effort": req.effort,
+            "effort_override": req.effort_override,
         },
     )
     return DelegationHandle(
