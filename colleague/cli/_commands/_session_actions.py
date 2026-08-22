@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from colleague import effort, registry
+from colleague.cli._commands._listing import acting_seat
 from colleague.config import resolve_lobes_gateway_url
 from colleague.lobes import fetch_served_model_ids, resolve_roles
 from colleague.media import validate_attachment
@@ -82,7 +83,7 @@ def _act_effort(s: "_Session", rest: list[str]) -> str:
     if not rest:
         return _effort_listing(s)
     rung = rest[0]
-    seat = rest[1] if len(rest) > 1 else ("worker" if s.config.worker is not None else "cortex")
+    seat = rest[1] if len(rest) > 1 else acting_seat(s.config)
     try:
         effort.validate_effort(rung)
         if seat not in ("all", *effort.SEAT_TABLE):

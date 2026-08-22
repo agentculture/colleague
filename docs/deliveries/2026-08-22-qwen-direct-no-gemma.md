@@ -87,12 +87,12 @@ Quoted verbatim from the `devague summary` skeleton:
 | cortex-direct answers a non-repo turn ≤ 2× the senses ack (h17) | medium | evidence file: 12.45 s vs 6.81 s = 1.83× (n=1 per arm, same rig, same minute) |
 | `/voice`, `/speak`, `--voice` print one honest dormant line when senses is unarmed | high | `tests/test_session_voice.py` (3 new tests); commit 76a7108 |
 | CLAUDE.md records the fifth convention change and the feature docs mark senses opt-in | high | commit 6d078fb; `grep -rnE 'default on every front\|default state on every front' CLAUDE.md docs/features/` → only superseded-marked lines |
-| SonarCloud quality gate passes on the final tip | unverified | re-scan of e67525e pending at write time — not claimed |
-| Qodo / independent review findings addressed | unverified | Qodo summary pending; the colleague reviewer lens stalled — not claimed |
+| SonarCloud quality gate passes on the final tip | high | PR #426 checks on e65db7b: Sonar Code Analysis pass, Quality Gate OK (the 13 first-scan issues fixed in e67525e; one residual S3358 fixed on the closing tip) |
+| Qodo review findings addressed | high | 5 inline threads: 2 fixed in 5f13fe2 (effort table mirrors the builders; --effort targets the acting seat), 1 pre-fixed (e67525e), 2 pushback with reasoning — all replied + resolved (5/5); the colleague reviewer lens itself stalled (see Drift) |
 
 ## Remaining Work / Follow-up
 
-- PR #426: wait for the Sonar re-scan + Qodo; triage every comment (FIX/PUSHBACK) and reply; then the human merge gate.
+- PR #426: CI green, Sonar gate OK, Qodo threads 5/5 resolved — awaiting the human merge gate.
 - `doctor` does not yet mention the not-consumed roles (t5 acceptance) — small follow-up in `colleague/oilcheck/`.
 - d4 follow-up: a parent SIGTERM drops subagent children's edits — the #410 salvage should commit `sub/*` worktree WIP too (file on colleague).
 - Stall data for #415 / #409: colleague stalls on spec-md reads (3/3), on continuations (2/2), and on review-of-diff briefs (3/3) today; the 300 s timeout did not cut those turns.
