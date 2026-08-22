@@ -2,7 +2,7 @@
   "plan_slug": "per-seat-thinking-effort-416",
   "schema_version": 1,
   "created": "2026-08-21T22:52:26Z",
-  "updated": "2026-08-22T01:14:37Z",
+  "updated": "2026-08-22T01:31:51Z",
   "deviations": [
     {
       "id": "d1",
@@ -42,6 +42,16 @@
       "what": "t7 moves to a Claude sonnet subagent after two stalled colleague attempts (medium: 15-min silent turn at step 12; low: 15-min silent turn at step 23) \u2014 the low arm was also the measured test of whether a lower rung bounds the silent turns: it does not.",
       "task_ref": "t7",
       "reason": "split-plan blocker rule (stalls twice \u2192 take over); Ori's sonnet allowance; ledger rows t7/t7b",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "t6 moves to a Claude sonnet subagent after ONE stalled colleague attempt (f1d614d24d7a: 21 exploratory steps, then a 16-min silent turn at step 22, design.py never written) \u2014 invoking the blocker rule on pattern evidence (every existing-module edit brief at medium and low stalled: t5, t7, t8) rather than spending a second ~30-min attempt; t10 and t12 depend on t6.",
+      "task_ref": "t6",
+      "reason": "split-plan blocker rule + time: t10/t12 are gated on t6; Ori's sonnet allowance",
       "affects": [],
       "origin": "user",
       "status": "approved",
