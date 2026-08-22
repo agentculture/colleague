@@ -722,11 +722,12 @@ def test_config_show_json_reflects_lobes_armed(
 
 
 def test_config_show_no_lobes_key_when_unarmed(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     from colleague.cli import main
 
-    rc = main(["config", "show", "--json"])
+    # --repo tmp_path: hermetic against this checkout's own .colleague/config.json (#422)
+    rc = main(["config", "show", "--json", "--repo", str(tmp_path)])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert "lobes" not in payload

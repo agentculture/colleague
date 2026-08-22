@@ -102,17 +102,18 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPat
 
 
 def test_lobes_show_unarmed_is_clean_and_exits_zero(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    rc = main(["lobes", "show"])
+    # --repo tmp_path: hermetic against this checkout's own .colleague/config.json (#422)
+    rc = main(["lobes", "show", "--repo", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out.lower()
     assert "not configured" in out
     assert _ENV_VAR.lower() in out  # names the env var so an operator knows how to arm it
 
 
-def test_lobes_show_unarmed_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
-    rc = main(["lobes", "show", "--json"])
+def test_lobes_show_unarmed_json_shape(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    rc = main(["lobes", "show", "--json", "--repo", str(tmp_path)])  # hermetic (#422)
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["armed"] is False
