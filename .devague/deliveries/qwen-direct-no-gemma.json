@@ -1,0 +1,32 @@
+{
+  "plan_slug": "qwen-direct-no-gemma",
+  "schema_version": 1,
+  "created": "2026-08-22T07:25:05Z",
+  "updated": "2026-08-22T07:25:24Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Integrator (not a colleague child) extracted the session slash config actions (_act_* + _CONFIG_ACTIONS, 115 lines) into colleague/cli/_commands/_session_actions.py because merging t2 grew session.py past the file-length ratchet baseline (4029 \u2192 4052; approved ratchet deviation d6 of 2026-08-21 forbids growth); session.py is now 3945. Consequence: t3 (/model) and t4 (/effort) implement their actions in _session_actions.py, not session.py; t7's guards stay in session.py only if net-shrinking",
+      "task_ref": "t2",
+      "reason": "ratchet test failed post-merge; every later session.py task would fail the same way",
+      "affects": [
+        "t3",
+        "t4",
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t1 child (19c37e2dbcc2) SIGTERM'd at 10:22 after a 15-min silent turn: its stderr shows backpressure escalation (turns averaging 356s; timeout raised once to 600s) \u2014 not a hang; resumed detached via ask-colleague resume (work --continue) from the salvaged artifact (33 steps, status error/interrupted)",
+      "task_ref": "t1",
+      "reason": "cap-2 slot + the 15-min silent-turn rule from plan risk r2",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    }
+  ]
+}

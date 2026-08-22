@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-22T06:36:56Z",
-  "updated": "2026-08-22T06:46:53Z",
+  "updated": "2026-08-22T07:25:06Z",
   "targets": [
     {
       "id": "c1",
@@ -394,7 +394,7 @@
         "c33",
         "h26"
       ],
-      "instruction": "ONLY session.py (_act_model near l.3653, the SlashSpec entry near l.3446, _HELP_TEXT) + new tests/test_session_model.py. Precedent for the roster call: colleague/config.py l.1870; resolve_lobes_gateway_url is already imported in session.py (l.95). Budget derivation: reuse the ratio helper _senses_budget_from_window style or min(window, current) \u2014 state which in the confirmation line. Read by line range only."
+      "instruction": "ONLY colleague/cli/_commands/_session_actions.py (NEW home of _act_model and _CONFIG_ACTIONS \u2014 session.py may not grow: file-length ratchet) + the SlashSpec entry/_HELP_TEXT in session.py (edit in place, net zero lines) + new tests/test_session_model.py. Precedent for the roster call: colleague/config.py l.1870 (lobes.fetch_served_model_ids(gateway, api_key=...)); resolve_lobes_gateway_url lives in colleague/config.py. Budget derivation: reuse the _senses_budget_from_window-style ratio or min(window, current) \u2014 state which in the confirmation line. Read session.py by line range only."
     },
     {
       "id": "t4",
@@ -415,7 +415,7 @@
         "c32",
         "h25"
       ],
-      "instruction": "ONLY session.py (new _act_effort beside _act_model, SlashSpec + _HELP_TEXT + _CONFIG_ACTIONS entries) + new tests/test_session_effort.py. colleague/effort.py is ~280 lines \u2014 read it whole; it has SEAT_TABLE/ROLE_TABLE/validate_effort/resolve_effort/effort_of. config.py l.3023 defines reasoning_effort + reasoning_effort_seats; l.3247 reasoning_effort_effective is a property (live)."
+      "instruction": "ONLY colleague/cli/_commands/_session_actions.py (new _act_effort beside _act_model + the _CONFIG_ACTIONS entry \u2014 session.py may not grow: file-length ratchet) + the SlashSpec/_HELP_TEXT entries in session.py (edit in place, net zero lines) + new tests/test_session_effort.py. colleague/effort.py is ~280 lines \u2014 read it whole; SEAT_TABLE/ROLE_TABLE/validate_effort/resolve_effort/effort_of. config.py l.3023 defines reasoning_effort + reasoning_effort_seats; l.3247 reasoning_effort_effective is a live property."
     },
     {
       "id": "t5",
