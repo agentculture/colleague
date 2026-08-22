@@ -56,6 +56,17 @@ minds. The architecture, part by part:
   v3 default table is pinned row-for-row and rendered once in the feature doc
   (pointer, not duplicate); a ladder-400 retries once without the key;
   byte-identical under the kill-switch. Doc: `thinking-effort.md`.
+- **Single-model default — qwen-direct (v1.63)** — **1 colleague instance = 1
+  model = 1 agent**: a bare run on a lobes-armed rig resolves exactly ONE served
+  model (the `cortex` role) and dials nothing else — senses and muse lobes
+  discovery are **opt-in** (the `lobes` sentinel: `COLLEAGUE_SENSES_MODEL=lobes`
+  / `COLLEAGUE_DEEPTHINK_MODEL=lobes`, or an explicit model id), the senses
+  presence loop and front door sit behind that opt-in, an unarmed session PARKS
+  a mid-run line for cortex via flight guidance, `config show`/`lobes show`
+  name the advertised-but-not-consumed roles, and `/model` + `/effort` (session)
+  / bare `--model` + `--effort` (CLI) list the served options + per-seat effort
+  defaults — an **explicit operator choice, never automatic routing**. The
+  instance spawns ITSELF as subagents (same model). Doc: `qwen-direct.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
@@ -231,7 +242,7 @@ minds. The architecture, part by part:
 
 ## v1 scope (hold this line)
 
-**v0 → v1 graduation.** Four deliberate, **recorded** convention changes since v0
+**v0 → v1 graduation.** Five deliberate, **recorded** convention changes since v0
 — never silent breaches: (1) *"no LLM-generated summary"* superseded by the
 fill-line `compact` move (lossy windowing retained as the floor, #156); (2) *"zero
 base dependencies"* superseded by **one** sanctioned base dep, `agentfront` (base
@@ -239,8 +250,15 @@ install still pulls zero third-party transitive deps; `[mcp]` stays an opt-in
 extra; `test_zero_deps.py` allow-lists exactly agentfront); (3) the no-daemon line
 re-specced by the best-colleague arc (decision c17 — background one-shot + mesh
 residency via the agent-lifecycle embed); (4) *"threads confined to subagents"*
-extended to the session's input-line reader thread (q1, at-home arc). Everything
-else holds.
+extended to the session's input-line reader thread (q1, at-home arc); (5)
+*presence-default-everywhere* (sanctioned increment (4)) superseded by the
+**qwen-direct single-model default** (spec
+`docs/specs/2026-08-22-qwen-direct-no-gemma.md`): senses and muse lobes discovery
+are opt-in (the `lobes` sentinel / an explicit model id), a bare run dials exactly
+one model, the front door + senses loop live behind the opt-in, and switching a
+seat via `/model` is an explicit per-session operator choice — NOT a routing
+policy; lobes-cli keeps advertising senses/muse, colleague ignores them by
+default and says so. Everything else holds.
 
 **In scope:** the runtime + every architecture part listed above (each added via an
 explicit re-spec under `docs/specs/` / `docs/plans/`), within the zero-deps /
@@ -260,7 +278,7 @@ BY NAME from `lobes`; no senses-decides-to-answer-itself); (3) **senses live
 presence + voice** (a concurrent conversational lane + two more FIXED named-role
 consumers, `stt` + `tts`; the task always goes to cortex); (4)
 **presence-default-everywhere** (senses gains its OWN bounded coordination-only
-agentic loop — `colleague/senses_loop.py`/`senses_moves.py`, prompted-JSON moves
+agentic loop (since v1.63 opt-in, not default — see convention change (5)) — `colleague/senses_loop.py`/`senses_moves.py`, prompted-JSON moves
 over a tools-off completion, nothing tool-shaped on the wire — default on all
 fronts, closes #300; one recorded break: an off-TTY/piped session with senses armed
 carries labeled `senses:` lines, `--json` stays machine-parseable); (5)

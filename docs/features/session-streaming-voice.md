@@ -1,5 +1,13 @@
 # Session streaming, narration, speak-only voice, and model-pin hygiene
 
+> **Opt-in since v1.63 (qwen-direct).** Senses is no longer resolved from the
+> lobes gateway by default — a bare run dials exactly one model (cortex). Arm
+> this lane explicitly with `COLLEAGUE_SENSES_MODEL=lobes` (discovery) or an
+> explicit model id (config.json `senses.model` works too); unarmed, every
+> behaviour below is dormant and the artifact is byte-identical to the unarmed
+> floor. Spec: `docs/specs/2026-08-22-qwen-direct-no-gemma.md` · doc:
+> [`qwen-direct.md`](qwen-direct.md).
+
 **Spec:** [`docs/specs/2026-08-06-session-streaming-speak-only-voice-model-pin-hygie.md`](../specs/2026-08-06-session-streaming-speak-only-voice-model-pin-hygie.md)
 · **Plan:** [`docs/plans/2026-08-06-session-streaming-speak-only-voice-model-pin-hygie.md`](../plans/2026-08-06-session-streaming-speak-only-voice-model-pin-hygie.md)
 · Landed as the session-streaming arc (v1.55.0); live-proven against the rig

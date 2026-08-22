@@ -1,6 +1,14 @@
 # Presence default everywhere: senses is the middle manager on every front
 
-**Colleague's middle-manager presence is now its default state on every front.**
+> **Opt-in since v1.63 (qwen-direct).** Senses is no longer resolved from the
+> lobes gateway by default — a bare run dials exactly one model (cortex). Arm
+> this lane explicitly with `COLLEAGUE_SENSES_MODEL=lobes` (discovery) or an
+> explicit model id (config.json `senses.model` works too); unarmed, every
+> behaviour below is dormant and the artifact is byte-identical to the unarmed
+> floor. Spec: `docs/specs/2026-08-22-qwen-direct-no-gemma.md` · doc:
+> [`qwen-direct.md`](qwen-direct.md).
+
+**Colleague's middle-manager presence is now its default state on every front.** (Superseded in v1.63: opt-in — see the note above.)
 In the interactive session, the `colleague talk` attach, a background run, the
 mesh resident, and a one-shot `colleague work`, you keep conversing with **senses**
 (Gemma) while **cortex** (Qwen) does the actual repo work — senses acknowledges
@@ -85,7 +93,7 @@ boundary and records the transition; senses unresolved is `off` (byte-identical)
   lane on every front.
 - **The one deliberate, recorded convention break (c19):** an off-TTY / piped /
   `--no-tui` session with senses ARMED now carries labeled `senses:` ack + update
-  lines (presence is the default on every front, no longer colour-TTY-only). The
+  lines (presence is the default on every front — superseded in v1.63, opt-in — no longer colour-TTY-only). The
   three broken byte-identical session tests were updated in the SAME change with a
   stated reason and are ENUMERATED in
   `tests/test_presence_pin_breaks.py`, never silently changed. The `--json`

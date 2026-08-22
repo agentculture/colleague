@@ -1,5 +1,13 @@
 # Senses live presence + voice
 
+> **Opt-in since v1.63 (qwen-direct).** Senses is no longer resolved from the
+> lobes gateway by default — a bare run dials exactly one model (cortex). Arm
+> this lane explicitly with `COLLEAGUE_SENSES_MODEL=lobes` (discovery) or an
+> explicit model id (config.json `senses.model` works too); unarmed, every
+> behaviour below is dormant and the artifact is byte-identical to the unarmed
+> floor. Spec: `docs/specs/2026-08-22-qwen-direct-no-gemma.md` · doc:
+> [`qwen-direct.md`](qwen-direct.md).
+
 **Talk to colleague while it works.** While cortex drives a work item, the
 operator holds a live conversation with **senses** concurrently — senses answers
 in seconds from the running context, the operator's words become guidance
