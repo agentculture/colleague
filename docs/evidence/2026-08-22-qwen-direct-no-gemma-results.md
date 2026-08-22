@@ -1,4 +1,4 @@
-# qwen-direct live proof — results (2026-08-22, rig: lobes http://localhost:8001, cortex unsloth/Qwen3.8-27B-NVFP4)
+# qwen-direct live proof — results (2026-08-22, rig: lobes `http://localhost:8001`, cortex unsloth/Qwen3.8-27B-NVFP4)
 
 Spec `docs/specs/2026-08-22-qwen-direct-no-gemma.md` success signal c24 / honesty h15 / assumption h17. Raw outputs below; nothing edited except truncation of request-payload dumps.
 
