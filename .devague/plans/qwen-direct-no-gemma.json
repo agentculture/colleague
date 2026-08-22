@@ -1,0 +1,596 @@
+{
+  "slug": "qwen-direct-no-gemma",
+  "title": "qwen-direct-no-gemma",
+  "frame_slug": "qwen-direct-no-gemma",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-22T06:36:56Z",
+  "updated": "2026-08-22T06:46:21Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague works Qwen-direct in every mode: Gemma is retired from the served roles colleague consumes \u2014 senses is no longer resolved or dialled by default, the senses presence loop is gone from the default path, cortex (Qwen3.8) answers the operator directly; one mind, one hop, less plumbing.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A bare colleague run on this lobes-armed rig sends requests to exactly one model id (the cortex model) \u2014 verified by COLLEAGUE_DUMP_REQUEST=1, not by reading config",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "cortex-only is the DEFAULT-EQUIVALENT: EngineConfig.resolve() no longer fills senses from lobes discovery (config.py _senses_lobes_fallback) unless the operator explicitly opts in (explicit COLLEAGUE_SENSES_*/config.json senses section); with no declaration config.senses is None on every front \u2014 the existing byte-identical cortex-only floor",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "With no senses declaration, EngineConfig.resolve() on a gateway that advertises senses yields config.senses is None; an explicit declaration (env/config.json) still resolves it \u2014 pinned by a test in tests/test_config_senses.py (discovery no longer auto-fills)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Default = Qwen-direct: no senses presence loop (senses_loop.py/presence_engine.py), NO front door (frontdoor.py / run_senses_frontdoor \u2014 retired from the default path on session/talk/appserver), no senses streaming/narration/clarify; the operator speaks only with the main agent (cortex), whose reply is the task answer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "session/talk/work/appserver take no senses code path when config.senses is None \u2014 the front door classifier is not consulted, no SensesRecord lands on the artifact, and the session's non-repo turn ('what model are you?') is answered by cortex itself",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "muse is no longer a discovered Gemma seat: the muse\u2192deepthink discovery rung (config.py _deepthink_lobes_fallback) is disarmed by default; 'muse' becomes a CONFIGURATION of the same cortex model/agent \u2014 xhigh effort + temperature 0.4 + its own prompt \u2014 expressible in config (no prompt/temperature tuning lands in this arc)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "With lobes armed and muse advertised ready:true and no COLLEAGUE_DEEPTHINK_* declaration, config.deepthink is None; an explicit deepthink declaration pointing at the cortex model with reasoning_effort xhigh + temperature 0.4 resolves and is honoured on the wire",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "CLAUDE.md + docs/features/{presence-default-everywhere,cortex-senses,talking-to-one,talking-to-one-teammate,session-streaming-voice,realtime-speech,senses-live-presence}.md record the default flip as the FIFTH recorded v0\u2192v1 convention change (increment (4) presence-default-everywhere superseded: senses is opt-in, not default) \u2014 never a silent breach",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "CLAUDE.md v1 scope paragraph lists this as the FIFTH recorded v0\u2192v1 convention change and increment (4) presence-default-everywhere is marked superseded; every named docs/features/ file states senses is opt-in \u2014 checked by grep, no file still says 'default on every front'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Test suite: the ~55 senses/presence/frontdoor/talk/realtime test files keep passing with senses EXPLICITLY armed in their fixtures; the byte-identical-when-unarmed pins (tests/test_presence_pin_breaks.py, test_session_*_byteident.py) become the default path; #422's three env-dependent lobes-unarmed tests get fixed in the same move",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "uv run pytest -n auto is green on a checkout whose .colleague/config.json is {\"lobes\": \u2026} (this machine), including the three #422 tests",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "colleague config show / doctor / lobes show state plainly which Gemma-served roles the gateway advertises but colleague is NOT consuming (senses, muse), so the operator can see the retirement rather than infer it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "colleague config show and colleague lobes show each print one line per advertised role colleague does not consume by default (senses, muse), naming the served model, so the retirement is visible",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "The lobes gateway keeps serving/advertising senses and muse (lobes-cli/lobes/roles.py: ADDING A ROLE IS EFFECTIVELY IRREVERSIBLE; ROLE_BACKEND senses\u2192multimodal backend) \u2014 the retirement is colleague-side consumption, not a lobes-cli role removal; rig-side compose changes (lobes.1) are a separate operator action, not part of this arc",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "No change lands in lobes-cli or ~/git/lobes.1 as part of this arc; the gateway still advertises senses+muse after the arc and colleague ignores them by default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "stt/tts + [voice]/realtime lanes are dormant in this arc (they are senses consumers today); later they become a colleague feature independent of the served model (or ride the realtime API where the model is irrelevant to colleague) \u2014 no re-plumb onto cortex now",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The voice/realtime modules are not modified beyond the guard that makes them no-ops when config.senses is None; /voice and --voice on the default path print an honest 'senses not armed' line instead of failing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Design principle recorded in CLAUDE.md: 1 colleague instance = 1 model = 1 agent; every seat colleague runs is the same served model under a per-seat effort/temperature/prompt configuration; the instance can spawn ITSELF as subagents (the existing subagents/roles surface, same model); there is no second mind in the default path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Every seat colleague builds in the default path (main, deepthink-if-declared, subagent children, evaluator/design seats) resolves to the SAME served model id; an AST/text guard test asserts no default-path code references a second role name for model resolution",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Talking to the main agent while it works PARKS the operator message onto the next possible window (the next tool-call boundary \u2014 the existing flight guidance seam, colleague/flight.py) and cortex answers it directly in its own turn; no relay seat, no ack lane",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A message typed during a running session is delivered verbatim to cortex at its next tool-call boundary via the existing flight guidance seam and cortex's next assistant turn addresses it \u2014 no ack is synthesized by any other seat",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "audience",
+      "text": "Ori (the operator of this rig) + the mesh agents that dispatch colleague (ask-colleague, culture peers) + colleague itself reading its CLAUDE.md",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "CLAUDE.md's architecture bullets read correctly to a mesh agent that has never seen senses: the default is described first, the opt-in second",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "after_state",
+      "text": "A bare colleague session/work/talk on a lobes-armed rig resolves exactly ONE served model (cortex=Qwen3.8) and dials nothing else: no senses seat, no presence loop, no front door, no muse discovery; the operator's mid-run words park onto the next tool-call boundary and cortex answers in its own turn; the artifact is byte-identical to today's UNARMED (senses never resolved) artifact \u2014 NOT to a --cortex-only artifact, which records SensesBlock(mode=cortex-only) when senses was resolved (session.py l.3290)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The default-path artifact equals a pre-arc UNARMED artifact field-for-field (no senses key at all \u2014 contract.py l.1853 omit-when-None), pinned by tests/test_senses_all_engines.py + test_presence_pin_breaks.py becoming the default-path pin; an explicit --cortex-only with senses opted-in still records mode=cortex-only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "before_state",
+      "text": "Today a lobes-armed rig auto-resolves senses (gemma-4-12B via proxy) and would auto-resolve muse (Gemma-31B) when ready; the senses presence LOOP is the default rung, the front door answers non-repo turns, and COLLEAGUE_PRESENCE=off only stops the loop \u2014 the front door still dials senses; only --cortex-only per invocation gives one-mind behaviour (scope s2/s3)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Scope entries s2/s3 cite config.py l.3420-3441 + session.py l.2163 as read on 2026-08-22 at fb81640",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "why_it_matters",
+      "text": "Complexity is a problem (doctrine 2026-08-20: solo cortex 100% vs three-tier 0%, failures in the seams) and Qwen3.8 is now fast at the default effort (#424: off 24s); every extra seat/proxy/loop is a failure surface with no measured benefit \u2014 one model, one agent, one hop by default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The doctrine and #424 numbers are cited with their files (memory complexity-is-a-problem-doctrine; docs/evidence/2026-08-22-per-seat-thinking-effort-416-results.md), not restated from memory",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "success_signal",
+      "text": "On this rig: (1) a bare session with COLLEAGUE_DUMP_REQUEST=1 shows 0 requests to any non-cortex model id; (2) pytest -n auto green with the ~55 senses/presence test files still exercising the opt-in path; (3) the #422 three lobes-unarmed tests pass on a checkout whose .colleague/config.json arms lobes; (4) colleague config show prints the advertised-but-not-consumed roles (senses, muse)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "All four checks are run on this rig and recorded as a docs/live-testing.md row before the PR merges; a failed check is recorded as failed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "Control reasoning effort from the session/TUI: a new /effort slash command \u2014 with no argument it shows the current effort per seat/role (the resolved default for the current agent/role, from colleague/effort.py resolve_effort + the v3 table), and /effort <rung> [seat] switches it for the session (same ladder off|low|medium|high|xhigh + default); the CLI flags behave the same (no value \u2192 print the table, don't refuse)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "In a session with lobes armed: /effort prints one line per seat with its resolved rung (cortex medium, deepthink xhigh, design xhigh, evaluator medium, children per role table) and /effort low cortex changes ONLY that seat's next requests (verified with COLLEAGUE_DUMP_REQUEST=1); /effort default restores the kill-switch wire",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "/model with no argument lists the SERVED options (the gateway's /v1/models roster via lobes.fetch_served_model_ids + role names from /capabilities \u2014 e.g. current cortex Qwen3.8 and gemma) and marks the current default per seat/agent/role; /model <id|role> [seat] switches for the session so the operator can leave the single-model default by explicit choice, in every mode; the CLI --model with no value prints the same list instead of refusing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "With the gateway serving cortex+senses: /model (no arg) lists every served id from /v1/models (Bearer attached) plus role\u2192id lines, marking the current default; /model <id> switches the main seat and the next request's model field equals it; an unreachable roster degrades to 'roster unavailable' + the current default, never a stack trace",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "The session's mid-run talk lane must deliver a typed/voiced line to cortex when senses is unarmed: today session.py _talk_senses returns on pair is None (the line is silently dropped) \u2014 the default path must instead write it verbatim as flight guidance (the seam colleague talk already uses for its raw-guide degrade) and render an honest 'parked for cortex at the next boundary' line",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "Unarmed session + a typed mid-run line \u2192 exactly one flight guidance record carrying the verbatim text, zero senses requests (COLLEAGUE_DUMP_REQUEST=1), and cortex's next turn visibly addresses it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "/model <id> re-derives the seat's context budget from the served role's advertised window (lobes /capabilities context, e.g. gemma 32768 vs Qwen 1048576) and keeps the effort ladder's 400-retry-once in force \u2014 a switch never leaves a 200000-token budget pointed at a 32K model; the switch line prints the new budget",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "/model <gemma-id> in a session prints the new model AND the re-derived budget; the next request's model field == the id and the windowed history stays under the role's advertised window",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Rollback is one declaration: COLLEAGUE_SENSES_MODEL=<served id> (or config.json senses.model) re-arms the full senses lane exactly as today \u2014 base_url/api_key inherit the main endpoint (gateway routes by model id), presence rung resolves to loop; documented in docs/features/cortex-senses.md as THE opt-in, with the same-origin key rule unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "COLLEAGUE_SENSES_MODEL=<served id> alone (no base_url/api_key) re-arms senses on the gateway origin and the pre-arc senses tests pass under that env",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "/effort shows what each seat ACTUALLY sends via effort.py effort_of(config) (presence-wins rule l.211), never a re-derivation from SEAT_TABLE; a /effort switch mutates s.config.reasoning_effort / reasoning_effort_seats[seat] (picked up live by the reasoning_effort_effective property, config.py l.3247) and the confirmation line states it is session-only (not persisted to config.json); bad rungs go through effort.validate_effort and surface as the slash dispatcher's ValueError style",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "In a session, /effort (no arg) prints per-seat lines equal to effort_of(seat config) and /effort xhigh cortex is visible on the very next request's chat_template_kwargs \u2014 and absent from config.json afterwards",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "/model (no arg) distinguishes fetch_served_model_ids \u2192 None (roster unreachable/401: print an honest 'roster unavailable' + current seats) from [] (gateway serving nothing); role\u2192model lines come from lobes.resolve_roles (no api_key needed) and the acting seat from s.config.model; lobes unarmed \u2192 'lobes not armed' + current model, never a crash",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "With the gateway down, /model prints 'roster unavailable' + the current model and the session continues; with the gateway up it lists every /v1/models id (Bearer attached) \u2014 both pinned by tests",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 config: senses + muse lobes-discovery OFF by default; explicit declaration is the opt-in",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig.resolve() with lobes armed (fake gateway advertising cortex+senses+muse ready) and no COLLEAGUE_SENSES_*/COLLEAGUE_DEEPTHINK_* declaration yields config.senses is None and config.deepthink is None",
+        "COLLEAGUE_SENSES_MODEL=<id> alone (no base_url/api_key) resolves senses with base_url == main base_url and api_key == main key; the same for an explicit deepthink pointing at the cortex model with reasoning_effort=xhigh",
+        "tests/test_config_senses.py + tests/test_config_lobes.py + tests/test_config_lobes_deepthink.py + tests/test_presence_config.py updated: discovery-arming pins flip to 'armed only by declaration'; uv run pytest tests/test_config_senses.py tests/test_config_lobes.py tests/test_config_lobes_deepthink.py tests/test_presence_config.py -q green"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h2",
+        "c4",
+        "h4",
+        "c30",
+        "h24"
+      ],
+      "instruction": "ONLY colleague/config.py + the four test files. In EngineConfig.resolve(): the senses block near l.3437-3441 calls _senses_lobes_fallback(...) when _resolve_senses returned None \u2014 REMOVE that fallback call from the default path (keep the function; it is still reachable ONLY when an explicit opt-in sentinel config.json senses: {\"model\": \"lobes\"} or COLLEAGUE_SENSES_MODEL=lobes asks for discovery \u2014 implement that sentinel: model == 'lobes' \u2192 use _senses_lobes_fallback). Do the SAME for the muse\u2192deepthink rung (_deepthink_lobes_fallback call near l.3415-3425; sentinel COLLEAGUE_DEEPTHINK_MODEL=lobes). Update the docstrings of both fallbacks to say 'opt-in only'. Keep every other rung (stt/tts/voice/realtime/worker/agents) untouched. Use sed -n to read ONLY the cited line ranges \u2014 config.py is 3600+ lines, never read it whole."
+    },
+    {
+      "id": "t2",
+      "summary": "t2 session: unarmed talk lane PARKS the operator line to cortex via flight guidance (no front door on the default path)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "In colleague/cli/_commands/session.py _talk_senses: when _senses_engine() returns None the typed/voiced line is written VERBATIM as flight guidance (the same seam colleague talk's raw-guide degrade uses) and a line 'parked for cortex at the next boundary' is logged \u2014 no return-and-drop",
+        "tests/test_session_talk_lane.py gains a default-path case: config.senses None + typed mid-run line \u2192 exactly one guidance record with the verbatim text, zero senses calls; tests/test_session_frontdoor.py gains a default-path case asserting run_frontdoor is never called when config.senses is None",
+        "uv run pytest tests/test_session_talk_lane.py tests/test_session_frontdoor.py tests/test_session_senses.py -q green"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3",
+        "c15",
+        "h11",
+        "c28",
+        "h22"
+      ],
+      "instruction": "ONLY session.py (the _talk_senses method near l.2790-2840 and, if needed, a tiny helper next to it) + the two test files. Find how colleague/cli/_commands/talk.py writes raw guidance when senses is unarmed (grep 'guide' in talk.py and colleague/flight.py) and reuse that exact call; the session already holds the flight id for the running work item (grep '_flight' in session.py). Read session.py ONLY by line range with sed -n; it is 4000+ lines."
+    },
+    {
+      "id": "t3",
+      "summary": "t3 session /model: no-arg lists served models + current per-seat default; switch re-derives context budget",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "/model with no argument prints: every id from lobes.fetch_served_model_ids(gateway, api_key=s.config.api_key) (Bearer attached), one 'role \u2192 model' line per role from lobes.resolve_roles, and the current acting model marked; roster None \u2192 'roster unavailable' + current model; lobes unarmed \u2192 'lobes not armed' + current model; never raises",
+        "/model <id> sets s.config.model AND re-derives s.config.context_budget_tokens from the matching role's advertised context window when known (print 'model \u2192 X \u00b7 budget N'); SlashSpec catalog + _HELP_TEXT updated so tests/test_session_autocomplete.py and tests/test_session_cockpit.py drift pins pass",
+        "tests/test_session_model.py (new) covers: listing with a fake roster, None roster, unarmed, switch + budget; uv run pytest tests/test_session_model.py tests/test_session_autocomplete.py tests/test_session_cockpit.py -q green"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c26",
+        "h20",
+        "c29",
+        "h23",
+        "c33",
+        "h26"
+      ],
+      "instruction": "ONLY session.py (_act_model near l.3653, the SlashSpec entry near l.3446, _HELP_TEXT) + new tests/test_session_model.py. Precedent for the roster call: colleague/config.py l.1870; resolve_lobes_gateway_url is already imported in session.py (l.95). Budget derivation: reuse the ratio helper _senses_budget_from_window style or min(window, current) \u2014 state which in the confirmation line. Read by line range only."
+    },
+    {
+      "id": "t4",
+      "summary": "t4 session /effort: show per-seat effort via effort_of, switch live (session-only), validated rungs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "/effort (no arg) prints one line per seat (cortex, worker, deepthink, evaluator, senses, design + the acting role) using colleague.effort.effort_of / resolve_effort \u2014 what is actually sent, incl. 'unset' under the default kill-switch",
+        "/effort <rung> [seat] (default seat cortex) validates via effort.validate_effort (CliError \u2192 ValueError message for the slash dispatcher), mutates s.config.reasoning_effort_seats[seat] (or reasoning_effort for 'all'), prints 'effort <seat> \u2192 <rung> (session-only)'; the next request's chat_template_kwargs reflects it",
+        "tests/test_session_effort.py (new): golden no-arg table, switch + request-dump assertion via the mock engine's recorded config, bad rung error; catalog/help drift tests green"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c25",
+        "h19",
+        "c32",
+        "h25"
+      ],
+      "instruction": "ONLY session.py (new _act_effort beside _act_model, SlashSpec + _HELP_TEXT + _CONFIG_ACTIONS entries) + new tests/test_session_effort.py. colleague/effort.py is ~280 lines \u2014 read it whole; it has SEAT_TABLE/ROLE_TABLE/validate_effort/resolve_effort/effort_of. config.py l.3023 defines reasoning_effort + reasoning_effort_seats; l.3247 reasoning_effort_effective is a property (live)."
+    },
+    {
+      "id": "t5",
+      "summary": "t5 visibility: config show / lobes show / doctor print advertised-but-not-consumed roles",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague config show and colleague lobes show each print one line per gateway-advertised role colleague does not consume by default (senses, muse) naming the served model, e.g. 'not consumed (opt-in): senses \u2192 unsloth/gemma-4-12B-it-qat-w4a16'; doctor's lobes/provider group mentions it too",
+        "golden-output tests on a fake /capabilities payload advertising cortex+senses+muse in tests/test_cli_lobes.py + tests/test_config_lobes.py (or a new tests/test_cli_not_consumed.py); --json carries a not_consumed list; uv run pytest on those files green"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h7"
+      ],
+      "instruction": "ONLY colleague/cli/_commands/config.py, colleague/cli/_commands/lobes.py, colleague/cli/_commands/doctor.py + tests. The roles payload comes from colleague/lobes.py resolve_roles (LobesRoles has .senses/.muse RoleInfo with .model). Keep existing output lines byte-identical; ADD lines only."
+    },
+    {
+      "id": "t6",
+      "summary": "t6 CLI flags: --model / --effort with no value print the list/table instead of refusing",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague work --model (no value) prints the served-model list (same content as session /model no-arg) and exits 0 without running; --effort (no value) prints the per-seat effort table (same as session /effort no-arg); --json shapes for both",
+        "tests in tests/test_cli_flags_listing.py (new) with a fake gateway; existing work/session flag tests green"
+      ],
+      "deps": [],
+      "covers": [
+        "c25",
+        "c26"
+      ],
+      "instruction": "ONLY colleague/cli/_commands/work.py (+ the rendered-flag table near l.2294 / add_argument near l.2697) and the new test file. Put the two list/table renderers in a NEW small module colleague/cli/_commands/_listing.py so t3/t4 (session) can import them later \u2014 keep them pure (take roster/roles/config, return text + dict)."
+    },
+    {
+      "id": "t7",
+      "summary": "t7 voice/realtime: honest 'senses not armed' line on the default path",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "/voice, --voice, /speak and the realtime lane on a session whose config.senses is None print one honest line 'senses not armed \u2014 voice/realtime dormant (opt in with COLLEAGUE_SENSES_MODEL)' and never raise; colleague/voice.py and colleague/realtime.py change ONLY by None-guards (no cortex plumbing)",
+        "tests/test_session_voice.py + tests/test_session_realtime_byteident.py default-path cases green; git diff of voice.py/realtime.py shows guards only"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c9",
+        "h9"
+      ],
+      "instruction": "ONLY session.py voice/realtime slash handlers (grep '/voice', '_start_realtime', '_speak_only' by line range) + voice.py/realtime.py guards + the two tests."
+    },
+    {
+      "id": "t8",
+      "summary": "t8 docs: CLAUDE.md fifth convention change + 1-model-1-agent principle; feature docs mark senses opt-in",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md: the v1-scope paragraph lists the FIFTH recorded v0\u2192v1 convention change (senses/muse discovery opt-in; increment (4) presence-default-everywhere superseded), a new architecture bullet '1 colleague instance = 1 model = 1 agent' placed BEFORE the senses bullets, the hard-question note that /model switching is explicit operator choice not routing, and the lobes boundary (lobes-cli untouched, still advertises)",
+        "docs/features/{presence-default-everywhere,cortex-senses,talking-to-one,talking-to-one-teammate,session-streaming-voice,realtime-speech,senses-live-presence,deepthink}.md each open with an 'Opt-in since v1.63 (qwen-direct)' note citing COLLEAGUE_SENSES_MODEL / the lobes sentinel; grep -rn 'default on every front\\|default state on every front' CLAUDE.md docs/features/ returns only superseded-marked lines; new docs/features/qwen-direct.md links the spec + cites s2/s3 + the doctrine/evidence files",
+        "markdownlint-cli2 on the touched files clean"
+      ],
+      "deps": [],
+      "covers": [
+        "c5",
+        "h5",
+        "c8",
+        "h8",
+        "c14",
+        "c20",
+        "h16",
+        "c22",
+        "h13",
+        "c23",
+        "h14"
+      ],
+      "instruction": "Docs only. CLAUDE.md is ~330 lines: edit the architecture list and the v1-scope paragraph with targeted sed/Edit, do not rewrite. Cite docs/specs/2026-08-22-qwen-direct-no-gemma.md and the memory doctrine by name. Keep every existing fact (trim discipline c17/h4): mark superseded, never delete."
+    },
+    {
+      "id": "t9",
+      "summary": "t9 tests: single-model default guard, #422 hermetic lobes tests, unarmed artifact = default path",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_single_model_default.py (new): with lobes armed (fake gateway cortex+senses+muse) and no declarations, every seat EngineConfig.resolve() builds (main, deepthink, subagent child configs via roles, evaluator/design seats) reports the SAME model id; an AST/text guard asserts no default-path code resolves a model from a role name other than cortex",
+        "#422 fixed: tests/test_cli_lobes.py::test_lobes_show_unarmed_* and tests/test_config_lobes.py::test_config_show_no_lobes_key_when_unarmed pass on a checkout whose .colleague/config.json arms lobes (monkeypatch the repo-config loader or chdir to a tmp repo)",
+        "tests/test_presence_pin_breaks.py + tests/test_senses_all_engines.py: the default-path artifact (no senses key) is pinned as the default; uv run pytest -n auto fully green on this checkout"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c6",
+        "h6",
+        "c14",
+        "h10",
+        "c21",
+        "h18"
+      ],
+      "instruction": "Tests only (plus conftest if a fixture is the cleanest #422 fix). tests/conftest.py already scrubs COLLEAGUE_* and isolates COLLEAGUE_HOME \u2014 extend it to point the repo-level config loader at tmp_path. Run the three #422 tests locally first to see them fail on this checkout."
+    },
+    {
+      "id": "t10",
+      "summary": "t10 live proof: the four c24 checks on this rig + evidence row",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/live-testing.md gains row 40 with: (1) COLLEAGUE_DUMP_REQUEST=1 piped session \u2192 0 requests to non-cortex ids, (2) uv run pytest -n auto green on this checkout, (3) the three #422 tests green here, (4) colleague config show prints the not-consumed lines; plus wall time of a session ack/answer at cortex medium vs the pre-arc 22-tok senses ack (h17 measurement, recorded even if unfavourable)",
+        "docs/evidence/2026-08-22-qwen-direct-no-gemma-results.md holds the raw outputs; a failed check is recorded as failed"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c24",
+        "h15"
+      ],
+      "instruction": "Run on this rig (lobes at localhost:8001, cortex unsloth/Qwen3.8-27B-NVFP4). Use a throwaway repo for the session run; unset CONVERTIBLE_MODEL first. This task is executed by the integrator (needs the live rig + piped session), not a colleague child."
+    },
+    {
+      "id": "t11",
+      "summary": "t11 release: version bump minor + CHANGELOG entry",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject.toml + colleague/__init__.py at 1.63.0; CHANGELOG.md top entry names the fifth convention change, /model + /effort, the opt-in sentinel, and links the spec + plan"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [],
+      "instruction": "Use the version-bump skill (minor). Do it last, after all merges, on the integration branch."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "v4: no independent colleague review of the SPEC landed (two stalls); mitigation \u2014 colleague reviews the PLAN (this artifact) before wave 1 and each merged wave's diff via ask-colleague review",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "session.py (4000+ lines) and config.py (3600+ lines) are hot files colleague times out on when read whole \u2014 t1-t4/t7 must stay line-anchored; if a colleague child stalls twice the integrator does the edit and records a deviation",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "t2/t3/t4/t7 all touch session.py \u2014 serialized by deps (waves 1\u21922\u21923\u21924), never same-wave; t1 and t9 share test_config_lobes.py \u2014 serialized by t9's dep on t1",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "h17 (cortex-direct ack \u2264 2x the senses ack) is measured in t10; an unfavourable result ships recorded, it does not block",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}
