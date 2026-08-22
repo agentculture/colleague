@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-22T06:36:56Z",
-  "updated": "2026-08-22T06:46:21Z",
+  "updated": "2026-08-22T06:46:53Z",
   "targets": [
     {
       "id": "c1",
@@ -587,6 +587,14 @@
     {
       "id": "r4",
       "text": "h17 (cortex-direct ack \u2264 2x the senses ack) is measured in t10; an unfavourable result ships recorded, it does not block",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "Colleague stalls 3/3 on briefs that READ docs/specs/2026-08-22-qwen-direct-no-gemma.md (two spec reviews + the planner: reads succeed, then the synthesis turn goes silent \u2014 heartbeats stop \u2014 past the 300s timeout), while code-reading explores finish (2/2). Planner lens therefore did not land; plan authored by the integrator. Data point for #415/#409: record in the delivery summary; avoid spec-file reads in colleague briefs until understood",
       "kind": "unknown_nonblocking",
       "task_id": null,
       "resolved": false,
