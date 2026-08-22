@@ -190,6 +190,27 @@ def resolve_acting_effort(
     )
 
 
+def effort_of(config: object) -> Optional[str]:
+    """Read the resolved thinking-effort rung off a seat's ``EngineConfig``.
+
+    A pure READ, never a resolution — mirrors
+    ``vllm_openai._effort_for``'s precedence exactly (#416 t7, c29/h20): the
+    plain ``reasoning_effort_seat`` attribute (set by a non-acting seat
+    builder via ``dataclasses.replace`` + ``setattr``, per
+    ``tests/test_thinking_effort_boundary.py``'s sanctioned-assign list)
+    wins when present and not ``None``; otherwise the acting seat's already-
+    resolved :attr:`EngineConfig.reasoning_effort_effective`. A record site
+    calls this at record time instead of recomputing anything from
+    :data:`SEAT_TABLE` / :data:`ROLE_TABLE` — the value it returns is exactly
+    what the backend sent (or would send) for that call.
+    """
+
+    seat_value = getattr(config, "reasoning_effort_seat", None)
+    if seat_value is not None:
+        return seat_value
+    return getattr(config, "reasoning_effort_effective", None)
+
+
 def to_chat_template_kwargs(effort_value: Optional[str]) -> Optional[dict]:
     """Render a resolved rung into the chat-template payload fragment.
 

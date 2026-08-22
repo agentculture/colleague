@@ -194,6 +194,37 @@ def test_loop_emits_tool_spans(tmp_path: Path, otel_capture) -> None:
     assert "colleague.tool.finish" in names
 
 
+def test_work_span_sets_reasoning_effort_when_given(tmp_path: Path, otel_capture) -> None:
+    """#416 t7 (c29/h20): the span attribute lands beside model/max_steps
+    ONLY when the seat's resolved rung is not ``None``."""
+    t, span_exporter, _reader = otel_capture
+    with t.work_span(task_id="x", engine="mock", model="m", max_steps=1, reasoning_effort="high"):
+        pass
+    span = span_exporter.get_finished_spans()[0]
+    assert span.attributes["reasoning_effort"] == "high"
+    assert span.attributes["model"] == "m"
+    assert span.attributes["max_steps"] == 1
+
+
+def test_work_span_omits_reasoning_effort_when_unset(tmp_path: Path, otel_capture) -> None:
+    """No effort resolved (or the caller omits it) -> no attribute at all —
+    the no-otel/no-effort path stays byte-identical."""
+    t, span_exporter, _reader = otel_capture
+    with t.work_span(task_id="x", engine="mock", model="m", max_steps=1):
+        pass
+    span = span_exporter.get_finished_spans()[0]
+    assert "reasoning_effort" not in span.attributes
+
+
+def test_noop_work_span_accepts_reasoning_effort_kwarg() -> None:
+    """The base no-op Telemetry accepts the same kwarg (signature parity with
+    the SDK-backed implementation) and drops it silently, like every other
+    attribute on a disabled span."""
+    t = tel.load_telemetry(tel.TelemetryConfig(enabled=False))
+    with t.work_span(task_id="x", engine="mock", model="m", max_steps=1, reasoning_effort="low"):
+        pass
+
+
 def test_work_span_parents_tool_spans(tmp_path: Path, otel_capture) -> None:
     t, span_exporter, _reader = otel_capture
     responses = [ModelResponse(tool_calls=[ToolCall("1", "finish", {"summary": "ok"})])]

@@ -164,7 +164,13 @@ class Telemetry:
 
     @contextlib.contextmanager
     def work_span(
-        self, *, task_id: str, engine: str, model: str, max_steps: int
+        self,
+        *,
+        task_id: str,
+        engine: str,
+        model: str,
+        max_steps: int,
+        reasoning_effort: str | None = None,
     ) -> Iterator[_NoopSpan]:
         yield _NoopSpan()
 
