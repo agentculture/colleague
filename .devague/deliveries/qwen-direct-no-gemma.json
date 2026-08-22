@@ -2,7 +2,7 @@
   "plan_slug": "qwen-direct-no-gemma",
   "schema_version": 1,
   "created": "2026-08-22T07:25:05Z",
-  "updated": "2026-08-22T08:45:14Z",
+  "updated": "2026-08-22T09:06:04Z",
   "deviations": [
     {
       "id": "d1",
@@ -49,6 +49,16 @@
       "origin": "llm",
       "status": "approved",
       "classification": "needs-follow-up"
+    },
+    {
+      "id": "d5",
+      "what": "t9 taken over by the integrator: the colleague child (9e5cf4571f1d) stalled 15 min at step 14 with 0 edits (no child worktrees left \u2192 nothing to salvage); integrator wrote tests/test_single_model_default.py + made the three #422 tests hermetic via --repo tmp_path; full suite 9149 passed / 0 failed",
+      "task_ref": "t9",
+      "reason": "stall rule (r2); tests-only task",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
     }
   ]
 }
