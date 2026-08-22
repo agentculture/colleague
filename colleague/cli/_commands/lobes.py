@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 
+from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.config import resolve_lobes_gateway_url
@@ -180,14 +181,13 @@ def _lobes_show(repo: str = ".") -> object:
     lines = [f"lobes: armed at {url} — reachable"]
     lines += _role_lines("cortex", roles.cortex)
     lines += _role_lines("senses", roles.senses)
-    # stt/tts (senses live-presence + voice arc) and muse (a second machine's
-    # reasoning model, proxied through the gateway; two-machines-two-minds
-    # arc, task t4) are OPTIONAL roles — show them, ready-kind label and all,
-    # only when the gateway actually serves them.
+    # stt/tts (voice arc) and muse (two-machines-two-minds t4) are OPTIONAL
+    # roles — shown, ready-kind label and all, only when the gateway serves them.
     for opt_name, opt_role in (("stt", roles.stt), ("tts", roles.tts), ("muse", roles.muse)):
         if opt_role is not None:
             payload["roles"][opt_name] = _role_info_to_dict(opt_name, opt_role)
             lines += _role_lines(opt_name, opt_role)
+    payload["not_consumed"] = append_not_consumed(lines, url, None, roles=roles, repo=repo)  # c7
     return rendered(payload, "\n".join(lines))
 
 

@@ -200,6 +200,7 @@ def test_armed_gateway_with_muse_resolves_deepthink(
     fills a DeepthinkConfig from the advertised muse role."""
     with _serving(MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         cfg = EngineConfig.resolve()
 
     assert cfg.deepthink is not None
@@ -218,6 +219,7 @@ def test_discovered_deepthink_budget_derived_from_muse_window(
     ratio (48000/65536) — thor's verified 262144 window yields 192000."""
     with _serving(MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is not None
     assert cfg.deepthink.context_budget == _MUSE_EXPECTED_BUDGET
@@ -230,6 +232,7 @@ def test_discovered_deepthink_multimodal_stays_false(
     (the exact rule the discovered senses follows)."""
     with _serving(MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is not None
     assert cfg.deepthink.multimodal is False
@@ -244,6 +247,7 @@ def test_muse_unwired_endpoint_falls_back_to_gateway_origin(
     payload["muse"]["endpoint"] = ""
     with _serving(payload) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is not None
     assert cfg.deepthink.base_url == gateway.rstrip("/") + "/v1"
@@ -257,6 +261,7 @@ def test_discovered_deepthink_backfills_reviewer_default_when_same_endpoint(
     fixture makes muse's dial target equal cortex's."""
     with _serving(MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is not None
     assert cfg.deepthink.base_url == cfg.base_url
@@ -345,6 +350,7 @@ def test_cross_origin_muse_does_not_inherit_main_api_key(
     payload["muse"]["endpoint"] = "http://other-host:9000"
     with _serving(payload) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is not None
@@ -361,6 +367,7 @@ def test_same_origin_muse_inherits_main_api_key(
     one gateway) keeps inheriting the main key."""
     with _serving(MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is not None
@@ -376,6 +383,7 @@ def test_explicit_deepthink_api_key_wins_even_cross_origin(
     payload["muse"]["endpoint"] = "http://other-host:9000"
     with _serving(payload) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # opt-in sentinel
         monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
         monkeypatch.setenv("COLLEAGUE_DEEPTHINK_API_KEY", "muse-own-token")
         cfg = EngineConfig.resolve()
@@ -383,28 +391,34 @@ def test_explicit_deepthink_api_key_wins_even_cross_origin(
     assert cfg.deepthink.api_key == "muse-own-token"
 
 
-def test_config_json_deepthink_api_key_without_model_arms_discovery(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_config_json_deepthink_api_key_without_model_does_not_arm_discovery(
+    tmp_path: Path,
 ) -> None:
-    """A config.json deepthink section carrying ONLY an api_key (no model —
-    so it declares no deepthink of its own) still supplies the key to the
-    discovered muse, even cross-origin."""
-    payload = json.loads(json.dumps(MUSE_PAYLOAD))
-    payload["muse"]["endpoint"] = "http://other-host:9000"
-    with _serving(payload) as gateway:
+    """A config.json deepthink section carrying ONLY an api_key (no model) is NOT
+    an opt-in: discovery is armed only by the ``lobes`` sentinel model, so the
+    advertised muse role leaves ``cfg.deepthink`` None (qwen-direct, c4/h4)."""
+    with _serving(MUSE_PAYLOAD) as gateway:
         _write_config(
             tmp_path,
             {"lobes": gateway, "deepthink": {"api_key": "file-muse-token"}},
         )
         cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.deepthink is None
+
+
+def test_config_json_deepthink_lobes_sentinel_with_api_key_arms_discovery(
+    tmp_path: Path,
+) -> None:
+    """The config.json opt-in: ``deepthink: {"model": "lobes", "api_key": ...}``
+    asks for discovery and the explicit file key wins over origin inheritance."""
+    with _serving(MUSE_PAYLOAD) as gateway:
+        _write_config(
+            tmp_path,
+            {"lobes": gateway, "deepthink": {"model": "lobes", "api_key": "file-muse-token"}},
+        )
+        cfg = EngineConfig.resolve(repo_path=tmp_path)
     assert cfg.deepthink is not None
-    assert cfg.deepthink.model == _MUSE_MODEL
     assert cfg.deepthink.api_key == "file-muse-token"
-
-
-# ---------------------------------------------------------------------------
-# The budget helper (unit).
-# ---------------------------------------------------------------------------
 
 
 def test_deepthink_budget_from_window_ratio() -> None:

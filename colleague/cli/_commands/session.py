@@ -71,6 +71,19 @@ from colleague.attribution import cortex_working_line, senses_line
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands import work as _work_mod
 from colleague.cli._commands._input_line import OwnedInputLine, transient_paint
+from colleague.cli._commands._session_actions import (  # noqa: F401 - re-exported
+    _CONFIG_ACTIONS,
+    _act_attach,
+    _act_base,
+    _act_effort,
+    _act_engine,
+    _act_learn_from,
+    _act_mode,
+    _act_model,
+    _act_pr,
+    _act_speak,
+    _act_voice,
+)
 from colleague.cli._commands._session_input import CYCLE_MODE, supports_raw_mode
 from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import _resolve_chain_arming
@@ -99,7 +112,6 @@ from colleague.config import (
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.frontdoor import CORTEX, classify_frontdoor, cortex_frontdoor_outcome, run_frontdoor
 from colleague.heal import COMMIT, STASH, parse_heal_choice, render_heal_prompt
-from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.presence import (
     cadence_from_env,
@@ -129,7 +141,6 @@ from colleague.session_modes import (
     mode_facts,
     mode_facts_fragment,
     next_mode,
-    resolve_mode,
     route_for,
 )
 from colleague.telemetry import TelemetryConfig
@@ -231,6 +242,15 @@ _SPEAK_STATE_LINES: dict[str, str] = {
 }
 #: The ONE honest notice for ``/speak`` when no tts endpoint resolved.
 _SPEAK_UNAVAILABLE_LINE = "speak · unavailable · no tts endpoint resolved — staying text-only"
+#: qwen-direct (t7): voice/realtime/speak are senses consumers; with no senses
+#: seat resolved (the single-model default) they are dormant — ONE honest line,
+#: never a dial, never a raise. Opt in with the lobes sentinel or a model id.
+_VOICE_SENSES_UNARMED_LINE = (
+    "voice · dormant · senses not armed — opt in with COLLEAGUE_SENSES_MODEL=lobes"
+)
+_SPEAK_SENSES_UNARMED_LINE = (
+    "speak · dormant · senses not armed — opt in with COLLEAGUE_SENSES_MODEL=lobes"
+)
 
 
 def _reply_text_from_turns(turns: object) -> str:
@@ -2820,6 +2840,12 @@ class _Session:
         )
         pair = self._senses_engine(**stream_kwargs)
         if pair is None:
+            # Senses unarmed (config.senses None) — the talk lane has no front
+            # door on the default path, so the typed/voiced line is PARKED for
+            # cortex at the next boundary: written VERBATIM as flight guidance
+            # (the same seam colleague talk's raw-guide degrade uses), never
+            # returned-and-dropped.
+            self._park_talk_for_cortex(text)
             return
         senses_config, engine = pair
         record = run_senses_talk(
@@ -2868,6 +2894,23 @@ class _Session:
             with contextlib.suppress(Exception):
                 flight.append_guidance(self.repo, self._talk_task_id, relay_text)
             self._log(f"-> cortex: {relay_text}")
+        if self.view == "ansi":
+            self.emit()
+
+    def _park_talk_for_cortex(self, text: str) -> None:
+        """Park one unarmed talk line for cortex at the next boundary.
+
+        The senses talk lane has no front door on the default path (senses
+        unarmed, ``config.senses is None``), so a typed/voiced line is written
+        VERBATIM as flight guidance — the same seam colleague talk's raw-guide
+        degrade uses — and a ``parked for cortex at the next boundary`` line is
+        logged. Nothing is returned-and-dropped. A no-op when the talk lane is
+        not armed (no flight to park onto)."""
+        if self._talk_task_id is None:
+            return
+        with contextlib.suppress(Exception):
+            flight.append_guidance(self.repo, self._talk_task_id, text)
+        self._log("parked for cortex at the next boundary")
         if self.view == "ansi":
             self.emit()
 
@@ -2922,6 +2965,13 @@ class _Session:
         honest notice, no dial. A strict no-op (byte-identical, zero output) when
         the talk lane isn't active — i.e. off-TTY / no senses / ``--cortex-only``,
         the same surfaces the typed talk lane stays silent on."""
+        if getattr(self.config, "senses", None) is None:
+            # qwen-direct (t7): --voice on the single-model default path — one
+            # honest dormant line (colour TTY only; off-TTY stays byte-identical).
+            if self._voice_wanted and not self._voice_unavailable_noticed and self.view == "ansi":
+                self._voice_unavailable_noticed = True
+                self._render_voice_line(_VOICE_SENSES_UNARMED_LINE)
+            return
         if not self._talk_active:
             return
         if not self._voice_available():
@@ -3109,6 +3159,8 @@ class _Session:
         (muted → live). ``degraded`` stays degraded — a toggle can't un-break a
         dead lane. Off a work item (no talk lane) it flips the wanted preference,
         which the next work item's talk lane honors."""
+        if getattr(self.config, "senses", None) is None:
+            return _VOICE_SENSES_UNARMED_LINE
         if not self._voice_available():
             return _VOICE_UNAVAILABLE_LINE
         self._voice_wanted = True
@@ -3152,6 +3204,8 @@ class _Session:
         ``--speak`` are its ONLY writers). No tts resolved → one honest
         notice through the SAME label·state·consequence line seam
         ``/voice`` uses, and stays off (never raises)."""
+        if getattr(self.config, "senses", None) is None:
+            return _SPEAK_SENSES_UNARMED_LINE
         if not self._speak_available():
             return _SPEAK_UNAVAILABLE_LINE
         self._speak_only = not self._speak_only
@@ -3443,7 +3497,20 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         "runtime",
         ("model", "config"),
     ),
-    SlashSpec("model", "<name>", "switch the model", "runtime", ("model", "config")),
+    SlashSpec(
+        "model",
+        "[name]",
+        "switch the model (no arg lists served models + roles; re-derives the budget)",
+        "runtime",
+        ("model", "config"),
+    ),
+    SlashSpec(
+        "effort",
+        "[rung] [seat]",
+        "per-seat thinking effort (no arg lists every seat; session-only)",
+        "runtime",
+        ("model", "config"),
+    ),
     SlashSpec(
         "mode",
         "[name]",
@@ -3635,123 +3702,6 @@ _INTROSPECT: dict[str, Callable[["_Session"], list[str]]] = {
     "engines": lambda s: ["backends", "list"],
     "telemetry": lambda s: ["telemetry", "status"],
     "feedback": lambda s: ["feedback", "show", "last", "--repo", str(s.repo)],
-}
-
-
-def _act_engine(s: "_Session", rest: list[str]) -> str:
-    if not rest:
-        raise ValueError("usage: /engine <name>")
-    name = rest[0]
-    if name not in registry.names():
-        raise ValueError(
-            f"unknown engine '{name}'; available: {', '.join(registry.names()) or '(none)'}"
-        )
-    s.engine_name = name
-    return f"engine → {name}"
-
-
-def _act_model(s: "_Session", rest: list[str]) -> str:
-    if not rest:
-        raise ValueError("usage: /model <name>")
-    s.config.model = rest[0]
-    return f"model → {rest[0]}"
-
-
-def _act_mode(s: "_Session", rest: list[str]) -> str:
-    """``/mode`` — the keyboard-free shift-tab. No arg cycles to the next mode;
-    ``/mode <name>`` sets it explicitly; an unknown name raises ``ValueError``
-    (surfaced by the slash dispatcher as an error + the valid-modes hint), leaving
-    the mode unchanged (``resolve_mode`` raises before the assignment)."""
-    # Single return (resolve_mode still raises before the assignment on a bad
-    # name, so the mode is left unchanged): the prior two-branch form returned the
-    # syntactically identical f-string from both arms, which Sonar reads as S3516
-    # "always returns the same value".
-    s.mode = next_mode(s.mode) if not rest else resolve_mode(rest[0])
-    return f"mode → {s.mode}"
-
-
-def _act_base(s: "_Session", rest: list[str]) -> str:
-    if not rest:
-        raise ValueError("usage: /base <branch>")
-    s.base = rest[0]
-    return f"base branch → {rest[0]}"
-
-
-def _act_pr(s: "_Session", rest: list[str]) -> str:
-    s.open_pr = not s.open_pr
-    return f"push + PR on each work item → {'on' if s.open_pr else 'off'}"
-
-
-def _act_attach(s: "_Session", rest: list[str]) -> str:
-    """``/attach <path>`` validates *path* (:func:`colleague.media.validate_attachment`)
-    and stages it for the NEXT work line — repeatable, staged in order, one-shot
-    (task t11: the following work item's ``Task.attachments`` clears the staging
-    list). ``/attach`` with no argument lists what is currently staged, or reports
-    none staged — a read, not a mutation, so it never (re)raises.
-
-    A validation failure (missing file / unknown extension) raises ``ValueError``,
-    which the ``_slash`` dispatcher reports via the session's normal error style
-    (``_error``) and stages nothing — mirroring every other ``_CONFIG_ACTIONS``
-    usage error.
-    """
-    if not rest:
-        if not s._staged_attachments:
-            return "no attachments staged"
-        listed = ", ".join(a["path"] for a in s._staged_attachments)
-        return f"staged attachments ({len(s._staged_attachments)}): {listed}"
-    attachment = validate_attachment(rest[0])  # raises ValueError -> caught by _slash
-    s._staged_attachments.append(attachment)
-    return (
-        f"attached: {attachment['path']} ({attachment['media_type']}) "
-        "— staged for the next work line"
-    )
-
-
-def _act_voice(s: "_Session", rest: list[str]) -> str:
-    """``/voice`` — the c27 opt-in toggle for the realtime voice lane.
-
-    Delegates to :meth:`_Session._toggle_voice`: opt in + start capture, or
-    toggle a running lane live⇄muted. Realtime unavailable is one honest line,
-    no dial — never raises (so the slash dispatcher renders it as a plain
-    confirmation, like every other config action)."""
-    return s._toggle_voice()
-
-
-def _act_speak(s: "_Session", rest: list[str]) -> str:
-    """``/speak`` — the speak-only opt-in toggle (task t8): TTS-speaks each
-    senses REPLY while the operator only types.
-
-    Delegates to :meth:`_Session._toggle_speak`. Independent of ``/voice`` —
-    never arms the mic or stt (c7 stands untouched). No tts resolved is one
-    honest line, no dial — never raises."""
-    return s._toggle_speak()
-
-
-def _act_learn_from(s: "_Session", rest: list[str]) -> str:
-    """Learn skills from a peer in-session via the real ``learn-from`` verb.
-
-    Always runs the deterministic stage-1 copy (``--copy-only``) so an
-    interactive invocation never blocks on a model call; the full LLM adapt pass
-    is left to ``colleague learn-from`` / a work item. Source defaults to
-    ``claude``; extra tokens (skill names, ``--dry-run``) pass straight through.
-    """
-    rest = list(rest)
-    if not rest or rest[0].startswith("-"):
-        rest = ["claude", *rest]
-    return s._run_cli("learn-from", *rest, "--repo", str(s.repo), "--copy-only")
-
-
-# Live config actions: map a verb to a mutating handler returning a confirmation.
-_CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
-    "engine": _act_engine,
-    "model": _act_model,
-    "mode": _act_mode,
-    "base": _act_base,
-    "pr": _act_pr,
-    "attach": _act_attach,
-    "voice": _act_voice,
-    "speak": _act_speak,
-    "learn-from": _act_learn_from,
 }
 
 

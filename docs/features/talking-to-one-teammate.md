@@ -1,5 +1,13 @@
 # Talking to colleague feels like one teammate (the senses front door)
 
+> **Opt-in since v1.63 (qwen-direct).** Senses is no longer resolved from the
+> lobes gateway by default — a bare run dials exactly one model (cortex). Arm
+> this lane explicitly with `COLLEAGUE_SENSES_MODEL=lobes` (discovery) or an
+> explicit model id (config.json `senses.model` works too); unarmed, every
+> behaviour below is dormant and the artifact is byte-identical to the unarmed
+> floor. Spec: `docs/specs/2026-08-22-qwen-direct-no-gemma.md` · doc:
+> [`qwen-direct.md`](qwen-direct.md).
+
 Colleague drives with two lobes — **cortex** (the back mind that does the repo
 work) and **senses** (the front mind that perceives and presents). Before this
 feature, every free-text line in `colleague session` was routed straight to a

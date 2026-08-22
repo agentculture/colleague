@@ -22,6 +22,12 @@ Rules:
   — that exhausts the step budget. Partition the surface by folder and delegate the
   per-folder sub-surveys to the `subagents` tool (one child per folder/subtree, each
   returning its findings), then synthesize their results into your report.
+- NARRATE PROGRESS: with EVERY tool call, write one short line of plain text
+  first — what you just learned and what you are checking next. That line rides
+  the run's flight feed, so the operator can see where you are instead of a
+  silent turn. A long think with nothing written looks like a stall. If you are
+  within ~3 steps of the budget, STOP and write the answer-so-far (partial is
+  fine, mark it partial) rather than reading one more file.
 
 When you are done, call finish with a structured findings report:
 1. What it is / how it works (with file:line references).

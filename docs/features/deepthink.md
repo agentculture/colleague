@@ -1,5 +1,12 @@
 # Deepthink — dual-model: a fast main driver + a strong-reasoner escalation
 
+> **Opt-in since v1.63 (qwen-direct).** The muse→deepthink discovery rung no
+> longer arms by itself — declare `COLLEAGUE_DEEPTHINK_MODEL=lobes` (discovery)
+> or an explicit deepthink model; "muse" as a configuration of the SAME cortex
+> model (xhigh effort + a higher temperature + its own prompt) is the intended
+> shape. Spec: `docs/specs/2026-08-22-qwen-direct-no-gemma.md` · doc:
+> [`qwen-direct.md`](qwen-direct.md).
+>
 > Spec:
 > [`docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`](../specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md)
 > · plan:

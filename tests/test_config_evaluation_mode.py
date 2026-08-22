@@ -270,6 +270,7 @@ def test_unarmed_with_a_full_seat_advert_resolves_nothing(
     mode is explicitly armed — read and discarded, exactly like ``reranker``."""
     with _serving(SEATED_MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # discovery opt-in
         cfg = EngineConfig.resolve()
     assert cfg.thought_action_evaluation is False
     assert cfg.evaluation_seats is None
@@ -697,6 +698,7 @@ def test_not_armed_muse_advert_still_resolves_deepthink(
     rung already does."""
     with _serving(SEATED_MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # discovery opt-in
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is not None
     assert cfg.deepthink.model == _MUSE_MODEL

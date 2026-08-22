@@ -699,6 +699,7 @@ def test_three_tier_not_armed_muse_advert_still_resolves_deepthink(
     about the legacy (not-armed) muse-discovery path."""
     with _serving(WORKER_MUSE_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "lobes")  # discovery opt-in
         cfg = EngineConfig.resolve()
     assert cfg.three_tier is False
     assert cfg.deepthink is not None

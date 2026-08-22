@@ -991,6 +991,9 @@ def _deepthink_lobes_fallback(
 ) -> "DeepthinkConfig | None":
     """The muse→deepthink discovery fallback, extracted from ``resolve()`` (t5).
 
+    OPT-IN ONLY (qwen-direct): reached solely when the declared deepthink model
+    is the sentinel ``lobes``; an advertised muse role alone arms nothing.
+
     Extraction keeps ``resolve()`` under the SonarCloud S3776 cognitive-
     complexity ceiling — the same move :func:`_resolve_lobes_rung` made.
     Returns ``None`` when lobes did not resolve, no muse role is advertised,
@@ -1033,6 +1036,9 @@ def _senses_lobes_fallback(
     file_senses: dict[str, str],
 ) -> "SensesConfig | None":
     """The senses discovery fallback, extracted from ``resolve()`` (colleague#348).
+
+    OPT-IN ONLY (qwen-direct): reached solely when the declared senses model is
+    the sentinel ``lobes``; an advertised senses role alone arms nothing.
 
     Mirrors :func:`_deepthink_lobes_fallback` field-for-field — the same
     extraction keeps ``resolve()`` under the SonarCloud S3776 cognitive-
@@ -3405,37 +3411,24 @@ class EngineConfig:
             default=_file_or_default(file_api_key, _DEFAULT_API_KEY),
         )
 
-        # Dual-model deepthink (t1) — resolved once as a local (like
-        # resolved_base_url/resolved_api_key above) so the test-integrity
-        # reviewer default backfill (t7) below can inspect the resolved
-        # DeepthinkConfig before EngineConfig itself is constructed.
+        # Dual-model deepthink (t1) — resolved once as a local so the reviewer
+        # default backfill (t7) can inspect it. Discovery from the lobes muse
+        # role is OPT-IN ONLY (qwen-direct, c4): the operator declares the
+        # sentinel ``lobes`` as the deepthink model (COLLEAGUE_DEEPTHINK_MODEL /
+        # config.json deepthink.model); an advertised muse alone arms nothing.
+        # Dial target, budget and key hygiene: :func:`_deepthink_lobes_fallback`.
         resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
-        # Deepthink discovery rung (two-machines-two-minds t5): when deepthink
-        # is NOT declared via env/config.json but the lobes rung resolved a
-        # muse role, the gateway supplies the DeepthinkConfig — muse's OWN
-        # resolved dial target, budget from the role's window, and the main
-        # api_key ONLY toward the main endpoint's own origin (see
-        # :func:`_deepthink_lobes_fallback` for the key-hygiene rule).
-        # Precedence: env > config.json > lobes discovery (muse) > absent —
-        # the exact senses-rung stance below. Sits ABOVE the reviewer-default
-        # backfill (t7) so a discovered deepthink feeds it identically to a
-        # declared one.
-        if resolved_deepthink is None:
+        if resolved_deepthink is not None and resolved_deepthink.model == "lobes":
             resolved_deepthink = _deepthink_lobes_fallback(
                 lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_deepthink
             )
-        # Senses (multimodal front-door) escalation target — resolved once as a
-        # local like resolved_deepthink above. Precedence: env > config.json >
-        # lobes discovery (t4) > absent. When senses is NOT declared via
-        # env/config.json but the lobes rung resolved, the gateway's senses role
-        # supplies the SensesConfig — its OWN resolved dial target (colleague#292,
-        # S1's follow-on: senses no longer reuses cortex's ``lobes_base_url``;
-        # closes lobes-cli#87 end-to-end), budget from the role's window, and
-        # the main api_key ONLY toward the main endpoint's own origin (see
-        # :func:`_senses_lobes_fallback` for the key-hygiene rule, colleague#348
-        # — the exact stance :func:`_deepthink_lobes_fallback` takes).
+        # Senses front-door target — resolved once as a local. Discovery from the
+        # lobes senses role is OPT-IN ONLY (qwen-direct, c2): the sentinel
+        # ``lobes`` as the senses model (COLLEAGUE_SENSES_MODEL / config.json
+        # senses.model) asks for it; its own dial target, window budget and key
+        # hygiene: :func:`_senses_lobes_fallback` (colleague#292/#348).
         resolved_senses = _resolve_senses(file_senses, resolved_base_url, resolved_api_key)
-        if resolved_senses is None:
+        if resolved_senses is not None and resolved_senses.model == "lobes":
             resolved_senses = _senses_lobes_fallback(
                 lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_senses
             )

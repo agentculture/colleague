@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 
 from colleague import effort
+from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.config import (
@@ -94,20 +95,17 @@ def _config_show(repo: str = ".") -> object:
     else:
         lines.append("config_file: (none — using env vars + built-in defaults)")
 
-    # Lobes discovery rung (cortex/senses arc, t4): reflect the ARMED state so an
-    # operator can debug it. cfg.model above already reflects the rung in effect
-    # (cortex when the gateway resolved, else the degraded next-rung value). The
-    # to_dict() snapshot stays byte-identical (the guard); the lobes key is added
-    # to the rendered payload only when armed.
+    # Lobes rung (t4): show the ARMED state; cfg.model already reflects the rung.
+    # to_dict() stays byte-identical; the lobes key is added only when armed.
     data = cfg.to_dict()
     data["config_files"] = provenance
     gateway = resolve_lobes_gateway_url(repo)
     if gateway is not None:
         lines.append(f"lobes: armed (gateway={gateway!r}) — resolved model={cfg.model}")
         data = {**data, "lobes": {"armed": True, "gateway": gateway, "resolved_model": cfg.model}}
-    # Model-bound agents (#411 t7): reflect the mode so an operator can see it
-    # before a run; the payload carries the key only when armed (to_dict()'s
-    # omit-when-unarmed convention).
+        # qwen-direct (c7/h7): advertised-but-not-consumed roles (senses/muse opt-in).
+        data["lobes"]["not_consumed"] = append_not_consumed(lines, gateway, cfg, indent="")
+    # Model-bound agents (#411 t7): show the mode; payload key only when armed.
     lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
     return rendered(data, "\n".join(lines))
 

@@ -1,5 +1,13 @@
 # Realtime speech
 
+> **Opt-in since v1.63 (qwen-direct).** Senses is no longer resolved from the
+> lobes gateway by default — a bare run dials exactly one model (cortex). Arm
+> this lane explicitly with `COLLEAGUE_SENSES_MODEL=lobes` (discovery) or an
+> explicit model id (config.json `senses.model` works too); unarmed, every
+> behaviour below is dormant and the artifact is byte-identical to the unarmed
+> floor. Spec: `docs/specs/2026-08-22-qwen-direct-no-gemma.md` · doc:
+> [`qwen-direct.md`](qwen-direct.md).
+
 **Talk to senses by voice, live, while cortex works.** Instead of the
 record-then-transcribe turn, the operator's mic streams continuously to the
 rig's `/v1/realtime` WebSocket session; the server's own VAD (voice-activity
