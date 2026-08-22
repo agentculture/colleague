@@ -124,9 +124,7 @@ def test_set_payload_gains_exactly_chat_template_kwargs(
         reasoning_effort=rung,
     )
     payload, _streaming = VllmOpenAIEngine._build_chat_payload(cfg, _MESSAGES, [])
-    frozen = _frozen_pre_change_payload(
-        tools=False, streaming=True, temperature=cfg.temperature
-    )
+    frozen = _frozen_pre_change_payload(tools=False, streaming=True, temperature=cfg.temperature)
     assert set(payload) == set(frozen) | {"chat_template_kwargs"}
     for key, value in frozen.items():
         assert payload[key] == value

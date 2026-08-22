@@ -177,8 +177,8 @@ def test_effort_assign_guard_is_not_vacuous() -> None:
     )
     tree = ast.parse(snippet)
     offenders = _effort_assignments(tree)
-    assert len(offenders) == 2, (
-        f"guard must flag exactly the two planted assignments (not the read): {offenders!r}"
-    )
+    assert (
+        len(offenders) == 2
+    ), f"guard must flag exactly the two planted assignments (not the read): {offenders!r}"
     assert any("reasoning_effort =" in o for o in offenders)
     assert any("setattr" in o and "reasoning_effort_seat" in o for o in offenders)
