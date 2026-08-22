@@ -13,7 +13,6 @@ request's ``chat_template_kwargs`` reflects it.
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import pytest
