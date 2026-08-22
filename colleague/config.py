@@ -3639,29 +3639,18 @@ class EngineConfig:
 
         # Per-seat thinking-effort ladder (#416 t2): validated via
         # effort.validate_effort (c37); "default" is the kill-switch sentinel.
-        resolved_reasoning_effort = (
-            _pick(None, "COLLEAGUE_REASONING_EFFORT", default=file_reasoning_effort or "") or None
-        )
-        if resolved_reasoning_effort is not None:
-            resolved_reasoning_effort = effort.validate_effort(resolved_reasoning_effort)
-        resolved_reasoning_effort_seats: dict[str, str] = {}
-        for _seat in effort.SEAT_TABLE:
-            _raw = (
-                _pick(
-                    None,
-                    f"COLLEAGUE_{_seat.upper()}_REASONING_EFFORT",
-                    default=file_reasoning_effort_seats.get(_seat, ""),
-                )
-                or None
-            )
-            if _raw is not None:
-                resolved_reasoning_effort_seats[_seat] = effort.validate_effort(_raw)
-        resolved_too_long_min = int(
-            _pick(
-                None,
-                "COLLEAGUE_TOO_LONG_MIN",
-                default=file_too_long_min or str(_DEFAULT_TOO_LONG_MIN),
-            )
+        # Parsing lives in colleague.effort (SonarCloud S3776 extraction) —
+        # this classmethod just supplies the config-file/env inputs.
+        (
+            resolved_reasoning_effort,
+            resolved_reasoning_effort_seats,
+            resolved_too_long_min,
+        ) = effort.resolve_reasoning_effort_overrides(
+            _pick,
+            file_reasoning_effort,
+            file_reasoning_effort_seats,
+            file_too_long_min,
+            _DEFAULT_TOO_LONG_MIN,
         )
 
         return cls(

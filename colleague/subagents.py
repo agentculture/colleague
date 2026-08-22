@@ -1462,6 +1462,40 @@ def make_batch_spawn(
     return batch_spawn
 
 
+def _build_child_spec(
+    item: dict,
+    *,
+    share_steps: Optional[int],
+    share_budget: Optional[int],
+    parent_task_id: Optional[str],
+    parent_profile: Optional[str],
+) -> ChildSpec:
+    """Build one batch child's :class:`ChildSpec` from its raw *item* dict.
+
+    Extracted from ``_spawn_children``'s ``_run_one`` closure (SonarCloud
+    S3776) — pure translation, no behaviour change. An explicit per-item
+    ``max_steps``/``context_budget_tokens`` wins over the width-scaled
+    *share_steps*/*share_budget*; ``goal``/``acceptance`` are structural,
+    programmatic-only (t16); ``profile``/``context_mode`` are the cross-role
+    dial (#411 t14); ``effort`` is the per-child thinking-effort override
+    (#416 t5) — an invalid value in any of these is refused whole by
+    ``ChildSpec`` itself.
+    """
+    item_steps = _positive_int_or_none(item.get("max_steps"))
+    item_budget = _positive_int_or_none(item.get("context_budget_tokens"))
+    return ChildSpec(
+        max_steps=(item_steps if item_steps is not None else share_steps),
+        context_budget_tokens=(item_budget if item_budget is not None else share_budget),
+        goal=(item.get("goal") or None),
+        acceptance=(item.get("acceptance") or None),
+        parent_task_id=parent_task_id,
+        profile=(item.get("profile") or None),
+        context_mode=str(item.get("context_mode") or "inherit"),
+        parent_profile=parent_profile,
+        effort=(item.get("effort") or None),
+    )
+
+
 def _spawn_children(
     items: List[dict],
     child_ids: List[str],
@@ -1492,8 +1526,6 @@ def _spawn_children(
 
     def _run_one(i: int) -> SubResult:
         item = items[i]
-        item_steps = _positive_int_or_none(item.get("max_steps"))
-        item_budget = _positive_int_or_none(item.get("context_budget_tokens"))
         return _run_child_in_worktree(
             repo_path,
             child_ids[i],
@@ -1505,24 +1537,12 @@ def _spawn_children(
             model=(item.get("model") or None),
             role=(item.get("role") or role),
             counter=counter,
-            spec=ChildSpec(
-                # An explicit per-item budget wins over the width-scaled share.
-                max_steps=(item_steps if item_steps is not None else share_steps),
-                context_budget_tokens=(item_budget if item_budget is not None else share_budget),
-                # Structural goal/acceptance (t16): programmatic-only, e.g. the
-                # plan workforce's build_workforce_items — never model-facing
-                # (the subagents tool's _parse_batch_items strips to its keys).
-                goal=(item.get("goal") or None),
-                acceptance=(item.get("acceptance") or None),
+            spec=_build_child_spec(
+                item,
+                share_steps=share_steps,
+                share_budget=share_budget,
                 parent_task_id=parent_task_id,
-                # Cross-role dial (#411 t14): per-item profile / context_mode;
-                # an invalid value is refused whole by ChildSpec itself.
-                profile=(item.get("profile") or None),
-                context_mode=str(item.get("context_mode") or "inherit"),
                 parent_profile=parent_profile,
-                # Per-child thinking-effort override (#416 t5): an invalid
-                # value is refused whole by ChildSpec itself.
-                effort=(item.get("effort") or None),
             ),
         )
 

@@ -731,45 +731,50 @@ def _require(arguments: dict[str, Any], key: str, tool: str) -> Any:
     return arguments[key]
 
 
+def _optional_str_field(item: dict, key: str) -> dict[str, Any]:
+    """``{key: item[key]}`` when ``item[key]`` is a non-empty string, else ``{}``.
+
+    Extracted from :func:`_parse_batch_items` (SonarCloud S3776) — DRYs the
+    three identically-shaped "carry it forward only if it's a real string"
+    optional fields (``profile``/``context_mode``/``effort``).
+    """
+    value = item.get(key)
+    return {key: value} if isinstance(value, str) and value else {}
+
+
+def _normalize_batch_item(i: int, item: Any) -> dict[str, Any]:
+    """Validate + normalize ONE ``subagents`` tool instruction item.
+
+    Extracted from :func:`_parse_batch_items` (SonarCloud S3776). *item* must
+    be an object carrying a non-empty ``instruction`` string; ``engine``/
+    ``model``/``role`` are optional, and ``profile``/``context_mode``/
+    ``effort`` are carried forward only when present (see
+    :func:`_optional_str_field`).
+    """
+    if not isinstance(item, dict):
+        raise ToolError(f"subagents: item {i} must be an object with 'instruction'")
+    instruction = item.get("instruction")
+    if not instruction or not isinstance(instruction, str):
+        raise ToolError(f"subagents: item {i} is missing a required 'instruction' string")
+    return {
+        "instruction": instruction,
+        "engine": item.get("engine") or None,
+        "model": item.get("model") or None,
+        "role": item.get("role") or None,
+        **_optional_str_field(item, "profile"),
+        **_optional_str_field(item, "context_mode"),
+        **_optional_str_field(item, "effort"),
+    }
+
+
 def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
     """Validate + normalize the ``subagents`` tool's instruction items.
 
-    Each item must be an object carrying a non-empty ``instruction`` string;
-    ``engine``/``model``/``role`` are optional. Extracted from
-    :meth:`ToolExecutor._subagents` to keep that method's cognitive complexity
-    within budget (SonarCloud S3776).
+    Extracted from :meth:`ToolExecutor._subagents` to keep that method's
+    cognitive complexity within budget (SonarCloud S3776); per-item
+    validation/normalization now lives in :func:`_normalize_batch_item`.
     """
-    items: list[dict[str, Any]] = []
-    for i, item in enumerate(raw_instructions):
-        if not isinstance(item, dict):
-            raise ToolError(f"subagents: item {i} must be an object with 'instruction'")
-        instruction = item.get("instruction")
-        if not instruction or not isinstance(instruction, str):
-            raise ToolError(f"subagents: item {i} is missing a required 'instruction' string")
-        items.append(
-            {
-                "instruction": instruction,
-                "engine": item.get("engine") or None,
-                "model": item.get("model") or None,
-                "role": item.get("role") or None,
-                **(
-                    {"profile": item["profile"]}
-                    if isinstance(item.get("profile"), str) and item.get("profile")
-                    else {}
-                ),
-                **(
-                    {"context_mode": item["context_mode"]}
-                    if isinstance(item.get("context_mode"), str) and item.get("context_mode")
-                    else {}
-                ),
-                **(
-                    {"effort": item["effort"]}
-                    if isinstance(item.get("effort"), str) and item.get("effort")
-                    else {}
-                ),
-            }
-        )
-    return items
+    return [_normalize_batch_item(i, item) for i, item in enumerate(raw_instructions)]
 
 
 class ToolExecutor:
