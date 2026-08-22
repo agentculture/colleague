@@ -86,7 +86,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | The default-path artifact carries no senses key (byte-identical to the unarmed floor) | high | `tests/test_single_model_default.py::test_default_path_mock_artifact_has_no_senses_key` |
 | cortex-direct answers a non-repo turn ≤ 2× the senses ack (h17) | medium | evidence file: 12.45 s vs 6.81 s = 1.83× (n=1 per arm, same rig, same minute) |
 | `/voice`, `/speak`, `--voice` print one honest dormant line when senses is unarmed | high | `tests/test_session_voice.py` (3 new tests); commit 76a7108 |
-| CLAUDE.md records the fifth convention change and the feature docs mark senses opt-in | high | commit 6d078fb; `grep -rnE 'default on every front|default state on every front' CLAUDE.md docs/features/` → only superseded-marked lines |
+| CLAUDE.md records the fifth convention change and the feature docs mark senses opt-in | high | commit 6d078fb; `grep -rnE 'default on every front\|default state on every front' CLAUDE.md docs/features/` → only superseded-marked lines |
 | SonarCloud quality gate passes on the final tip | unverified | re-scan of e67525e pending at write time — not claimed |
 | Qodo / independent review findings addressed | unverified | Qodo summary pending; the colleague reviewer lens stalled — not claimed |
 
