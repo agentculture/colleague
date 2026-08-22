@@ -1,6 +1,6 @@
-Fan out a converged devague plan's dependency waves to parallel agents in isolated git worktrees, one agent per task per wave, with TDD-gated merges by the main agent. Human gates: the exported spec, the implementation split plan (task map + per-task agent/model proposal + go/no-go), and the final PR. The devague CLI stays deterministic and non-orchestrating (#20) — it only *describes* the graph via `devague plan waves`; the operator (main agent) performs the fan-out. Use when the user says "assign to workforce", "fan out the plan", "parallel subagents", or after the `spec-to-plan` skill exports a plan. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
+Fan out a converged devague plan's dependency waves to parallel agents in isolated git worktrees, one agent per task per wave, with TDD-gated merges by the main agent. Human gates: the exported spec, the implementation split plan (task map + per-task agent/model proposal + go/no-go), and the final PR. The devague CLI stays deterministic and non-orchestrating (#20) — it only *describes* the graph via `devague plan waves`; the operator (main agent) performs the fan-out. Use when the user says "assign to workforce", "fan out the plan", "parallel subagents", or after the `spec-to-plan` skill exports a plan. Authored and maintained in agentculture/devague (origin = devague); guildmaster pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from guildmaster like the other skills here.
 
-<!-- learned-from: claude; source: .colleague/skills/assign-to-workforce.md; adapt: claude->colleague -->
+<!-- learned-from: claude; source: .claude/skills/assign-to-workforce/SKILL.md; scripts: .claude/skills/assign-to-workforce/scripts; adapt: claude->colleague -->
 
 # assign-to-workforce
 
@@ -37,7 +37,7 @@ There is no shell script entry point. Instead, use colleague's native tools:
 | Action | How |
 |--------|-----|
 | Inspect waves | `devague plan waves` (via the `devague` tool) |
-| Render split plan | Read `devague plan waves --json` output and format the task map with per-task agent + model proposal for human go/no-go review. |
+| Render split plan | Read `devague plan waves --json` output and format the task map (summary verbatim, instruction presence, acceptance-criteria count) with per-task agent + model proposal; append the End state section from `devague plan deliverables` — for human go/no-go review. |
 | Fan out a wave | Use `subagents` to dispatch same-wave tasks in parallel, each subagent working in its own worktree. |
 | TDD-gated merge | Run tests on main, merge the worktree branch, re-run tests, then remove the worktree. |
 
@@ -59,20 +59,59 @@ implementation stage (per task, the TDD gate is the main agent's).
 
 The split plan contains:
 
-1. **Task map** — every task id, its one-line summary, acceptance criteria, and
-   the wave it belongs to (from `devague plan waves`).
+1. **Task map** — every task id, its one-line summary (verbatim), whether it
+   carries a working instruction, its acceptance-criteria count, and the wave
+   it belongs to — all read straight from `devague plan waves --json` (no
+   operator paraphrasing).
 2. **Per-task agent + model proposal** — for each task: the proposed agent type
    (subagent / teammate / generalist), the proposed model (e.g. a cheaper/faster
    model for a well-scoped task), and the scope justification (why this task is
    safe to delegate).
 3. **Go/no-go question** — explicit human decision: "Approve this split and
    assign the plan to the workforce, or edit it first?"
+4. **End state** — the verbatim output of `devague plan deliverables` (#70):
+   what the plan actually produces — confirmed after-state claims, terminal
+   tasks with acceptance criteria, and surviving open items. Present this to
+   the human alongside the go/no-go question, not just the task map —
+   approving a fan-out without seeing the world it produces is the gap this
+   closes. On a `devague` too old to have the verb, degrade to a one-line
+   hint naming the minimum version instead of failing the split plan.
 
 The human may edit any row (agent type, model, scope) before approving. The
 plan is model-agnostic — devague does not pick a backend (#20).
 
-Use the `devague` tool to fetch wave data, then present the split plan to the
-human. Do not proceed to fan-out until the human approves the split plan.
+Fetch the wave data with the `devague` tool (`devague plan waves`) and read
+`devague plan waves --json` for the task map, then present the split plan to
+the human. Do not proceed to fan-out until the human approves the split plan.
+
+### The `waves --json` payload — the single source for every brief
+
+`devague plan waves --json` emits `{"plan": "<slug>", "waves": [[...], ...],
+"tasks": {...}}` — the ordered dependency-wave batches plus a top-level
+`tasks` object keyed by task id, each entry carrying that task's full working
+contract:
+
+```json
+{
+  "plan": "<slug>",
+  "waves": [["t1"], ["t2", "t3"]],
+  "tasks": {
+    "t1": {
+      "summary": "<task summary>",
+      "instruction": "<verbatim instruction, or \"\" if none>",
+      "acceptance_criteria": ["<criterion>", "..."],
+      "covers": ["<c*/h* id>", "..."]
+    }
+  }
+}
+```
+
+This one payload is enough to build a per-subagent brief with **no external
+context** — no need to also read `devague plan show --json` or the exported
+plan-md. Quote `summary`, `instruction`, `acceptance_criteria`, and `covers`
+**verbatim** into every brief — never paraphrase them. (Documented identically
+in the sibling `spec-to-plan` skill, since both skills consume the same
+payload — stay consistent if either changes.)
 
 ### Fan-out — one agent per task per wave in isolated worktrees
 
@@ -86,7 +125,12 @@ Once the human approves, the main agent fans out each wave in order:
 
 2. **Spawn a task agent** inside that worktree (using the approved model from
    the split plan), with:
-   - The task id, summary, and acceptance criteria as its brief.
+   - The task id, summary, working instruction, acceptance criteria, and
+     covered targets as its brief — **quoted verbatim** from `devague plan
+     waves --json` (see *The `waves --json` payload* above). No operator
+     paraphrasing anywhere in this flow: the plan text *is* the contract the
+     user confirmed, and a reworded brief silently drifts from it. If a task
+     has no instruction (`""`), say so rather than inventing one.
    - Instruction to work **test-first** (TDD): write the failing test(s) that
      match the acceptance criteria before implementing.
    - Instruction to commit its work to the worktree branch.
@@ -137,6 +181,29 @@ Once all waves are merged and the full test suite passes, the main agent opens
 a PR via the `cicd` skill. The human reviews and merges. This is the last and
 only remaining human gate.
 
+## After the final PR — summarize the delivery
+
+Once the final PR is **merged**, close the execution loop cleanly instead of
+stopping at a green merge:
+
+1. **Summarize the delivery.** Run the sibling **`summarize-delivery`** skill
+   — the delivery-side closure leg. It turns the run into a committed
+   accountability artifact (`docs/deliveries/<created-date>-<slug>.md`) that
+   records planned-versus-actual delivery, the mid-work decisions the workforce
+   made, where execution drifted from the plan, evidence-backed delivery claims
+   (a claim without evidence stays `unverified`, never asserted as done), and
+   any remaining work. The `devague plan waves --json` payload you fanned out
+   is the planned-work baseline it compares actuals against.
+2. **It closes partial and failed runs too.** `summarize-delivery` does not
+   require every wave to have merged — a run that shipped only some tasks, or
+   none, still produces a truthful artifact: the failure lands under drift and
+   remaining work, and no claim says done without evidence.
+
+This is the accountability wrap-up after the three gates, not a fourth gate —
+`summarize-delivery` is method-only and read-only (#20): it summarizes the run,
+it does not orchestrate, gate merges, or mutate devague state. Don't stop at
+"PR merged" — the standing flow is **merge, then `summarize-delivery`**.
+
 ## Hard rules (do not violate)
 
 These protect the human-gate contract and the TDD guarantee.
@@ -176,7 +243,8 @@ Picking up after the `spec-to-plan` skill exported a plan for the frame `my-feat
 devague plan waves
 
 # 2. Present the implementation split plan for human review
-#    (format the devague output into a task map with agent/model proposals)
+#    (task map verbatim from `devague plan waves --json`, per-task agent/model
+#     proposals, go/no-go, and the End state section from `devague plan deliverables`)
 
 # --- HUMAN: review the table, edit agent/model assignments if needed,
 #     then say "approved" to proceed ---
@@ -201,9 +269,11 @@ git worktree add ../worktrees/agent-t4 -b agent/t4
 #    Use the `cicd` skill to open the PR
 ```
 
-The exported plan-md from `devague plan export` is the standing brief for
-each task agent — its task id, summary, acceptance criteria, and the targets
-it covers are already in that file.
+`devague plan waves --json` is the standing brief for each task agent — its
+task id, summary, instruction, acceptance criteria, and the targets it covers
+are all in that one payload. Quote those fields **verbatim** into each task
+agent's brief; the fan-out is honest only if what the subagent builds against
+is exactly what the user confirmed in the plan.
 
 ## Provenance
 
@@ -211,7 +281,7 @@ This is a **first-party** skill — its origin is `agentculture/devague`, where
 the devague agent maintains it alongside the tools it operates (dogfooding),
 next to its siblings `think` and `spec-to-plan`. It is the *third* skill in
 that outbound family, covering the implementation leg after a plan converges.
-The flow runs the *opposite* direction of the vendored steward skills: steward
-pulls this **from** devague and broadcasts it to the rest of the AgentCulture
-mesh. The `cite, don't import` policy still holds: downstream repos copy it,
-they don't symlink or depend on it. See `docs/skill-sources.md`.
+The flow runs the *opposite* direction of the vendored guildmaster skills:
+guildmaster pulls this **from** devague and broadcasts it to the rest of the
+AgentCulture mesh. The `cite, don't import` policy still holds: downstream
+repos copy it, they don't symlink or depend on it. See `docs/skill-sources.md`.

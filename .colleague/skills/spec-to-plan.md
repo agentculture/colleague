@@ -1,4 +1,4 @@
-Turn a converged devague spec into a buildable plan by working forwards (the spec→plan leg; drives the `devague plan` CLI group). Seed a plan from a converged frame, add tasks that collectively cover every coverage target (the frame's confirmed claims + honesty conditions), give each task acceptance criteria and an honest dependency order, park genuine unknowns as first-class risks, and export a plan only once it *converges*. Use when the user says "spec to plan", "stp", "turn this spec into a plan", "plan this spec", "make a build plan", or after the `think` skill exports a spec. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
+Turn a converged devague spec into a buildable plan by working forwards (the spec→plan leg; drives the `devague plan` CLI group). Seed a plan from a converged frame, add tasks that collectively cover every coverage target (the frame's confirmed claims + honesty conditions), give each task acceptance criteria and an honest dependency order, park genuine unknowns as first-class risks, and export a plan only once it *converges*. Use when the user says "spec to plan", "stp", "turn this spec into a plan", "plan this spec", "make a build plan", or after the `think` skill exports a spec. Authored and maintained in agentculture/devague (origin = devague); guildmaster pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from guildmaster like the other skills here.
 
 <!-- learned-from: claude; source: .claude/skills/spec-to-plan/SKILL.md; scripts: .claude/skills/spec-to-plan/scripts; adapt: claude->colleague -->
 
@@ -37,15 +37,16 @@ CLI directly.
 | Move | What it does |
 |------|--------------|
 | `new --frame <slug>` | Seed a plan from a **converged** frame. Derives the coverage targets (`c*`/`h*`) the plan must satisfy. Refuses an unconverged frame. |
-| `task "<summary>"` | Add a task. `--accept "<crit>"`, `--dep <tN>`, `--covers <c*/h*>` (each repeatable); `--origin llm` lands it `proposed`. |
+| `task "<summary>"` | Add a task. `--accept "<crit>"`, `--dep <tN>`, `--covers <c*/h*>` (each repeatable), `--instruction "<text>"` (verbatim working guidance, at creation); `--origin llm` lands it `proposed`. |
+| `instruct <tN> "<text>"` | Add/update a task's working instruction. Changing it on an already-`confirmed` task flips it back to `proposed` — the user re-confirms (the plan side's mirror of the frame side's `interrogate --instruction` re-confirm rule). |
 | `accept <tN> "<crit>"` | Add an acceptance criterion to a task. |
 | `depend <tN> --on <tM>` | Record that task `tN` depends on `tM`. |
 | `cover <tN> --target <c*/h*>` | Mark a task as covering a coverage target. |
-| `confirm <tN>` / `reject <tN>` | Resolve a task. **User-only decision.** |
+| `confirm <tN>` / `reject <tN>` | Resolve a task. **User-only decision.** Takes **one task id per call** — loop for batches (unlike the frame engine's transactional multi-id `confirm`; parity is a recorded follow-up in the 2026-07-01 plan, devague#53). |
 | `risk "<text>" --kind <kind>` | Record a first-class plan risk (`--task <tN>` to attach). |
-| `converge` | Evaluate the gate against the **live** source frame; list remaining gaps. |
+| `converge` | Evaluate the gate against the **live** source frame; list remaining gaps, plus non-blocking warnings (e.g. a confirmed task with no instruction). |
 | `export` | Write the buildable plan to `docs/plans/` — only after `converge` passes. |
-| `waves` | Emit deterministic dependency waves (`{plan, waves}`) — scheduling metadata only, *not* orchestration. Read-only, works on an in-progress plan; refuses a cyclic/dangling graph. Devague describes the graph; an operator decides how to run it (#20). |
+| `waves` | Emit deterministic dependency waves — `{plan, waves}` plus a top-level `tasks` object keyed by task id (per-task summary/instruction/acceptance criteria/covers — see *The `waves --json` payload* below) — scheduling + subagent-brief metadata only, *not* orchestration. Read-only, works on an in-progress plan; refuses a cyclic/dangling graph. Devague describes the graph; an operator decides how to run it (#20). |
 | `status` | Read-only: where the plan stands + the recommended next move, re-checked against the live frame (`--json` too). |
 | `show` / `list` | Render a plan / list plans (`--json` for raw state). |
 | `learn` / `explain <move>` | Teach the method / explain one move. |
@@ -105,6 +106,43 @@ When authoring a plan that will be built via parallel execution (fanned out to
 multiple agents via the downstream `assign-to-workforce` skill), prefer the
 following discipline to maximize parallelism and minimize merge friction:
 
+### Acceptance criteria are the testable contract; instruction is the working guidance
+
+Two fields do two distinct jobs on every task (shipped: devague#53 t5):
+
+- **`--accept "<criterion>"`** (repeatable) — the **testable contract**: what
+  a test suite checks to prove the task done. Write each as something a cheaper
+  model can be validated against test-first: name the files or modules the task
+  owns, the observable behavior that proves it done, and the compatibility
+  constraints ("pre-existing plans load with no error"). A criterion a
+  subagent can't be validated against alone is a summary, not a contract.
+- **`--instruction "<text>"`** (at `task` time) / `instruct <tN> "<text>"`
+  (afterwards) — verbatim **working guidance** carried to the subagent: the
+  approach to take, which files to touch first, anything the acceptance
+  criteria don't spell out. Write it yourself; never invent filler to satisfy
+  the gate. Changing it on an already-`confirmed` task flips the task back to
+  `proposed` — the user re-confirms.
+
+`devague plan converge` warns (non-blocking) when a confirmed task carries no
+instruction:
+
+```text
+task t1 has no instruction — attach operator guidance with `devague plan instruct t1 "<text>"`
+```
+
+Neither field replaces the other: acceptance criteria stay the pass/fail gate;
+instruction is what a subagent reads before it starts, quoted verbatim (never
+paraphrased) into the brief — see *The `waves --json` payload* below.
+
+### Text hygiene for exports
+
+The exported plan-md must pass markdown lint. The plan's H1 inherits the
+*frame's* title — set a short, period-free `--title` at `devague new` time (see
+`think`'s export-hygiene rules). And backtick angle-bracket placeholders in
+task text (`` `instruct <tN>` ``, not `instruct <tN>`) — bare ones fail MD033.
+There is no task-edit move yet, so fixing text after confirmation means
+hand-editing state JSON.
+
 ### Small and crisply scoped
 
 Each task should be **small enough for a simpler or cheaper model to build
@@ -153,22 +191,52 @@ This is guaranteed only if:
 The TDD gate — tests pass before *and* after the merge — is the main agent's
 proof that parallelism didn't break correctness.
 
+### The `waves --json` payload — the subagent brief
+
+`devague plan waves --json` keeps its original shape — `{"plan": "<slug>",
+"waves": [[...], ...]}`, the ordered task-id scheduling batches — and adds a
+top-level `"tasks"` object, keyed by task id, carrying each task's brief
+verbatim (devague#53 t9):
+
+```json
+{
+  "plan": "<slug>",
+  "waves": [["t1"], ["t2", "t3"]],
+  "tasks": {
+    "t1": {
+      "summary": "<task summary>",
+      "instruction": "<verbatim instruction, or \"\" if none>",
+      "acceptance_criteria": ["<criterion>", "..."],
+      "covers": ["<c*/h* id>", "..."]
+    }
+  }
+}
+```
+
+This is enough to build a per-subagent brief with **no external context** —
+no need to also fetch `plan show --json` or the exported plan-md. Quote
+`instruction` and `acceptance_criteria` verbatim into the brief; don't
+paraphrase them.
+
 ### How to route tasks to the workforce
 
-Once your plan converges, `devague plan waves` emits the dependency-graph as
-**scheduling metadata** (ordered batches of task IDs). This feeds directly into
-the `assign-to-workforce` skill, which:
+Once your plan converges, `devague plan waves` emits the dependency-graph plus
+the per-task brief above as **scheduling metadata** (ordered batches of task
+IDs, each with its summary/instruction/acceptance criteria/covers). This feeds
+directly into the `assign-to-workforce` skill, which:
 
 1. Displays the plan, waves, and suggested per-task subagent/model pairing.
 2. Waits for the human to approve the implementation split plan (or edit
    assignments).
 3. Fans out approved waves to isolated subagent worktrees (one per task per
-   wave).
+   wave) — each subagent's brief quotes its task's `instruction` and
+   `acceptance_criteria` verbatim from the payload above.
 4. Returns control to the main agent, which TDD-gates each merge before moving
    to the next wave.
 
 Plan for workforce execution early: narrow task scope, write crisp acceptance
-criteria, and strive for wide waves with disjoint files.
+criteria, attach a working instruction, and strive for wide waves with
+disjoint files.
 
 ## Output contract
 
@@ -187,16 +255,21 @@ devague plan new --frame my-feature   # seeds the plan + its coverage targets
 devague plan show                     # see the c*/h* targets you must cover
 
 devague plan task "Build the core engine" --accept "engine has a convergence gate" \
-    --covers c1 --covers c3
+    --covers c1 --covers c3 --instruction "implement in devague/frame.py; see docs/spec-contract.md for the schema"
 devague plan task "Pressure-test honesty conditions" --dep t1 --covers h1 --covers h2 \
     --accept "every honesty condition maps to a test"
+
+# Add/refine an instruction after the fact — changing it on a confirmed task
+# flips it back to 'proposed' (the user re-confirms):
+devague plan instruct t2 "write tests/test_honesty.py covering each honesty condition"
 
 # Park a genuine unknown instead of guessing:
 devague plan risk "exact rollout sequencing" --kind unknown_nonblocking
 
 devague plan status                   # what's left + the next move
-devague plan converge                 # gate; resolve any listed gaps
+devague plan converge                 # gate; resolve any listed gaps (warnings never block export)
 devague plan export                   # writes docs/plans/my-feature.md once converged
+devague plan waves --json             # scheduling metadata + the per-task subagent brief
 ```
 
 The exported plan-md is a buildable artifact: topologically ordered tasks, each
@@ -208,7 +281,7 @@ implementation.
 This is a **first-party** skill — its origin is `agentculture/devague`, where the
 devague agent maintains it alongside the tool it operates (dogfooding), next to
 its sibling `think`. It is the *inverse* of the other skills under
-`.colleague/skills/`, which devague vendors **from** steward. When ready, steward
-pulls it **from** devague and broadcasts it to the rest of the AgentCulture mesh.
-The `cite, don't import` policy still holds: downstream repos copy it, they don't
-symlink or depend on it. See `docs/skill-sources.md`.
+`.colleague/skills/`, which devague vendors **from** guildmaster. When ready,
+guildmaster pulls it **from** devague and broadcasts it to the rest of the
+AgentCulture mesh. The `cite, don't import` policy still holds: downstream repos
+copy it, they don't symlink or depend on it. See `docs/skill-sources.md`.
