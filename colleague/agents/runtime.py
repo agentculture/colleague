@@ -128,6 +128,7 @@ class InvocationRecord:
     parent_agent_id: Optional[str] = None
     delegation_id: Optional[str] = None
     seq: int = 0
+    reasoning_effort: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.token_estimate_source not in TOKEN_ESTIMATE_SOURCES:
@@ -137,8 +138,15 @@ class InvocationRecord:
             )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict (all fields; None values preserved)."""
-        return {
+        """Serialize to a plain dict (all fields; None values preserved).
+
+        ``reasoning_effort`` is the ONE exception: it is omitted entirely
+        when unset (#416 t7, c29/h20) — an unarmed/unset-effort run's
+        records stay byte-identical to before this field existed, and
+        :func:`append_invocation`'s ledger event follows the same
+        omit-when-``None`` rule.
+        """
+        d: dict[str, Any] = {
             "agent_id": self.agent_id,
             "purpose": self.purpose,
             "model_role": self.model_role,
@@ -157,6 +165,9 @@ class InvocationRecord:
             "delegation_id": self.delegation_id,
             "seq": self.seq,
         }
+        if self.reasoning_effort is not None:
+            d["reasoning_effort"] = self.reasoning_effort
+        return d
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "InvocationRecord":
@@ -179,6 +190,7 @@ class InvocationRecord:
             parent_agent_id=data.get("parent_agent_id"),
             delegation_id=data.get("delegation_id"),
             seq=int(data.get("seq", 0) or 0),
+            reasoning_effort=data.get("reasoning_effort"),
         )
 
 
@@ -344,6 +356,8 @@ def append_invocation(ledger: TaskLedger, record: InvocationRecord) -> Invocatio
         "parent_agent_id": record.parent_agent_id,
         "delegation_id": record.delegation_id,
     }
+    if record.reasoning_effort is not None:
+        data["reasoning_effort"] = record.reasoning_effort
     event: LedgerEvent = ledger.append("invocation", data)
     snapshot = ledger.derive()
     return cast(
@@ -586,6 +600,8 @@ class AgentsRun:
         except Exception:  # noqa: BLE001
             estimate, source = count_tokens_chars(list(messages)), "chars"
         try:
+            from colleague import effort as _effort
+
             record = InvocationRecord(
                 agent_id=self.profile.agent_id,
                 purpose=self.profile.purpose,
@@ -597,6 +613,9 @@ class AgentsRun:
                 token_estimate=estimate,
                 token_estimate_source=source,
                 truncated=truncated,
+                # Read off the seat's EngineConfig at record time (#416 t7,
+                # c29/h20) — NEVER recomputed from SEAT_TABLE/ROLE_TABLE.
+                reasoning_effort=_effort.effort_of(self.config),
             )
             record = append_invocation(self.ledger, record)
         except Exception as exc:  # noqa: BLE001 - bookkeeping never loses the turn
