@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-22T05:32:37Z",
-  "updated": "2026-08-22T05:53:02Z",
+  "updated": "2026-08-22T06:36:10Z",
   "claims": [
     {
       "id": "c1",
@@ -389,7 +389,7 @@
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "COLLEAGUE_DUMP_REQUEST=1 colleague session on this rig: every request model id == the cortex model; artifact has no senses/presence blocks; diff equals a pre-arc --cortex-only artifact",
+      "instruction": "COLLEAGUE_DUMP_REQUEST=1 colleague session on this rig: every request model id == the cortex model; artifact has no senses key at all; diff equals a pre-arc UNARMED artifact (not --cortex-only, which records mode=cortex-only when senses was resolved)",
       "revisions": [
         {
           "text": "A bare colleague session/work/talk on a lobes-armed rig resolves exactly ONE served model (cortex=Qwen3.8) and dials nothing else: no senses seat, no presence loop, no front door, no muse discovery; the operator's mid-run words park onto the next tool-call boundary and cortex answers in its own turn; the artifact is byte-identical to today's --cortex-only run",
@@ -512,6 +512,120 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "The session's mid-run talk lane must deliver a typed/voiced line to cortex when senses is unarmed: today session.py _talk_senses returns on pair is None (the line is silently dropped) \u2014 the default path must instead write it verbatim as flight guidance (the seam colleague talk already uses for its raw-guide degrade) and render an honest 'parked for cortex at the next boundary' line",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "Unarmed session + a typed mid-run line \u2192 exactly one flight guidance record carrying the verbatim text, zero senses requests (COLLEAGUE_DUMP_REQUEST=1), and cortex's next turn visibly addresses it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/test_session_talk_lane.py: unarmed session + typed line \u2192 a flight guidance record with the verbatim text, no senses call; live transcript in docs/live-testing.md",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "/model <id> re-derives the seat's context budget from the served role's advertised window (lobes /capabilities context, e.g. gemma 32768 vs Qwen 1048576) and keeps the effort ladder's 400-retry-once in force \u2014 a switch never leaves a 200000-token budget pointed at a 32K model; the switch line prints the new budget",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "/model <gemma-id> in a session prints the new model AND the re-derived budget; the next request's model field == the id and the windowed history stays under the role's advertised window",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "session.py _act_model today sets only s.config.model (l.~3640); test: /model gemma \u2192 config.context_budget_tokens derived via _senses_budget_from_window-style ratio or the role window; request dump shows the new model id",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Rollback is one declaration: COLLEAGUE_SENSES_MODEL=<served id> (or config.json senses.model) re-arms the full senses lane exactly as today \u2014 base_url/api_key inherit the main endpoint (gateway routes by model id), presence rung resolves to loop; documented in docs/features/cortex-senses.md as THE opt-in, with the same-origin key rule unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "COLLEAGUE_SENSES_MODEL=<served id> alone (no base_url/api_key) re-arms senses on the gateway origin and the pre-arc senses tests pass under that env",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "test: lobes-armed + COLLEAGUE_SENSES_MODEL=gemma-id \u2192 config.senses resolved with base_url==main base_url; live: one env var brings the old behaviour back",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "assumption",
+      "text": "Counter-evidence checked: nothing in the default path needs a second model \u2014 media goes to the main model, stt/tts are separate roles, and no livecheck/oilcheck gates on senses being present (run_cortex_senses_check SKIPs); the only lost capability is the 22-token gemma ack, replaced by parking + cortex's own reply",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "uv run colleague doctor and the default livecheck suite pass with senses unresolved on this rig (SKIP, not FAIL, for the senses checks)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "/effort shows what each seat ACTUALLY sends via effort.py effort_of(config) (presence-wins rule l.211), never a re-derivation from SEAT_TABLE; a /effort switch mutates s.config.reasoning_effort / reasoning_effort_seats[seat] (picked up live by the reasoning_effort_effective property, config.py l.3247) and the confirmation line states it is session-only (not persisted to config.json); bad rungs go through effort.validate_effort and surface as the slash dispatcher's ValueError style",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "In a session, /effort (no arg) prints per-seat lines equal to effort_of(seat config) and /effort xhigh cortex is visible on the very next request's chat_template_kwargs \u2014 and absent from config.json afterwards",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/test_session_effort.py: golden table from effort_of per seat + switch \u2192 next request's chat_template_kwargs; catalog/help drift tests (tests/test_session_autocomplete.py:151-156, test_session_cockpit.py:554-605) updated for the new SlashSpec",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "/model (no arg) distinguishes fetch_served_model_ids \u2192 None (roster unreachable/401: print an honest 'roster unavailable' + current seats) from [] (gateway serving nothing); role\u2192model lines come from lobes.resolve_roles (no api_key needed) and the acting seat from s.config.model; lobes unarmed \u2192 'lobes not armed' + current model, never a crash",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "With the gateway down, /model prints 'roster unavailable' + the current model and the session continues; with the gateway up it lists every /v1/models id (Bearer attached) \u2014 both pinned by tests",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "precedent call shape config.py l.1870; tests with a fake gateway for None / [] / unarmed",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -527,6 +641,24 @@
     {
       "id": "v2",
       "text": "Live measurement: cortex-direct session latency for ack/narration with senses off on this rig (Qwen3.8, medium) vs today's senses:off-effort Talker (22 tok ack) \u2014 #421's pre-registered arm could add a session-shaped brief",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Residual surprise risk: a mesh peer or an older vendored ask-colleague.sh might have learned to expect senses: lines in piped session output (the one recorded break of increment (4)); default-off removes them \u2014 any consumer parsing 'senses:' lines is unknown",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Residual: no independent (colleague) review of the exported spec landed \u2014 both attempts stalled at step 4; the plan leg should open with an ask-colleague review of the PLAN (smaller surface) instead, and the stall itself should be recorded under #415 (silent turn not cut by the 300s timeout)",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -662,6 +794,96 @@
         "c6",
         "c12"
       ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / failure-mode lens: session.py _talk_senses (l.~2790) + _handle_talk_input + _dispatch_talk_line",
+      "finding": "unarmed session returns on pair is None \u2014 mid-run operator lines are dropped, not parked; c15 needs NEW work on the session front (talk.py verb already degrades to raw guide)",
+      "seeds": [
+        "c28",
+        "c15"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / adjacent-systems lens: session.py _act_model + config context_budget_tokens (l.1170) + lobes RoleInfo.context",
+      "finding": "_act_model mutates only the model id; budget/effort stay at the previous seat's values \u2014 a gemma switch would overrun its 32K window; seeded c29",
+      "seeds": [
+        "c29",
+        "c26"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / rollback lens: config.py _resolve_senses (explicit declaration inherits main base_url/api_key) + _same_origin",
+      "finding": "explicit declaration already works with only a model id on the gateway origin \u2014 the opt-in/rollback is a one-liner; seeded c30",
+      "seeds": [
+        "c30",
+        "c2"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / adjacent-systems lens: colleague/media.py + SensesConfig.multimodal (config.py l.2745)",
+      "finding": "media.py has no senses reference \u2014 images/audio ride to the main model; SensesConfig.multimodal only arms a senses-side bridge; clean pass for the default flip (cortex Qwen3.8 advertises image/video understanding)",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / lifecycle lens: colleague/continuation.py + chain.py (no senses reads) ; configs in the wild (~/git/*/.colleague/config.json, ~/.colleague/config.json: none carry presence/senses/deepthink keys)",
+      "finding": "continuation rehydrates without reading senses blocks \u2014 a pre-flip artifact continues under the new default; no operator config on this machine relies on the discovery rung; clean pass",
+      "seeds": [
+        "c2",
+        "c6"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / overlooked-actors lens: .claude/skills/ask-colleague/scripts/ask-colleague.sh (--seat-effort accepts senses), background.py, resident/appserver.py senses_active gate, doctor.py (no senses ref)",
+      "finding": "ask-colleague only names senses in --seat-effort validation (harmless when unarmed); appserver gates every senses beat on senses_active; background/doctor untouched; the #424 '70 stale wrapper copies' broadcast is separate",
+      "seeds": [
+        "c3",
+        "c7"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / security + concurrency lens: the flip removes a seat and a proxied hop (orin) \u2014 no new key, thread, subprocess, or socket; the OwnedInputLine reader thread stays the session's only thread",
+      "finding": "clean pass; residual: the talk-lane guidance write (c28) must stay file-based (flight.py), never a new thread",
+      "seeds": []
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / counter-evidence lens: livecheck.py run_cortex_senses_check (SKIP when unarmed), media.py, oilcheck/",
+      "finding": "no gate in the default path requires senses; seeded c31",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "ask-colleague explore dfb91549b5c5 (colleague as explorer, 36 steps, graded 4): lobes.py fetch_served_model_ids l.501-557 + config.py resolve_lobes_gateway_url l.801 / l.1870 precedent; config.py EngineConfig reasoning_effort(_seats) l.3023 + reasoning_effort_effective property l.3247; effort.py effort_of l.193-213 / validate_effort l.95; session.py SlashSpec l.3383, _CONFIG_ACTIONS l.3745, _act_model l.3653, _slash l.1618, _resolve_view l.3758; tests/test_session_autocomplete.py:151-156 + test_session_cockpit.py:554-605",
+      "finding": "every seam for c25/c26 exists; runtime mutation of s.config is live via the property; None-vs-[] and catalog/help drift pins are the traps; seeded c32/c33",
+      "seeds": [
+        "c32",
+        "c33",
+        "c25",
+        "c26"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / colleague-reviewer lens, attempt 1 (review 127ea28dfe05 over main...HEAD)",
+      "finding": "STALLED: step 4 entered a silent model turn, heartbeat stopped for 15 min (the #415 stall shape \u2014 the diff carried the large .devague frame JSON); SIGTERM'd, no findings; attempt 2 re-dispatched reading ONLY docs/specs/2026-08-22-qwen-direct-no-gemma.md at --effort low, max-steps 12",
+      "seeds": []
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / colleague-reviewer lens, attempt 2 (daee8a957fe9: spec-only read, --effort low, max-steps 12)",
+      "finding": "STALLED IDENTICALLY: step 4 entered a silent model turn, heartbeats stopped, COLLEAGUE_TIMEOUT=300 did not cut it (445s+); killed. Two-for-two on the same step suggests the spec file's fourth 120-line chunk (the long Scope-exploration section) triggers a pathological generation at low effort \u2014 a rig/loop observation for #415/#409, not a spec finding. The reviewer lens is therefore UNAVAILABLE for this pass; the explorer lens (s13/s24) and my own six lenses (s16\u2013s23) stand",
+      "seeds": []
     }
   ],
   "lapses": []
