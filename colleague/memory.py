@@ -324,18 +324,61 @@ def compose_lesson_text(result: "Any", request_head: str = "") -> str:
     return text
 
 
+#: The metadata ``kind`` value stamped on a split-next-time record (plan t8,
+#: spec c15/h10) — see :func:`build_split_record`.
+SPLIT_RECORD_KIND = "split-next-time"
+
+
+def _record_kind(record: dict[str, Any]) -> str:
+    """Read a recalled record's stamped ``kind`` from its two declared places.
+
+    Mirrors :func:`record_class_key`'s two-place lookup (``metadata`` first,
+    a flattened top-level fallback second) — eidetic CLIs have shipped both
+    shapes. Missing/non-string/non-dict metadata reads as ``""``.
+    """
+    if not isinstance(record, dict):
+        return ""
+    meta = record.get("metadata")
+    if isinstance(meta, dict):
+        value = meta.get("kind")
+        if isinstance(value, str):
+            return value
+    value = record.get("kind")
+    return value if isinstance(value, str) else ""
+
+
 def build_recall_block(records: list[dict[str, Any]], *, cap_chars: int = RECALL_BLOCK_CAP) -> str:
     """Render recalled records as one advisory context block, capped.
 
     Pure formatting — no subprocess. Empty/non-text records are skipped; an
     all-empty result yields ``""`` (the caller injects nothing).
+
+    A recalled ``split-next-time`` record (plan t8, spec c15/h10 — a
+    retroactive too-hard/too-long signal from a prior attempt at this same
+    task) renders FIRST, as its own "Split recommendation from a prior
+    attempt: …" line, ahead of the ordinary prior-lessons block. A recall
+    with no such record is byte-identical to the pre-t8 rendering.
     """
-    lines = ["[memory] Prior lessons recalled from this repo's memory store (advisory):"]
+    split_lines: list[str] = []
+    lesson_records: list[dict[str, Any]] = []
     for rec in records:
+        if _record_kind(rec) == SPLIT_RECORD_KIND:
+            text = str(rec.get("text", "")).strip()
+            if text:
+                split_lines.append(f"Split recommendation from a prior attempt: {text}")
+        else:
+            lesson_records.append(rec)
+
+    lesson_lines = ["[memory] Prior lessons recalled from this repo's memory store (advisory):"]
+    for rec in lesson_records:
         text = str(rec.get("text", "")).strip()
         if text:
-            lines.append(f"- {text}")
-    if len(lines) == 1:
+            lesson_lines.append(f"- {text}")
+
+    lines = list(split_lines)
+    if len(lesson_lines) > 1:
+        lines.extend(lesson_lines)
+    if not lines:
         return ""
     return "\n".join(lines)[:cap_chars]
 
@@ -398,6 +441,201 @@ def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> di
         "text": text,
         "metadata": meta,
     }
+
+
+# ── retroactive split-next-time record (plan t8, spec c15/h10) ──────────────
+#
+# A too-hard/too-long signal — the run exhausted its step/#313 budget or ran
+# past the operator's ``too_long_min`` — is worth recording so the NEXT
+# attempt at the same task is warned up front, before it burns its own
+# budget the same way. This is entirely a remember-after / recall-before
+# composition inside this module: :func:`should_record_split` is the pure
+# predicate, :func:`build_split_record` shapes the record (embedding
+# :func:`colleague.autosplit.build_split_recommendation`'s message, imported
+# lazily to avoid a colleague.config/colleague.autosplit import cycle at
+# module load time), and :func:`maybe_remember_split` is the one place that
+# calls :func:`remember` for it — the after-run lane the grep guard in
+# ``tests/test_memory_split_record.py`` checks is the ONLY caller (never
+# loop.py's step handling, never mid-run).
+
+#: Fallback child-count hint when the caller cannot derive one from a real
+#: ``autosplit_target_tokens``/``context_budget_tokens`` pair (e.g. a config
+#: object missing those fields) — a fixed, honest "probably split into ~4"
+#: rather than a fabricated precise number.
+_DEFAULT_SPLIT_CHILD_COUNT = 4
+
+#: Fallback per-child token budget embedded in the recommendation text when
+#: the caller's config carries no usable ``context_budget_tokens``.
+_DEFAULT_SPLIT_PER_CHILD_BUDGET = 8000
+
+
+def should_record_split(result: "Any", config: "Any", duration_seconds: float) -> bool:
+    """True iff *result* shows a too-hard/too-long signal worth a split hint.
+
+    Any ONE of three independent triggers is sufficient (spec c15/h10):
+
+    - the #313 incompletion reason is exactly
+      :data:`colleague.incompletion.REASON_BUDGET_EXHAUSTED`;
+    - the run consumed its full step budget
+      (``result.stats.step_count >= config.max_steps``);
+    - wall-clock *duration_seconds* exceeded ``config.too_long_min`` minutes.
+
+    Pure and IO-free — *config* is duck-typed (only ``max_steps``/
+    ``too_long_min`` are read) so a lightweight stand-in works in tests.
+    """
+    from colleague.incompletion import REASON_BUDGET_EXHAUSTED
+
+    inc = getattr(result, "incompletion", None)
+    if inc is not None and getattr(inc, "reason", None) == REASON_BUDGET_EXHAUSTED:
+        return True
+
+    stats = getattr(result, "stats", None)
+    step_count = getattr(stats, "step_count", 0) if stats is not None else 0
+    max_steps = getattr(config, "max_steps", None)
+    if isinstance(max_steps, int) and max_steps > 0 and step_count >= max_steps:
+        return True
+
+    too_long_min = getattr(config, "too_long_min", None)
+    if isinstance(too_long_min, (int, float)) and too_long_min > 0:
+        if duration_seconds > too_long_min * 60:
+            return True
+
+    return False
+
+
+def _split_reason(result: "Any", config: "Any", duration_seconds: float) -> str:
+    """The single reason label that made :func:`should_record_split` true.
+
+    Priority order matches the predicate's own checks — the #313 reason wins
+    when present, else the step-budget signal, else the wall-clock signal.
+    Callers only reach here after :func:`should_record_split` returned
+    ``True``, so one of the three always applies.
+    """
+    from colleague.incompletion import REASON_BUDGET_EXHAUSTED
+
+    inc = getattr(result, "incompletion", None)
+    if inc is not None and getattr(inc, "reason", None) == REASON_BUDGET_EXHAUSTED:
+        return REASON_BUDGET_EXHAUSTED
+
+    stats = getattr(result, "stats", None)
+    step_count = getattr(stats, "step_count", 0) if stats is not None else 0
+    max_steps = getattr(config, "max_steps", None)
+    if isinstance(max_steps, int) and max_steps > 0 and step_count >= max_steps:
+        return "max-steps-reached"
+
+    return "too-long"
+
+
+def _split_child_count_hint(config: "Any") -> tuple[int, int]:
+    """``(child_count, per_child_budget_tokens)`` derived from *config*.
+
+    Thin pass-through to :func:`colleague.autosplit.child_count` (imported
+    lazily to avoid a load-time cycle) when *config* carries a usable
+    ``autosplit_target_tokens``/``context_budget_tokens`` pair; the fixed
+    fallback constants otherwise.
+    """
+    target = getattr(config, "autosplit_target_tokens", None)
+    per_child = getattr(config, "context_budget_tokens", None)
+    if isinstance(target, int) and target > 0 and isinstance(per_child, int) and per_child > 0:
+        from colleague.autosplit import child_count as _child_count
+
+        return _child_count(target, per_child), per_child
+    return _DEFAULT_SPLIT_CHILD_COUNT, _DEFAULT_SPLIT_PER_CHILD_BUDGET
+
+
+def build_split_record(
+    task_id: str,
+    slug: str,
+    *,
+    reason: str,
+    steps: int,
+    duration_seconds: float,
+    child_count: int,
+    request_excerpt: str = "",
+    per_child_budget_tokens: int = _DEFAULT_SPLIT_PER_CHILD_BUDGET,
+) -> dict[str, Any]:
+    """Shape ONE 'split-next-time' record, mirroring :func:`build_lesson_record`.
+
+    The ``text`` field embeds :func:`colleague.autosplit.build_split_recommendation`'s
+    structured message (imported lazily — same cycle-avoidance reason as
+    :func:`_split_child_count_hint`) so a future recall-before renders the
+    SAME concrete numbers (per-child budget, child cap) a live autosplit
+    reactive nudge would.
+
+    Idempotent by construction, like :func:`build_lesson_record`: the id is
+    derived from the task id, so a re-remember upserts in place.
+    """
+    from colleague.autosplit import build_split_recommendation
+
+    max_children = max(1, int(child_count))
+    recommendation = build_split_recommendation(
+        per_child_budget_tokens=int(per_child_budget_tokens),
+        max_children=max_children,
+    )
+    text = (
+        f"A prior attempt at {slug!r} ended with reason={reason} after "
+        f"{int(steps)} step(s), {float(duration_seconds):.1f}s. {recommendation}"
+    )
+    if request_excerpt:
+        text += f" (request: {request_excerpt[:120]!r})"
+
+    metadata: dict[str, Any] = {
+        "kind": SPLIT_RECORD_KIND,
+        "task_slug": slug,
+        "reason": reason,
+        "steps": int(steps),
+        "duration_seconds": float(duration_seconds),
+        "child_count_hint": max_children,
+    }
+    return {
+        "id": f"split-next-time-{task_id}",
+        "type": "work-lesson",
+        "text": text,
+        "metadata": metadata,
+    }
+
+
+def maybe_remember_split(
+    repo_path: str | Path,
+    task_id: str,
+    slug: str,
+    result: "Any",
+    config: "Any",
+    duration_seconds: float,
+    *,
+    request_excerpt: str = "",
+    timeout: float = _TIMEOUT_SECONDS,
+    env_overrides: dict[str, str] | None = None,
+) -> bool:
+    """The remember-after lane for the split-next-time record (spec c15/h10).
+
+    Writes exactly ONE extra record — via :func:`remember`, the same eidetic
+    write path :func:`build_lesson_record`'s caller uses — when
+    :func:`should_record_split` is true; a strict no-op (returns ``False``,
+    no subprocess) otherwise. This is the ONLY caller of
+    :func:`build_split_record`/:func:`should_record_split` in the runtime —
+    it fires exclusively from the after-run lane, never from mid-run step
+    handling, so a run's running seat/effort is never touched.
+    """
+    if not should_record_split(result, config, duration_seconds):
+        return False
+
+    stats = getattr(result, "stats", None)
+    steps = getattr(stats, "step_count", 0) if stats is not None else 0
+    reason = _split_reason(result, config, duration_seconds)
+    child_count, per_child_budget_tokens = _split_child_count_hint(config)
+
+    record = build_split_record(
+        task_id,
+        slug,
+        reason=reason,
+        steps=steps,
+        duration_seconds=duration_seconds,
+        child_count=child_count,
+        request_excerpt=request_excerpt,
+        per_child_budget_tokens=per_child_budget_tokens,
+    )
+    return remember(repo_path, record, timeout=timeout, env_overrides=env_overrides)
 
 
 # ── retrieval-precision instrumentation (post-387 program, spec c9/h8/h24) ──
