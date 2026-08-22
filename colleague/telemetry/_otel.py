@@ -264,7 +264,13 @@ class _OtelTelemetry(Telemetry):
 
     @contextlib.contextmanager
     def work_span(
-        self, *, task_id: str, engine: str, model: str, max_steps: int
+        self,
+        *,
+        task_id: str,
+        engine: str,
+        model: str,
+        max_steps: int,
+        reasoning_effort: str | None = None,
     ) -> Iterator[_Span]:
         start = time.monotonic()
         with self._s.tracer.start_as_current_span("colleague.work") as span:
@@ -272,6 +278,11 @@ class _OtelTelemetry(Telemetry):
             span.set_attribute("engine", engine)
             span.set_attribute("model", model)
             span.set_attribute("max_steps", max_steps)
+            # Trace data only — set beside model/max_steps ONLY when the seat
+            # ran with a resolved rung (#416 t7, c29/h20); an unset/unarmed
+            # run never adds the attribute, keeping the span byte-identical.
+            if reasoning_effort is not None:
+                span.set_attribute("reasoning_effort", reasoning_effort)
             handle = _Span(span)
             try:
                 yield handle
