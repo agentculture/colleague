@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.62.1] - 2026-08-22
+
+### Changed
+
+- **In-repo eidetic memory records** from the post-#416 colleague runs (the
+  #418 / #422 fix dispatches on the merged v1.62.0 tool) — remember-after
+  lessons + the first `split-next-time` records written by the new lane
+  (`colleague/memory.py`). Memory is public and committed by convention
+  (CLAUDE.md "Memory discipline"); no code change.
+
 ## [1.62.0] - 2026-08-22
 
 ### Added
