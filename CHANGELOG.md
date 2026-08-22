@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.1] - 2026-08-22
+
+### Added
+
+- Colleague skill adaptations for the four devague-chain legs missing from ``.colleague/skills/``: ``scope``, ``challenge``, ``deviate``, ``summarize-delivery`` — the full eight-skill method chain (scope → think → challenge → spec-to-plan → assign-to-workforce → deviate → summarize-delivery) now composes into every backend's layered skills catalog (``colleague skills list``: 12 → 16). Each carries a How to run in colleague section mapping moves onto the curated ``devague`` loop-tool allow-list and the agent-agnostic CLI surface (``confirm``/``reject``/``export`` stay user- or operator-only by structural exclusion).
+
+### Changed
+
+- Refreshed the three stale ``.colleague/skills/`` adaptations to the current upstream surface: ``think`` (``--title`` export hygiene, ``--instruction`` + re-confirm rule, S1/S2 gate warnings, the ``question`` pending-decision loop, the ``scope`` pointer), ``spec-to-plan`` (the ``instruct`` move, one task id per ``confirm``, the ``waves --json`` subagent-brief payload, text hygiene), ``assign-to-workforce`` (the End-state section via ``devague plan deliverables``, the verbatim-brief rule, the missing After the final PR → summarize-delivery leg). Fixed the self-referential provenance marker in ``assign-to-workforce`` and the stale supplier identifier (steward → guildmaster) across the devague-chain docs. Doc-only; no code change — the full suite is green (9165 passed, 23 skipped opt-in live proofs).
+
 ## [1.63.0] - 2026-08-22
 
 ### Added

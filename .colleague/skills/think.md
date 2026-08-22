@@ -1,4 +1,4 @@
-Think a vague feature idea into a buildable spec by working backwards (the idea→spec leg; drives the `devague` CLI). Start from the announcement ("pretend it shipped"), capture and classify claims, interrogate them with honesty conditions and hard questions, park open vagueness as a first-class object, and export a spec only once the frame *converges*. Use when the user says "think this through", "spec this", "work backwards", "turn this idea into a spec", "announcement frame", or "devague", or when a feature request is too vague to build yet. Once a spec exports, hand off to the sibling `spec-to-plan` skill to turn it into a plan. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
+Think a vague feature idea into a buildable spec by working backwards (the idea→spec leg; drives the `devague` CLI). Start from the announcement ("pretend it shipped"), capture and classify claims, interrogate them with honesty conditions and hard questions, park open vagueness as a first-class object, and export a spec only once the frame *converges*. Use when the user says "think this through", "spec this", "work backwards", "turn this idea into a spec", "announcement frame", or "devague", or when a feature request is too vague to build yet. Explore scope first when the idea touches an existing codebase — the sibling `scope` skill is the optional opening leg ahead of `think`. Once a spec exports, hand off to the sibling `spec-to-plan` skill to turn it into a plan. Authored and maintained in agentculture/devague (origin = devague); guildmaster pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from guildmaster like the other skills here.
 
 <!-- learned-from: claude; source: .claude/skills/think/SKILL.md; scripts: .claude/skills/think/scripts; adapt: claude->colleague -->
 
@@ -50,9 +50,9 @@ move — including `status` — is forwarded verbatim.
 
 | Move | What it does |
 |------|--------------|
-| `new "<announcement>"` | Start a frame from the announcement (the first move). Seeds an auto-confirmed `announcement` claim. |
-| `capture --kind <kind> "<text>"` | Record + classify a claim. `--origin llm` lands it as `proposed`. |
-| `interrogate <id> --honesty "…"` | Attach an honesty condition (what must be true). Also `--hard-question`, `--risk`, `--contradicts`, `--blocking`. |
+| `new "<announcement>" [--title "<short>"]` | Start a frame from the announcement (the first move). Seeds an auto-confirmed `announcement` claim. Always pass `--title` (see *Export hygiene*). |
+| `capture --kind <kind> "<text>" [--instruction "<text>"]` | Record + classify a claim. `--origin llm` lands it as `proposed`. `--instruction "<text>"` attaches verbatim working guidance (how to verify/implement the claim) at creation time. |
+| `interrogate <id> --honesty "…"` | Attach an honesty condition (what must be true). Also `--hard-question`, `--risk`, `--contradicts`, `--blocking`. Also `--instruction "<text>"` adds/updates a claim's or honesty condition's instruction — `<id>` may be a claim (`c*`) or, with `--instruction` alone, an honesty condition (`h*`). |
 | `confirm <id> [<id>…]` / `reject <id> [<id>…]` | Resolve one or more claims (`c*`) / honesty conditions (`h*`) in one **transactional** call. **User-only decision.** Also `confirm --from-review <file>` to apply an edited review artifact. |
 | `review` | List every **proposed** (unconfirmed) claim + honesty condition with ids (`--json` too); writes a non-authoritative artifact to `.devague/reviews/<slug>.md`. Un-gated; never mutates. |
 | `question "<text>"` | Record / list / `--resolve` a pending user decision as durable working state in `.devague/questions/<slug>.md`. |
@@ -80,6 +80,24 @@ per-move input/output/transition/error contract are documented in
 live shape of any move, run it with `--json` (or `devague learn --json` /
 `devague explain <move>`).
 
+### Instructions — verbatim guidance, never fabricated
+
+Claims and honesty conditions may carry an optional `instruction`: verbatim
+text on how to verify or implement the item — write it yourself, don't invent
+filler to satisfy the gate. Two ways to set it:
+
+- `capture --kind <kind> "<text>" --instruction "<text>"` — at creation.
+- `interrogate <c*|h*> --instruction "<text>"` — add or change one on an
+  existing claim or honesty condition (this is the one case where
+  `interrogate` accepts an `h*` id directly, since the instruction targets
+  whichever item you name).
+
+**Re-confirm rule.** Changing the instruction on an already-`confirmed` claim
+or honesty condition flips its status back to `proposed` — the instruction is
+part of what the user confirmed, so a change to it must go back through the
+user. `interrogate` prints a diagnostic note (stderr) when this happens;
+re-run `confirm <id>`.
+
 ### `status` — the next-move verb
 
 `status` is a first-class, **read-only** CLI verb (`devague status`, internalised
@@ -104,6 +122,52 @@ recommended next move (first gap):
 ```
 
 Run it whenever you're unsure what to do next.
+
+### Gate warnings, not blockers
+
+`converge` emits two deterministic, warning-only structural-sharpness signals
+— neither holds back `ready_for_spec`:
+
+- a confirmed spec-affecting claim (`announcement`, `audience`,
+  `after_state`, `before_state`, `why_it_matters`, `boundary`,
+  `success_signal`, `requirement`) with no `instruction`;
+- a confirmed `success_signal` claim (or claims) where none contains a
+  measurable token — a numeral, `%`, or a comparator (`<`/`>`/`≤`/`≥`).
+
+Both are pure predicates over frame state, never LLM judgment on prose — see
+`devague/convergence.py`'s module docstring for the exact rules (S1/S2). A
+frame can converge and export with these warnings still showing; they nudge
+toward a sharper, more directly actionable spec.
+
+### `question` — the pending-decision loop
+
+When a genuine design decision surfaces mid-frame, don't guess and don't
+stall:
+
+1. `devague question "<the decision to make>"` — records it as durable
+   working state.
+2. Put it to the user (with concrete options where possible).
+3. `devague question --resolve <qid> --decision "<what the user chose>"`.
+4. `devague capture --kind decision "<the choice>"` — a user-origin capture
+   auto-confirms, making the decision a first-class frame claim.
+
+This keeps every user decision traceable from question → resolution → claim.
+
+### Export hygiene — keep the artifacts lint-clean
+
+The exported spec-md must pass the repo's markdown lint. Two gotchas found by
+dogfooding (devague#53), both cheap to avoid up front and expensive after —
+there is no retitle/edit move yet, so fixing them later means hand-editing
+state JSON and re-exporting:
+
+- **Always pass `--title "<short title>"` to `new`.** The title becomes the H1
+  of every exported artifact (the plan inherits it too). The default is the
+  full announcement — long, and if it ends with a period the H1 fails MD026
+  (trailing punctuation). Keep the title short, no trailing period.
+- **Backtick angle-bracket tokens.** A placeholder like `--seeds <claim-id>`
+  in claim or honesty-condition text renders as inline HTML (MD033) unless
+  wrapped in backticks. Write `` `--seeds <claim-id>` ``, not the bare form.
+- **Lint before committing:** `markdownlint-cli2 "docs/specs/<file>.md"`.
 
 ## Hard rules (do not violate)
 
@@ -139,8 +203,13 @@ A short end-to-end session (the kind you'd run to spec a feature like
 [devague#5](https://github.com/agentculture/devague/issues/5)):
 
 ```text
-devague new "Devague ships a documented spec contract"
-devague capture --kind audience "devague + the assisting LLM"
+devague new "Devague ships a documented spec contract" --title "documented spec contract"
+
+# Optional scope stage: record what you explored before capturing claims
+devague scope "devague/frame.py" --finding "the claim model devague#5 extends lives here"
+
+devague capture --kind audience "devague + the assisting LLM" \
+    --instruction "check docs/spec-contract.md names devague + the LLM as readers"
 devague capture --kind after_state "a vague idea becomes a buildable, pressure-tested spec"
 devague capture --kind why_it_matters "specs converge on evidence, not vibes"
 devague capture --kind boundary "not a full PRD generator; no fixed wizard"
@@ -150,11 +219,16 @@ devague capture --kind success_signal "a frame exports only after the gate passe
 devague interrogate c1 --honesty "the contract round-trips: save -> load -> identical frame"
 # ...user reviews and runs: devague confirm h1
 
+# Attach a working instruction to the now-confirmed honesty condition — this
+# flips h1 back to 'proposed' (the re-confirm rule), so the user re-confirms:
+devague interrogate h1 --instruction "run tests/test_contract.py::test_contract_round_trips"
+# ...user reviews and runs: devague confirm h1
+
 # Park a genuine unknown instead of guessing:
 devague park "exact JSON schema versioning policy" --kind unknown_nonblocking
 
-devague status        # what's left + the next move
-devague converge      # gate; resolve any listed gaps
+devague status        # what's left + the next move (warnings show with a ⚠ marker)
+devague converge      # gate; resolve any listed gaps (warnings never block export)
 devague export        # writes docs/specs/<slug>.md once converged
 ```
 
@@ -186,7 +260,7 @@ is **commit, then `spec-to-plan`**.
 This is a **first-party** skill — its origin is `agentculture/devague`, where the
 devague agent maintains it alongside the tool it operates (dogfooding). It is the
 *inverse* of the other skills under `.colleague/skills/`, which devague vendors
-**from** steward. When this skill is ready, steward pulls it **from** devague and
-broadcasts it to the rest of the AgentCulture mesh. The `cite, don't import`
-policy still holds: downstream repos copy it, they don't symlink or depend on it.
-See `docs/skill-sources.md`.
+**from** guildmaster. When this skill is ready, guildmaster pulls it **from**
+devague and broadcasts it to the rest of the AgentCulture mesh. The `cite, don't
+import` policy still holds: downstream repos copy it, they don't symlink or
+depend on it. See `docs/skill-sources.md`.
