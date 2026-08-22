@@ -2,7 +2,7 @@
   "plan_slug": "qwen-direct-no-gemma",
   "schema_version": 1,
   "created": "2026-08-22T07:25:05Z",
-  "updated": "2026-08-22T09:06:04Z",
+  "updated": "2026-08-22T09:38:09Z",
   "deviations": [
     {
       "id": "d1",
@@ -55,6 +55,16 @@
       "what": "t9 taken over by the integrator: the colleague child (9e5cf4571f1d) stalled 15 min at step 14 with 0 edits (no child worktrees left \u2192 nothing to salvage); integrator wrote tests/test_single_model_default.py + made the three #422 tests hermetic via --repo tmp_path; full suite 9149 passed / 0 failed",
       "task_ref": "t9",
       "reason": "stall rule (r2); tests-only task",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d6",
+      "what": "t7 taken over by the integrator: the colleague child (ec8154a62ec6) stalled 15 min at step 22 with 0 edits (no child worktrees); integrator added the dormant lines in session.py (+20 lines, under the ratchet) + 3 tests in tests/test_session_voice.py; voice.py/realtime.py untouched (no guard needed \u2014 every call site already gates on the senses seat)",
+      "task_ref": "t7",
+      "reason": "stall rule (r2)",
       "affects": [],
       "origin": "llm",
       "status": "approved",
