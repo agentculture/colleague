@@ -14,6 +14,12 @@ from typing import Optional
 
 from colleague.contract import NO_RESULT_PRODUCED, IncompletionRecord
 
+#: The one reason string meaning "the loop ran out of steps before
+#: delivering" — exposed as a named constant (rather than a magic string) so
+#: OTHER modules (e.g. :mod:`colleague.memory`'s split-next-time record,
+#: spec c15/h10) can compare against it without re-typing the literal.
+REASON_BUDGET_EXHAUSTED = "budget-exhausted"
+
 # Substring markers that indicate a summary merely *describes* a report it
 # never produced or admits it is unfinished.  Matched case-insensitively.
 _META_MARKERS: tuple[str, ...] = (
@@ -34,7 +40,7 @@ _REASON_ADVICE: dict[str, str] = {
     "empty-deliverable": (
         "re-run with a tighter scope or take over: " + "the finish produced no usable deliverable."
     ),
-    "budget-exhausted": (
+    REASON_BUDGET_EXHAUSTED: (
         "split the task or raise --max-steps: " + "colleague ran out of steps before delivering."
     ),
     "no-progress-zero-steps": (
@@ -123,7 +129,7 @@ def classify_incompletion(
     if step_count == 0:
         reason = "no-progress-zero-steps"
     elif outcome == "budget":
-        reason = "budget-exhausted"
+        reason = REASON_BUDGET_EXHAUSTED
     elif write_intent and changed_files == 0:
         reason = "write-no-changes"
     else:
