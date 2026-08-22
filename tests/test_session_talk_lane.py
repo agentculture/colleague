@@ -189,6 +189,31 @@ def test_talk_senses_relay_reaches_flight_guidance(tmp_path: Path, monkeypatch) 
     assert "-> cortex: focus on tests" in conv
 
 
+def test_talk_senses_unarmed_parks_for_cortex(tmp_path: Path, monkeypatch) -> None:
+    # Default path: senses unarmed (config.senses None) + a typed mid-run line —
+    # the line is PARKED for cortex at the next boundary, written VERBATIM as
+    # flight guidance (the same seam colleague talk's raw-guide degrade uses),
+    # with zero senses calls and no return-and-drop.
+    config = EngineConfig.resolve(model="cortex-model")  # no .senses
+    sess, _o, _e = _session(tmp_path, view="ansi", config=config)
+    sess._talk_active = True
+    sess._talk_task_id = "tid"
+    senses_calls = {"n": 0}
+
+    def _talk(message, **kwargs):
+        senses_calls["n"] += 1
+        return None
+
+    monkeypatch.setattr(session_mod, "run_senses_talk", _talk)
+    sess._talk_senses("focus on the tests")
+
+    assert senses_calls["n"] == 0  # zero senses calls
+    guidance = flight.FlightSession(tmp_path, "tid").read_control().guidance
+    assert guidance == ["focus on the tests"]  # exactly one, verbatim
+    conv = "\n".join(line.text for line in sess.state.conversation)
+    assert "parked for cortex at the next boundary" in conv
+
+
 # --- poll: no-op when disabled; reads a line when armed ----------------------
 
 
