@@ -49,5 +49,6 @@ def test_ladder_retry_warnings_fold_to_dicts() -> None:
         ),
     )
     dicts = vllm_openai.ladder_retry_warnings_as_dicts(cfg)
-    assert len(dicts) == 1 and isinstance(dicts[0], dict)
+    assert len(dicts) == 1
+    assert isinstance(dicts[0], dict)
     assert "medium" in str(dicts[0])
