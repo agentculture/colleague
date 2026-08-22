@@ -6,11 +6,18 @@ Spec: docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.m
 When ARMED — ``COLLEAGUE_LOBES_URL`` env OR a ``lobes`` section in
 ``.colleague/config.json`` — ``EngineConfig.resolve()`` consumes
 ``colleague.lobes.resolve_roles(gateway_url)`` as a **defaults source** feeding
-BOTH the main model (cortex) and the ``SensesConfig`` (senses). The rung slots
-below config.json and above the builtin default::
+the main model (cortex). The rung slots below config.json and above the
+builtin default::
 
     explicit flag > COLLEAGUE_*/OPENAI_* env > .colleague/config.json
     > lobes discovery > builtin default
+
+The ``SensesConfig`` (senses) is **armed only by declaration**: an armed
+gateway advertising a senses role does NOT by itself resolve a senses config.
+The operator must declare the sentinel ``lobes`` as the senses model
+(``COLLEAGUE_SENSES_MODEL=lobes`` or config.json ``senses: {"model": "lobes"}``)
+to opt into discovery — the same stance the deepthink/muse rung takes
+(test_config_lobes_deepthink.py).
 
 Two load-bearing decisions (LOBES_LIVE_FINDINGS.md):
 
@@ -213,11 +220,12 @@ def _serving(payload: object, *, status: int = 200) -> Iterator[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_armed_gateway_resolves_cortex_as_main_and_senses_as_config(
+def test_armed_gateway_resolves_cortex_as_main_and_senses_stays_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Acceptance 1a: ZERO model ids in config + a stub lobes gateway resolves
-    cortex as the main model and senses as a SensesConfig."""
+    """Acceptance 1a (re-stanced): ZERO model ids in config + a stub lobes
+    gateway resolves cortex as the main model, but senses is armed ONLY by
+    declaration — an advertised senses role alone leaves ``cfg.senses`` None."""
     with _serving(LOBES_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
         cfg = EngineConfig.resolve()
@@ -229,11 +237,28 @@ def test_armed_gateway_resolves_cortex_as_main_and_senses_as_config(
         # /v1 suffix (colleague#292/291 S1+S2, closing lobes-cli#87).
         assert cfg.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
 
-        # senses → a resolved SensesConfig, dialing ITS OWN endpoint too.
-        assert cfg.senses is not None
-        assert isinstance(cfg.senses, SensesConfig)
-        assert cfg.senses.model == _SENSES_MODEL
-        assert cfg.senses.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
+        # senses → NOT resolved: discovery is opt-in only (the sentinel
+        # declaration is the sole path into it).
+        assert cfg.senses is None
+
+
+def test_senses_lobes_sentinel_env_arms_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The explicit opt-in: ``COLLEAGUE_SENSES_MODEL=lobes`` asks for discovery
+    and the gateway's senses role supplies the SensesConfig — dialing ITS OWN
+    endpoint, budget from the role's window, main key same-origin."""
+    with _serving(LOBES_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
+        cfg = EngineConfig.resolve()
+
+    assert cfg.senses is not None
+    assert isinstance(cfg.senses, SensesConfig)
+    assert cfg.senses.model == _SENSES_MODEL
+    assert cfg.senses.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
+    assert cfg.senses.context_budget == 24000
+    assert cfg.senses.api_key == cfg.api_key
 
 
 def test_lobes_base_url_dials_each_roles_own_endpoint_since_038(
@@ -246,6 +271,7 @@ def test_lobes_base_url_dials_each_roles_own_endpoint_since_038(
     origin is only the documented fallback for an unwired role."""
     with _serving(LOBES_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
         cfg = EngineConfig.resolve()
 
     assert cfg.senses is not None
@@ -269,6 +295,7 @@ def test_lobes_base_url_falls_back_to_gateway_origin_when_role_endpoint_empty(
     payload["senses"]["endpoint"] = ""
     with _serving(payload) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
         cfg = EngineConfig.resolve()
 
     assert cfg.senses is not None
@@ -283,6 +310,7 @@ def test_senses_from_lobes_budget_derived_from_role_window(
     reproducing the hand-tuned 24000 default (same ~73% headroom ratio)."""
     with _serving(LOBES_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
         cfg = EngineConfig.resolve()
     assert cfg.senses is not None
     assert cfg.senses.context_budget == 24000
@@ -292,6 +320,18 @@ def test_armed_via_config_json_lobes_section(tmp_path: Path) -> None:
     """The rung arms from a ``lobes`` section in .colleague/config.json too."""
     with _serving(LOBES_PAYLOAD) as gateway:
         _write_config(tmp_path, {"lobes": {"url": gateway}})
+        cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.model == _CORTEX_MODEL
+    # senses is armed only by declaration — the gateway section alone does not
+    # arm it (the sentinel is the opt-in).
+    assert cfg.senses is None
+
+
+def test_armed_via_config_json_senses_lobes_sentinel(tmp_path: Path) -> None:
+    """The config.json opt-in: a ``senses`` section declaring the sentinel
+    ``lobes`` model arms discovery from the gateway's senses role."""
+    with _serving(LOBES_PAYLOAD) as gateway:
+        _write_config(tmp_path, {"lobes": {"url": gateway}, "senses": {"model": "lobes"}})
         cfg = EngineConfig.resolve(repo_path=tmp_path)
     assert cfg.model == _CORTEX_MODEL
     assert cfg.senses is not None
@@ -393,6 +433,7 @@ def test_cross_origin_senses_does_not_inherit_main_api_key(
     payload["senses"]["endpoint"] = "http://other-host:9000"
     with _serving(payload) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
         monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
         cfg = EngineConfig.resolve()
     assert cfg.senses is not None
@@ -409,6 +450,7 @@ def test_same_origin_senses_inherits_main_api_key(
     one gateway) keeps inheriting the main key."""
     with _serving(LOBES_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
         monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
         cfg = EngineConfig.resolve()
     assert cfg.senses is not None
@@ -424,6 +466,7 @@ def test_explicit_senses_api_key_wins_even_cross_origin(
     payload["senses"]["endpoint"] = "http://other-host:9000"
     with _serving(payload) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")
         monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
         monkeypatch.setenv("COLLEAGUE_SENSES_API_KEY", "senses-own-token")
         cfg = EngineConfig.resolve()
@@ -442,7 +485,10 @@ def test_config_json_senses_api_key_without_model_arms_discovery(
     with _serving(payload) as gateway:
         _write_config(
             tmp_path,
-            {"lobes": gateway, "senses": {"api_key": "file-senses-token"}},
+            {
+                "lobes": gateway,
+                "senses": {"model": "lobes", "api_key": "file-senses-token"},
+            },
         )
         cfg = EngineConfig.resolve(repo_path=tmp_path)
     assert cfg.senses is not None
