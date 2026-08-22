@@ -359,6 +359,147 @@ def test_token_estimate_is_never_written_into_the_ledger_or_usage(tmp_path: Path
     assert appended.token_estimate_source == "chars"
 
 
+# ---------------------------------------------------------------------------
+# reasoning_effort as trace data (#416 t7, c29/h20)
+# ---------------------------------------------------------------------------
+
+
+def test_record_to_dict_omits_reasoning_effort_when_unset():
+    """Byte-identical to before this field existed when no rung is set."""
+    rec = _record(_worker_profile(_advert_roles()))
+    assert rec.reasoning_effort is None
+    assert "reasoning_effort" not in rec.to_dict()
+
+
+def test_record_to_dict_carries_reasoning_effort_when_set():
+    rec = _record(_worker_profile(_advert_roles()), reasoning_effort="medium")
+    assert rec.to_dict()["reasoning_effort"] == "medium"
+
+
+def test_record_round_trip_with_reasoning_effort_set():
+    rec = _record(_worker_profile(_advert_roles()), reasoning_effort="xhigh")
+    assert InvocationRecord.from_dict(rec.to_dict()) == rec
+
+
+def test_from_dict_tolerates_absent_reasoning_effort():
+    rec = _record(_worker_profile(_advert_roles()))
+    raw = rec.to_dict()
+    assert "reasoning_effort" not in raw
+    assert InvocationRecord.from_dict(raw).reasoning_effort is None
+
+
+def test_append_invocation_omits_reasoning_effort_from_event_when_unset(tmp_path: Path):
+    roles = _advert_roles()
+    profile = _worker_profile(roles)
+    ledger = TaskLedger(tmp_path / "task-1.jsonl", task_id="task-1")
+    append_invocation(ledger, _record(profile))
+    event = ledger.events()[-1]
+    assert "reasoning_effort" not in event.data
+
+
+def test_append_invocation_carries_reasoning_effort_on_event_when_set(tmp_path: Path):
+    roles = _advert_roles()
+    profile = _worker_profile(roles)
+    ledger = TaskLedger(tmp_path / "task-1.jsonl", task_id="task-1")
+    append_invocation(ledger, _record(profile, reasoning_effort="low"))
+    event = ledger.events()[-1]
+    assert event.data["reasoning_effort"] == "low"
+
+
+def test_ledger_digest_stable_for_records_without_reasoning_effort(tmp_path: Path):
+    """Adding the reasoning_effort field never moves the digest of a ledger
+    that never sets it — an unset/unarmed ledger stays byte-identical."""
+    roles = _advert_roles()
+    profile = _worker_profile(roles)
+
+    ledger_a = TaskLedger(tmp_path / "a.jsonl", task_id="task-1")
+    append_invocation(ledger_a, _record(profile))
+    digest_a = derive_snapshot(ledger_a.events()).state_digest
+
+    ledger_b = TaskLedger(tmp_path / "b.jsonl", task_id="task-1")
+    append_invocation(ledger_b, _record(profile, reasoning_effort=None))
+    digest_b = derive_snapshot(ledger_b.events()).state_digest
+
+    assert digest_a == digest_b
+
+
+def test_ledger_digest_moves_when_reasoning_effort_is_set(tmp_path: Path):
+    roles = _advert_roles()
+    profile = _worker_profile(roles)
+
+    ledger_unset = TaskLedger(tmp_path / "unset.jsonl", task_id="task-1")
+    append_invocation(ledger_unset, _record(profile))
+    digest_unset = derive_snapshot(ledger_unset.events()).state_digest
+
+    ledger_set = TaskLedger(tmp_path / "set.jsonl", task_id="task-1")
+    append_invocation(ledger_set, _record(profile, reasoning_effort="medium"))
+    digest_set = derive_snapshot(ledger_set.events()).state_digest
+
+    assert digest_unset != digest_set
+
+
+def test_effort_of_reads_seat_override_before_effective():
+    from colleague.effort import effort_of
+
+    cfg = replace(_parent_config(), reasoning_effort=None)
+    setattr(cfg, "reasoning_effort_seat", "xhigh")
+    assert effort_of(cfg) == "xhigh"
+
+
+def test_effort_of_falls_back_to_effective_when_seat_override_absent():
+    from colleague.effort import effort_of
+
+    cfg = _parent_config()
+    assert not hasattr(cfg, "reasoning_effort_seat")
+    assert effort_of(cfg) == cfg.reasoning_effort_effective
+
+
+def test_record_invocation_reads_reasoning_effort_off_the_seat_config(tmp_path: Path):
+    """AgentsRun.record_invocation reads the value off self.config at record
+    time (the ONE record site in agents/runtime.py) — never recomputed from
+    SEAT_TABLE/ROLE_TABLE."""
+    from colleague.agents.runtime import AgentsRun
+    from colleague.contract import Task
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg = _parent_config()
+    setattr(cfg, "reasoning_effort_seat", "high")
+    task = Task.new(str(repo), "do the thing")
+
+    run = AgentsRun(cfg)
+    run.begin(task, model=cfg.model)
+    rec = run.record_invocation([{"role": "user", "content": "hi"}])
+
+    assert rec is not None
+    assert rec.reasoning_effort == "high"
+    event = run.ledger.events()[-1]
+    assert event.data["reasoning_effort"] == "high"
+
+
+def test_record_invocation_omits_reasoning_effort_when_config_has_none(tmp_path: Path):
+    from colleague.agents.runtime import AgentsRun
+    from colleague.contract import Task
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg = _parent_config()
+    assert not hasattr(cfg, "reasoning_effort_seat")
+    task = Task.new(str(repo), "do the thing")
+
+    run = AgentsRun(cfg)
+    run.begin(task, model=cfg.model)
+    rec = run.record_invocation([{"role": "user", "content": "hi"}])
+
+    assert rec is not None
+    assert rec.reasoning_effort == cfg.reasoning_effort_effective
+    event = run.ledger.events()[-1]
+    if cfg.reasoning_effort_effective is None:
+        assert "reasoning_effort" not in event.data
+    else:
+        assert event.data["reasoning_effort"] == cfg.reasoning_effort_effective
+
+
 def test_ledger_round_trip_with_invocation(tmp_path: Path):
     roles = _advert_roles()
     profile = _worker_profile(roles)

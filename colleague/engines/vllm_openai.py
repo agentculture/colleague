@@ -22,10 +22,10 @@ import sys
 import urllib.error
 import urllib.request
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
-from colleague import stallguard
+from colleague import effort, stallguard
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
@@ -177,6 +177,39 @@ def _is_model_not_found_404(exc: urllib.error.HTTPError) -> bool:
     return exc.code == 404 and "model_not_found" in str(exc)
 
 
+# ── ladder-400 retry (per-seat thinking effort, #416 t3, c2/h2/c7/h6/c27/h18) ─
+#
+# vLLM/Qwen3's chat template validates ``chat_template_kwargs.reasoning_effort``
+# against its OWN ladder (observed: low/medium/xhigh, default xhigh, "high" is
+# an alias — see ``colleague/effort.py``'s module docstring) and answers an
+# unknown/unsupported rung with an HTTP 400 naming "reasoning effort" in the
+# body. That is a SERVER-SIDE ladder mismatch, not a Colleague bug: dropping
+# ``chat_template_kwargs`` and retrying once (below, in ``_make_complete``)
+# degrades to the server's own default rather than failing the whole turn —
+# exactly the same "stale config, not a reason to die" posture the call-time
+# stale-pin refresh above already takes for a 404 ``model_not_found``, and
+# disjoint from it by status code (a 404 is never a 400) so the two retries
+# never interact.
+
+
+def _is_ladder_400(exc: urllib.error.HTTPError) -> bool:
+    """True for exactly the "server rejects this reasoning-effort ladder
+    rung" shape: an HTTP 400 whose message names "reasoning effort"
+    (case-insensitive). The real server's message: "Unexpected reasoning
+    effort bogus. Supported types are xhigh (default), medium, and low."
+
+    Reads ``str(exc)`` — mirroring :func:`_is_model_not_found_404`'s own
+    convention — rather than re-reading the body directly: by the time this
+    is reached, *exc* is already the RE-RAISED, body-folded exception
+    :func:`_raise_legible_http_error` produces (its own re-raise carries no
+    readable ``fp``, so a second :func:`_read_error_body` call on it would
+    just see an empty body). Any other 400 (or any other status) is a
+    genuine failure this classifier must NOT swallow — it propagates
+    unguarded, exactly as before this task.
+    """
+    return exc.code == 400 and "reasoning effort" in str(exc).lower()
+
+
 def _same_role_call_time_refresh(
     config: EngineConfig, role: str, exc: urllib.error.HTTPError
 ) -> str | None:
@@ -260,9 +293,13 @@ def _parse_response(data: dict[str, Any]) -> ModelResponse:
     # Capture the model's chain-of-thought when the server returns it as a
     # separate field (was previously discarded). Reasoning models served by vLLM
     # (e.g. Qwen3) put thinking in ``message.reasoning``; some servers use
-    # ``reasoning_content``. Tokens are still taken EXACTLY from ``usage`` (this
-    # server reports no completion_tokens_details, so there is no reasoning-token
-    # breakdown — the loop measures reasoning by length, never estimates tokens).
+    # ``reasoning_content``. Tokens are still taken EXACTLY from ``usage`` — the
+    # current rig now reports a ``completion_tokens_details.reasoning_tokens``
+    # breakdown (#416), but colleague still never reads it: tokens stay exactly
+    # what ``usage`` reports and reasoning is measured by length, never a
+    # tokenizer estimate — this task (t3) wires the per-seat effort REQUEST
+    # (``chat_template_kwargs``, see ``_build_chat_payload``) without touching
+    # token accounting at all.
     # Carry the raw finish_reason out unchanged (plan task t1, covers c4/h4) —
     # previously never read on the blocking path at all. "" when the server
     # omits the field, matching every other honest-default field above.
@@ -845,6 +882,92 @@ def _refreshed_model_id(
     return _same_role_call_time_refresh(config, role_name, exc)
 
 
+def _effort_for(config: EngineConfig) -> "str | None":
+    """The thinking-effort rung THIS completion's payload should carry (#416 t3).
+
+    ``config.reasoning_effort_seat`` is an OPTIONAL plain attribute — not a
+    dataclass field, so it never shows up in ``to_dict()``/eq/repr — read via
+    ``getattr`` and, when present and not ``None``, takes precedence over
+    ``config.reasoning_effort_effective`` (the ACTING seat's resolved rung,
+    :attr:`EngineConfig.reasoning_effort_effective`). Later seat-builder tasks
+    (deepthink/senses/evaluator/subagent children) set it with a plain
+    ``setattr`` on their OWN replaced config, exactly the way ``role``/
+    ``worker`` already ride ``dataclasses.replace`` copies — a copy that never
+    sets it just falls back to the acting-seat property, and
+    ``dataclasses.replace`` naturally drops a plain attribute (it is not a
+    field), which is the correct degrade: the copy re-resolves its own
+    acting-seat rung rather than inheriting its parent's override.
+    """
+    # PRESENCE wins, not truthiness (Qodo #419 r2): a seat builder may set the
+    # attribute to ``None`` — e.g. a per-seat/child override of the ``default``
+    # kill-switch sentinel resolves to ``None`` — and that means "send nothing",
+    # never "fall back to the acting seat". Absent (a fresh ``dataclasses.replace``
+    # copy) is the only case that re-resolves the acting seat.
+    if "reasoning_effort_seat" in getattr(config, "__dict__", {}):
+        return config.__dict__["reasoning_effort_seat"]
+    return config.reasoning_effort_effective
+
+
+@dataclass(frozen=True)
+class _LadderRetryWarning:
+    """One ladder-400 retry record (#416 t3, c33/h23).
+
+    Mirrors :class:`colleague.lobes.ModelRefreshWarning`'s shape/mechanism —
+    a frozen record with a ``message()`` stderr line and a ``to_dict()`` for
+    the run artifact — but lives in THIS module (this task edits only
+    ``colleague/engines/vllm_openai.py``, so it cannot add a new dataclass
+    field to ``EngineConfig``). It is recorded via
+    :func:`_record_ladder_retry_warning` onto the plain
+    ``config.reasoning_effort_warnings`` attribute (the same
+    reassign-a-new-tuple convention ``config.model_refresh_warnings`` already
+    uses, so a subagent child sharing this config value via
+    ``dataclasses.replace`` never sees a parent's later call-time append and
+    vice versa) — a later task can fold it onto ``TaskResult.warnings`` the
+    same way ``colleague/cli/_commands/work.py`` already folds
+    ``config.model_refresh_warnings`` (mirroring the t9→t11 split).
+    """
+
+    seat: str
+    effort: "str | None"
+    detail: str
+
+    def message(self) -> str:
+        return (
+            f"colleague: reasoning-effort ladder retry — the {self.seat} seat's "
+            f"{self.effort!r} rung was rejected by the server; retried once "
+            f"without chat_template_kwargs. Server said: {self.detail}"
+        )
+
+    def to_dict(self) -> "dict[str, str]":
+        return {"seat": self.seat, "effort": str(self.effort), "detail": self.detail}
+
+
+def _emit_ladder_retry_warning(warning: _LadderRetryWarning) -> None:
+    """Print *warning*'s message to stderr — mirrors
+    :func:`colleague.lobes.emit_model_refresh_warning`'s convention. Never
+    raises: a closed/broken stderr must never break the retry it announces.
+    """
+    with suppress(OSError):
+        print(warning.message(), file=sys.stderr)
+
+
+def ladder_retry_warnings_as_dicts(config: Any) -> "list[dict[str, Any]]":
+    """The ladder-400 retry warnings recorded on *config* as artifact-ready dicts
+    (Qodo #419 r4): the work front folds these into ``TaskResult.warnings`` before
+    the artifact write, exactly like ``config.model_refresh_warnings``. Empty when
+    none fired — a strict no-op on the unset path."""
+    existing = getattr(config, "reasoning_effort_warnings", ()) or ()
+    return [w.to_dict() if hasattr(w, "to_dict") else asdict(w) for w in existing]
+
+
+def _record_ladder_retry_warning(config: EngineConfig, warning: _LadderRetryWarning) -> None:
+    """Append *warning* onto ``config.reasoning_effort_warnings`` (a NEW
+    tuple, never a shared-list mutation — see :class:`_LadderRetryWarning`).
+    """
+    existing: "tuple[_LadderRetryWarning, ...]" = getattr(config, "reasoning_effort_warnings", ())
+    config.reasoning_effort_warnings = existing + (warning,)
+
+
 class VllmOpenAIEngine(Engine):
     """Drives an OpenAI-compatible chat-completions endpoint with tool calling."""
 
@@ -904,6 +1027,16 @@ class VllmOpenAIEngine(Engine):
         if offered_tools:
             payload["tools"] = offered_tools
             payload["tool_choice"] = "auto"
+        # Per-seat thinking effort (#416 t3, c2/h2/c7/h6): the fragment is
+        # ABSENT when nothing should be sent (kill-switched, or a rung/seat
+        # that resolves to None) — a vLLM/OpenAI-only extension key
+        # (CLAUDE.md's third documented "vLLM adapter only touches the
+        # OpenAI surface" carve-out), so an operator-installed non-vLLM
+        # server that ignores unknown keys behaves exactly as today, and a
+        # config with nothing set stays byte-identical to the pre-#416 body.
+        effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
+        if effort_fragment:
+            payload["chat_template_kwargs"] = effort_fragment
         streaming = config.on_delta is not None or _headless_streaming_enabled()
         if streaming:
             payload["stream"] = True
@@ -917,6 +1050,122 @@ class VllmOpenAIEngine(Engine):
             except OSError:  # nosec B110 - diagnostic only; never mask the real work
                 pass
         return payload, streaming
+
+    @staticmethod
+    def _dispatch_once(
+        url: str,
+        payload: "dict[str, Any]",
+        config: EngineConfig,
+        streaming: bool,
+    ) -> ModelResponse:
+        """Send ``payload`` exactly once, streaming or blocking per *streaming*.
+
+        Extracted from ``_make_complete``'s ``complete`` closure (SonarCloud
+        S3776). A mid-stream failure degrades to ONE blocking request for
+        THIS SAME turn (task t5) — the loop never sees the transport hiccup,
+        only a normal ``ModelResponse``. ``_noop_delta`` is the headless case
+        (#393): streaming is armed for the TRANSPORT (incremental bytes, so
+        the read timeout measures silence rather than generation time) with
+        no display surface to feed. Both a ladder-400 retry and the 404
+        stale-pin refresh just re-call this same helper, so the streaming
+        path (``_stream_or_blocking``) and the blocking one share one
+        convergence point, never duplicated logic in either transport
+        function itself.
+        """
+        if streaming:
+            return _stream_or_blocking(
+                url,
+                payload,
+                api_key=config.api_key,
+                timeout=config.timeout,
+                on_delta=_delta_sink(config.on_delta),
+            )
+        data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
+        return _parse_response(data)
+
+    @staticmethod
+    def _maybe_retry_ladder_400(
+        exc: urllib.error.HTTPError,
+        payload: "dict[str, Any]",
+        role_name: str,
+        sent_effort: "str | None",
+        config: EngineConfig,
+        dispatch: "Callable[[], ModelResponse]",
+    ) -> "ModelResponse | None":
+        """Ladder-400 retry (#416 t3, c2/h2/c27/h18/c33/h23): if *exc* is a
+        rejection of the ``chat_template_kwargs`` fragment, drop it, record
+        ONE warning, and retry ONCE via *dispatch* — returning the retried
+        response. Returns ``None`` when *exc* is not a ladder-400 (the caller
+        re-raises). A second ladder-400 (the caller's own re-raise) propagates
+        unguarded — never a second catch, mirroring the 404 refresh's own
+        single-shot rule.
+        """
+        if "chat_template_kwargs" not in payload or not _is_ladder_400(exc):
+            return None
+        payload.pop("chat_template_kwargs", None)
+        warning = _LadderRetryWarning(seat=role_name, effort=sent_effort, detail=str(exc))
+        _emit_ladder_retry_warning(warning)
+        _record_ladder_retry_warning(config, warning)
+        return dispatch()
+
+    @staticmethod
+    def _maybe_refresh_on_404(
+        exc: urllib.error.HTTPError,
+        config: EngineConfig,
+        role_name: str,
+    ) -> "str | None":
+        """Same-role stale-pin refresh AT CALL TIME (plan task t9, spec
+        c10/c11, honesty h7/h8): exactly a 404 model_not_found, ONE retry.
+        Returns the refreshed model id, or ``None`` when *exc* isn't a
+        refreshable 404 (the caller re-raises unguarded — legible via
+        ``_raise_legible_http_error``'s existing body-folding).
+        """
+        return _refreshed_model_id(config, role_name, exc)
+
+    def _recover_http_error(
+        self,
+        exc: urllib.error.HTTPError,
+        payload: "dict[str, Any]",
+        role_name: str,
+        sent_effort: "str | None",
+        config: EngineConfig,
+        dispatch: "Callable[[], ModelResponse]",
+    ) -> ModelResponse:
+        """The single-shot recovery ladder for one completion's HTTPError.
+
+        Ladder-400 (#416 t3) and the 404 stale-pin refresh (plan task t9) are
+        DISJOINT by status code — a 404 is never a 400 — so checking one first
+        never shadows the other. Each fires at most once; a 404→400 sequence
+        (c33) therefore yields exactly one refresh and one ladder retry. Anything
+        unrecoverable re-raises unchanged (legible via
+        ``_raise_legible_http_error``'s body-folding at the dispatch site).
+        Extracted from ``_make_complete``'s closure (SonarCloud S3776).
+        """
+        retried = self._maybe_retry_ladder_400(
+            exc, payload, role_name, sent_effort, config, dispatch
+        )
+        if retried is not None:
+            return retried
+        refreshed_id = self._maybe_refresh_on_404(exc, config, role_name)
+        if refreshed_id is None:
+            raise exc
+        # Persist the refresh (Qodo review, PR #381): later completions rebuild
+        # their payload from ``config.model`` — leaving the stale id there would
+        # re-404 + re-refresh on EVERY subsequent turn.
+        config.model = refreshed_id
+        payload["model"] = refreshed_id
+        try:
+            return dispatch()
+        except urllib.error.HTTPError as retry_exc:
+            # A 404→400 sequence (c33): the SAME payload the refresh just re-sent
+            # can still be rejected on the ladder — the ladder retry is disjoint
+            # from (and stacks on top of) the refresh that already happened once.
+            retried_again = self._maybe_retry_ladder_400(
+                retry_exc, payload, role_name, sent_effort, config, dispatch
+            )
+            if retried_again is not None:
+                return retried_again
+            raise
 
     def _make_complete(
         self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
@@ -935,46 +1184,20 @@ class VllmOpenAIEngine(Engine):
 
         def complete(messages: list[dict[str, Any]]) -> ModelResponse:
             payload, streaming = self._build_chat_payload(config, messages, offered_tools)
+            # The rung THIS payload's (possibly already-dropped) fragment was
+            # built from — captured once, before a ladder-400 retry pops the
+            # key below, so the warning can still name it (#416 t3).
+            sent_effort = _effort_for(config)
 
-            def _invoke() -> ModelResponse:
-                if streaming:
-                    # A mid-stream failure degrades to ONE blocking request for
-                    # THIS SAME turn (task t5) — the loop never sees the
-                    # transport hiccup, only a normal ModelResponse.
-                    #
-                    # ``_noop_delta`` is the headless case (#393): streaming is
-                    # armed for the TRANSPORT (incremental bytes, so the read
-                    # timeout measures silence rather than generation time)
-                    # with no display surface to feed.
-                    return _stream_or_blocking(
-                        url,
-                        payload,
-                        api_key=config.api_key,
-                        timeout=config.timeout,
-                        on_delta=_delta_sink(config.on_delta),
-                    )
-                data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
-                return _parse_response(data)
+            def dispatch() -> ModelResponse:
+                return self._dispatch_once(url, payload, config, streaming)
 
             try:
-                return _invoke()
+                return dispatch()
             except urllib.error.HTTPError as exc:
-                # Same-role stale-pin refresh AT CALL TIME (plan task t9, spec
-                # c10/c11, honesty h7/h8): exactly a 404 model_not_found, ONE
-                # retry, never a second catch (a repeat 404 propagates
-                # unguarded below — legible via _raise_legible_http_error's
-                # existing body-folding, exactly as before this task).
-                refreshed_id = _refreshed_model_id(config, role_name, exc)
-                if refreshed_id is None:
-                    raise
-                # Persist the refresh (Qodo review, PR #381): later
-                # completions rebuild their payload from ``config.model`` —
-                # leaving the stale id there would re-404 + re-refresh on
-                # EVERY subsequent turn (and re-append a warning each time),
-                # with success depending on lobes staying reachable.
-                config.model = refreshed_id
-                payload["model"] = refreshed_id
-                return _invoke()
+                return self._recover_http_error(
+                    exc, payload, role_name, sent_effort, config, dispatch
+                )
 
         return complete
 

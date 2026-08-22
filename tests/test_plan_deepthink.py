@@ -174,9 +174,13 @@ def test_plan_no_deepthink_call_shape_byte_identical(tmp_path, monkeypatch) -> N
 
     assert result.converged is True
     # Exactly one build, positional-only (no `tools` kwarg was passed — else
-    # _NoToolsKwargEngine.make_complete would have raised TypeError).
+    # _NoToolsKwargEngine.make_complete would have raised TypeError). The
+    # built config is a DESIGN-seat ``dataclasses.replace`` copy of *config*
+    # (#416 t6, c14/h9) — not the same object — but carries every declared
+    # field unchanged, so it compares equal.
     assert len(engine.calls) == 1
-    assert engine.calls[0] is config
+    assert engine.calls[0] == config
+    assert engine.calls[0] is not config
 
 
 def test_plan_deepthink_fallback_on_raise(

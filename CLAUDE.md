@@ -49,6 +49,13 @@ minds. The architecture, part by part:
 - **Deepthink / dual-model** — a MAIN model + a **deepthink** reasoner
   (operator-declared, or discovered from the lobes `muse` role) on an
   **enumerated** escalation surface; absent = byte-identical. Doc: `deepthink.md`.
+- **Thinking effort (#416)** — a per-seat reasoning ladder
+  (`off|low|medium|high|xhigh`, plus the `default` kill-switch) resolved
+  **where each seat is built**, never per turn: deepthink/design seats keep full
+  effort, shallow seats (senses/Talker, read-only scouts) turn thinking off; the
+  v3 default table is pinned row-for-row and rendered once in the feature doc
+  (pointer, not duplicate); a ladder-400 retries once without the key;
+  byte-identical under the kill-switch. Doc: `thinking-effort.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
@@ -343,12 +350,16 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   `CliError`. The four reserved meta-verbs (`doctor`/`overview`/`learn`/`explain`)
   stay colleague-owned via the legacy-parser shim in `main()`. Doc: `cli-on-agentfront.md`.
 - **The vLLM adapter only touches the OpenAI surface** — retargeting any
-  OpenAI-compatible server must stay a config change, never a code change. TWO
-  carve-outs, both graceful-degrade so a server without them stays a config
-  change: the `/tokenize` endpoint for exact token counting (`None` on error),
-  and — only when lobes is ARMED — the call-time stale-pin refresh's one
+  OpenAI-compatible server must stay a config change, never a code change.
+  THREE carve-outs, all graceful-degrade so a server without them stays a
+  config change: the `/tokenize` endpoint for exact token counting (`None` on
+  error); — only when lobes is ARMED — the call-time stale-pin refresh's one
   same-role lookup against the gateway (c11/h8; lobes unarmed = the original
-  error surfaces unchanged, zero non-OpenAI calls).
+  error surfaces unchanged, zero non-OpenAI calls); and the per-seat
+  `chat_template_kwargs` body key on the existing `/chat/completions` call
+  (the thinking-effort ladder, #416 — a vLLM extension a server may ignore;
+  unset = byte-identical, a ladder-400 retries once without the key). Doc:
+  `thinking-effort.md`.
 - **Hook commands run as subprocesses, never imported.** `colleague/hooks.py` uses
   `subprocess.run` (shell=True) in the repo working dir; command templates are
   Markdown text, never executed. No code path opens a socket or forks a daemon.

@@ -111,6 +111,24 @@ the streaming / blocking-fallback / opt-out paths). Suites that script turns
 by stubbing the blocking `_post_json` keep running on the default streaming
 path through `tests/conftest.py`'s `_sse_bridge_over_blocking_stubs`.
 
+#### Per-seat thinking effort — the third carve-out ([#416][i416])
+
+[i416]: https://github.com/agentculture/colleague/issues/416
+
+`_build_chat_payload` is also the single arming decision for the **per-seat
+thinking-effort ladder**: when a seat's resolved setting is non-unset it adds
+one body key, `chat_template_kwargs` — `{"enable_thinking": false}` for `off`,
+`{"reasoning_effort": <rung>}` (sent verbatim) for any rung — and omits the key
+entirely when unset (byte-identical body). `chat_template_kwargs` is a **vLLM
+extension**, so this is the **third** graceful-degrade carve-out to "the vLLM
+adapter only touches the OpenAI surface" (after `/tokenize` and the armed-lobes
+stale-pin refresh — CLAUDE.md conventions): a server that ignores the key
+behaves exactly as today, and a ladder-400 (a 400 whose body names the
+supported ladder) is retried **once** without the key + a `TaskResult` warning.
+The ladder, the v3 default table, the precedence order, and the honest limits
+live in [thinking-effort.md](thinking-effort.md) — this doc points at them, it
+does not duplicate the table.
+
 ## Writing your own backend plugin
 
 ```python

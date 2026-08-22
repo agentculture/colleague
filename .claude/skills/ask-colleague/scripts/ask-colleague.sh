@@ -96,6 +96,7 @@ Usage:
   ask-colleague monitor <task-id>                Stream a running flight's live feed (--follow)
   ask-colleague guide   <task-id> "<msg>"         Send mid-flight guidance to a running flight
   ask-colleague stop    <task-id>                Ask a running flight to stop (cooperative)
+  ask-colleague resume  <task-id|last> [--detach] Resume a cut/timed-out/SIGTERM'd run from its artifact (work --continue)
 
 Options:
   --repo PATH        Target repo (default: .)
@@ -103,7 +104,16 @@ Options:
   --base BRANCH      Base for `review` diff (default: main)
   --engine NAME      Backend plugin (default: $COLLEAGUE_ENGINE or vllm-openai)
   --model NAME       Model (default: $COLLEAGUE_MODEL or unsloth/Qwen3.8-27B-NVFP4)
-  --role NAME        Typed subagent role (e.g. explorer, reviewer, writer)
+  --role NAME        Typed subagent role (e.g. explorer, reviewer, writer); a top-level
+                     explorer runs at thinking effort "low" by default (#416)
+  --effort RUNG      Thinking effort for the ACTING seat: off|low|medium|high|xhigh|default
+                     (#416; default = colleague's table, medium for the acting seat;
+                     "default" = the kill-switch, send nothing). Exported as
+                     COLLEAGUE_CORTEX_REASONING_EFFORT + COLLEAGUE_WORKER_REASONING_EFFORT.
+  --seat-effort S=R  Per-seat override, comma-separated (seats: cortex, worker, deepthink,
+                     senses, evaluator, design), e.g. --seat-effort senses=off,deepthink=xhigh
+  --detach           (resume) run detached (setsid/nohup) and return at once; pilot it with
+                     monitor/guide/stop once the new flight id appears in the log
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20; explore/review default from
                      colleague's own "explore"/"review" mode profile, today 30 —
@@ -137,11 +147,11 @@ EOF
 # ── parse the verb ──────────────────────────────────────────────────────────
 VERB="${1:-}"
 case "$VERB" in
-    explore | review | write | plan | feedback | clean | monitor | guide | stop) shift ;;
+    explore | review | write | plan | feedback | clean | monitor | guide | stop | resume) shift ;;
     -h | --help) usage; exit 0 ;;
     "") usage >&2; exit 1 ;;  # missing arg -> user-input error (#161)
     *)
-        echo "error: unknown verb '$VERB' (expected explore|review|write|plan|feedback|clean|monitor|guide|stop)" >&2
+        echo "error: unknown verb '$VERB' (expected explore|review|write|plan|feedback|clean|monitor|guide|stop|resume)" >&2
         echo "hint: run 'ask-colleague --help'" >&2
         exit 1  # bad verb -> user-input error (#161)
         ;;
@@ -197,6 +207,9 @@ BY=""
 ARG=""
 JSON_OUT=0
 ROLE=""
+EFFORT=""
+SEAT_EFFORT=""
+DETACH=0
 QUICK=0
 NO_WORKFORCE=0
 
@@ -207,6 +220,9 @@ while [[ $# -gt 0 ]]; do
         --engine) need_value "$#" "$1"; ENGINE="$2"; shift 2 ;;
         --model) need_value "$#" "$1"; MODEL="$2"; shift 2 ;;
         --role) need_value "$#" "$1"; ROLE="$2"; shift 2 ;;
+        --effort) need_value "$#" "$1"; EFFORT="$2"; shift 2 ;;
+        --seat-effort) need_value "$#" "$1"; SEAT_EFFORT="$2"; shift 2 ;;
+        --detach) DETACH=1; shift ;;
         --base-url) need_value "$#" "$1"; BASE_URL="$2"; shift 2 ;;
         --max-steps) need_value "$#" "$1"; MAX_STEPS="$2"; MAX_STEPS_EXPLICIT=1; shift 2 ;;
         --timeout) need_value "$#" "$1"; TIMEOUT="$2"; shift 2 ;;
@@ -250,7 +266,7 @@ fi
 # throwaway worktree, so it needs no mktemp either.
 case "$VERB" in
     feedback | clean | plan) require_tools git ;;
-    monitor | guide | stop) : ;;
+    monitor | guide | stop) : ;;  # resume needs the engine path like write, so it is NOT listed here
     write)
         if [[ "$APPLY" -eq 1 || "$OPEN_PR" -eq 1 ]]; then
             require_tools git python3
@@ -278,7 +294,7 @@ REPO="$(cd "$REPO" && pwd)"
 # The pilot verbs (monitor/guide/stop) are pure .colleague/flight/ file I/O — they
 # need no git work tree, so they are exempt from this fail-fast guard.
 case "$VERB" in
-    monitor | guide | stop) : ;;
+    monitor | guide | stop) : ;;  # resume needs the engine path like write, so it is NOT listed here
     *)
         git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
             || { echo "error: --repo is not a git repository: $REPO" >&2; exit 1; }
@@ -298,6 +314,35 @@ resolve_colleague || exit 2
 # Per-request timeout is config (no drive flag); EngineConfig reads it from env.
 # A local model can be slow on a growing context, so default generously.
 export COLLEAGUE_TIMEOUT="$TIMEOUT"
+
+# ── thinking effort (#416): per-seat, resolved by colleague where each seat is
+# built — the wrapper only sets the operator override env vars colleague reads
+# (flag > env > config.json > table). Validated here so a typo fails fast
+# (user-input error, #161) instead of as a refused run.
+_EFFORT_RUNGS="off|low|medium|high|xhigh|default"
+_check_rung() {
+    case "$1" in
+        off | low | medium | high | xhigh | default) : ;;
+        *) echo "error: unknown thinking effort '$1' (expected one of: ${_EFFORT_RUNGS//|/, })" >&2; exit 1 ;;
+    esac
+}
+if [[ -n "$EFFORT" ]]; then
+    _check_rung "$EFFORT"
+    export COLLEAGUE_CORTEX_REASONING_EFFORT="$EFFORT"
+    export COLLEAGUE_WORKER_REASONING_EFFORT="$EFFORT"
+fi
+if [[ -n "$SEAT_EFFORT" ]]; then
+    IFS=',' read -r -a _pairs <<< "$SEAT_EFFORT"
+    for _pair in "${_pairs[@]}"; do
+        _seat="${_pair%%=*}"; _rung="${_pair#*=}"
+        case "$_seat" in
+            cortex | worker | deepthink | senses | evaluator | design) : ;;
+            *) echo "error: unknown seat '$_seat' in --seat-effort (expected cortex|worker|deepthink|senses|evaluator|design)" >&2; exit 1 ;;
+        esac
+        _check_rung "$_rung"
+        export "COLLEAGUE_$(printf '%s' "$_seat" | tr '[:lower:]' '[:upper:]')_REASONING_EFFORT=$_rung"
+    done
+fi
 
 # ── plan: colleague does the planning (the inverse of /think) ────────────────
 # plan delegates the WHOLE planning arc to colleague via the `colleague plan`
@@ -840,6 +885,30 @@ front_load_review_diff() {
 # ── piloting verbs: thin passthroughs to the `colleague flight` noun ─────────
 _flight_json_flag() { [[ "$JSON_OUT" -eq 1 ]] && printf -- '--json'; }
 
+# ── resume verb: pick a cut run back up from its artifact ───────────────────
+# `colleague work --continue <id|last>` resumes a timed-out / SIGTERM'd /
+# budget-exhausted run from its persisted artifact (continuation lineage lands on
+# TaskResult.continued_from). The wrapper adds nothing but the shared flags and
+# the effort/role env already exported above. `--detach` runs it under
+# setsid/nohup — NOT `colleague --background`, which drops the continue id
+# (colleague#418) — and returns at once; the log names the new flight id.
+run_resume() {
+    local fid="${ARG%% *}"
+    [[ -z "$fid" ]] && { echo "error: resume needs a task-id (or 'last')" >&2; exit 1; }
+    if [[ "$DETACH" -eq 1 ]]; then
+        local log="$REPO/.colleague/resume-$fid.log"
+        mkdir -p "$REPO/.colleague"
+        setsid nohup "${COLLEAGUE[@]}" work --continue "$fid" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}" \
+            > "$log" 2>&1 < /dev/null &
+        echo "resume: detached (pid $!) — log: $log" >&2
+        echo "hint: the new flight id appears in the log as 'flight: <id>'; then ask-colleague monitor <id>" >&2
+        return 0
+    fi
+    local out rc=0
+    out="$("${COLLEAGUE[@]}" work --continue "$fid" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || rc=$?
+    printf '%s' "$out" | print_result "" "1" "$rc"
+}
+
 run_monitor() {
     local fid="${ARG%% *}"
     [[ -z "$fid" ]] && { echo "error: monitor needs a flight task-id" >&2; exit 1; }
@@ -868,4 +937,5 @@ case "$VERB" in
     monitor) run_monitor ;;
     guide) run_guide ;;
     stop) run_stop ;;
+    resume) run_resume ;;
 esac

@@ -1,0 +1,655 @@
+{
+  "slug": "per-seat-thinking-effort-416",
+  "title": "per-seat thinking effort (#416)",
+  "frame_slug": "per-seat-thinking-effort-416",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-21T21:42:31Z",
+  "updated": "2026-08-21T21:50:38Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague sends a per-seat thinking setting: deepthink/design seats keep the checkpoint's full effort while shallow seats (senses front door, talker, read-only scouts) turn thinking off \u2014 resolved where each seat is built, never per turn, and byte-identical when unset.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "with no thinking setting configured anywhere, every vllm-openai payload dict and every TaskResult/artifact key set is byte-identical to main \u2014 the increment is invisible until armed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "EngineConfig gains ONE per-seat thinking knob (closed ladder: off | low | medium | xhigh, default unset) that colleague/engines/vllm_openai.py _build_chat_payload (line 878, the SINGLE payload builder every seat's _make_complete passes through) emits as chat_template_kwargs \u2014 enable_thinking:false for off, reasoning_effort for a rung; unset = key omitted = byte-identical body",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the payload carries chat_template_kwargs ONLY when the seat's setting is non-unset: off \u2192 {\"enable_thinking\": false}; a rung \u2192 {\"reasoning_effort\": <rung>}; never both keys, never any other key (preserve_thinking is never sent)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "The knob is set where the seat is BUILT \u2014 the five dataclasses.replace seat sites (deepthink.py:84, senses.py:294, tae_loop.py:225, agents/runtime.py:250, subagents.py:655/833 child builds) each carry their own value from a FIXED per-seat table; the loop never changes it per turn",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "the five seat-build sites set the field once from the table; nothing under the loop's per-turn path (loop.py step handling, tae_loop turns, senses_loop moves) writes or rewrites it \u2014 pinned by a grep/AST guard like test_agents_boundary's router guard",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Operator override follows the existing knob contract: flag > env (COLLEAGUE_REASONING_EFFORT + per-seat COLLEAGUE_<SEAT>_REASONING_EFFORT) > config.json > default, resolved in config.py resolve() beside temperature (line 3602), surfaced in 'colleague config show' (cli/_commands/config.py:72) and in the artifact config snapshot to_dict() (config.py:3876) \u2014 identical on mock and vllm-openai so the all-engines rule holds on the RESULT shape",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "precedence is flag > env > config.json > default for the global knob AND each per-seat override; config show prints the resolved table; EngineConfig.to_dict() carries the same keys on mock and vllm-openai (all-engines)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "chat_template_kwargs is a vLLM extension, so this is the THIRD graceful-degrade carve-out to 'the vLLM adapter only touches the OpenAI surface' (after /tokenize and the armed-lobes stale-pin refresh, CLAUDE.md conventions): a server that ignores the key behaves exactly as today; vLLM merges the request kwargs per key so lobes' preserve_thinking:true (#93) is never clobbered; unset = byte-identical",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "a server that ignores chat_template_kwargs produces the same colleague behavior as today (no new error path, no retry); the adapter adds no non-OpenAI endpoint \u2014 only one extra body key on the existing /chat/completions call",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Docs + pins: CLAUDE.md's 'TWO carve-outs' sentence becomes three; docs/features/engines.md, deepthink.md (the four-point surface gains a recorded default effort), config-resolution.md, and a new feature doc; payload-key pins in tests/test_vllm_openai.py / test_headless_streaming.py / test_deepthink_config.py gain the unset-omits-key proof",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "CLAUDE.md (carve-outs = three + a new architecture bullet), docs/features/thinking-effort.md, engines.md, deepthink.md, config-resolution.md and roles docs all describe the shipped surface; doc-test-alignment passes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Per-role effort: roles.py Role gains an effort field (explorer/reviewer/validator/planner off by default per q1, writer unset); the delegating parent can override per delegation (subagents.py child builds / agents delegate message) and the override is recorded with the child seat's attribution \u2014 child never exceeds what the parent could grant",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Role carries an effort field with the q1 defaults; an operator role overlay can change it; a parent delegation override is applied to the child seat AND recorded on the delegation/ledger record (never silently); roles without a value inherit the parent seat's",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Design call-site at full effort: plan mode (plan/cli_driver.py to_simple_complete over the main seat), the auto-split recommendation (autosplit.py) and the fill-line compact|split decision (fillline.py) are a NAMED design call-site run by cortex at the checkpoint default effort \u2014 the cortex agent's design sub-role \u2014 even when the acting seat is set lower; a fixed enumerated table of call-sites, not a task\u2192effort decision",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the design call-site is ONE enumerated constant naming exactly plan mode (plan/cli_driver), the auto-split recommendation and the fill-line compact|split decision; those calls go to the cortex seat at the checkpoint default effort even when the acting seat is off; adding a call-site means editing the constant, never a runtime decision",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Retroactive too-hard/too-long detection (Ori): a run that ends budget-exhausted / INCOMPLETE (incompletion.py reasons, chain budget-exhausted) or whose WorkStats duration/steps cross a recorded threshold leaves a 'too large \u2014 split next time' record with the task slug on the memory remember-after lane (memory.py, rung-1 substance) so the recall-before block on a future attempt at the same/similar task surfaces a split recommendation (autosplit.build_split_recommendation) up front \u2014 detection is post-hoc and recorded, never a per-turn router",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the split-next-time record is written ONLY after a run ends, from enumerated signals (q4), onto the existing remember-after lane with the task slug and the measured evidence (reason, steps, duration); recall-before surfaces it as a split recommendation; it never changes the running loop's seat or effort",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "audience",
+      "text": "operators running colleague against a lobes/vLLM rig serving a thinking checkpoint (Qwen3.8 cortex today), and the colleague runtime's own seats (cortex/worker, deepthink, senses/Talker, evaluator, subagent roles) as consumers of a per-seat thinking setting",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "both readers are served by ONE surface: the operator edits config.json/env, the runtime reads the same resolved table \u2014 no second config format",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "before_state",
+      "text": "every seat runs at the checkpoint's template default (xhigh) because colleague sends no thinking knob at all (vllm_openai.py _build_chat_payload: model/messages/temperature/tools/stream only); shallow calls pay full reasoner prices; plan/split decisions get no more effort than the acting seat",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the before-state is verifiable on main: zero occurrences of chat_template_kwargs/reasoning_effort/enable_thinking in colleague/ (#416's own grep)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "after_state",
+      "text": "each seat is built with its own thinking setting from a fixed per-seat table (deepthink/main unset=checkpoint default; senses/Talker + read-only roles off; writer unset), operator-overridable, visible in config show + the artifact; design calls (plan/auto-split/fill-line) run on cortex at full effort; a too-hard/too-long run leaves a split-next-time record recall surfaces on the next attempt; unset = byte-identical wire + result",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "every sentence of the after-state maps to a confirmed requirement (c2\u2013c5, c13\u2013c15) \u2014 no after-state claim ships without a requirement behind it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "why_it_matters",
+      "text": "#415: small requests finish in ~2 min while module briefs stall 23\u201375 min on a --max-num-seqs=2 rig; #417: cortex is at xhigh on every turn by default, and lower rungs are NOT reliably cheaper and degrade parsed output, while thinking-off is \u221275% total tokens on shallow calls with equal correctness \u2014 the saving is seat-shaped, so the knob must be seat-shaped",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "the why cites measured rig evidence (#415, #417) and states its limits (n=1/cell, 4 prompts, effort\u00d7tools unmeasured) rather than asserting a universal saving",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "success_signal",
+      "text": "(1) with the default table armed on the live rig, a senses/Talker completion reports usage.completion_tokens_details.reasoning_tokens == 0 and a deepthink completion reports > 0; (2) with nothing configured, 100% of the payload pins in tests/test_vllm_openai.py + test_headless_streaming.py pass unchanged (byte-identical); (3) 'high' never reaches the wire (normalized to xhigh) and an unknown value exits non-zero at resolve, 0 HTTP 400s from the ladder",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "success is measured on the live rig (reasoning_tokens from usage.completion_tokens_details, exact \u2014 never estimated) plus unit pins; if the served checkpoint stops reporting reasoning_tokens the live signal is reported as unmeasured, not as pass",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Rollback / containment: ONE global kill-switch (COLLEAGUE_REASONING_EFFORT=default or config.json reasoning_effort: \"default\") forces every seat, role and design call-site to unset \u2192 the byte-identical pre-increment wire in one env var, no redeploy, no code change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "with the kill-switch set, no payload from any seat carries chat_template_kwargs regardless of per-seat/role/env overrides, and config show prints the switch as the winning layer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "Graceful degrade across checkpoints: a seat call that carried chat_template_kwargs and gets HTTP 400 whose body names the ladder (probe 2026-08-21: 'Unexpected reasoning effort bogus. Supported types are xhigh (default), medium, and low.') is retried ONCE without the key and a TaskResult warning names the seat + the server's supported ladder; the run never fails on the knob (closes the Thor/35B unknown-ladder risk v3 at runtime)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "the retry fires at most once, only on a 400 whose body names the reasoning ladder, only for a request that carried the key; the warning lands on TaskResult.warnings naming seat + ladder; any other 400 surfaces exactly as today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Child-seat inheritance keys on the CHILD: a subagent/cross-role child takes its effort from ITS OWN role/purpose in the table; the parent seat's value never flows down implicitly (a Talker at off delegating to Thinker/cortex must not silence the Thinker) \u2014 only an explicit per-delegation override (c13/q3) crosses, and it is recorded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "a child's effort is computed from the child's own role/purpose row; a parent value reaches the child only via the explicit override path and is then visible on the delegation/ledger record",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "Observability: the effort each invocation ran at is trace data on the #411 task-ledger invocation record (ledger.py, beside model) and on the OTel work span (telemetry/_otel.py beside model/max_steps) \u2014 so per-seat attribution answers 'what effort did this call run at' without re-deriving the table",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "the ledger invocation record and the OTel span carry the effort only when the seat ran with one set (absent = unset), keeping the unset artifact/ledger byte-identical",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "Explicit precedence for the resolved effort of any seat, highest first: kill-switch (c26) > explicit per-delegation parent override (c13/c28) > per-seat env/config override (c5) > role-table default (c13) > seat-table default (c6/c31) > unset; the order is one documented function (resolve_effort) with a table test, never re-derived at a call site",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "resolve_effort is the only place precedence is computed; every seat builder calls it; a table test covers each adjacent pair",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Retry composition: the ladder-400 retry (c27) and the existing same-role stale-pin 404 refresh retry (vllm_openai._make_complete, plan task t9) are disjoint by status code and each fires at most once per call \u2014 a call can see at most one of each, never a loop; the 400 retry keeps the refreshed model id",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "a scripted 404\u2192400\u2192200 sequence yields exactly two retries, the refreshed model id persists, the key is dropped, and both warnings land",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "The default table (v2, replaces c6): cortex/worker acting seat medium \u00b7 deepthink/muse xhigh \u00b7 evaluator medium \u00b7 senses/Talker off \u00b7 design call-site TIERED: plan/spec_stage.py xhigh, plan/plan_stage.py high, plan/workforce.py + autosplit.py split recommendation + fillline.py split decision + subagents fan-out decomposition xhigh \u00b7 subagent children: writer medium, explorer/reviewer/validator/planner off \u00b7 top-level --role explorer low (off selectable), other top-level roles = acting seat (medium) \u00b7 global kill-switch \u2192 unset",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "every row of the table is pinned by one parametrized test and rendered verbatim in docs/features/thinking-effort.md; the acting seat never sends xhigh unless the operator overrides",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Ladder v2: the operator-facing enum is off | low | medium | high | xhigh (plus default=kill-switch); high is sent VERBATIM (probe 2026-08-22: the Qwen3.8 template accepts it; it is an alias of xhigh on that checkpoint \u2014 recorded in the doc as a checkpoint fact, not normalized away) \u2014 supersedes c4's normalize-high-to-xhigh clause; unknown values still refused at resolve() and a ladder-400 still degrades per c27",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "'high' reaches the wire verbatim and the doc states it equals xhigh on Qwen3.8 (probe + #417), so an operator choosing high over xhigh on this checkpoint gets no saving \u2014 honestly recorded, not hidden",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "Default table v3 children rows (replaces the children rows of c36): writer medium \u00b7 planner medium \u00b7 reviewer low \u00b7 validator low \u00b7 explorer off \u2014 every other row of c36 unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "the rendered table in the feature doc and the parametrized pin agree row-for-row with c39; no other row of c36 moves",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Effort model: colleague/effort.py (NEW) \u2014 ladder enum, seat/role/design tables (v3), resolve_effort precedence, payload fragment",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/effort.py exports LADDER = ('off','low','medium','high','xhigh'), DEFAULT_SENTINEL='default', SEAT_TABLE / ROLE_TABLE / DESIGN_SITE_TABLE exactly as c36+c40 (cortex/worker medium, deepthink xhigh, evaluator medium, senses off, writer medium, planner medium, reviewer low, validator low, explorer off, top-level explorer low; spec_stage xhigh, plan_stage high, workforce/autosplit/fillline-split/subagent-decomposition xhigh)",
+        "resolve_effort(kill_switch, parent_override, seat_override, role, seat, site) returns the highest-precedence non-None value in the c32 order; tests/test_effort.py::test_precedence_table covers every adjacent pair",
+        "to_chat_template_kwargs('off') == {'enable_thinking': False}; a rung \u2192 {'reasoning_effort': rung} with 'high' verbatim; None/unset \u2192 None (no key); validate_effort('bogus') raises CliError naming the ladder",
+        "a parametrized test pins every row of the v3 table (c36/c40)"
+      ],
+      "deps": [],
+      "covers": [
+        "c32",
+        "h22",
+        "c37",
+        "h25",
+        "c36",
+        "h24",
+        "c40",
+        "h26",
+        "c26",
+        "h17"
+      ],
+      "instruction": "Pure stdlib, no imports from loop.py/config.py (config imports effort, not the reverse). Keep it under 200 lines. Precedence: kill_switch > parent_override > seat_override(env/config) > role table > seat table > unset. 'default' is the kill-switch sentinel meaning 'send nothing'. Document in the module docstring that 'high' == 'xhigh' on Qwen3.8 (probe 2026-08-22) and is sent verbatim anyway."
+    },
+    {
+      "id": "t2",
+      "summary": "Config wiring: EngineConfig.reasoning_effort + per-seat overrides (env/config.json), to_dict, config show",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig gains reasoning_effort (Optional[str], default None) and reasoning_effort_seats (mapping seat-name\u2192value) resolved in resolve() via _pick: COLLEAGUE_REASONING_EFFORT (global / kill-switch 'default') and COLLEAGUE_<SEAT>_REASONING_EFFORT for SEAT in CORTEX|WORKER|DEEPTHINK|SENSES|EVALUATOR|DESIGN, plus config.json keys reasoning_effort / reasoning_effort_seats; flag > env > config.json > default",
+        "EngineConfig.to_dict() carries 'reasoning_effort' and 'reasoning_effort_seats' on mock and vllm-openai identically; with nothing set both are None/{} and every pre-existing to_dict pin (tests/test_config_*.py) still passes",
+        "colleague config show prints the resolved effort table (one line per seat) and names the winning layer when the kill-switch is set",
+        "an unknown value in env or config.json raises CliError at resolve() naming the ladder (c37)",
+        "config.py ALSO owns (so no other wave-2 task touches it): the acting seat's effort in resolve() (cortex/worker medium via resolve_effort), the top-level --role explorer \u2192 low rule, and the too_long_min knob (COLLEAGUE_TOO_LONG_MIN / config.json too_long_min, default 20) consumed by t8"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c5",
+        "h5",
+        "c16",
+        "h12",
+        "c26",
+        "h17"
+      ],
+      "instruction": "Mirror the temperature knob at config.py:3602 and the to_dict block at :3876. Keep the edit to config.py minimal (the file is 4284 lines, #413) \u2014 put parsing helpers in colleague/effort.py (t1) and call them. Add the lines to cli/_commands/config.py next to temperature (l.72). t2 is the ONLY task that edits config.py: it also sets the acting seat's effort in resolve(), the top-level explorer\u2192low rule (config.role == 'explorer'), and the too_long_min knob \u2014 t4/t5/t8 consume these, they do not edit config.py."
+    },
+    {
+      "id": "t3",
+      "summary": "Wire: _build_chat_payload emits chat_template_kwargs from the seat's effort; ladder-400 retry-once + warning; byte-identical when unset",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with config.reasoning_effort None the payload dict from _build_chat_payload equals the pre-change payload key-for-key (tests/test_vllm_openai.py + test_headless_streaming.py pins unchanged); with 'off' it carries exactly {'chat_template_kwargs': {'enable_thinking': False}}; with a rung exactly {'chat_template_kwargs': {'reasoning_effort': rung}}; never both keys, never preserve_thinking",
+        "a scripted _post_json raising HTTPError 400 whose body contains 'reasoning effort' on a request that carried chat_template_kwargs \u2192 exactly one retry without the key, TaskResult.warnings gains one entry naming the seat and the server's supported ladder; a 400 without that body text is NOT retried; the stream path (_post_json_stream) gets the same treatment",
+        "scripted 404\u2192400\u2192200: exactly one stale-pin refresh and one ladder retry, model id refreshed, key dropped, two warnings (c33)",
+        "a mock server that silently ignores the key produces a run identical to today (no new error path)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c7",
+        "h6",
+        "c27",
+        "h18",
+        "c33",
+        "h23",
+        "c1",
+        "h1",
+        "c17",
+        "h13"
+      ],
+      "instruction": "Edit only colleague/engines/vllm_openai.py: in _build_chat_payload add the fragment from effort.to_chat_template_kwargs(config_effort) after tools; put the 400 classifier in a small helper _is_ladder_400(exc) beside _is_model_not_found_404 (l.168) and the retry in _make_complete next to the existing refresh retry (l.~957) \u2014 keep both single-shot and disjoint by status code. Also refresh the stale comment at l.262 (rig now reports completion_tokens_details.reasoning_tokens) without changing token accounting."
+    },
+    {
+      "id": "t4",
+      "summary": "Main seats carry their table effort: deepthink.py, senses.py (+frontdoor), tae_loop.py, agents/runtime.py seat builders",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "deepthink_engine_config sets reasoning_effort via resolve_effort(seat='deepthink') (xhigh default); senses_engine_config \u2192 seat 'senses' (off); tae_loop seat builders \u2192 'senses' for the front, 'evaluator' for the evaluator (medium), 'worker' for the worker; agents/runtime.py build \u2192 the profile purpose's seat (talker\u2192senses, thinker_coder\u2192cortex, worker\u2192worker); the acting cortex/worker seat in config.resolve() \u2192 'cortex'/'worker' (medium)",
+        "each builder is covered by one test asserting the seat's resolved effort and that an operator per-seat override wins"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c3",
+        "h3"
+      ],
+      "instruction": "One-line additions at each dataclasses.replace site (deepthink.py:84, senses.py:294, frontdoor.py if it builds its own seat, tae_loop.py:225, agents/runtime.py:250). Do NOT edit config.py or loop.py (t2 owns the acting seat + config). Per-seat override comes from config.reasoning_effort_seats (t2)."
+    },
+    {
+      "id": "t5",
+      "summary": "Roles + children: Role.effort field (v3 rows), subagent child builds key on the CHILD role/purpose, explicit parent override recorded, top-level --role rule (explorer low, others = acting seat)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "roles.py Role gains effort: Optional[str]; BUILTIN_ROLES carry writer medium, planner medium, reviewer low, validator low, explorer off; an operator role overlay can set/override it",
+        "subagents.py child builds (l.655 and l.833) set reasoning_effort from resolve_effort(role=child role, seat=child purpose seat, parent_override=spec.effort) \u2014 a parent at off delegating to a cortex/thinker child yields a child payload WITHOUT enable_thinking:false; an explicit SubagentSpec.effort override is applied AND recorded on the delegation record / #411 ledger when armed",
+        "top-level colleague work --role explorer resolves the acting seat to low (off selectable via override); --role reviewer|validator|writer|planner at top level keep the acting seat's medium",
+        "the subagent/subagents tool schema accepts an optional effort field restricted to the ladder"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c13",
+        "h8",
+        "c28",
+        "h19"
+      ],
+      "instruction": "Files: roles.py, subagents.py, tools.py (schema), agents/delegation.py (record). Do NOT edit config.py (t2 owns the top-level explorer rule) or loop.py. Keep subagents.py edits local to _child_config_for_profile and the bare-role build."
+    },
+    {
+      "id": "t6",
+      "summary": "Design call-site: DESIGN_CALL_SITES constant; plan spec_stage xhigh / plan_stage high / workforce xhigh; auto-split + fill-line split + subagent decomposition at xhigh on the cortex seat",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/effort.py (or a sibling design.py) exports DESIGN_CALL_SITES = frozenset({'plan.spec_stage','plan.plan_stage','plan.workforce','autosplit','fillline.split','subagents.decompose'}) and design_effort(site) \u2192 xhigh/high/xhigh/xhigh/xhigh/xhigh per c36",
+        "plan/spec_stage.py, plan_stage.py, workforce.py build their completion from a design seat config (cortex seat + design_effort(site)) even when the acting seat is medium/off; autosplit recommendation and the fill-line split decision likewise; a test per site asserts the payload's reasoning_effort",
+        "adding a call-site means editing the constant; a grep/AST guard asserts no other module passes a literal effort to a completion"
+      ],
+      "deps": [
+        "t2",
+        "t5"
+      ],
+      "covers": [
+        "c14",
+        "h9"
+      ],
+      "instruction": "Put DESIGN_CALL_SITES + design_effort + design_seat_config in a NEW colleague/design.py (not effort.py \u2014 t1 owns that file) importing the ladder from effort.py. Files: design.py, plan/spec_stage.py, plan/plan_stage.py, plan/workforce.py, autosplit.py (the recommendation builder's completion), fillline.py, subagents.py decomposition call (one line), loop.py (one or two lines passing the design seat config \u2014 loop.py is over the size limit, #413)."
+    },
+    {
+      "id": "t7",
+      "summary": "Observability: effort as trace data on the #411 ledger invocation record and the OTel work span",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ledger.py invocation/agent records carry reasoning_effort beside model when the seat ran with one set; absent (not null-filled) when unset so unarmed/unset ledgers are byte-identical",
+        "telemetry/_otel.py sets span attribute reasoning_effort beside model/max_steps only when set; tests/test_telemetry*.py pin presence/absence"
+      ],
+      "deps": [
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c29",
+        "h20"
+      ],
+      "instruction": "Read the value off the seat EngineConfig at record time; do not compute it from the table again. Files: ledger.py, agents/runtime.py (record site), telemetry/_otel.py."
+    },
+    {
+      "id": "t8",
+      "summary": "Retroactive split-next-time record: too-hard/too-long signals \u2192 eidetic lesson on remember-after; recall-before surfaces the split recommendation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a run ending with incompletion reason budget-exhausted, a chain budget-exhausted exit, steps at max_steps, or wall-clock > COLLEAGUE_TOO_LONG_MIN (default 20; config.json too_long_min) writes ONE lesson record via memory.py's remember-after lane: kind 'split-next-time', task slug, reason, steps, duration, and the autosplit child-count hint",
+        "on the next run whose recall-before hits that record, the recall block renders autosplit.build_split_recommendation text up front (before the first step); a run with no matching record is byte-identical",
+        "the record is written only after the run ends \u2014 a grep guard asserts no write path from loop.py's step handling; no change to the running seat or effort"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c15",
+        "h10"
+      ],
+      "instruction": "Files: memory.py (record builder + recall rendering) and incompletion.py (expose the reason) ONLY \u2014 import autosplit.build_split_recommendation, do not edit autosplit.py (t6) or config.py (t2 adds the too_long_min knob). Gate on the existing memory triple-gate; isolated runs still target the operator repo."
+    },
+    {
+      "id": "t9",
+      "summary": "Guards + all-engines pins: unset byte-identical across mock and vllm-openai; no per-turn effort writes; result-shape parity",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_thinking_effort_boundary.py: AST/grep guard asserting reasoning_effort is assigned only in config.py, effort.py, roles.py, the five seat builders, subagents.py child builds and design_seat_config \u2014 never in loop.py step handling, tae_loop turn handling or senses_loop moves",
+        "tests/test_e2e_mock.py (or a sibling) proves TaskResult/artifact key sets are identical on mock and vllm-openai with the knob unset AND set (effort only appears in the config snapshot)",
+        "a payload-equality pin: unset config \u2192 _build_chat_payload output equals a frozen pre-change fixture for tools-on, tools-off, streamed and blocking shapes"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c3",
+        "h3",
+        "c18",
+        "h14"
+      ],
+      "instruction": "Model the guard on tests/test_agents_boundary.py::test_no_routing_function_takes_instruction_text (and keep its non-vacuous twin). Freeze the fixture from main before t3 lands (git show main:\u2026)."
+    },
+    {
+      "id": "t10",
+      "summary": "Docs: feature doc with the v3 table + honest limits (#417, probes, n=1), CLAUDE.md (THREE carve-outs + architecture bullet), engines/deepthink/config-resolution/roles docs, doc-test alignment",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/thinking-effort.md exists: audience (operator + seat table), the v3 table verbatim (matches tests/test_effort.py row-for-row), precedence order, kill-switch, ladder-400 degrade, the probe record and #417 scope limits under 'Honest limits', and cites #415/#417",
+        "CLAUDE.md: the vLLM-adapter convention sentence reads THREE carve-outs (tokenize, stale-pin, chat_template_kwargs) and a new architecture bullet points at thinking-effort.md; docs/features/engines.md, deepthink.md (four-point surface notes xhigh default), config-resolution.md (new knobs), subagent-roles.md (Role.effort) updated",
+        "markdownlint-cli2 passes on every touched doc; the doc-test-alignment skill reports no drift"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8"
+      ],
+      "covers": [
+        "c12",
+        "h7",
+        "c16",
+        "h12",
+        "c19",
+        "h15",
+        "c18",
+        "h14",
+        "c17",
+        "h13"
+      ],
+      "instruction": "Write the table ONCE in the feature doc and reference it from the others (CLAUDE.md trim discipline: pointer, not duplicate). Record honestly that 'high' == 'xhigh' on Qwen3.8 and that effort\u00d7tool-calling rests on the t11 arm."
+    },
+    {
+      "id": "t11",
+      "summary": "Live arm + success signals: tests/test_vllm_live_thinking_effort.py (gated) and the in-session live run on explorer/reviewer/validator/planner children",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "COLLEAGUE_VLLM_E2E=1 pytest tests/test_vllm_live_thinking_effort.py: a senses/Talker completion reports usage.completion_tokens_details.reasoning_tokens == 0; a deepthink completion reports > 0; an acting-seat completion at medium returns a tool call; reasoning_tokens absent \u2192 the test reports 'unmeasured', not pass",
+        "a live colleague work --engine vllm-openai run on a throwaway repo that fans out explorer (off), reviewer (low), validator (low), planner (medium) children completes with each child forming tool calls and finishing; the run's artifact + ledger show each child's effort; result recorded as a row in docs/live-testing.md",
+        "if any read-only child fails to form tool calls at its default, the role's default is reverted to unset in roles.py in the same PR (c25) and the doc says so"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c20",
+        "h16"
+      ],
+      "instruction": "Run in this session before merge (Ori q5). Use a temp repo (never a dirty tree); cap concurrency at 2 and COLLEAGUE_TIMEOUT=300 (GPU serializes). Record exact reasoning_tokens per seat in the live-testing row."
+    },
+    {
+      "id": "t12",
+      "summary": "Release: version bump (minor), CHANGELOG, PR via cicd, address review",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject version bumped minor + CHANGELOG entry naming #416/#417; uv run pytest -n auto green; black/isort/flake8/bandit clean; teken cli doctor --strict passes; PR opened with the cicd skill and signed"
+      ],
+      "deps": [
+        "t9",
+        "t10",
+        "t11"
+      ],
+      "covers": [
+        "c12",
+        "h7"
+      ],
+      "instruction": "Use the version-bump skill then the cicd skill; link #416, #417, #415 in the body; note the twelfth sanctioned increment wording only if the spec says so (it does not add a routing policy \u2014 say so explicitly)."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "effort \u00d7 tool-calling is measured only by t11's in-session arm (n small, one checkpoint); a read-only child at off/low may degrade tool-call formation on the qwen3_coder_thinking parser \u2014 mitigation is the c25 revert in the same PR",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "loop.py (5132 lines, #413/#415) and config.py (4284) are over the file-length limit \u2014 t2/t6 edits there must stay to a few lines or delegation stalls; keep logic in colleague/effort.py",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "'high' equals 'xhigh' on the served Qwen3.8 template (probe 2026-08-22): the plan_stage=high tier buys no saving on this checkpoint; it is kept as operator intent for checkpoints with a real high rung",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "Thor's no-MTP cortex and the 35B worker template may expose a different or no ladder; c27's retry-once is the runtime guard, unmeasured until a Thor run",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "the local GPU serializes: t11's live fan-out of 4 children will take tens of minutes; cap at 2 concurrent, COLLEAGUE_TIMEOUT=300",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}

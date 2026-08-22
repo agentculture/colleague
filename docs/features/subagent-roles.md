@@ -19,6 +19,18 @@ requested, a work item runs byte-identically to before — one full-surface role
 | `validator`| ✅ | explorer + `run_tests` | run the suite, report pass/fail |
 | `writer`   | ❌ | the full surface (today's default) | implement a change |
 
+### Per-role thinking effort (`Role.effort`)
+
+Each role also carries a **`Role.effort`** field — its default rung on the
+per-seat thinking-effort ladder (#416). The v3 child rows are: `writer`
+`medium`, `planner` `medium`, `reviewer` `low`, `validator` `low`, `explorer`
+`off` (an operator role overlay can set/override it). A child's effort is
+computed from the child's **own** role row — the parent seat's value never
+flows down implicitly; only an explicit per-delegation override crosses, and it
+is recorded. The full table, precedence, and honest limits live in
+[thinking-effort.md](thinking-effort.md) — this doc points at them, it does not
+duplicate the table.
+
 A **read-only** role withholds `write_file`, `edit_file`, **and** `run_command`
 — the three write/exec vectors — so it cannot mutate the tree by any offered
 tool. The validator additionally gets a dedicated read-only **`run_tests`** loop
@@ -94,6 +106,11 @@ An overlay overrides a built-in role's **prompt**; absent → the built-in defau
 - **Speed:** depth-4 nesting buys real wall-clock speedup only on a
   concurrent-serving model; on a serializing server, gain is bounded by
   overlapped I/O, not model compute.
+
+## Related
+
+- [thinking-effort.md](thinking-effort.md) — the per-role `Role.effort` rung
+  and the child rows.
 
 ## Spec + plan
 

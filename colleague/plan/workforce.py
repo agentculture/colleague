@@ -6,8 +6,9 @@ Pure stdlib; no devague import.
 
 from __future__ import annotations
 
-from colleague.config import MAX_SUBAGENT_FANOUT
+from colleague.config import MAX_SUBAGENT_FANOUT, EngineConfig
 from colleague.contract import ERROR, SubResult
+from colleague.design import design_seat_config as _design_seat_config
 from colleague.plan.plan_stage import PlanItem
 
 __all__ = [
@@ -15,7 +16,24 @@ __all__ = [
     "chunk",
     "run_wave",
     "surface_conflicts",
+    "design_seat_config",
 ]
+
+
+def design_seat_config(config: EngineConfig) -> EngineConfig:
+    """The 'plan.workforce' design call-site seat (#416 t6, c14/h9): xhigh.
+
+    Honest limit: this stage maps each :class:`PlanItem` to a batch-spawn
+    child (:func:`build_workforce_items`) and dispatches through
+    ``batch_spawn`` (:mod:`colleague.subagents`) — each child work item builds
+    its OWN completion at its own role/seat effort (t5), so there is no
+    dedicated "decompose the plan into a workforce" completion in this module
+    to route through the design seat instead. This builder is pinned here,
+    ready for a future dedicated decomposition-planning call; it is
+    unit-tested at the builder level (``tests/test_design_call_site.py``), not
+    exercised end-to-end.
+    """
+    return _design_seat_config(config, "plan.workforce")
 
 
 def build_workforce_items(

@@ -684,6 +684,8 @@ class _Work:
     # the declaration is consumed AND the run drops back under the line, re-arming
     # the next crossing.
     capacity_threshold: float | None = None
+    # Wall-clock minutes after which a finished run leaves a split-next-time record (#416).
+    too_long_min: int = 20
     # Continuation chaining armed (indefinite-run t2, decision c23), threaded from
     # ``ContextControls.chain_armed``: read ONLY by the unrepairable-compaction-note
     # policy (:func:`_reject_compaction`) — armed routes an empty compaction note to
@@ -2724,6 +2726,30 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     if result.memory is None:
         result.memory = {}
     result.memory["lesson_recorded"] = bool(recorded)
+    # Split-next-time record (#416 c15/h10): the too-hard/too-long signals are
+    # judged ONLY here, after the run ended; memory.py owns the predicate + record.
+    with suppress(Exception):
+        from types import SimpleNamespace as _SimpleNamespace
+
+        from colleague.slug import slugify as _slugify
+
+        _split_recorded = bool(
+            _memorymod.maybe_remember_split(
+                _memory_repo(ctx),
+                result.task_id,
+                _slugify(request_head or instruction[:80]),
+                result,
+                _SimpleNamespace(max_steps=ctx.max_steps, too_long_min=ctx.too_long_min),
+                float(getattr(result.stats, "duration_seconds", 0.0) or 0.0),
+                request_excerpt=request_head,
+                timeout=_MEMORY_TIMEOUT,
+                env_overrides=ctx.embed_env,
+            )
+        )
+        if _split_recorded:
+            # Key present ONLY when a record was written — the unarmed/ordinary
+            # ``result.memory`` key set stays byte-identical (pinned in tests).
+            result.memory["split_recorded"] = True
     if distill_counts is not None:
         # The armed-is-not-alive counter (spec c28/h23): a seam that never
         # validates is visible as attempts>0, validated=0 on every artifact.
@@ -3097,6 +3123,13 @@ def _resolve_distill_author_safe(config: Any) -> Any | None:
         return None
 
 
+def _too_long_min_of(config: Any) -> int:
+    """``config.too_long_min`` as an int, keeping an explicit ``0`` (= disabled,
+    Qodo #419 r3) — only an ABSENT/``None`` knob falls back to the default 20."""
+    value = getattr(config, "too_long_min", None)
+    return 20 if value is None else int(value)
+
+
 @dataclass(frozen=True)
 class ContextControls:
     """Optional context-window-management knobs injected into :func:`run`.
@@ -3128,6 +3161,8 @@ class ContextControls:
     # ``None`` or out of ``(0, 1]`` leaves the proactive decision dormant — a strict
     # no-op (degradation + reactive auto-split still apply).
     fillline_threshold: float | None = None
+    # Too-long wall-clock threshold in minutes for the split-next-time record (#416 c15).
+    too_long_min: int = 20
     # Continuation chaining armed (indefinite-run t2, decision c23): governs ONLY the
     # unrepairable-compaction-note policy in :func:`_compact_history` — when True, an
     # empty compaction summary (rejected by ``fillline.validate_compaction``; it never
@@ -3361,6 +3396,7 @@ class ContextControls:
             agents_run=_agents_runtime.make_agents_run(config),
             autosplit_target=config.autosplit_target_tokens,
             fillline_threshold=config.fillline_threshold,
+            too_long_min=_too_long_min_of(config),
             fanout_files=config.fanout_files,
             review_fanout_folders=config.review_fanout_folders,
             plan_offer_tokens=config.plan_offer_tokens,
@@ -4966,6 +5002,7 @@ def run(
         senses_media_bridge=_context.senses_media_bridge,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
+        too_long_min=_context.too_long_min,
         chain_armed=_context.chain_armed,
         chain_episode=_context.chain_episode,
         # No or-() guard: ContextControls defaults it to () and from_config

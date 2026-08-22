@@ -103,6 +103,7 @@ else an install hint.
 | `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default** (throwaway worktree, prints the would-be diff); `--apply` lands a work branch in place; `--pr` pushes + opens a PR. | **None** to your working tree / branch by default (preview); a `colleague/<id>` work branch / PR only with `--apply` / `--pr`. |
 | `plan "<task>"` | Colleague **PLANS** a complex task: it proposes a spec, then a split plan, then fans the waves out to a subagent-colleague workforce (`colleague plan run … --yes`). The *inverse of `/think`* — same arc, but colleague is the planning mind, not Claude. Needs a live backend. | Runs `colleague plan` in `--repo` (not a throwaway worktree): the workforce stage spawns isolated subagent worktrees and can land branches — treat like `write --apply` (gets a user nod). |
 | `feedback <id\|last> [--rating N]` | **Grade a finished work item** (the ROI loop). With `--rating N` (1–5, plus `--notes`) it records feedback; without, it shows the work item's existing feedback. `last` resolves the most recent work item in `--repo`. | Writes `.colleague/<id>.feedback.json` only when `--rating` is given; read-only otherwise. |
+| `resume <task-id\|last> [--detach]` | **Resume a cut run** — a timed-out / SIGTERM'd / budget-exhausted work item picked back up from its persisted artifact (`colleague work --continue`, lineage on `TaskResult.continued_from`). `last` resolves the most recent work item in `--repo`. `--detach` runs it under `setsid`/`nohup` and returns at once (not `--background`, which drops the continue id — colleague#418). | Continues the ORIGINAL run's `colleague/<id>` work branch; never touches your tree / branch. |
 | `clean [--dry-run]` | **Reap what a crashed run left behind** (#162): stale/corrupt `colleague/*` branches + orphaned 0-byte `.colleague/` artifacts that can wedge `git fetch`. Scoped strictly to `colleague/*` (never touches an unrelated branch); conservative with `.git/objects` (reports 0-byte loose objects + suggests `git prune`, never deletes them). A thin pass-through to `colleague clean`. | Deletes corrupt `colleague/<id>` refs + 0-byte `.colleague/` artifacts in `--repo`; `--dry-run` changes nothing. |
 
 ### Options
@@ -114,6 +115,10 @@ else an install hint.
 | `--engine NAME` | Backend plugin (default: `$COLLEAGUE_ENGINE` or `vllm-openai`). |
 | `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `unsloth/Qwen3.8-27B-NVFP4`). |
 | `--base-url URL` | OpenAI base URL (default: `$COLLEAGUE_BASE_URL` or `http://localhost:8001/v1`). |
+| `--role NAME` | Typed subagent role for the run (`explorer`, `reviewer`, `validator`, `planner`, `writer`). Since #416 a top-level `--role explorer` runs at thinking effort **`low`** (off selectable via `--effort off`); other top-level roles keep the acting seat's effort. |
+| `--effort RUNG` | **Thinking effort for the acting seat** (#416): `off` \| `low` \| `medium` \| `high` \| `xhigh` \| `default`. Unset = colleague's own table (acting seat `medium`). `off` sends `enable_thinking:false` — the measured win for small, well-specified briefs (same brief: off 24 s / xhigh 88 s / medium 129 s, all correct — `docs/evidence/2026-08-22-per-seat-thinking-effort-416-results.md`); `xhigh` for open-ended judgement; `default` = the kill-switch (send nothing, the pre-#416 wire). Exported as `COLLEAGUE_CORTEX_REASONING_EFFORT` + `COLLEAGUE_WORKER_REASONING_EFFORT`; validated before the run. |
+| `--seat-effort S=R[,S=R]` | Per-seat override for the other seats (`cortex`, `worker`, `deepthink`, `senses`, `evaluator`, `design`) — e.g. `--seat-effort senses=off,deepthink=xhigh`. Exported as `COLLEAGUE_<SEAT>_REASONING_EFFORT`. Children keep their role table (writer/planner medium, reviewer/validator low, explorer off) unless the parent overrides per delegation. |
+| `--detach` | (`resume`) run detached and return at once; pilot with `monitor` / `guide` / `stop` once the log names the new flight id. |
 | `--max-steps N` | Loop step budget (default: 20). `explore`/`review` select colleague's own native **`explore`**/**`review`** mode profile (`colleague/profiles.py`, applied via `colleague work --mode`) instead of a wrapper-side override — today that profile defaults to 30, since read-only mapping fans out across more files. An explicit `--max-steps N` always overrides the profile's default, in either direction. If the resolved `colleague` predates `--mode` (a stale install on `PATH`), the wrapper falls back to the old caller-side `--max-steps 30` + reserved-steps behavior so it keeps working. |
 | `--apply` | (`write`) apply the change in place (work branch) instead of previewing. |
 | `--allow-dirty` | (`write`) allow running on a dirty tree (only matters with `--apply` / `--pr`). |
@@ -155,6 +160,24 @@ keeping stdout valid JSON for a machine consumer while diagnostics stay on stder
   objects that **breaks `git fetch` / `git pull`**. Run `ask-colleague clean`
   (or `colleague clean`) to reap it — start with `--dry-run` to see what it would
   remove. It only ever touches `colleague/*` refs and `.colleague/` artifacts.
+
+## Thinking effort and resuming (#416)
+
+Colleague resolves a **per-seat thinking effort** where each seat is built,
+never per turn — the acting seat defaults to `medium`, deepthink `xhigh`,
+senses/Talker `off`, children by role (writer/planner `medium`,
+reviewer/validator `low`, explorer `off`). The wrapper exposes the operator
+overrides as `--effort` (acting seat) and `--seat-effort` (any seat); a typo
+fails fast. Rule of thumb from the measurements: **`--effort off` for small,
+well-specified briefs** (5× faster, same result), **leave the default for
+ordinary work**, **`--effort xhigh` for open-ended judgement** (review of a
+subtle diff, a plan). Effort does not rescue a module-sized brief — split the
+request instead (#415).
+
+A run cut by a timeout, SIGTERM or an exhausted budget is **resumable**:
+`ask-colleague resume <task-id|last>` continues it from its artifact on the same
+work branch; `--detach` keeps your shell free. Prefer resume over re-dispatch —
+the continuation carries the prior steps and lineage.
 
 ## Piloting a flight
 

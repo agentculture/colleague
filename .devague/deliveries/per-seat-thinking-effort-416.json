@@ -1,0 +1,71 @@
+{
+  "plan_slug": "per-seat-thinking-effort-416",
+  "schema_version": 1,
+  "created": "2026-08-21T22:52:26Z",
+  "updated": "2026-08-22T01:50:52Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t1, t2 (slices a/b/c) and t3 move from colleague to Claude sonnet subagents: colleague cannot send a thinking knob until this very feature lands, so every colleague dispatch runs at the rig's xhigh default (t1 attempt 1: 52 min, no deliverable). Once t1+t2+t3 merge, `uv run colleague` runs the branch code and dispatches resume on colleague at the medium acting-seat default.",
+      "task_ref": "t1",
+      "reason": "Ori 2026-08-22: 'Why is t1 on xhigh? If we can avoid it, let's do. Can use sonnet or opus until we can change default effort.'",
+      "affects": [
+        "t2",
+        "t3"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t5 (both slices) moves to a Claude sonnet subagent after two failed colleague attempts at medium (09e58827e8db: 19-min silent turn; 77217458648f: 8 exploratory steps then write-no-changes).",
+      "task_ref": "t5",
+      "reason": "blocker rule approved in the split plan: a task that stalls twice \u2192 issue + take over; Ori's standing allowance: sonnet/opus when colleague cannot deliver",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t8 moves to a Claude sonnet subagent after two stalled colleague attempts at medium (247e950b1fe4: two silent turns, zero edits in 42 min; 8d929a61fdc2: 17-min silent turn at step 14 under an 80-step budget + exploration cap).",
+      "task_ref": "t8",
+      "reason": "split-plan blocker rule (stalls twice \u2192 take over); Ori's sonnet allowance",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "t7 moves to a Claude sonnet subagent after two stalled colleague attempts (medium: 15-min silent turn at step 12; low: 15-min silent turn at step 23) \u2014 the low arm was also the measured test of whether a lower rung bounds the silent turns: it does not.",
+      "task_ref": "t7",
+      "reason": "split-plan blocker rule (stalls twice \u2192 take over); Ori's sonnet allowance; ledger rows t7/t7b",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "t6 moves to a Claude sonnet subagent after ONE stalled colleague attempt (f1d614d24d7a: 21 exploratory steps, then a 16-min silent turn at step 22, design.py never written) \u2014 invoking the blocker rule on pattern evidence (every existing-module edit brief at medium and low stalled: t5, t7, t8) rather than spending a second ~30-min attempt; t10 and t12 depend on t6.",
+      "task_ref": "t6",
+      "reason": "split-plan blocker rule + time: t10/t12 are gated on t6; Ori's sonnet allowance",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d6",
+      "what": "t6 honest limit: the design call-site is wired end-to-end ONLY for plan.spec_stage (xhigh) and plan.plan_stage (high) \u2014 auto-split, fill-line split, subagents.decompose and plan.workforce have no dedicated model completion in the runtime (the split decision is classified from the acting turn; children are full Tasks with role-based effort), so those four sites are pinned at the builder level (design_seat_config/decomposition_seat_config exist and are tested) but no request carries their effort today. Wiring them needs a second completion threaded through the engine adapter \u2014 follow-up, not this PR.",
+      "task_ref": "t6",
+      "reason": "architectural fact surfaced by the implementation; spec c14/h9 assumed separate design calls exist",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    }
+  ]
+}

@@ -104,6 +104,13 @@ budget. One binding per work item (`colleague.deepthink.make_deepthink_run`)
 is injected into both the tool executor and the runtime escalation points by
 every backend identically (the all-engines rule).
 
+**Thinking effort.** All four points run on the `deepthink` seat, whose v3
+default rung is **`xhigh`** (the checkpoint's full effort) — the deepthink
+seat is one of the seats that keeps full reasoning while the shallow seats
+turn thinking off. The rung is resolved where the seat is built, never per
+turn, and is operator-overridable; the full table, precedence, and honest
+limits live in [thinking-effort.md](thinking-effort.md).
+
 **Recording.** Every work-loop escalation lands on **`TaskResult.deepthink`**
 — a list of `{point, tokens, duration, degraded}` records, omit-when-None, so
 a single-model artifact (or a dual run that never escalated) is byte-identical.

@@ -73,6 +73,15 @@ _SUBAGENT_SCHEMA_SNAPSHOT = {
                         "child a fresh mind with only a handover summary (use for reviewers)."
                     ),
                 },
+                "effort": {
+                    "type": "string",
+                    "enum": ["off", "low", "medium", "high", "xhigh", "default"],
+                    "description": (
+                        "Optional thinking-effort override for the subagent (#416). Omit to "
+                        "let the child resolve its own rung from its role/seat; 'default' "
+                        "sends no effort hint at all."
+                    ),
+                },
             },
             "required": ["instruction"],
         },

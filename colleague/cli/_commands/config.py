@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 
+from colleague import effort
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.config import (
@@ -73,6 +74,17 @@ def _config_show(repo: str = ".") -> object:
         f"timeout:                {cfg.timeout}",
         f"context_budget_tokens:  {cfg.context_budget_tokens}",
     ]
+    # Per-seat thinking-effort ladder (#416 t2): one resolved line per seat.
+    # "default" (the kill-switch sentinel) sends nothing to every seat, so
+    # the winning layer is named there instead of a per-seat rung.
+    kill_switch = cfg.reasoning_effort == effort.DEFAULT_SENTINEL
+    lines.append("reasoning_effort:" + (" (kill-switch)" if kill_switch else ""))
+    for seat in effort.SEAT_TABLE:
+        override = cfg.reasoning_effort_seats.get(seat) or (
+            cfg.reasoning_effort if not kill_switch else None
+        )
+        value = effort.resolve_effort(kill_switch=kill_switch, seat_override=override, seat=seat)
+        lines.append(f"  {seat}: {value}")
     provenance = config_provenance(repo)
     if provenance:
         for entry in provenance:

@@ -211,16 +211,24 @@ class GateDecision:
 # ---------------------------------------------------------------------------
 
 
-def seat_engine_config(config: EngineConfig, seat: Any) -> EngineConfig:
+def seat_engine_config(config: EngineConfig, seat: Any, seat_name: str = "") -> EngineConfig:
     """Point *config* at one resolved seat's dial (the senses_engine_config twin).
 
     A ``dataclasses.replace`` switching model/base_url/api_key to the seat and
     the context budget to the seat's OWN advertised window, with ``on_delta``
     and ``refresh_seat`` cleared so a seat call never inherits the acting
     seat's streaming sink or stale-pin refresh. Every other knob inherits.
+
+    Per-seat thinking effort (#416 t4): when *seat_name* names a seat-table
+    row ("senses" for the front, "evaluator" for the evaluator), the returned
+    config carries the plain ``reasoning_effort_seat`` attribute that
+    ``vllm_openai._effort_for`` honors ahead of the acting seat's resolved
+    rung. The TAE worker needs no attribute: with the mode armed the ACTING
+    dial IS the TAE worker (``config.resolve`` repoints it), so its effort
+    resolves through ``reasoning_effort_effective`` as the "worker" seat.
     """
     seat_context = int(getattr(seat, "context", 0) or 0)
-    return cast(
+    built = cast(
         EngineConfig,
         dataclasses.replace(
             config,
@@ -232,6 +240,19 @@ def seat_engine_config(config: EngineConfig, seat: Any) -> EngineConfig:
             on_delta=None,
         ),
     )
+    if seat_name:
+        from colleague import effort
+
+        setattr(
+            built,
+            "reasoning_effort_seat",
+            effort.resolve_effort(
+                kill_switch=(config.reasoning_effort == "default"),
+                seat_override=config.reasoning_effort_seats.get(seat_name),
+                seat=seat_name,
+            ),
+        )
+    return built
 
 
 class _ToolsOffSeat:
@@ -988,10 +1009,12 @@ def make_tae_session(config: Any, engine_name: str) -> Optional[TaeSession]:
     make_complete = engine.make_complete
     return TaeSession(
         front=FrontSeat(
-            seat_config=seat_engine_config(config, seats.front), make_complete=make_complete
+            seat_config=seat_engine_config(config, seats.front, seat_name="senses"),
+            make_complete=make_complete,
         ),
         evaluator=EvaluatorSeat(
-            seat_config=seat_engine_config(config, seats.evaluator), make_complete=make_complete
+            seat_config=seat_engine_config(config, seats.evaluator, seat_name="evaluator"),
+            make_complete=make_complete,
         ),
         worker_model=seats.worker.model,
     )

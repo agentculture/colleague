@@ -232,8 +232,15 @@ def test_lesson_recorded_even_on_incomplete_run(repo: Path, eidetic_log: Path) -
     )
 
     remember_calls = [c for c in _calls(eidetic_log) if c[0] == "remember"]
-    assert len(remember_calls) == 1
-    lesson = json.loads(remember_calls[0][1])
+    # max_steps=2 also trips the #416 split-next-time record (steps at cap) — the
+    # LESSON count stays exactly one; the split record is a separate, intended call.
+    lessons = [
+        c
+        for c in remember_calls
+        if (json.loads(c[1]).get("metadata") or {}).get("kind") != "split-next-time"
+    ]
+    assert len(lessons) == 1
+    lesson = json.loads(lessons[0][1])
     assert "incomplete" in lesson["text"].lower()
     assert result.memory is not None and result.memory["lesson_recorded"] is True
 
@@ -1212,3 +1219,22 @@ def test_memory_distill_config_resolution(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / ".colleague").mkdir(exist_ok=True)
     (tmp_path / ".colleague" / "config.json").write_text('{"memory_distill": false}')
     assert EngineConfig().resolve(repo_path=str(tmp_path)).memory_distill is False
+
+
+def test_split_next_time_record_written_when_steps_hit_the_cap(
+    repo: Path, eidetic_log: Path
+) -> None:
+    """#416 c15/h10: a run that exhausts its steps leaves ONE split-next-time record
+    beside the lesson, via the remember-after lane (never from step handling)."""
+    never_finish = ModelResponse(tool_calls=[ToolCall("x", "list_dir", {"path": "."})])
+    result = run(
+        scripted([never_finish]),
+        Task.new(str(repo), "task"),
+        max_steps=2,
+        context=ContextControls(memory=True),
+    )
+    remember_calls = [c for c in _calls(eidetic_log) if c[0] == "remember"]
+    kinds = [(json.loads(c[1]).get("metadata") or {}).get("kind") for c in remember_calls]
+    assert "split-next-time" in kinds
+    assert result.memory is not None
+    assert result.memory["split_recorded"] is True

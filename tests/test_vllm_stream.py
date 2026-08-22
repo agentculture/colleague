@@ -380,12 +380,17 @@ def test_opted_out_request_body_is_byte_identical_shape_to_today(
     complete = engine._make_complete(cfg, tools=[{"type": "function", "function": {"name": "x"}}])
     complete([{"role": "user", "content": "hi"}])
 
+    # "chat_template_kwargs" joined this set in #416 t3: a default-resolved
+    # EngineConfig's ACTING seat (cortex/worker) is NOT "unset" — it resolves
+    # to "medium" via effort.SEAT_TABLE (t2's reasoning_effort_effective) —
+    # an orthogonal key this stream-opt-out pin now also carries.
     assert set(captured["payload"].keys()) == {
         "model",
         "messages",
         "temperature",
         "tools",
         "tool_choice",
+        "chat_template_kwargs",
     }
 
 
