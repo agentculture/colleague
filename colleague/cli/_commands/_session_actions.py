@@ -17,6 +17,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from colleague import registry
+from colleague.config import resolve_lobes_gateway_url
+from colleague.lobes import fetch_served_model_ids, resolve_roles
 from colleague.media import validate_attachment
 from colleague.session_modes import next_mode, resolve_mode
 
@@ -37,10 +39,88 @@ def _act_engine(s: "_Session", rest: list[str]) -> str:
 
 
 def _act_model(s: "_Session", rest: list[str]) -> str:
+    """``/model`` — the qwen-direct arc's model switch (plan task t3).
+
+    No argument lists the gateway's served model roster (one line per id from
+    :func:`lobes.fetch_served_model_ids`, Bearer key attached) plus a
+    ``role → model`` line per role from :func:`lobes.resolve_roles`, marking the
+    current acting model. A ``None`` roster degrades to ``roster unavailable``
+    + the current model; an unarmed lobes rung degrades to ``lobes not armed``
+    + the current model. Never raises (the roster/roles calls are degrade-to-
+    ``None`` by contract; the gateway resolver is wrapped so even a raising
+    resolver folds into the unarmed line).
+
+    ``/model <id>`` sets ``s.config.model`` AND re-derives
+    ``s.config.context_budget_tokens`` from the matching role's advertised
+    context window when known — ``min(window, current)`` (never grows the budget
+    past the current value; an unknown window leaves it untouched).
+    """
     if not rest:
-        raise ValueError("usage: /model <name>")
-    s.config.model = rest[0]
-    return f"model → {rest[0]}"
+        return _model_listing(s)
+    model = rest[0]
+    s.config.model = model
+    window = _role_context_window(s, model)
+    if window is not None:
+        s.config.context_budget_tokens = max(1, min(window, s.config.context_budget_tokens))
+        return f"model → {model} · budget {s.config.context_budget_tokens}"
+    return f"model → {model}"
+
+
+def _model_listing(s: "_Session") -> str:
+    """The no-arg ``/model`` roster listing (see :func:`_act_model`)."""
+    current = s.config.model
+    try:
+        gateway = resolve_lobes_gateway_url(s.repo)
+    except Exception:  # noqa: BLE001 - a raising resolver folds into unarmed
+        gateway = None
+    if gateway is None:
+        return f"lobes not armed · model → {current}"
+    roster = fetch_served_model_ids(gateway, api_key=s.config.api_key)
+    if roster is None:
+        return f"roster unavailable · model → {current}"
+    lines = [f"  {mid}" + (" *" if mid == current else "") for mid in roster]
+    roles = resolve_roles(gateway)
+    if roles is not None:
+        for name, role in _role_pairs(roles):
+            if role is not None:
+                lines.append(f"  {name} → {role.model}" + (" *" if role.model == current else ""))
+    return "served models:\n" + "\n".join(lines)
+
+
+def _role_pairs(roles) -> list[tuple[str, object]]:
+    """Every role on a :class:`lobes.LobesRoles` as ``(name, role)`` pairs, in
+    display order (cortex/senses first, then the optional seats)."""
+    return [
+        ("cortex", roles.cortex),
+        ("senses", roles.senses),
+        ("stt", roles.stt),
+        ("tts", roles.tts),
+        ("embedder", roles.embedder),
+        ("muse", roles.muse),
+        ("worker", roles.worker),
+        ("associate", roles.associate),
+    ]
+
+
+def _role_context_window(s: "_Session", model: str) -> int | None:
+    """The advertised context window of the role serving *model*, or ``None``.
+
+    Consults the gateway only when armed; a ``None`` roles resolution (or no
+    role matching *model*) yields ``None`` — the budget is left untouched.
+    Never raises."""
+    try:
+        gateway = resolve_lobes_gateway_url(s.repo)
+    except Exception:  # noqa: BLE001
+        gateway = None
+    if gateway is None:
+        return None
+    roles = resolve_roles(gateway)
+    if roles is None:
+        return None
+    for _name, role in _role_pairs(roles):
+        if role is not None and role.model == model:
+            return role.context
+    return None
 
 
 def _act_mode(s: "_Session", rest: list[str]) -> str:

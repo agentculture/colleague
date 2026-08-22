@@ -3476,7 +3476,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         "runtime",
         ("model", "config"),
     ),
-    SlashSpec("model", "<name>", "switch the model", "runtime", ("model", "config")),
+    SlashSpec(
+        "model",
+        "[name]",
+        "switch the model (no arg lists served models + roles; re-derives the budget)",
+        "runtime",
+        ("model", "config"),
+    ),
     SlashSpec(
         "mode",
         "[name]",
