@@ -503,7 +503,7 @@ def should_record_split(result: "Any", config: "Any", duration_seconds: float) -
     return False
 
 
-def _split_reason(result: "Any", config: "Any", duration_seconds: float) -> str:
+def _split_reason(result: "Any", config: "Any") -> str:
     """The single reason label that made :func:`should_record_split` true.
 
     Priority order matches the predicate's own checks — the #313 reason wins
@@ -622,7 +622,7 @@ def maybe_remember_split(
 
     stats = getattr(result, "stats", None)
     steps = getattr(stats, "step_count", 0) if stats is not None else 0
-    reason = _split_reason(result, config, duration_seconds)
+    reason = _split_reason(result, config)
     child_count, per_child_budget_tokens = _split_child_count_hint(config)
 
     record = build_split_record(

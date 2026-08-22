@@ -113,4 +113,5 @@ def test_live_acting_seat_at_medium_forms_a_tool_call() -> None:
     assert payload.get("chat_template_kwargs") == {"reasoning_effort": "medium"}
     message = data["choices"][0]["message"]
     calls = message.get("tool_calls") or []
-    assert calls and calls[0]["function"]["name"] == "read_file"
+    assert calls
+    assert calls[0]["function"]["name"] == "read_file"

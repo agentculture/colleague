@@ -218,7 +218,7 @@ BUILTIN_ROLES["writer"] = replace(
 # (#416 t5, c13/h8): colleague.effort.ROLE_TABLE is the ONE place the
 # writer/planner/reviewer/validator/explorer rungs are declared; a role with
 # no table row (there are none today) stays unset (``None``).
-for _role_name in list(BUILTIN_ROLES):
+for _role_name in tuple(BUILTIN_ROLES):
     BUILTIN_ROLES[_role_name] = replace(
         BUILTIN_ROLES[_role_name],
         effort=_effort.ROLE_TABLE.get(_role_name),

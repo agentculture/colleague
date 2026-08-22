@@ -1236,4 +1236,5 @@ def test_split_next_time_record_written_when_steps_hit_the_cap(
     remember_calls = [c for c in _calls(eidetic_log) if c[0] == "remember"]
     kinds = [(json.loads(c[1]).get("metadata") or {}).get("kind") for c in remember_calls]
     assert "split-next-time" in kinds
-    assert result.memory is not None and result.memory["split_recorded"] is True
+    assert result.memory is not None
+    assert result.memory["split_recorded"] is True

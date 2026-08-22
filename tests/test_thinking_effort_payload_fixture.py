@@ -225,7 +225,8 @@ def test_result_key_sets_identical_across_engines_knob_unset(
         assert "reasoning_effort_seats" not in d
     # … and present in the CONFIG SNAPSHOT on both (identical keys, h14).
     snap = cfg.to_dict()
-    assert "reasoning_effort" in snap and "reasoning_effort_seats" in snap
+    assert "reasoning_effort" in snap
+    assert "reasoning_effort_seats" in snap
 
 
 def test_result_key_sets_identical_across_engines_knob_set(

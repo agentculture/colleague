@@ -157,8 +157,8 @@ def test_unknown_value_env_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(CliError) as exc_info:
         EngineConfig.resolve()
     message = str(exc_info.value)
-    assert "off" in message and "low" in message and "medium" in message
-    assert "high" in message and "xhigh" in message and "default" in message
+    for rung in ("off", "low", "medium", "high", "xhigh", "default"):
+        assert rung in message
 
 
 def test_unknown_value_config_json_raises(tmp_path: Path) -> None:
