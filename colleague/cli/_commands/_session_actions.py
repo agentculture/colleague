@@ -82,7 +82,7 @@ def _act_effort(s: "_Session", rest: list[str]) -> str:
     if not rest:
         return _effort_listing(s)
     rung = rest[0]
-    seat = rest[1] if len(rest) > 1 else "cortex"
+    seat = rest[1] if len(rest) > 1 else ("worker" if s.config.worker is not None else "cortex")
     try:
         effort.validate_effort(rung)
         if seat not in ("all", *effort.SEAT_TABLE):

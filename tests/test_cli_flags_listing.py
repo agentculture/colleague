@@ -124,3 +124,31 @@ def test_work_bare_model_and_effort_print_and_exit_zero(
     payload = json.loads(out)
     assert payload["effort"]["seats"]["cortex"] == "medium"
     assert "models" not in payload
+
+
+def test_effort_table_global_override_applies_to_acting_seat_only(tmp_path: Path) -> None:
+    """Non-acting seats mirror their builders (kill-switch > seat override > table);
+    the global value reaches only the acting seat (Qodo #426 finding 3)."""
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    apply_effort(cfg, "low", "all")
+    table = effort_table(cfg)[1]["seats"]
+    assert table["cortex"] == "low"
+    assert table["deepthink"] == "xhigh"
+    assert table["senses"] == "off"
+
+
+def test_effort_flag_targets_the_acting_seat(tmp_path: Path) -> None:
+    """--effort <rung> applies to the ACTING seat: worker when armed, else cortex (finding 4)."""
+    from colleague.cli._commands._listing import acting_seat, maybe_list_and_apply
+
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    args = argparse.Namespace(model=None, effort="xhigh")
+    assert maybe_list_and_apply(args, cfg, tmp_path, json_mode=False) is None
+    assert cfg.reasoning_effort_seats == {"cortex": "xhigh"}
+    cfg.worker = object()  # worker armed → the acting seat is worker
+    assert acting_seat(cfg) == "worker"
+    maybe_list_and_apply(
+        argparse.Namespace(model=None, effort="low"), cfg, tmp_path, json_mode=False
+    )
+    assert cfg.reasoning_effort_seats["worker"] == "low"
+    assert effort_table(cfg)[1]["seats"]["worker"] == "low"

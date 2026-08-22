@@ -29,6 +29,11 @@ _OPT_IN_ROLES: Mapping[str, str] = {
 }
 
 
+def acting_seat(config: object) -> str:
+    """The acting seat name: ``worker`` when the worker seat is armed, else ``cortex``."""
+    return "worker" if getattr(config, "worker", None) is not None else "cortex"
+
+
 def _roster_lines(roster: Optional[Sequence[str]], current_model: str) -> list[str]:
     """One line per served id (``None`` roster = could not fetch; ``[]`` = nothing served)."""
     if roster is None:
@@ -109,22 +114,30 @@ def effort_table(config: object) -> tuple[str, dict[str, Any]]:
     global_value = getattr(config, "reasoning_effort", None)
     kill_switch = global_value == _effort.DEFAULT_SENTINEL
     seats: Mapping[str, str] = getattr(config, "reasoning_effort_seats", {}) or {}
+    acting = acting_seat(config)
     rows: dict[str, Optional[str]] = {}
     for seat in EFFORT_SEATS:
-        if seat == "cortex":
+        if seat == acting:
+            # The ACTING seat is the one place the global override applies
+            # (resolve_acting_effort); read what is actually sent.
             rows[seat] = _effort.effort_of(config)
             continue
+        # Non-acting seats mirror their builders exactly (deepthink.py /
+        # senses.py / design.py …): kill-switch > per-seat override > seat table.
         rows[seat] = _effort.resolve_effort(
-            kill_switch=kill_switch,
-            parent_override=None if kill_switch else global_value,
-            seat_override=seats.get(seat),
-            seat=seat,
+            kill_switch=kill_switch, seat_override=seats.get(seat), seat=seat
         )
     lines = [
         "reasoning effort per seat (ladder: " + "|".join(_effort.LADDER) + " | default = unset):"
     ]
     for seat, rung in rows.items():
         src = _effort_source(seats, seat, kill_switch)
+        if (
+            seat == acting
+            and not seats.get(seat)
+            and global_value not in (None, _effort.DEFAULT_SENTINEL)
+        ):
+            src = "global override"
         lines.append(f"  {seat:<10} {rung if rung is not None else 'unset':<7} ({src})")
     lines.append("switch: --effort <rung> (CLI, acting seat) or /effort <rung> [seat] (session)")
     payload = {
@@ -239,7 +252,7 @@ def maybe_list_and_apply(
             json_mode=json_mode,
         )
     if effort_flag is not None:
-        apply_effort(config, effort_flag)
+        apply_effort(config, effort_flag, acting_seat(config))  # the acting seat, not always cortex
     return None
 
 
