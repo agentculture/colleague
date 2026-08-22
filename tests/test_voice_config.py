@@ -632,6 +632,7 @@ def test_voice_from_lobes_stt_and_tts_dial_distinct_endpoints_independently(
 
     monkeypatch.setattr("colleague.lobes.resolve_roles", _fake_resolve_roles)
     monkeypatch.setenv("COLLEAGUE_LOBES_URL", "http://gateway:8001")
+    monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "lobes")  # senses discovery opt-in
 
     cfg = EngineConfig.resolve()
 
