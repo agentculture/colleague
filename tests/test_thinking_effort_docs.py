@@ -67,12 +67,8 @@ def test_feature_doc_renders_every_table_row(key: str, rung: str) -> None:
     text = _read(FEATURE_DOC)
     # The row must appear as a markdown table cell pair: | `key` | `rung` |
     # (design call-sites use dotted keys, which are also backticked).
-    pattern = re.compile(
-        r"\|\s*`" + re.escape(key) + r"`\s*\|\s*`" + re.escape(rung) + r"`\s*\|"
-    )
-    assert pattern.search(text), (
-        f"feature doc does not render the row | `{key}` | `{rung}` |"
-    )
+    pattern = re.compile(r"\|\s*`" + re.escape(key) + r"`\s*\|\s*`" + re.escape(rung) + r"`\s*\|")
+    assert pattern.search(text), f"feature doc does not render the row | `{key}` | `{rung}` |"
 
 
 def test_feature_doc_table_is_not_a_duplicate_elsewhere() -> None:
