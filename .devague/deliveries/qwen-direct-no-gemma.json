@@ -2,7 +2,7 @@
   "plan_slug": "qwen-direct-no-gemma",
   "schema_version": 1,
   "created": "2026-08-22T07:25:05Z",
-  "updated": "2026-08-22T07:58:24Z",
+  "updated": "2026-08-22T08:45:14Z",
   "deviations": [
     {
       "id": "d1",
@@ -39,6 +39,16 @@
       "origin": "llm",
       "status": "approved",
       "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "t8 (docs) taken over by the integrator: the colleague parent stalled 15 min at step 9 and was SIGTERM'd; it had fanned the doc edits out to subagent children (16 edit_file calls in children), whose worktrees were reaped with the parent \u2014 the #410 SIGTERM salvage commits only the PARENT's WIP, so the children's 16 edits were lost (artifact: changed_files=[], 'interrupted after 9 steps'). Integrator rewrites t8 from the plan brief",
+      "task_ref": "t8",
+      "reason": "third colleague stall today on this wave; children's work is not salvageable after a parent SIGTERM",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up"
     }
   ]
 }
