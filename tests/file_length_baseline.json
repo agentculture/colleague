@@ -88,7 +88,7 @@
   "colleague/engine.py": 204,
   "colleague/engines/__init__.py": 7,
   "colleague/engines/mock.py": 234,
-  "colleague/engines/vllm_openai.py": 1307,
+  "colleague/engines/vllm_openai.py": 1324,
   "colleague/escalation.py": 520,
   "colleague/evaluation.py": 736,
   "colleague/experiment.py": 754,

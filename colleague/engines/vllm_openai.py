@@ -1122,6 +1122,51 @@ class VllmOpenAIEngine(Engine):
         """
         return _refreshed_model_id(config, role_name, exc)
 
+    def _recover_http_error(
+        self,
+        exc: urllib.error.HTTPError,
+        payload: "dict[str, Any]",
+        role_name: str,
+        sent_effort: "str | None",
+        config: EngineConfig,
+        dispatch: "Callable[[], ModelResponse]",
+    ) -> ModelResponse:
+        """The single-shot recovery ladder for one completion's HTTPError.
+
+        Ladder-400 (#416 t3) and the 404 stale-pin refresh (plan task t9) are
+        DISJOINT by status code — a 404 is never a 400 — so checking one first
+        never shadows the other. Each fires at most once; a 404→400 sequence
+        (c33) therefore yields exactly one refresh and one ladder retry. Anything
+        unrecoverable re-raises unchanged (legible via
+        ``_raise_legible_http_error``'s body-folding at the dispatch site).
+        Extracted from ``_make_complete``'s closure (SonarCloud S3776).
+        """
+        retried = self._maybe_retry_ladder_400(
+            exc, payload, role_name, sent_effort, config, dispatch
+        )
+        if retried is not None:
+            return retried
+        refreshed_id = self._maybe_refresh_on_404(exc, config, role_name)
+        if refreshed_id is None:
+            raise exc
+        # Persist the refresh (Qodo review, PR #381): later completions rebuild
+        # their payload from ``config.model`` — leaving the stale id there would
+        # re-404 + re-refresh on EVERY subsequent turn.
+        config.model = refreshed_id
+        payload["model"] = refreshed_id
+        try:
+            return dispatch()
+        except urllib.error.HTTPError as retry_exc:
+            # A 404→400 sequence (c33): the SAME payload the refresh just re-sent
+            # can still be rejected on the ladder — the ladder retry is disjoint
+            # from (and stacks on top of) the refresh that already happened once.
+            retried_again = self._maybe_retry_ladder_400(
+                retry_exc, payload, role_name, sent_effort, config, dispatch
+            )
+            if retried_again is not None:
+                return retried_again
+            raise
+
     def _make_complete(
         self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
     ) -> CompleteFn:
@@ -1150,37 +1195,9 @@ class VllmOpenAIEngine(Engine):
             try:
                 return dispatch()
             except urllib.error.HTTPError as exc:
-                # Ladder-400 (this task) and the 404 stale-pin refresh (task
-                # t9, below) are DISJOINT by status code — a 404 is never a
-                # 400 — so checking one first never shadows the other.
-                retried = self._maybe_retry_ladder_400(
+                return self._recover_http_error(
                     exc, payload, role_name, sent_effort, config, dispatch
                 )
-                if retried is not None:
-                    return retried
-                refreshed_id = self._maybe_refresh_on_404(exc, config, role_name)
-                if refreshed_id is None:
-                    raise
-                # Persist the refresh (Qodo review, PR #381): later
-                # completions rebuild their payload from ``config.model`` —
-                # leaving the stale id there would re-404 + re-refresh on
-                # EVERY subsequent turn (and re-append a warning each time),
-                # with success depending on lobes staying reachable.
-                config.model = refreshed_id
-                payload["model"] = refreshed_id
-                try:
-                    return dispatch()
-                except urllib.error.HTTPError as retry_exc:
-                    # A 404→400 sequence (c33): the SAME payload the refresh
-                    # just re-sent can still be rejected on the ladder — the
-                    # ladder retry is disjoint from (and stacks on top of)
-                    # the refresh that already happened once above.
-                    retried_again = self._maybe_retry_ladder_400(
-                        retry_exc, payload, role_name, sent_effort, config, dispatch
-                    )
-                    if retried_again is not None:
-                        return retried_again
-                    raise
 
         return complete
 
