@@ -22,7 +22,7 @@ import sys
 import urllib.error
 import urllib.request
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
 from colleague import effort, stallguard
@@ -898,9 +898,13 @@ def _effort_for(config: EngineConfig) -> "str | None":
     field), which is the correct degrade: the copy re-resolves its own
     acting-seat rung rather than inheriting its parent's override.
     """
-    seat_value = getattr(config, "reasoning_effort_seat", None)
-    if seat_value is not None:
-        return seat_value
+    # PRESENCE wins, not truthiness (Qodo #419 r2): a seat builder may set the
+    # attribute to ``None`` — e.g. a per-seat/child override of the ``default``
+    # kill-switch sentinel resolves to ``None`` — and that means "send nothing",
+    # never "fall back to the acting seat". Absent (a fresh ``dataclasses.replace``
+    # copy) is the only case that re-resolves the acting seat.
+    if "reasoning_effort_seat" in getattr(config, "__dict__", {}):
+        return config.__dict__["reasoning_effort_seat"]
     return config.reasoning_effort_effective
 
 
@@ -945,6 +949,15 @@ def _emit_ladder_retry_warning(warning: _LadderRetryWarning) -> None:
     """
     with suppress(OSError):
         print(warning.message(), file=sys.stderr)
+
+
+def ladder_retry_warnings_as_dicts(config: Any) -> "list[dict[str, Any]]":
+    """The ladder-400 retry warnings recorded on *config* as artifact-ready dicts
+    (Qodo #419 r4): the work front folds these into ``TaskResult.warnings`` before
+    the artifact write, exactly like ``config.model_refresh_warnings``. Empty when
+    none fired — a strict no-op on the unset path."""
+    existing = getattr(config, "reasoning_effort_warnings", ()) or ()
+    return [w.to_dict() if hasattr(w, "to_dict") else asdict(w) for w in existing]
 
 
 def _record_ladder_retry_warning(config: EngineConfig, warning: _LadderRetryWarning) -> None:

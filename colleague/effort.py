@@ -205,9 +205,11 @@ def effort_of(config: object) -> Optional[str]:
     what the backend sent (or would send) for that call.
     """
 
-    seat_value = getattr(config, "reasoning_effort_seat", None)
-    if seat_value is not None:
-        return seat_value
+    # Presence wins (mirrors ``vllm_openai._effort_for``): an attribute set to
+    # ``None`` means "send nothing" and is recorded as such; only an ABSENT
+    # attribute falls back to the acting seat.
+    if "reasoning_effort_seat" in getattr(config, "__dict__", {}):
+        return config.__dict__["reasoning_effort_seat"]
     return getattr(config, "reasoning_effort_effective", None)
 
 

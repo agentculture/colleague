@@ -3123,6 +3123,13 @@ def _resolve_distill_author_safe(config: Any) -> Any | None:
         return None
 
 
+def _too_long_min_of(config: Any) -> int:
+    """``config.too_long_min`` as an int, keeping an explicit ``0`` (= disabled,
+    Qodo #419 r3) — only an ABSENT/``None`` knob falls back to the default 20."""
+    value = getattr(config, "too_long_min", None)
+    return 20 if value is None else int(value)
+
+
 @dataclass(frozen=True)
 class ContextControls:
     """Optional context-window-management knobs injected into :func:`run`.
@@ -3389,7 +3396,7 @@ class ContextControls:
             agents_run=_agents_runtime.make_agents_run(config),
             autosplit_target=config.autosplit_target_tokens,
             fillline_threshold=config.fillline_threshold,
-            too_long_min=int(getattr(config, "too_long_min", 20) or 20),
+            too_long_min=_too_long_min_of(config),
             fanout_files=config.fanout_files,
             review_fanout_folders=config.review_fanout_folders,
             plan_offer_tokens=config.plan_offer_tokens,

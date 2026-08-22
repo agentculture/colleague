@@ -62,6 +62,7 @@ from colleague.contract import (
     Task,
     TaskResult,
 )
+from colleague.engines import vllm_openai as _vllm_openai
 from colleague.feedback import capture_uncaptured_predecessor, set_last_work
 from colleague.handoff import (
     HandoffError,
@@ -1488,6 +1489,8 @@ def execute_work(
             # runs surface them after the fact (h21). No-op when empty.
             if config.model_refresh_warnings:
                 result.warnings.extend(asdict(w) for w in config.model_refresh_warnings)
+            # Ladder-400 retry warnings (#416, Qodo #419 r4): same fold, same reason.
+            result.warnings.extend(_vllm_openai.ladder_retry_warnings_as_dicts(config))
             artifact_path = write(result, artifact_dir(repo))
             # The cumulative config-plane fold (t9, acceptance criterion 3):
             # AFTER the base artifact is durably written, land the combined
