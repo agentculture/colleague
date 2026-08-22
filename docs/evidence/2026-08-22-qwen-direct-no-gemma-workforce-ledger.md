@@ -39,3 +39,6 @@ spec reviews + the planner explore stalled 3/3 after reading the spec-md
 | 11:14 | t3 | running (pid 2961577, worktree iso-b6dd1ffaf0e6) | 22 | 11:07 → (7 min) | none | pending | — | reading test_session_cockpit + lobes._RESOLVED_ROLES; 0 edits yet |
 | 11:14 | t9 | queued (cap 2) | — | — | — | — | — | unblocked (t1 merged) |
 | 11:14 | suite | — | — | — | — | full suite at HEAD eb12b2c: 9134 passed / 3 failed (#422 trio) / 23 skipped | — | baseline preserved after t1, t2, t5, t6 |
+| 11:42 | t3 | **merged** 0fbe90e (branch colleague/b6dd1ffaf0e6) | 57 (budget 40 + continue nudges) | 11:07 → 11:38 (31 min) | none; honest finish ("nothing left undone") | 95 → 105 on touched files; full suite 9142/3 (baseline) | grade 5 | 8 new tests; /model no-arg listing + `min(window, current)` budget rule; session.py +8/−0 within ratchet |
+| 11:42 | t9 | dispatched (pid 3122856) | 0 | 11:41 → | — | pending | — | — |
+| 11:42 | t8 | running (pid 2855873) | 37 | 10:50 → (52 min) | silent since the step-14 markdownlint run (see mtime above) | pending | — | 16 edits landed |
