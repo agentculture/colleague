@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.62.0] - 2026-08-22
+
+### Added
+
+- **Per-seat thinking effort (#416)**: colleague sends `chat_template_kwargs` per seat — `enable_thinking:false` for off, `reasoning_effort` for a rung — from a fixed v3 table (cortex/worker medium · deepthink xhigh · evaluator medium · senses/Talker off · subagent children writer/planner medium, reviewer/validator low, explorer off · top-level `--role explorer` low · design call-sites: plan spec stage xhigh / plan stage high). Operator overrides: `COLLEAGUE_REASONING_EFFORT`, `COLLEAGUE_<SEAT>_REASONING_EFFORT`, config.json `reasoning_effort` / `reasoning_effort_seats`. Kill-switch `COLLEAGUE_REASONING_EFFORT=default` restores the byte-identical pre-#416 wire. `config show` prints the resolved table (`colleague/effort.py`, `colleague/design.py`, `colleague/roles.py` `Role.effort`, subagent tool schema `effort`).
+- **Ladder-400 graceful degrade**: a server that rejects the rung is retried once without the key + a `TaskResult` warning (`colleague/engines/vllm_openai.py`), disjoint from the stale-pin 404 refresh.
+- **Effort as trace data** on the #411 ledger invocation record and the OTel work span (only when set).
+- **Retroactive split-next-time record**: budget-exhausted / steps-at-cap / wall-clock > `too_long_min` (default 20, `COLLEAGUE_TOO_LONG_MIN`) runs leave an eidetic lesson that recall surfaces as a split recommendation (`colleague/memory.py`).
+- **Docs**: `docs/features/thinking-effort.md`; `docs/live-testing.md` row 39; workforce ledger `docs/experiments/2026-08-22-per-seat-thinking-effort-416-workforce-ledger.md`.
+
+### Changed
+
+- The vLLM adapter convention now lists THREE graceful-degrade carve-outs (`/tokenize`, armed-lobes stale-pin refresh, `chat_template_kwargs`).
+- The acting seat's DEFAULT now sends `medium` (decision c35/c36 — colleague#417: xhigh-by-default was the rig template's choice, not ours).
+
+### Known limits
+
+- Auto-split / fill-line split / decomposition design sites are pinned at the builder level only (no dedicated completion exists — follow-up).
+- Effort × tool-calling measured n=1 per cell (#417 + live-testing row 39).
+
+References: #416, #417, #415, #418.
+
 ## [1.61.0] - 2026-08-21
 
 ### Added
