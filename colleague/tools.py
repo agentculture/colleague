@@ -345,6 +345,15 @@ SCHEMAS: list[dict[str, Any]] = [
                             "child a fresh mind with only a handover summary (use for reviewers)."
                         ),
                     },
+                    "effort": {
+                        "type": "string",
+                        "enum": ["off", "low", "medium", "high", "xhigh", "default"],
+                        "description": (
+                            "Optional thinking-effort override for the subagent (#416). Omit to "
+                            "let the child resolve its own rung from its role/seat; 'default' "
+                            "sends no effort hint at all."
+                        ),
+                    },
                 },
                 "required": ["instruction"],
             },
@@ -392,6 +401,15 @@ SCHEMAS: list[dict[str, Any]] = [
                                     "type": "string",
                                     "description": (
                                         "Model override for this child (omit to inherit parent)."
+                                    ),
+                                },
+                                "effort": {
+                                    "type": "string",
+                                    "enum": ["off", "low", "medium", "high", "xhigh", "default"],
+                                    "description": (
+                                        "Optional per-child thinking-effort override (#416). "
+                                        "Omit to let the child resolve its own rung from its "
+                                        "role/seat; 'default' sends no effort hint at all."
                                     ),
                                 },
                             },
@@ -742,6 +760,11 @@ def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
                 **(
                     {"context_mode": item["context_mode"]}
                     if isinstance(item.get("context_mode"), str) and item.get("context_mode")
+                    else {}
+                ),
+                **(
+                    {"effort": item["effort"]}
+                    if isinstance(item.get("effort"), str) and item.get("effort")
                     else {}
                 ),
             }
@@ -1335,17 +1358,22 @@ class ToolExecutor:
         role: str | None,
         profile: str | None,
         context_mode: str | None,
+        effort: str | None = None,
     ) -> "SubResult":
-        """Invoke the spawn closure — positional (legacy) or with the #411 keywords."""
-        if profile is None and context_mode is None:
+        """Invoke the spawn closure — positional (legacy) or with the #411/#416 keywords."""
+        if profile is None and context_mode is None and effort is None:
             return self._spawn(instruction, engine, model, role)  # type: ignore[misc]
+        kwargs: dict[str, Any] = {"context_mode": context_mode or "inherit"}
+        if profile is not None:
+            kwargs["profile"] = profile
+        if effort is not None:
+            kwargs["effort"] = effort
         return self._spawn(  # type: ignore[misc]
             instruction,
             engine,
             model,
             role,
-            profile=profile,
-            context_mode=context_mode or "inherit",
+            **kwargs,
         )
 
     def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
@@ -1376,6 +1404,9 @@ class ToolExecutor:
         # positional call, byte-identical.
         profile = arguments.get("profile") or None
         context_mode = arguments.get("context_mode") or None
+        # Per-child thinking-effort override (#416 t5): same keyword seam, absent
+        # by default (the child resolves its own rung from the role/seat tables).
+        effort = arguments.get("effort") or None
 
         if len(self.sub_results) >= MAX_SUBAGENT_FANOUT:
             raise ToolError(
@@ -1383,7 +1414,7 @@ class ToolExecutor:
             )
 
         try:
-            sub = self._call_spawn(instruction, engine, model, role, profile, context_mode)
+            sub = self._call_spawn(instruction, engine, model, role, profile, context_mode, effort)
         except ToolError:
             raise
         except Exception as exc:  # launcher/engine errors -> clean string for the model

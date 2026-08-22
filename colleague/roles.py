@@ -12,10 +12,12 @@ so behaviour is byte-identical to today (purely additive).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional, cast
 
+from colleague import effort as _effort
 from colleague import layers
 from colleague.configdir import CONFIG_DIR_NAME
 
@@ -48,6 +50,16 @@ class Role:
         ``True`` when the role must never mutate the repo tree.  Read-only
         roles exclude ``write_file``, ``edit_file``, and ``run_command`` from
         their allow-list.
+    effort:
+        Optional per-seat thinking-effort ladder rung (#416 t5) — one of
+        :data:`colleague.effort.LADDER` or ``None`` (unset). Built-in roles
+        default to their :data:`colleague.effort.ROLE_TABLE` row (single
+        source, set once below); an operator role overlay's leading
+        ``effort: <rung>`` line (validated via
+        :func:`colleague.effort.validate_effort`) overrides it. Consumed by
+        :mod:`colleague.subagents`' child builds as the ``role=`` input to
+        :func:`colleague.effort.resolve_effort` — never read directly by the
+        loop.
     """
 
     name: str
@@ -55,6 +67,7 @@ class Role:
     tool_allowlist: tuple[str, ...]
     skill_subset: Optional[tuple[str, ...]]
     read_only: bool
+    effort: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +214,17 @@ BUILTIN_ROLES["writer"] = replace(
     tool_allowlist=_writer_allowlist(),
 )
 
+# Populate every built-in role's default effort from the single-source table
+# (#416 t5, c13/h8): colleague.effort.ROLE_TABLE is the ONE place the
+# writer/planner/reviewer/validator/explorer rungs are declared; a role with
+# no table row (there are none today) stays unset (``None``).
+for _role_name in list(BUILTIN_ROLES):
+    BUILTIN_ROLES[_role_name] = replace(
+        BUILTIN_ROLES[_role_name],
+        effort=_effort.ROLE_TABLE.get(_role_name),
+    )
+del _role_name
+
 
 # ---------------------------------------------------------------------------
 # Default role (additive / byte-identical fallback)
@@ -276,6 +300,30 @@ def _resolve_role_prompt(repo: Path, safe_model: str, name: str) -> Optional[str
         return None
 
 
+#: An operator role overlay's OPTIONAL leading line — ``effort: <rung>`` —
+#: overriding the built-in's table-derived :attr:`Role.effort` (#416 t5).
+#: Anchored to the start of the file so it can never be confused with the
+#: same text appearing later in the prompt body.
+_EFFORT_FRONTMATTER_RE = re.compile(r"\A[ \t]*effort:[ \t]*(\S+)[ \t]*\r?\n?")
+
+
+def _split_effort_frontmatter(text: str) -> tuple[Optional[str], str]:
+    """Split an optional leading ``effort: <rung>`` line off *text*.
+
+    Returns ``(override_or_None, remaining_prompt_text)``. The rung is
+    validated via :func:`colleague.effort.validate_effort` — an unrecognised
+    value raises :class:`colleague.cli._errors.CliError` naming the full
+    ladder, exactly like every other operator-facing effort input (env,
+    config.json, the CLI flag). Text with no leading ``effort:`` line is
+    returned unchanged with ``None`` — the pre-t5, prompt-only shape.
+    """
+    match = _EFFORT_FRONTMATTER_RE.match(text)
+    if match is None:
+        return None, text
+    value = _effort.validate_effort(match.group(1))
+    return value, text[match.end() :]
+
+
 def load_role(
     name: str,
     repo_path: str | Path,
@@ -310,9 +358,16 @@ def load_role(
         return None
 
     prompt = _resolve_role_prompt(Path(repo_path), layers.sanitize_model(model), name)
-    # The file prompt overrides the built-in; ``None`` keeps the built-in.
+    # The file prompt overrides the built-in; ``None`` keeps the built-in. An
+    # operator file may ALSO lead with an ``effort: <rung>`` line (#416 t5):
+    # split it off (validated) before the remaining text becomes the prompt,
+    # so the rung never leaks into the served system prompt.
+    effort_override: Optional[str] = None
+    if prompt is not None:
+        effort_override, prompt = _split_effort_frontmatter(prompt)
     final_prompt = prompt if prompt is not None else builtin.prompt_fragment
+    final_effort = effort_override if effort_override is not None else builtin.effort
     # The cast is for the static analyser: Sonar models dataclasses.replace()'s
     # return as a generic DataclassInstance, not Role, which trips S5886 (mirrors
     # the same cast in colleague/subagents.py for EngineConfig).
-    return cast(Role, replace(builtin, prompt_fragment=final_prompt))
+    return cast(Role, replace(builtin, prompt_fragment=final_prompt, effort=final_effort))
