@@ -2,7 +2,7 @@
   "plan_slug": "qwen-direct-no-gemma",
   "schema_version": 1,
   "created": "2026-08-22T07:25:05Z",
-  "updated": "2026-08-22T07:25:24Z",
+  "updated": "2026-08-22T07:58:24Z",
   "deviations": [
     {
       "id": "d1",
@@ -24,6 +24,18 @@
       "task_ref": "t1",
       "reason": "cap-2 slot + the 15-min silent-turn rule from plan risk r2",
       "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t5 and t6 taken over by the integrator: t5's colleague child stalled twice (15-min silent turn at step 11; the continuation sat 10 min with 0 steps), t6's child spent 44 steps reading (work.py/config.py/spec headings) with zero edits or tests before budget exhaustion. Integrator implemented t5 (config show/lobes show not-consumed lines + tests/test_cli_not_consumed.py) and implements t6 now",
+      "task_ref": "t5",
+      "reason": "plan risk r2 (hot files / stall-twice rule); keeps wave 1 moving",
+      "affects": [
+        "t6"
+      ],
       "origin": "llm",
       "status": "approved",
       "classification": "acceptable"
