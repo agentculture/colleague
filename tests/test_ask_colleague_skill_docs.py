@@ -45,3 +45,37 @@ def test_monitor_describes_live_feed():
     assert (
         "live feed" in monitor_line
     ), f"Monitor line should describe a live/streaming feed, got: {monitor_line!r}"
+
+
+class TestThinkingEffortAndResume:
+    """#416: the wrapper exposes per-seat thinking effort + a resume verb (PR #419)."""
+
+    def _script(self) -> str:
+        return (SKILL_MD.parent / "scripts" / "ask-colleague.sh").read_text(encoding="utf-8")
+
+    def test_usage_documents_resume_and_effort(self) -> None:
+        text = self._script()
+        assert "ask-colleague resume  <task-id|last>" in text
+        assert "--effort RUNG" in text
+        assert "--seat-effort S=R" in text
+
+    def test_resume_uses_continue_and_setsid_for_detach(self) -> None:
+        text = self._script()
+        assert 'work --continue "$fid"' in text
+        assert "setsid nohup" in text  # colleague#418: --background drops the continue id
+
+    def test_effort_is_validated_and_exported(self) -> None:
+        text = self._script()
+        assert "off | low | medium | high | xhigh | default) : ;;" in text
+        assert 'export COLLEAGUE_CORTEX_REASONING_EFFORT="$EFFORT"' in text
+        assert "_REASONING_EFFORT=$_rung" in text
+
+    def test_skill_md_documents_the_surface(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        for needle in (
+            "`resume <task-id\\|last> [--detach]`",
+            "`--effort RUNG`",
+            "`--seat-effort S=R[,S=R]`",
+            "## Thinking effort and resuming (#416)",
+        ):
+            assert needle in text, needle
