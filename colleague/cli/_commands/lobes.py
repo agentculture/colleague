@@ -29,10 +29,10 @@ from __future__ import annotations
 
 import argparse
 
-from colleague.cli._commands.config import not_consumed_roles_from
+from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
-from colleague.config import EngineConfig, resolve_lobes_gateway_url
+from colleague.config import resolve_lobes_gateway_url
 from colleague.lobes import RoleInfo, ready_kind, resolve_roles
 
 #: The sole armed signal this noun consults (see the scope note above).
@@ -181,26 +181,13 @@ def _lobes_show(repo: str = ".") -> object:
     lines = [f"lobes: armed at {url} — reachable"]
     lines += _role_lines("cortex", roles.cortex)
     lines += _role_lines("senses", roles.senses)
-    # stt/tts (senses live-presence + voice arc) and muse (a second machine's
-    # reasoning model, proxied through the gateway; two-machines-two-minds
-    # arc, task t4) are OPTIONAL roles — show them, ready-kind label and all,
-    # only when the gateway actually serves them.
+    # stt/tts (voice arc) and muse (two-machines-two-minds t4) are OPTIONAL
+    # roles — shown, ready-kind label and all, only when the gateway serves them.
     for opt_name, opt_role in (("stt", roles.stt), ("tts", roles.tts), ("muse", roles.muse)):
         if opt_role is not None:
             payload["roles"][opt_name] = _role_info_to_dict(opt_name, opt_role)
             lines += _role_lines(opt_name, opt_role)
-    # qwen-direct (c7/h7): advertised roles colleague does NOT consume by
-    # default (senses, muse are opt-in). Consumption is read from the SAME
-    # resolve() the fronts use — resolved against *repo* — so the line is a
-    # fact, not a guess; resolve() never raises, but stay defensive here too.
-    try:
-        cfg = EngineConfig.resolve(repo_path=repo)
-    except Exception:  # pragma: no cover - degrade to "no consumption facts"
-        cfg = None
-    not_consumed = not_consumed_roles_from(roles, cfg) if cfg is not None else []
-    for name, model, knob in not_consumed:
-        lines.append(f"  not consumed (opt-in): {name} → {model} — {knob}")
-    payload["not_consumed"] = [name for name, _m, _k in not_consumed]
+    payload["not_consumed"] = append_not_consumed(lines, url, None, roles=roles, repo=repo)  # c7
     return rendered(payload, "\n".join(lines))
 
 

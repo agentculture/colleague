@@ -41,6 +41,7 @@ from colleague.artifact import (
     write,
 )
 from colleague.cli._banner import emit_banner
+from colleague.cli._commands._listing import maybe_list_and_apply, model_arg, register_listing_flags
 from colleague.cli._commands._presence_sink import (
     ack_packet_for_task,
     build_foreground_presence,
@@ -2292,6 +2293,7 @@ _CHILD_FLAG_TABLE: tuple[tuple[str, str, str], ...] = (
     ("base", "--base", "value"),
     ("base_url", "--base-url", "value"),
     ("model", "--model", "value"),
+    ("effort", "--effort", "value"),
     ("role", "--role", "value"),
     ("api_key", "--api-key", "value"),
 )
@@ -2434,26 +2436,23 @@ def cmd_work(args: argparse.Namespace) -> int:
 
     config = EngineConfig.resolve(
         base_url=args.base_url,
-        model=args.model,
+        model=model_arg(args),
         api_key=args.api_key,
         max_steps=args.max_steps,
         repo_path=repo,
     )
+    rc = maybe_list_and_apply(args, config, repo, json_mode=json_mode)  # qwen-direct t6
+    if rc is not None:
+        return rc
 
     config.role = getattr(args, "role", None)
 
-    # Cortex/senses (t8): --cortex-only bypasses the senses front door for this run
-    # (a one-shot `work` never runs text intake anyway — q1 — so this suppresses
-    # the senses media bridge). A strict no-op when no senses model is resolved.
+    # --cortex-only (t8): null the senses seat for this run; no-op when unresolved.
     if getattr(args, "cortex_only", False):
         config.senses = None
 
-    # Mode validation (t3): a typo must fail loudly with the valid choices, not
-    # silently no-op. Validated explicitly + early (the --algo idiom — a
-    # value-carrying flag cannot take a parse-time choices= without colliding
-    # with its signature-derived flag at App build time). Explicit CLI knobs
-    # ride config.explicit_knobs (runtime-only, the role precedent) so the
-    # profile never overwrites them.
+    # Mode validation (t3): fail loudly + early on a typo (the --algo idiom);
+    # explicit CLI knobs ride config.explicit_knobs so the profile never wins.
     mode = _validated_mode(getattr(args, "mode", None))
     if args.max_steps is not None:
         config.explicit_knobs = frozenset({"max_steps"})
@@ -2694,7 +2693,7 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
-    p.add_argument("--model", default=None, help="Override the engine model name.")
+    register_listing_flags(p)
     p.add_argument(
         "--role",
         default=None,
