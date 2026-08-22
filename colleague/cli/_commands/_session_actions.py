@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable
 
-from colleague import registry
+from colleague import effort, registry
 from colleague.config import resolve_lobes_gateway_url
 from colleague.lobes import fetch_served_model_ids, resolve_roles
 from colleague.media import validate_attachment
@@ -64,6 +64,53 @@ def _act_model(s: "_Session", rest: list[str]) -> str:
         s.config.context_budget_tokens = max(1, min(window, s.config.context_budget_tokens))
         return f"model → {model} · budget {s.config.context_budget_tokens}"
     return f"model → {model}"
+
+
+def _act_effort(s: "_Session", rest: list[str]) -> str:
+    """``/effort`` — the per-seat thinking-effort switch (plan task t4).
+
+    No argument prints one line per seat (cortex, worker, deepthink, evaluator,
+    senses, design) plus the acting role, each showing the rung that is
+    ACTUALLY sent for that seat (``effort.resolve_effort`` over the live
+    ``reasoning_effort`` / ``reasoning_effort_seats`` state) — ``unset`` when
+    nothing is sent (the default kill-switch). ``/effort <rung> [seat]``
+    (default seat ``cortex``) validates *rung* via ``effort.validate_effort``
+    (a bad rung raises ``ValueError`` for the slash dispatcher) and mutates
+    ``s.config.reasoning_effort_seats[seat]`` (or ``reasoning_effort`` for
+    ``all``) — session-only, never written to a config file.
+    """
+    if not rest:
+        return _effort_listing(s)
+    rung = rest[0]
+    seat = rest[1] if len(rest) > 1 else "cortex"
+    try:
+        effort.validate_effort(rung)
+        if seat not in ("all", *effort.SEAT_TABLE):
+            raise ValueError(
+                f"unknown seat '{seat}'; available: all, {', '.join(effort.SEAT_TABLE)}"
+            )
+        effort.apply_operator_effort(s.config, rung, seat)
+    except ValueError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - CliError -> the dispatcher's ValueError
+        raise ValueError(str(exc)) from exc
+    return f"effort {seat} → {rung} (session-only)"
+
+
+def _effort_listing(s: "_Session") -> str:
+    """The no-arg ``/effort`` per-seat table (see :func:`_act_effort`)."""
+    lines = []
+    for seat in effort.SEAT_TABLE:
+        rung = effort.resolve_effort(
+            kill_switch=s.config.reasoning_effort == effort.DEFAULT_SENTINEL,
+            seat_override=s.config.reasoning_effort_seats.get(seat),
+            seat=seat,
+        )
+        lines.append(f"  {seat} {rung or 'unset'}")
+    acting = s.config.reasoning_effort_effective
+    acting_seat = "worker" if s.config.worker is not None else "cortex"
+    lines.append(f"  acting role ({acting_seat}) {acting or 'unset'}")
+    return "thinking effort (session-only):\n" + "\n".join(lines)
 
 
 def _model_listing(s: "_Session") -> str:
@@ -211,6 +258,7 @@ def _act_learn_from(s: "_Session", rest: list[str]) -> str:
 _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "engine": _act_engine,
     "model": _act_model,
+    "effort": _act_effort,
     "mode": _act_mode,
     "base": _act_base,
     "pr": _act_pr,
