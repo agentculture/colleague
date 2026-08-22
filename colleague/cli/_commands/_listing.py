@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from colleague import effort as _effort
+from colleague.effort import apply_operator_effort as apply_effort  # noqa: F401 - re-exported
 
 #: Sentinel an argparse ``nargs="?"`` flag receives when given with no value.
 LIST_SENTINEL = "?"
@@ -115,19 +116,6 @@ def effort_table(config: object) -> tuple[str, dict[str, Any]]:
         "overrides": dict(seats),
     }
     return "\n".join(lines), payload
-
-
-def apply_effort(config: object, value: str, seat: str = "cortex") -> str:
-    """Validate *value* and set it on *config* for *seat* (``all`` = global).
-
-    Returns the rung actually stored (``default`` restores the kill-switch).
-    Raises :class:`colleague.effort.CliError`-style errors from
-    :func:`colleague.effort.validate_effort` on a bad rung, BEFORE mutating.
-    """
-    rung = _effort.validate_effort(value)
-    if seat == "all":
-        config.reasoning_effort = rung
-        return rung
     seats = dict(getattr(config, "reasoning_effort_seats", {}) or {})
     seats[seat] = rung
     config.reasoning_effort_seats = seats

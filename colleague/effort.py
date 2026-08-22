@@ -123,22 +123,28 @@ def resolve_effort(
 ) -> Optional[str]:
     """Resolve the effective thinking-effort rung by the c32 precedence order.
 
-    Precedence (highest first): ``kill_switch`` > ``parent_override`` >
-    ``seat_override`` > the design-site table (``site``) > the role table
-    (``role``, :data:`ROLE_TABLE`) > the seat table (``seat``,
-    :data:`SEAT_TABLE`) > unset (``None``). ``DEFAULT_SENTINEL`` at any rung
-    means "send nothing" and short-circuits to ``None``. Every non-``None``
-    candidate is validated against the ladder.
-
-    :data:`TOP_LEVEL_ROLE_TABLE` is a separate lookup for callers resolving a
-    role invoked at the top level (not as a subagent child) — it is not
-    consulted internally by this function; a caller resolving a top-level
-    role passes that table's value in via ``role`` lookup against its own
-    table, or via ``parent_override``/``seat_override``.
+    Highest first: ``kill_switch`` > ``parent_override`` > ``seat_override`` >
+    :data:`DESIGN_SITE_TABLE` (``site``) > :data:`ROLE_TABLE` (``role``) >
+    :data:`SEAT_TABLE` (``seat``) > unset (``None``). ``DEFAULT_SENTINEL`` at
+    any rung short-circuits to ``None`` ("send nothing"); every candidate is
+    ladder-validated. :data:`TOP_LEVEL_ROLE_TABLE` is a separate lookup callers
+    feed in via ``parent_override``/``seat_override`` — never consulted here.
     """
-
     if kill_switch:
         return None
+    for candidate in (parent_override, seat_override):
+        if candidate is None:
+            continue
+        if candidate == DEFAULT_SENTINEL:
+            return None
+        return validate_effort(candidate)
+    if site is not None and site in DESIGN_SITE_TABLE:
+        return validate_effort(DESIGN_SITE_TABLE[site])
+    if role is not None and role in ROLE_TABLE:
+        return validate_effort(ROLE_TABLE[role])
+    if seat is not None and seat in SEAT_TABLE:
+        return validate_effort(SEAT_TABLE[seat])
+    return None
 
     for candidate in (parent_override, seat_override):
         if candidate is None:
@@ -193,18 +199,12 @@ def resolve_acting_effort(
 def effort_of(config: object) -> Optional[str]:
     """Read the resolved thinking-effort rung off a seat's ``EngineConfig``.
 
-    A pure READ, never a resolution — mirrors
-    ``vllm_openai._effort_for``'s precedence exactly (#416 t7, c29/h20): the
-    plain ``reasoning_effort_seat`` attribute (set by a non-acting seat
-    builder via ``dataclasses.replace`` + ``setattr``, per
-    ``tests/test_thinking_effort_boundary.py``'s sanctioned-assign list)
-    wins when present and not ``None``; otherwise the acting seat's already-
-    resolved :attr:`EngineConfig.reasoning_effort_effective`. A record site
-    calls this at record time instead of recomputing anything from
-    :data:`SEAT_TABLE` / :data:`ROLE_TABLE` — the value it returns is exactly
-    what the backend sent (or would send) for that call.
+    A pure READ mirroring ``vllm_openai._effort_for``'s precedence (#416 t7):
+    the ``reasoning_effort_seat`` attribute wins when PRESENT (even ``None`` =
+    send nothing); otherwise the acting seat's ``reasoning_effort_effective``.
+    Record sites call this instead of recomputing from the tables — it is
+    exactly what the backend sent (or would send) for that call.
     """
-
     # Presence wins (mirrors ``vllm_openai._effort_for``): an attribute set to
     # ``None`` means "send nothing" and is recorded as such; only an ABSENT
     # attribute falls back to the acting seat.
@@ -278,3 +278,17 @@ def resolve_reasoning_effort_overrides(
     )
 
     return resolved_reasoning_effort, resolved_reasoning_effort_seats, resolved_too_long_min
+
+
+def apply_operator_effort(config: object, value: str, seat: str = "cortex") -> str:
+    """Operator switch (CLI ``--effort`` / session ``/effort``): validate, then set
+    *value* for *seat* (``all`` = global; ``default`` = kill-switch). Session-only;
+    lives here because the rung is assigned only in sanctioned modules."""
+    rung = validate_effort(value)
+    if seat == "all":
+        config.reasoning_effort = rung
+        return rung
+    seats = dict(getattr(config, "reasoning_effort_seats", {}) or {})
+    seats[seat] = rung
+    config.reasoning_effort_seats = seats
+    return rung
