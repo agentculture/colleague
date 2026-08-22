@@ -105,11 +105,55 @@ def _config_show(repo: str = ".") -> object:
     if gateway is not None:
         lines.append(f"lobes: armed (gateway={gateway!r}) — resolved model={cfg.model}")
         data = {**data, "lobes": {"armed": True, "gateway": gateway, "resolved_model": cfg.model}}
+        # qwen-direct (c7/h7): name every advertised role colleague does NOT
+        # consume by default — senses and muse are opt-in (the ``lobes``
+        # sentinel or an explicit model id) — so the retirement is visible,
+        # never inferred. Roles come from the same /capabilities payload the
+        # resolve() rung read; an unreachable gateway yields no extra lines.
+        not_consumed = _not_consumed_roles(gateway, cfg)
+        for name, model, knob in not_consumed:
+            lines.append(f"not consumed (opt-in): {name} → {model} — {knob}")
+        data["lobes"]["not_consumed"] = [name for name, _m, _k in not_consumed]
     # Model-bound agents (#411 t7): reflect the mode so an operator can see it
     # before a run; the payload carries the key only when armed (to_dict()'s
     # omit-when-unarmed convention).
     lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
     return rendered(data, "\n".join(lines))
+
+
+#: (role name, the config attribute that shows it was consumed, the opt-in knob).
+_OPT_IN_ROLES = (
+    ("senses", "senses", "COLLEAGUE_SENSES_MODEL=lobes"),
+    ("muse", "deepthink", "COLLEAGUE_DEEPTHINK_MODEL=lobes"),
+)
+
+
+def not_consumed_roles_from(roles: object, cfg: object) -> list[tuple[str, str, str]]:
+    """Pure: the advertised opt-in roles *cfg* did not consume (qwen-direct c7).
+
+    *roles* is a :class:`colleague.lobes.LobesRoles` (or ``None``); each entry
+    is ``(role, served model id, opt-in knob)`` for a role the gateway
+    advertises whose consuming seat on *cfg* is ``None``. Shared by
+    ``config show`` and ``lobes show`` so both print the same facts.
+    """
+    out: list[tuple[str, str, str]] = []
+    if roles is None:
+        return out
+    for role_name, attr, knob in _OPT_IN_ROLES:
+        info = getattr(roles, role_name, None)
+        model = str(getattr(info, "model", "") or "")
+        if info is None or not model:
+            continue
+        if getattr(cfg, attr, None) is None:
+            out.append((role_name, model, knob))
+    return out
+
+
+def _not_consumed_roles(gateway: str, cfg: object) -> list[tuple[str, str, str]]:
+    """Resolve the gateway roles (never raises; ``None`` on failure) and classify."""
+    from colleague.lobes import resolve_roles  # lazy: keeps the CLI import graph thin
+
+    return not_consumed_roles_from(resolve_roles(gateway), cfg)
 
 
 def _config_overview() -> object:
