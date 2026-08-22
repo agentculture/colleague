@@ -2,7 +2,7 @@
   "plan_slug": "per-seat-thinking-effort-416",
   "schema_version": 1,
   "created": "2026-08-21T22:52:26Z",
-  "updated": "2026-08-22T01:31:51Z",
+  "updated": "2026-08-22T01:50:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -56,6 +56,16 @@
       "origin": "user",
       "status": "approved",
       "classification": "acceptable"
+    },
+    {
+      "id": "d6",
+      "what": "t6 honest limit: the design call-site is wired end-to-end ONLY for plan.spec_stage (xhigh) and plan.plan_stage (high) \u2014 auto-split, fill-line split, subagents.decompose and plan.workforce have no dedicated model completion in the runtime (the split decision is classified from the acting turn; children are full Tasks with role-based effort), so those four sites are pinned at the builder level (design_seat_config/decomposition_seat_config exist and are tested) but no request carries their effort today. Wiring them needs a second completion threaded through the engine adapter \u2014 follow-up, not this PR.",
+      "task_ref": "t6",
+      "reason": "architectural fact surfaced by the implementation; spec c14/h9 assumed separate design calls exist",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
     }
   ]
 }
