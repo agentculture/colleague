@@ -45,3 +45,6 @@ spec reviews + the planner explore stalled 3/3 after reading the spec-md
 | 11:58 | t8 | **merged** 6d078fb (integrator) | parent 9 steps + children ≈37 steps/16 edits (LOST) | 10:50 → 11:58 (68 min; colleague 55 min, integrator 13 min) | parent SIGTERM'd after a 15-min silent turn at step 9; its subagent children's 16 doc edits were reaped with it (#410 salvage = parent WIP only; artifact changed_files=[]); deviation d4 (needs-follow-up) | markdownlint 10 files 0 errors; acceptance grep: 0 unmarked lines; suite 9142/3 | no grade (no deliverable) | CLAUDE.md bullet + fifth convention change; 8 feature docs opt-in notes; new docs/features/qwen-direct.md |
 | 11:58 | t9 | running (pid 3122856) | 14 | 11:41 → | none | pending | — | reading conftest/config loaders; 0 edits yet |
 | 11:58 | t4 | dispatching now (dep t3 merged) | — | — | — | — | — | — |
+| 11:48 | (correction) | — | — | — | the tick-8 rows above are stamped "11:58" but were written at ≈11:47 wall clock (the integrator estimated instead of reading the clock); subsequent ticks use `date` | — | — | — |
+| 11:48 | t9 | running (pid 3122856) | 14 (+1 child started) | 11:41 → (7 min) | none; last tool 57 s ago (reading test_presence_pin_breaks + repo config) | pending | — | 0 edits yet |
+| 11:48 | t4 | running (pid 3179655) | 0 | 11:47 → | first model turn | pending | — | — |
