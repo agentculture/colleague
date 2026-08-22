@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Colleague skill adaptations for the four devague-chain legs missing from ``.colleague/skills/``: ``scope``, ``challenge``, ``deviate``, ``summarize-delivery`` — the full eight-skill method chain (scope → think → challenge → spec-to-plan → assign-to-workforce → deviate → summarize-delivery) now composes into every backend's layered skills catalog (``colleague skills list``: 12 → 16). Each carries a How to run in colleague section mapping moves onto the curated ``devague`` loop-tool allow-list and the agent-agnostic CLI surface (``confirm``/``reject``/``export`` stay user- or operator-only by structural exclusion).
+- Colleague skill adaptations for the four devague-chain legs missing from ``.colleague/skills/``: ``scope``, ``challenge``, ``deviate``, ``summarize-delivery`` — the full seven-leg devague method chain (scope → think → challenge → spec-to-plan → assign-to-workforce → deviate → summarize-delivery) now composes into every backend's layered skills catalog (``colleague skills list``: 12 → 16). Each carries a How to run in colleague section mapping moves onto the curated ``devague`` loop-tool allow-list and the agent-agnostic CLI surface (``confirm``/``reject``/``export`` stay user- or operator-only by structural exclusion).
 
 ### Changed
 
