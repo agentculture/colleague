@@ -1051,6 +1051,77 @@ class VllmOpenAIEngine(Engine):
                 pass
         return payload, streaming
 
+    @staticmethod
+    def _dispatch_once(
+        url: str,
+        payload: "dict[str, Any]",
+        config: EngineConfig,
+        streaming: bool,
+    ) -> ModelResponse:
+        """Send ``payload`` exactly once, streaming or blocking per *streaming*.
+
+        Extracted from ``_make_complete``'s ``complete`` closure (SonarCloud
+        S3776). A mid-stream failure degrades to ONE blocking request for
+        THIS SAME turn (task t5) — the loop never sees the transport hiccup,
+        only a normal ``ModelResponse``. ``_noop_delta`` is the headless case
+        (#393): streaming is armed for the TRANSPORT (incremental bytes, so
+        the read timeout measures silence rather than generation time) with
+        no display surface to feed. Both a ladder-400 retry and the 404
+        stale-pin refresh just re-call this same helper, so the streaming
+        path (``_stream_or_blocking``) and the blocking one share one
+        convergence point, never duplicated logic in either transport
+        function itself.
+        """
+        if streaming:
+            return _stream_or_blocking(
+                url,
+                payload,
+                api_key=config.api_key,
+                timeout=config.timeout,
+                on_delta=_delta_sink(config.on_delta),
+            )
+        data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
+        return _parse_response(data)
+
+    @staticmethod
+    def _maybe_retry_ladder_400(
+        exc: urllib.error.HTTPError,
+        payload: "dict[str, Any]",
+        role_name: str,
+        sent_effort: "str | None",
+        config: EngineConfig,
+        dispatch: "Callable[[], ModelResponse]",
+    ) -> "ModelResponse | None":
+        """Ladder-400 retry (#416 t3, c2/h2/c27/h18/c33/h23): if *exc* is a
+        rejection of the ``chat_template_kwargs`` fragment, drop it, record
+        ONE warning, and retry ONCE via *dispatch* — returning the retried
+        response. Returns ``None`` when *exc* is not a ladder-400 (the caller
+        re-raises). A second ladder-400 (the caller's own re-raise) propagates
+        unguarded — never a second catch, mirroring the 404 refresh's own
+        single-shot rule.
+        """
+        if "chat_template_kwargs" not in payload or not _is_ladder_400(exc):
+            return None
+        payload.pop("chat_template_kwargs", None)
+        warning = _LadderRetryWarning(seat=role_name, effort=sent_effort, detail=str(exc))
+        _emit_ladder_retry_warning(warning)
+        _record_ladder_retry_warning(config, warning)
+        return dispatch()
+
+    @staticmethod
+    def _maybe_refresh_on_404(
+        exc: urllib.error.HTTPError,
+        config: EngineConfig,
+        role_name: str,
+    ) -> "str | None":
+        """Same-role stale-pin refresh AT CALL TIME (plan task t9, spec
+        c10/c11, honesty h7/h8): exactly a 404 model_not_found, ONE retry.
+        Returns the refreshed model id, or ``None`` when *exc* isn't a
+        refreshable 404 (the caller re-raises unguarded — legible via
+        ``_raise_legible_http_error``'s existing body-folding).
+        """
+        return _refreshed_model_id(config, role_name, exc)
+
     def _make_complete(
         self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
     ) -> CompleteFn:
@@ -1073,59 +1144,21 @@ class VllmOpenAIEngine(Engine):
             # key below, so the warning can still name it (#416 t3).
             sent_effort = _effort_for(config)
 
-            def _invoke() -> ModelResponse:
-                if streaming:
-                    # A mid-stream failure degrades to ONE blocking request for
-                    # THIS SAME turn (task t5) — the loop never sees the
-                    # transport hiccup, only a normal ModelResponse.
-                    #
-                    # ``_noop_delta`` is the headless case (#393): streaming is
-                    # armed for the TRANSPORT (incremental bytes, so the read
-                    # timeout measures silence rather than generation time)
-                    # with no display surface to feed. The SAME ``_invoke``
-                    # dispatches whichever transport ``streaming`` picked, so
-                    # a ladder-400 retry below (which just re-calls
-                    # ``_invoke()``) gets identical treatment on the streaming
-                    # path (``_post_json_stream``, via ``_stream_or_blocking``)
-                    # and the blocking one — one convergence point, never
-                    # duplicated logic in either transport function itself.
-                    return _stream_or_blocking(
-                        url,
-                        payload,
-                        api_key=config.api_key,
-                        timeout=config.timeout,
-                        on_delta=_delta_sink(config.on_delta),
-                    )
-                data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
-                return _parse_response(data)
-
-            def _retry_dropping_ladder(exc: urllib.error.HTTPError) -> ModelResponse:
-                """Ladder-400 retry (#416 t3, c2/h2/c27/h18/c33/h23): drop
-                ``chat_template_kwargs``, record ONE warning, retry ONCE. A
-                second ladder-400 (the caller's own re-raise) propagates
-                unguarded — never a second catch, mirroring the 404 refresh's
-                own single-shot rule just below.
-                """
-                payload.pop("chat_template_kwargs", None)
-                warning = _LadderRetryWarning(seat=role_name, effort=sent_effort, detail=str(exc))
-                _emit_ladder_retry_warning(warning)
-                _record_ladder_retry_warning(config, warning)
-                return _invoke()
+            def dispatch() -> ModelResponse:
+                return self._dispatch_once(url, payload, config, streaming)
 
             try:
-                return _invoke()
+                return dispatch()
             except urllib.error.HTTPError as exc:
                 # Ladder-400 (this task) and the 404 stale-pin refresh (task
                 # t9, below) are DISJOINT by status code — a 404 is never a
                 # 400 — so checking one first never shadows the other.
-                if "chat_template_kwargs" in payload and _is_ladder_400(exc):
-                    return _retry_dropping_ladder(exc)
-                # Same-role stale-pin refresh AT CALL TIME (plan task t9, spec
-                # c10/c11, honesty h7/h8): exactly a 404 model_not_found, ONE
-                # retry, never a second catch (a repeat 404 propagates
-                # unguarded below — legible via _raise_legible_http_error's
-                # existing body-folding, exactly as before this task).
-                refreshed_id = _refreshed_model_id(config, role_name, exc)
+                retried = self._maybe_retry_ladder_400(
+                    exc, payload, role_name, sent_effort, config, dispatch
+                )
+                if retried is not None:
+                    return retried
+                refreshed_id = self._maybe_refresh_on_404(exc, config, role_name)
                 if refreshed_id is None:
                     raise
                 # Persist the refresh (Qodo review, PR #381): later
@@ -1136,14 +1169,17 @@ class VllmOpenAIEngine(Engine):
                 config.model = refreshed_id
                 payload["model"] = refreshed_id
                 try:
-                    return _invoke()
+                    return dispatch()
                 except urllib.error.HTTPError as retry_exc:
                     # A 404→400 sequence (c33): the SAME payload the refresh
                     # just re-sent can still be rejected on the ladder — the
                     # ladder retry is disjoint from (and stacks on top of)
                     # the refresh that already happened once above.
-                    if "chat_template_kwargs" in payload and _is_ladder_400(retry_exc):
-                        return _retry_dropping_ladder(retry_exc)
+                    retried_again = self._maybe_retry_ladder_400(
+                        retry_exc, payload, role_name, sent_effort, config, dispatch
+                    )
+                    if retried_again is not None:
+                        return retried_again
                     raise
 
         return complete

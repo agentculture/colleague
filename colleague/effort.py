@@ -50,7 +50,7 @@ revision) may yet honor the distinction.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 LADDER = ("off", "low", "medium", "high", "xhigh")
 
@@ -231,3 +231,50 @@ def to_chat_template_kwargs(effort_value: Optional[str]) -> Optional[dict]:
         return {"enable_thinking": False}
 
     return {"reasoning_effort": effort_value}
+
+
+def resolve_reasoning_effort_overrides(
+    pick: "Callable[..., str]",
+    file_reasoning_effort: Optional[str],
+    file_reasoning_effort_seats: "dict[str, str]",
+    file_too_long_min: Optional[str],
+    default_too_long_min: int,
+) -> "tuple[Optional[str], dict[str, str], int]":
+    """Resolve the reasoning-effort config-file/env overrides.
+
+    Extracted from ``EngineConfig.resolve`` (SonarCloud S3776) — a PURE
+    helper: *pick* is ``config._pick`` (explicit > ``COLLEAGUE_*`` env >
+    config-file > default), passed in rather than imported, so this module
+    stays dependency-free of :mod:`colleague.config` (the module docstring's
+    "config imports effort, never the reverse" invariant). Every raw value
+    is validated via :func:`validate_effort` exactly as the inline block
+    did. Returns ``(global_value_or_None, seat_overrides, too_long_min)``.
+    """
+    resolved_reasoning_effort = (
+        pick(None, "COLLEAGUE_REASONING_EFFORT", default=file_reasoning_effort or "") or None
+    )
+    if resolved_reasoning_effort is not None:
+        resolved_reasoning_effort = validate_effort(resolved_reasoning_effort)
+
+    resolved_reasoning_effort_seats: "dict[str, str]" = {}
+    for seat in SEAT_TABLE:
+        raw = (
+            pick(
+                None,
+                f"COLLEAGUE_{seat.upper()}_REASONING_EFFORT",
+                default=file_reasoning_effort_seats.get(seat, ""),
+            )
+            or None
+        )
+        if raw is not None:
+            resolved_reasoning_effort_seats[seat] = validate_effort(raw)
+
+    resolved_too_long_min = int(
+        pick(
+            None,
+            "COLLEAGUE_TOO_LONG_MIN",
+            default=file_too_long_min or str(default_too_long_min),
+        )
+    )
+
+    return resolved_reasoning_effort, resolved_reasoning_effort_seats, resolved_too_long_min
