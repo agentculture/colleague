@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.0] - 2026-08-22
+
+### Added
+
+- qwen-direct single-model default — the FIFTH recorded v0→v1 convention change (spec `docs/specs/2026-08-22-qwen-direct-no-gemma.md`, plan `docs/plans/2026-08-22-qwen-direct-no-gemma.md`, doc `docs/features/qwen-direct.md`): 1 colleague instance = 1 model = 1 agent; a bare run on a lobes-armed rig resolves exactly one served model (cortex) and dials nothing else.
+- Session `/model` with no argument lists the gateway's `/v1/models` roster + role → model lines and marks the current seat; `/model <id>` also re-derives the context budget from the role's advertised window (`min(window, current)`); session `/effort` shows the per-seat thinking-effort table (`effort_of`) and switches a seat for the session only (`effort.apply_operator_effort`).
+- Bare CLI `--model` / `--effort` (no value) print the served-model list / the per-seat effort table and exit 0 (`colleague/cli/_commands/_listing.py`, pure renderers shared with the session).
+- `config show` and `lobes show` name every advertised role colleague does NOT consume by default (`not consumed (opt-in): senses → … — COLLEAGUE_SENSES_MODEL=lobes`; `--json not_consumed`).
+- An unarmed session PARKS a typed/voiced mid-run line for cortex via flight guidance (`_park_talk_for_cortex`) instead of dropping it; `/voice`, `/speak`, `--voice` print one honest 'senses not armed — dormant' line on the default path.
+- Tests: `tests/test_single_model_default.py` (one model on the default path, sentinel-only fallbacks, artifact has no senses key), `test_session_model.py`, `test_session_effort.py`, `test_cli_flags_listing.py`, `test_cli_not_consumed.py`; live proof row 40 in `docs/live-testing.md` + `docs/evidence/2026-08-22-qwen-direct-no-gemma-results.md`; workforce ledger `docs/evidence/2026-08-22-qwen-direct-no-gemma-workforce-ledger.md`.
+
+### Changed
+
+- Senses and muse lobes discovery are OPT-IN: `EngineConfig.resolve()` reaches `_senses_lobes_fallback` / `_deepthink_lobes_fallback` only when the declared model is the `lobes` sentinel (`COLLEAGUE_SENSES_MODEL=lobes` / `COLLEAGUE_DEEPTHINK_MODEL=lobes`, or config.json `senses.model` / `deepthink.model`); an explicit model id still declares a seat directly; rollback is one declaration.
+- Sanctioned increment (4) presence-default-everywhere is superseded: the senses presence loop, front door, streaming/narration and clarify live behind the opt-in; `CLAUDE.md` + 8 feature docs marked accordingly.
+- Slash config actions (`_act_*`, `_CONFIG_ACTIONS`) extracted from `session.py` into `colleague/cli/_commands/_session_actions.py` under the file-length ratchet (session.py 4052 → 3979 lines); `apply_operator_effort` lives in `colleague/effort.py` (the sanctioned assignment site).
+- ask-colleague prompt templates now demand per-step progress narration (the model's text beside a tool call rides the flight feed) and an answer-so-far near budget.
+
+### Fixed
+
+- #422: the three lobes-unarmed tests (`test_cli_lobes.py` ×2, `test_config_lobes.py`) are hermetic against a checkout whose `.colleague/config.json` arms lobes (`--repo tmp_path`); the full suite is green on such a checkout.
+- Discovery-by-default pins in `test_config_evaluation_mode.py`, `test_config_worker.py`, `test_voice_config.py`, `test_config_lobes_deepthink.py` flipped to the opt-in sentinel.
+
 ## [1.62.1] - 2026-08-22
 
 ### Changed
