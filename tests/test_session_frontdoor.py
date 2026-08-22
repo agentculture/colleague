@@ -160,6 +160,26 @@ def test_unarmed_session_has_no_front_door(tmp_path: Path, monkeypatch) -> None:
     assert not any(ln.startswith("senses:") for ln in _lines(sess))
 
 
+def test_unarmed_talk_lane_never_consults_frontdoor(tmp_path: Path, monkeypatch) -> None:
+    # Default path: senses unarmed (config.senses None) + a typed mid-run talk
+    # line — the line parks to cortex via flight guidance, and the senses front
+    # door is NEVER consulted (the talk lane has no front door on the default
+    # path).
+    config = EngineConfig.resolve(model="cortex-model")  # senses stays None
+    sess, _calls = _session(tmp_path, config=config)
+    frontdoor_calls = {"n": 0}
+
+    def _boom(*a, **k):
+        frontdoor_calls["n"] += 1
+        return _senses_direct_outcome()
+
+    monkeypatch.setattr(session_mod, "run_frontdoor", _boom)
+    sess._talk_active = True
+    sess._talk_task_id = "tid"
+    sess._talk_senses("focus on the tests")
+    assert frontdoor_calls["n"] == 0  # the front door is never consulted
+
+
 def test_run_frontdoor_is_noop_when_cortex_only(tmp_path: Path) -> None:
     sess, _calls = _session(tmp_path, cortex_only=True)
     assert sess._run_frontdoor("what are you?") is None

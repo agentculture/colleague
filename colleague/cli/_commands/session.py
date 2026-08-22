@@ -2820,6 +2820,12 @@ class _Session:
         )
         pair = self._senses_engine(**stream_kwargs)
         if pair is None:
+            # Senses unarmed (config.senses None) — the talk lane has no front
+            # door on the default path, so the typed/voiced line is PARKED for
+            # cortex at the next boundary: written VERBATIM as flight guidance
+            # (the same seam colleague talk's raw-guide degrade uses), never
+            # returned-and-dropped.
+            self._park_talk_for_cortex(text)
             return
         senses_config, engine = pair
         record = run_senses_talk(
@@ -2868,6 +2874,23 @@ class _Session:
             with contextlib.suppress(Exception):
                 flight.append_guidance(self.repo, self._talk_task_id, relay_text)
             self._log(f"-> cortex: {relay_text}")
+        if self.view == "ansi":
+            self.emit()
+
+    def _park_talk_for_cortex(self, text: str) -> None:
+        """Park one unarmed talk line for cortex at the next boundary.
+
+        The senses talk lane has no front door on the default path (senses
+        unarmed, ``config.senses is None``), so a typed/voiced line is written
+        VERBATIM as flight guidance — the same seam colleague talk's raw-guide
+        degrade uses — and a ``parked for cortex at the next boundary`` line is
+        logged. Nothing is returned-and-dropped. A no-op when the talk lane is
+        not armed (no flight to park onto)."""
+        if self._talk_task_id is None:
+            return
+        with contextlib.suppress(Exception):
+            flight.append_guidance(self.repo, self._talk_task_id, text)
+        self._log("parked for cortex at the next boundary")
         if self.view == "ansi":
             self.emit()
 
