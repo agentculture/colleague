@@ -114,7 +114,8 @@ def test_defaults_and_zero_disables(monkeypatch) -> None:
     monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "garbage")
     guards = streamguards.StreamGuards.from_env()
     assert guards is not None
-    assert guards.idle == 12.5 and guards.lifetime is None
+    assert guards.idle == 12.5
+    assert guards.lifetime is None
 
 
 @pytest.mark.parametrize(
@@ -253,7 +254,8 @@ def test_loop_warning_names_the_guard(task: Task) -> None:
     stalls = [w for w in result.warnings if w.get("kind") == "step-stall"]
     assert len(stalls) == 1
     assert stalls[0]["guard"] == "stream-lifetime"
-    assert result.incompletion is not None and result.incompletion.reason == "step-stall"
+    assert result.incompletion is not None
+    assert result.incompletion.reason == "step-stall"
 
 
 def test_step_stall_warning_keeps_its_default_guard_name(task: Task, monkeypatch) -> None:
@@ -266,4 +268,5 @@ def test_step_stall_warning_keeps_its_default_guard_name(task: Task, monkeypatch
 
     result = loop.run(streaming_forever, task, max_steps=3)
     stalls = [w for w in result.warnings if w.get("kind") == "step-stall"]
-    assert stalls and stalls[0]["guard"] == "step-stall"
+    assert stalls
+    assert stalls[0]["guard"] == "step-stall"

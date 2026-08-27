@@ -211,7 +211,7 @@ def test_session_cap_is_tracked_across_calls(tmp_path: Path, monkeypatch):
 
 def test_reset_session_spill_bytes(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(truncation, "MAX_SESSION_SPILL_BYTES", 10)
-    truncation._session_bytes_spilled = 999
+    monkeypatch.setattr(truncation, "_session_bytes_spilled", 999)
     truncation.reset_session_spill_bytes()
     assert truncation.session_bytes_spilled() == 0
 

@@ -64,7 +64,8 @@ def test_marker_names_both_copyright_holders():
     assert ADAPTED_FROM_MARKER.startswith("adapted-from: qwen-code core/prompts.ts:278-440")
     # The literal must be greppable in the module source (h34).
     src = Path(prompttext.__file__).read_text()
-    assert "Copyright 2025 Google LLC" in src and "Copyright 2026 Qwen Team" in src
+    assert "Copyright 2025 Google LLC" in src
+    assert "Copyright 2026 Qwen Team" in src
 
 
 def test_colleague_owned_sections_are_kept_verbatim():

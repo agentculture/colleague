@@ -60,8 +60,9 @@ def test_associate_seats_is_one_fixed_tuple() -> None:
 
 
 def test_unknown_seat_is_refused() -> None:
+    cfg = _config(armed=True)
     with pytest.raises(ValueError):
-        associate_seats.resolve_associate_seat_config(_config(armed=True), "coder")
+        associate_seats.resolve_associate_seat_config(cfg, "coder")
 
 
 def test_feature_doc_table_has_the_associate_row() -> None:
