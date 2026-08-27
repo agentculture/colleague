@@ -13,6 +13,7 @@ import re
 from contextlib import suppress
 from typing import Callable
 
+from colleague import associate_seats
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
@@ -150,13 +151,10 @@ class MockEngine(Engine):
         # schema: the executor's ``allowlist`` stays the ONE enforcement point
         # for the mock, so narrowing must reach it the same way it reaches the
         # live backend's offered schema. Read the attachment's snapshot
-        # DEFENSIVELY — the real EpisodeConfigLifecycle exposes ``snapshot`` as
-        # a read-only property (already-evaluated, not callable), while a
-        # future frozen child view (r2/t10) may expose a ``snapshot()`` METHOD
-        # instead — so this neither assumes nor requires either shape. No
-        # lifecycle, or a snapshot with the default/empty ``tool_set`` (c26: ()
-        # means not-narrowed), leaves ``role`` untouched: byte-identical to
-        # today.
+        # DEFENSIVELY — the real EpisodeConfigLifecycle exposes ``snapshot`` as a
+        # read-only property while a frozen child view (r2/t10) may expose a
+        # ``snapshot()`` METHOD; neither shape is assumed. No lifecycle, or the
+        # default/empty ``tool_set`` (c26), leaves ``role`` untouched: byte-identical.
         lifecycle = getattr(config, "config_lifecycle", None)
         tool_set: tuple[str, ...] = ()
         if lifecycle is not None:
@@ -224,6 +222,7 @@ class MockEngine(Engine):
                 deepthink_run=dt_run,
                 senses_run=senses_run,
                 tae_session=make_tae_session(config, self.name),
+                associate_complete=associate_seats.make_associate_complete(config, self.name),
             ),
         )
         # Model-bound agents (#411, t13): an ARMED config always returns the

@@ -76,6 +76,7 @@ ROLE_TABLE = {
     "reviewer": "low",
     "validator": "low",
     "explorer": "off",
+    "scout": "low",  # t19: the unarmed scout — a NEW role, cortex at low
 }
 
 # Role overrides that apply only when the role is invoked at the top level

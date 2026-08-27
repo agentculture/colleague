@@ -1,7 +1,7 @@
 """``colleague roles`` CLI noun — list + overview for typed subagent roles.
 
 Acceptance:
-1. ``roles list --json`` emits the resolved roles (5 built-ins) with
+1. ``roles list --json`` emits the resolved roles (6 built-ins) with
    read_only/tools/skills.
 2. read-only roles carry no write_file/edit_file/run_command; validator has
    run_tests; writer is the full surface.
@@ -24,7 +24,7 @@ def test_roles_list_json_shape(tmp_path, capsys: pytest.CaptureFixture[str]) -> 
     payload = json.loads(capsys.readouterr().out)
     assert payload["model"] == "test-model"
     names = {r["name"] for r in payload["roles"]}
-    assert names == {"explorer", "planner", "reviewer", "validator", "writer"}
+    assert names == {"explorer", "planner", "reviewer", "validator", "writer", "scout"}
     for r in payload["roles"]:
         assert set(r) >= {"name", "read_only", "tools", "skills"}
 

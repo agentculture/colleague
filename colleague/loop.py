@@ -553,6 +553,7 @@ class _Work:
     # Dual-model deepthink escalation seam (t5): the bound ``DeepthinkRun`` from
     # ContextControls, ``None`` for a single-model run (escalation points dormant).
     deepthink_run: Callable[..., Any] | None = None
+    associate_complete: Any = None  # t19 seat-completion factory, None = unarmed
     # Media-comprehension bridge (t8, c24): armed only when the operator declared
     # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
     media_bridge: bool = False
@@ -1298,6 +1299,22 @@ def _record_fillline_decision(ctx: _Work, kind: str) -> None:
     ctx._fillline_resolved.append(True)
 
 
+def _seat_complete(ctx: _Work, seat: str, complete: CompleteFn) -> CompleteFn:
+    """*complete* on the associate seat when armed (t19, c33), else *complete* itself.
+
+    Unarmed (no factory) the acting completion is returned unchanged — byte-
+    identical to main. Armed, the factory's completion runs the seat on the
+    associate model and falls to cortex@low with a warning on
+    ``TaskResult.warnings``; a backend without one-shot completions hands the
+    acting completion back (also warned). See :mod:`colleague.associate_seats`.
+    """
+    factory = ctx.associate_complete
+    if factory is None:
+        return complete
+    seat_complete = factory(seat, ctx.result.warnings.append)
+    return seat_complete if seat_complete is not None else complete
+
+
 def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
     """Compact the working history into a validated model-authored summary (#156, t2/c4).
 
@@ -1319,6 +1336,7 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
       is gone from this path, h4) → :func:`_reject_compaction` (armed:
       finish-with-handoff, decision c23; unarmed: the lossy-windowing floor).
     """
+    complete = _seat_complete(ctx, "compact", complete)  # t19: the associate compact author
     budget = int(ctx.context_budget)
     request = _fillline.build_compaction_request(ctx.messages, budget, ctx.count_tokens)
     # Phase notice (#206): a compaction is a no-tools model turn that emits no step
@@ -2780,6 +2798,7 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     else:
         prompt = _SYNTHESIS_PROMPT
     ctx.messages.append({"role": "user", "content": prompt})
+    complete = _seat_complete(ctx, "synthesis", complete)  # t19: the associate synthesis seat
     try:
         # The synthesis turn is the worst case for #206: a single no-tools completion
         # that emits no step line, so a slow backend looks wedged. Announce it loudly.
@@ -3316,10 +3335,21 @@ class ContextControls:
     # — byte-identical. compare=False: it holds live seats, i.e. behavior, not
     # comparable config (the ``deepthink_run``/``senses_run`` precedent).
     tae_session: "_tae.TaeSession | None" = field(default=None, compare=False, repr=False)
+    #: The associate seat-completion factory (adopt-from-qwen-code t19) — every
+    #: backend passes ``associate_seats.make_associate_complete(config, name)``;
+    #: ``None`` (unarmed) keeps the acting completion for every seat.
+    associate_complete: Any = field(default=None, compare=False, repr=False)
 
     @classmethod
     def from_config(
-        cls, config, *, count_tokens=None, deepthink_run=None, senses_run=None, tae_session=None
+        cls,
+        config,
+        *,
+        count_tokens=None,
+        deepthink_run=None,
+        senses_run=None,
+        tae_session=None,
+        associate_complete=None,
     ) -> "ContextControls":
         """Build the controls a backend forwards from its :class:`EngineConfig`.
 
@@ -3368,6 +3398,7 @@ class ContextControls:
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
+            associate_complete=associate_complete,
             # Continuation chaining armed (decision c23): an armed invocation's
             # episodes prefer finish-with-handoff over the lossy-windowing floor
             # when a compaction note is unrepairable — the chain driver restarts
@@ -4942,6 +4973,7 @@ def run(
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
+        associate_complete=_context.associate_complete,
         media_bridge=_context.media_bridge,
         senses_run=_context.senses_run,
         senses_media_bridge=_context.senses_media_bridge,

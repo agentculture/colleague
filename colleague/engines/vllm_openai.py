@@ -25,7 +25,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
-from colleague import associate, effort, stallguard, streamguards, tokenestimate
+from colleague import associate, associate_seats, effort, stallguard, streamguards, tokenestimate
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
@@ -1232,10 +1232,9 @@ class VllmOpenAIEngine(Engine):
         Each model turn is completed via the server's OpenAI-compatible
         ``/v1/chat/completions`` endpoint. Returns a :class:`TaskResult`.
         """
-        # Typed-subagent role (#t4): resolve config.role once and build the child's
-        # curated tool schema + role-aware executor from it. None → full-surface
-        # SCHEMAS + an unrestricted executor (byte-identical to the pre-role path).
-        # The role PROMPT is composed by the role-aware self.system_prompt below.
+        # Typed-subagent role (#t4): resolve config.role once → curated schema +
+        # role-aware executor (None → full surface, byte-identical to pre-role);
+        # the role PROMPT is composed by the role-aware self.system_prompt below.
         role = resolve_role(config, task.repo_path)
         # Dual-model deepthink (t5): ONE binding per work item, injected into BOTH
         # the executor (the model-facing tool) and the ContextControls (the
@@ -1314,6 +1313,7 @@ class VllmOpenAIEngine(Engine):
                 deepthink_run=dt_run,
                 senses_run=senses_run,
                 tae_session=make_tae_session(config, self.name),
+                associate_complete=associate_seats.make_associate_complete(config, self.name),
             ),
         )
         # Model-bound agents (#411, t13): an ARMED config always returns the
