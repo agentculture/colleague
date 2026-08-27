@@ -25,7 +25,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
-from colleague import effort, stallguard
+from colleague import effort, stallguard, streamguards
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
@@ -335,7 +335,7 @@ def _emit_delta(on_delta: Callable[[str], None], chunk: str | None) -> None:
 
 
 def _iter_sse_frames(
-    response: Any, *, terminal: list[bool] | None = None
+    response: Any, *, terminal: list[bool] | None = None, guards: Any = None
 ) -> Iterator[dict[str, Any]]:
     """Yield decoded JSON payloads from an SSE ``data: {...}`` stream.
 
@@ -359,12 +359,10 @@ def _iter_sse_frames(
     signals (e.g. ``ctx._backpressure_state``). It is the only way a caller can
     tell "the server sent the real terminator" apart from "the connection
     simply ran out of lines" (task t5's missing-terminal-frame degradation
-    trigger, see ``_post_json_stream``).
+    trigger, see ``_post_json_stream``). *guards* (c12): see :mod:`colleague.streamguards`.
     """
-    for raw_line in response:
-        # Step-stall watchdog (#400): a no-op unless the loop armed a progress
-        # deadline for this turn; raises TurnStalled past it (never a fallback
-        # error — it propagates to the loop, which ends the episode honestly).
+    for raw_line in streamguards.guarded_lines(response, guards) if guards else response:
+        # Step-stall watchdog (#400): no-op unless the loop armed a deadline.
         stallguard.check()
         line = raw_line.decode("utf-8").strip()
         if not line or line.startswith(":"):
@@ -575,7 +573,8 @@ def _post_json_stream(
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
-            for frame in _iter_sse_frames(response, terminal=terminal_marker):
+            guards = streamguards.StreamGuards.from_env(base_timeout=timeout)  # c12
+            for frame in _iter_sse_frames(response, terminal=terminal_marker, guards=guards):
                 _apply_stream_frame(frame, acc, on_delta)
             if not terminal_marker[0] and not acc.saw_finish_reason:
                 # The connection closed cleanly (no exception) but neither
