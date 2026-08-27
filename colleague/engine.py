@@ -162,7 +162,7 @@ class Engine(abc.ABC):
             compose_role_prompt,
             system_prompt_for,
         )
-        from colleague.loop import _DEFAULT_SYSTEM
+        from colleague.prompttext import default_system
 
         # Prompt-consumption seam (t7): read the evaluator note from the
         # attached config_lifecycle snapshot, if present. The snapshot property
@@ -191,14 +191,14 @@ class Engine(abc.ABC):
                     role,
                     task.repo_path,
                     config.model,
-                    base=_DEFAULT_SYSTEM,
+                    base=default_system(config.model),
                     evaluator_section=evaluator_section,
                     evaluator_seat=EVALUATOR_SEAT_WORKER,
                 )
         return system_prompt_for(
             task.repo_path,
             config.model,
-            base=_DEFAULT_SYSTEM,
+            base=default_system(config.model),
             evaluator_section=evaluator_section,
             evaluator_seat=EVALUATOR_SEAT_WORKER,
         )
