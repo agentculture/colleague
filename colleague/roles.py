@@ -101,26 +101,22 @@ _READONLY_TOOLS = (
 
 #: Read-only tools for the validator role (includes the dedicated test runner).
 _VALIDATOR_TOOLS = _READONLY_TOOLS + ("run_tests",)
+#: The scout's surface (t19, c33/h22): a STRICT subset of the read-only set —
+#: a fast non-coding mind reads and reports, never the test-integrity self-check.
+_SCOUT_TOOLS = tuple(t for t in _READONLY_TOOLS if t != "check_test_integrity")
 
 #: Curated skill-subset patterns for the read-and-report built-in roles
 #: (explorer / planner / reviewer / validator, t10).
 #:
-#: BUILTIN_ROLES is a single module-level constant shared by *every* repo
-#: colleague drives, so this can't be a hardcoded list of this repo's current
-#: ``.colleague/skills/*.md`` filenames — it has to travel by NAMING
-#: CONVENTION (an fnmatch-style glob via ``colleague.layers._filter_skills``)
-#: so a subset composed against a different repo's skill catalog still makes
-#: sense. Each pattern below is an INCLUDE — a class of skill the read-only
-#: roles are trusted to know about because it is itself investigation/
-#: reporting-shaped (reads state, writes nothing). Everything NOT matched is
-#: excluded by omission: this repo's own release/side-effect-shaped skills —
-#: ``cicd`` (opens/pushes PRs), ``version-bump`` (releases), ``pypi-maintainer``
-#: (mutates the install source), ``assign-to-workforce`` (spawns writing
-#: subagents), ``communicate`` (files issues / sends mesh messages),
-#: ``ask-colleague`` (its own ``write --apply``/``--pr`` verbs mutate/push),
-#: and ``promote`` (graduates a resident mesh peer) — are all deliberately
-#: left out, and a pattern matching none of a repo's skills just composes an
-#: empty skills section (never an error; see ``_filter_skills``).
+#: BUILTIN_ROLES is shared by *every* repo colleague drives, so this is not a
+#: list of this repo's ``.colleague/skills/*.md`` filenames — it travels by
+#: NAMING CONVENTION (fnmatch globs via ``colleague.layers._filter_skills``).
+#: Each pattern is an INCLUDE: a class of investigation/reporting-shaped skill
+#: (reads state, writes nothing). Everything else is excluded by omission —
+#: release/side-effect-shaped skills (``cicd``, ``version-bump``,
+#: ``pypi-maintainer``, ``assign-to-workforce``, ``communicate``,
+#: ``ask-colleague``, ``promote``) are deliberately left out; a pattern that
+#: matches nothing composes an empty section (never an error).
 _INVESTIGATION_SKILL_PATTERNS: tuple[str, ...] = (
     "recall*",  # shared eidetic-memory search — pure read, never writes
     "explore*",  # investigation/survey-shaped skills (e.g. "explore-notes")
@@ -138,16 +134,10 @@ _VALIDATOR_SKILL_PATTERNS: tuple[str, ...] = _INVESTIGATION_SKILL_PATTERNS + ("r
 
 
 def _writer_allowlist() -> tuple[str, ...]:
-    """Return the full tool surface derived from the current SCHEMAS, plus ``deepthink``.
-
-    ``deepthink`` (plan t4) is deliberately NOT part of the module-level
-    :data:`colleague.tools.SCHEMAS` list (a single-model run must offer today's
-    tool list byte-identically), so it does not fall out of the SCHEMAS-derived
-    tuple below automatically. It is appended explicitly here for the same
-    reason it is added to every other built-in role: it is pure computation —
-    one bounded completion, no writes, no shell — so the full-surface writer
-    role allows it too. It is a no-op unless the loop actually offers the
-    schema (a dual-model config is present).
+    """The full SCHEMAS-derived surface plus ``deepthink`` (plan t4) — which is
+    deliberately not in :data:`colleague.tools.SCHEMAS` (a single-model run
+    offers today's list byte-identically) and is pure computation, so the
+    writer allows it like every other role; a no-op unless the loop offers it.
     """
     from colleague.tools import DEEPTHINK, SCHEMAS
 
@@ -194,6 +184,16 @@ BUILTIN_ROLES: dict[str, Role] = {
         ),
         tool_allowlist=_VALIDATOR_TOOLS,
         skill_subset=_VALIDATOR_SKILL_PATTERNS,
+        read_only=True,
+    ),
+    "scout": Role(
+        name="scout",
+        prompt_fragment=(
+            "You are a scout. Read files, search, and gather facts quickly, then "
+            "report them plainly. Do not write, edit, or execute commands."
+        ),
+        tool_allowlist=_SCOUT_TOOLS,
+        skill_subset=_INVESTIGATION_SKILL_PATTERNS,
         read_only=True,
     ),
     "writer": Role(

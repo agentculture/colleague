@@ -63,6 +63,7 @@ def test_table_sizes_exact():
         "reviewer",
         "validator",
         "explorer",
+        "scout",  # adopt-from-qwen-code t19: the unarmed scout = cortex at low
     }
     assert set(effort.TOP_LEVEL_ROLE_TABLE) == {"explorer"}
     assert set(effort.DESIGN_SITE_TABLE) == {

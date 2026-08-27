@@ -62,6 +62,7 @@ duplicate it.
 | `reviewer` | `low` |
 | `validator` | `low` |
 | `explorer` | `off` |
+| `scout` | `low` |
 
 ### Top-level role overrides (`TOP_LEVEL_ROLE_TABLE`)
 
