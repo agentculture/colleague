@@ -56,7 +56,7 @@ from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import media
 from colleague import memory as _memorymod
-from colleague import salvage, stallguard
+from colleague import salvage, stallguard, streamguards
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague.agents import runtime as _agents_runtime
@@ -143,8 +143,6 @@ _EXIT_STALLED = "stalled"  # no completed step within the step-stall bound (#400
 # duration one: the clock restarts whenever a step completes.
 _STALL_ENV = "COLLEAGUE_MAX_STEP_STALL"
 _STALL_FLOOR_SECONDS = 5400.0
-_STALL_LATENCY_MULTIPLIER = 6.0
-_STALL_MIN_SAMPLES = 3
 
 # Consecutive UnknownToolError steps tolerated before the loop stops the run as
 # ``_EXIT_TOOL_PROTOCOL`` (#321). Three failed self-corrections (each fed back the
@@ -1774,9 +1772,9 @@ def _stall_bound(ctx: _Work) -> float | None:
     """The step-stall bound in seconds, or ``None`` when disabled (#400).
 
     ``COLLEAGUE_MAX_STEP_STALL`` (seconds) wins when set — ``0``/negative/unparsable
-    disables the watchdog. Otherwise the bound is ``max(floor, 6 x mean turn
-    latency)`` once three turns have been measured, else the floor alone: it
-    adapts to rig speed rather than hardcoding, and never drops below the floor.
+    disables the watchdog. Otherwise the bound is the fixed floor: the former
+    ``6 x mean turn latency`` scaling was retired (adopt-from-qwen-code c12) —
+    an alive-but-slow stream is bounded by :mod:`colleague.streamguards` instead.
     """
     raw = os.environ.get(_STALL_ENV)
     if raw is not None and raw.strip():
@@ -1785,11 +1783,7 @@ def _stall_bound(ctx: _Work) -> float | None:
         except ValueError:
             return None
         return value if value > 0 else None
-    latencies = ctx._turn_latencies
-    if len(latencies) >= _STALL_MIN_SAMPLES:
-        return max(
-            _STALL_FLOOR_SECONDS, _STALL_LATENCY_MULTIPLIER * (sum(latencies) / len(latencies))
-        )
+    del ctx  # the bound no longer depends on measured latencies
     return _STALL_FLOOR_SECONDS
 
 
@@ -1798,17 +1792,22 @@ def _mark_progress(ctx: _Work) -> None:
     ctx._last_progress[:] = [time.monotonic()]
 
 
-def _record_stall(ctx: _Work, seconds: float, bound: float) -> None:
-    """Record a crossed step-stall bound honestly: warning + phase notice + exit cell."""
+def _record_stall(ctx: _Work, seconds: float, bound: float, guard: str = "step-stall") -> None:
+    """Record a crossed stall bound honestly: warning (naming WHICH guard — the #400
+    progress bound or a c12 stream guard) + phase notice + the ``step-stall`` exit cell."""
     ctx._stalled[:] = [seconds]
     ctx.result.warnings.append(
         {
             "kind": "step-stall",
+            "guard": guard,
             "seconds": round(seconds, 1),
             "bound_seconds": round(bound, 1),
             "step_index": len(ctx.result.steps),
         }
     )
+    if guard != "step-stall":
+        _emit_phase(ctx, streamguards.stall_notice(guard, seconds, bound))
+        return
     _emit_phase(
         ctx,
         f"step-stall: no completed step for {seconds:.0f}s (bound {bound:.0f}s) — "
@@ -2933,7 +2932,7 @@ def _complete_turn_or_retry(ctx: _Work, complete: CompleteFn) -> ModelResponse |
     except stallguard.TurnStalled as exc:
         # Step-stall (#400): the turn was alive but no step completed within the
         # bound — record it and let _work_loop end the episode with a partial.
-        _record_stall(ctx, exc.seconds, exc.bound)
+        _record_stall(ctx, exc.seconds, exc.bound, getattr(exc, "guard", "step-stall"))
         return None
     except Exception as exc:  # noqa: BLE001
         # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,

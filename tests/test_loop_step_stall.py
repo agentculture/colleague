@@ -115,20 +115,21 @@ def test_knob_zero_disables_the_watchdog(task: Task, monkeypatch) -> None:
     assert result.warnings == []
 
 
-def test_default_bound_policy_floor_and_latency_scaling() -> None:
-    """The default never drops below the floor and scales to 6x the mean turn latency."""
+def test_default_bound_policy_is_the_fixed_floor() -> None:
+    """The default is the floor alone — the 6x-mean-latency scaling was retired
+    (adopt-from-qwen-code c12: alive-but-slow streams are bounded by the stream
+    guards in ``colleague.stallguard``, not by stretching the progress bound)."""
     assert loop._STALL_FLOOR_SECONDS == 5400.0
+    assert not hasattr(loop, "_STALL_LATENCY_MULTIPLIER")
 
-    class _Ctx:  # the two fields _stall_bound reads
+    class _Ctx:
         _turn_latencies: list[float]
 
     ctx = _Ctx()
     ctx._turn_latencies = []
-    assert loop._stall_bound(ctx) == 5400.0  # type: ignore[arg-type]
-    ctx._turn_latencies = [100.0, 100.0, 100.0]
-    assert loop._stall_bound(ctx) == 5400.0  # 6x100 < floor -> floor
+    assert loop._stall_bound(ctx) == 5400.0
     ctx._turn_latencies = [1000.0, 1000.0, 1000.0]
-    assert loop._stall_bound(ctx) == 6000.0  # 6x mean once >= 3 samples
+    assert loop._stall_bound(ctx) == 5400.0  # no scaling, even with slow turns
 
 
 def test_stallguard_check_is_a_noop_when_unarmed_and_raises_past_deadline() -> None:
