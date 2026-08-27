@@ -7,6 +7,11 @@ under [`docs/specs/`](docs/specs/) / [`docs/plans/`](docs/plans/). A bare `Doc:`
 name is a file under `docs/features/`. Trim discipline (decision c17 / honesty h4):
 no fact was dropped — everything moved to its pointer target.
 
+Some harness mechanisms are ported (as small stdlib Python, never a vendored
+dependency) from Qwen Code and its Google Gemini CLI lineage; provenance is
+tracked in [`docs/adopted-from.md`](docs/adopted-from.md) (see also
+[`NOTICE`](NOTICE)).
+
 ## What colleague is
 
 **Colleague CLI is a swappable coder-agent harness that turns different model
