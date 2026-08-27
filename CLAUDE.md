@@ -72,6 +72,16 @@ minds. The architecture, part by part:
   / bare `--model` + `--effort` (CLI) list the served options + per-seat effort
   defaults — an **explicit operator choice, never automatic routing**. The
   instance spawns ITSELF as subagents (same model). Doc: `qwen-direct.md`.
+- **Adopted harness mechanics (adopt-from-qwen-code)** — harness mechanics
+  ported from Qwen Code (and its Google Gemini CLI lineage) as small stdlib
+  modules, never a dependency: a window-clamped `max_tokens` on every
+  completion, ONE `/tokenize` per run, parallel batches of read-only tool
+  calls (convention change (6)), `grep_search`/`glob`, paged `read_file`, a
+  tolerant `edit_file` + prior-read rule, spill-to-disk truncation, rule-based
+  microcompaction, stream + loop guards, adopted prompt text, and the opt-in
+  `associate` seat (`COLLEAGUE_ASSOCIATE_MODEL=lobes`, addressed by role name)
+  — each with one off-knob that is byte-identical to main; credit in `NOTICE`
+  and `docs/adopted-from.md`. Doc: `adopt-from-qwen-code.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,

@@ -37,7 +37,7 @@ literal `adapted-from: qwen-code`.
 | editmatch (tolerant edit match + prior-read enforcement) | `packages/core/src/utils/editHelper.ts:313-380, tools/priorReadEnforcement.ts` | `colleague/editmatch.py` | 2026-08-27 |
 | stream guards (idle + lifetime watchdog) | `packages/core/src/core/openaiContentGenerator/constants.ts:1-68, pipeline.ts:412-530` | `colleague/streamguards.py` | 2026-08-27 |
 | prompttext (base system prompt structure) | `core/prompts.ts:278-440` | `colleague/prompttext.py` | 2026-08-27 |
-| loop guards (repeated/excess tool-call halting) | `packages/core/src/services/loopDetectionService.ts:35,140` | pending | pending |
+| loop guards (repeated/excess tool-call halting) | `packages/core/src/services/loopDetectionService.ts:35,140, core/client.ts:3717` | `colleague/loopguards.py` | 2026-08-27 |
 | token estimation (chars/4 fallback, no per-turn count API) | `packages/core/src/services/tokenEstimation.ts` | `colleague/tokenestimate.py` | 2026-08-27 |
 | readpage (paged, grounded `read_file` rendering + tool-output bound) | `packages/core/src/tools/read-file.ts:102-158, utils/fileUtils.ts:1440-1560` | `colleague/readpage.py` | 2026-08-27 |
 | search_schemas (search tool declarations + dispatch glue) | `packages/core/src/tools/ripGrep.ts, tools/grep.ts, tools/glob.ts` | `colleague/search_schemas.py` | 2026-08-27 |
