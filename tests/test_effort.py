@@ -24,6 +24,8 @@ _TABLE_ROWS = [
     (effort.SEAT_TABLE, "evaluator", "medium"),
     (effort.SEAT_TABLE, "senses", "off"),
     (effort.SEAT_TABLE, "design", "xhigh"),
+    # adopt-from-qwen-code t18: the associate (fast non-coding scout) seat, thinking OFF.
+    (effort.SEAT_TABLE, "associate", "off"),
     (effort.ROLE_TABLE, "writer", "medium"),
     (effort.ROLE_TABLE, "planner", "medium"),
     (effort.ROLE_TABLE, "reviewer", "low"),
@@ -53,6 +55,7 @@ def test_table_sizes_exact():
         "evaluator",
         "senses",
         "design",
+        "associate",
     }
     assert set(effort.ROLE_TABLE) == {
         "writer",

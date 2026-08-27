@@ -105,6 +105,22 @@ def _config_show(repo: str = ".") -> object:
         data = {**data, "lobes": {"armed": True, "gateway": gateway, "resolved_model": cfg.model}}
         # qwen-direct (c7/h7): advertised-but-not-consumed roles (senses/muse opt-in).
         data["lobes"]["not_consumed"] = append_not_consumed(lines, gateway, cfg, indent="")
+        # Associate seat (adopt-from-qwen-code t18, c49): when armed, name the
+        # SERVED model and how the wire is addressed (role name via the proxy,
+        # or an explicit id) — the consumed counterpart of the line above.
+        assoc = getattr(cfg, "associate", None)
+        if assoc is not None:
+            how = (
+                "addressed as role name via proxy"
+                if assoc.addressed_as_role
+                else "explicit model id"
+            )
+            lines.append(f"associate → {assoc.model} ({how})")
+            data["lobes"]["associate"] = {
+                "served_model": assoc.model,
+                "wire_model": assoc.wire_model,
+                "addressed_as_role": assoc.addressed_as_role,
+            }
     # Model-bound agents (#411 t7): show the mode; payload key only when armed.
     lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
     return rendered(data, "\n".join(lines))

@@ -31,6 +31,13 @@ from typing import TYPE_CHECKING, Callable, Collection, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from colleague import configdir, effort
+from colleague.associate_config import (  # noqa: F401 - AssociateConfig re-exported
+    ASSOCIATE_WIRE_MODEL,
+    AssociateConfig,
+    associate_lobes_fallback,
+    load_associate_overrides,
+    resolve_associate,
+)
 from colleague.fillline import DEFAULT_COMPACTION_CAP
 
 if TYPE_CHECKING:
@@ -3038,6 +3045,8 @@ class EngineConfig:
     # task t3). ``None`` = no senses declared, byte-identical to today. See
     # :class:`SensesConfig` and :func:`_resolve_senses`.
     senses: Optional[SensesConfig] = None
+    # Associate (fast non-coding) seat, t18 — :mod:`colleague.associate_config`.
+    associate: Optional[AssociateConfig] = None
     # Voice (stt/tts) escalation target (senses live-presence + voice arc).
     # ``None`` = no voice declared, byte-identical to today. See
     # :class:`VoiceConfig` and :func:`_resolve_voice`.
@@ -3327,6 +3336,7 @@ class EngineConfig:
         file_compaction_cap: str | None = None
         file_deepthink: dict[str, str] = {}
         file_senses: dict[str, str] = {}
+        file_associate: dict[str, str] = {}
         file_voice: dict[str, str] = {}
         file_realtime: dict[str, str] = {}
         file_three_tier: str | None = None
@@ -3354,6 +3364,7 @@ class EngineConfig:
             )
             file_deepthink = _load_deepthink_overrides(repo_path)
             file_senses = _load_senses_overrides(repo_path)
+            file_associate = load_associate_overrides(repo_path)
             file_voice = _load_voice_overrides(repo_path)
             file_realtime = _load_realtime_overrides(repo_path)
             file_three_tier = _load_three_tier_override(repo_path)
@@ -3431,6 +3442,13 @@ class EngineConfig:
         if resolved_senses is not None and resolved_senses.model == "lobes":
             resolved_senses = _senses_lobes_fallback(
                 lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_senses
+            )
+        # Associate seat (adopt-from-qwen-code t18) — OPT-IN like senses/muse via
+        # the ``lobes`` sentinel; see :mod:`colleague.associate_config`.
+        resolved_associate = resolve_associate(file_associate, resolved_base_url, resolved_api_key)
+        if resolved_associate is not None and resolved_associate.model == "lobes":
+            resolved_associate = associate_lobes_fallback(
+                lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_associate
             )
         # Voice (stt/tts) escalation target (senses live-presence + voice arc) —
         # resolved once as a local, mirroring senses. Precedence: env >
@@ -3874,6 +3892,7 @@ class EngineConfig:
             # lobes discovery rung yet (t4); base_url/api_key default to the
             # resolved MAIN endpoint values computed above.
             senses=resolved_senses,
+            associate=resolved_associate,  # t18: see colleague/associate_config.py
             voice=resolved_voice,
             # Realtime dial target (realtime-speech arc, task t1) — env >
             # config.json `realtime` section > lobes discovery (stt's

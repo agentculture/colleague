@@ -310,6 +310,9 @@ def _parse_response(data: dict[str, Any]) -> ModelResponse:
         completion_tokens=int(usage.get("completion_tokens", 0)),
         reasoning=message.get("reasoning") or message.get("reasoning_content") or "",
         finish_reason=str(choices[0].get("finish_reason") or ""),
+        # The SERVED model the reply names (t18, c49) — for a seat addressed
+        # by role name this is the only place the real id is observable.
+        served_model=str(data.get("model") or ""),
     )
 
 
@@ -447,6 +450,7 @@ class _StreamAccumulator:
     tool_call_fragments: dict[int, dict[str, str]] = field(default_factory=dict)
     usage: dict[str, Any] = field(default_factory=dict)
     saw_finish_reason: bool = False
+    served_model: str = ""
     # The actual raw finish_reason value (plan task t1, covers c4/h4) — kept
     # alongside ``saw_finish_reason`` (which only the stream-completeness check
     # below needs) rather than replacing it, so a legitimate "" value from a
@@ -510,6 +514,9 @@ def _apply_stream_frame(
             # survived; the string itself was dropped at stream termination.
             acc.finish_reason = str(raw_finish_reason)
     _capture_frame_usage(frame, acc)
+    frame_model = frame.get("model")
+    if frame_model and not acc.served_model:
+        acc.served_model = str(frame_model)
 
 
 class _StreamIncomplete(Exception):
@@ -599,6 +606,7 @@ def _post_json_stream(
         completion_tokens=int(acc.usage.get("completion_tokens", 0)),
         reasoning="".join(acc.reasoning_parts),
         finish_reason=acc.finish_reason,
+        served_model=acc.served_model,
     )
 
 
@@ -1122,6 +1130,19 @@ class VllmOpenAIEngine(Engine):
         """
         return _refreshed_model_id(config, role_name, exc)
 
+    @staticmethod
+    def _maybe_retry_role_alias(
+        exc: urllib.error.HTTPError,
+        payload: "dict[str, Any]",
+        config: EngineConfig,
+        dispatch: "Callable[[], ModelResponse]",
+    ) -> "ModelResponse | None":
+        """ONE retry by served id when a gateway rejects a role-name address
+        (t18, c49/h36) — the rule lives in :func:`colleague.associate.retry_role_alias`."""
+        from colleague import associate as _associate
+
+        return _associate.retry_role_alias(exc, payload, config, dispatch)
+
     def _recover_http_error(
         self,
         exc: urllib.error.HTTPError,
@@ -1146,6 +1167,9 @@ class VllmOpenAIEngine(Engine):
         )
         if retried is not None:
             return retried
+        aliased = self._maybe_retry_role_alias(exc, payload, config, dispatch)
+        if aliased is not None:
+            return aliased
         refreshed_id = self._maybe_refresh_on_404(exc, config, role_name)
         if refreshed_id is None:
             raise exc

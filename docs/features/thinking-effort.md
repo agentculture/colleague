@@ -51,6 +51,7 @@ duplicate it.
 | `evaluator` | `medium` |
 | `senses` | `off` |
 | `design` | `xhigh` |
+| `associate` | `off` |
 
 ### Subagent children (`ROLE_TABLE`)
 

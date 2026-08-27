@@ -183,7 +183,14 @@ def _lobes_show(repo: str = ".") -> object:
     lines += _role_lines("senses", roles.senses)
     # stt/tts (voice arc) and muse (two-machines-two-minds t4) are OPTIONAL
     # roles — shown, ready-kind label and all, only when the gateway serves them.
-    for opt_name, opt_role in (("stt", roles.stt), ("tts", roles.tts), ("muse", roles.muse)):
+    # ``associate`` (adopt-from-qwen-code t18) joins the optional set — the
+    # fast non-coding seat, proxied like muse (``config-proxy`` ready kind).
+    for opt_name, opt_role in (
+        ("stt", roles.stt),
+        ("tts", roles.tts),
+        ("muse", roles.muse),
+        ("associate", roles.associate),
+    ):
         if opt_role is not None:
             payload["roles"][opt_name] = _role_info_to_dict(opt_name, opt_role)
             lines += _role_lines(opt_name, opt_role)

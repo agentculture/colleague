@@ -260,6 +260,7 @@ def maybe_list_and_apply(
 OPT_IN_ROLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("senses", "senses", "COLLEAGUE_SENSES_MODEL=lobes"),
     ("muse", "deepthink", "COLLEAGUE_DEEPTHINK_MODEL=lobes"),
+    ("associate", "associate", "COLLEAGUE_ASSOCIATE_MODEL=lobes"),
 )
 
 

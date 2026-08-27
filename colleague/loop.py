@@ -389,6 +389,11 @@ class ToolCall:
     arguments: dict[str, Any] = field(default_factory=dict)
 
 
+# Wire-model aliases that are ROLE NAMES, not served ids (t18/c49): a run whose
+# configured model is one of these records the reply's served model instead.
+_ROLE_WIRE_ALIASES = frozenset({"associate"})
+
+
 @dataclass
 class ModelResponse:
     """One model turn: free text, reasoning, any tool calls, and token usage.
@@ -418,6 +423,11 @@ class ModelResponse:
     completion_tokens: int = 0
     reasoning: str = ""
     finish_reason: str = ""
+    # The model id the reply itself named (``response.model``), t18/c49 — ""
+    # for engines that never report it. Read by ``_finalize_stats`` so a seat
+    # addressed by a role-name alias (``associate``) still records the SERVED
+    # model on the artifact; never consulted for anything else.
+    served_model: str = ""
 
 
 # A ``complete`` performs one model turn given the running message list.
@@ -657,6 +667,9 @@ class _Work:
     # through the binding. Read by ``_finalize_finish_states`` at every exit
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
+    # First non-empty ``resp.served_model`` seen this run (t18) — see
+    # ``_finalize_stats``.
+    _served_model: list[str] = field(default_factory=list)
     # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
     # step completed (the loop start until one does); ``_stalled`` holds the elapsed
     # seconds once the bound was crossed — a single-element cell the frozen ``_Work``
@@ -977,6 +990,7 @@ def _finalize_stats(
     started_at: str,
     duration_seconds: float,
     model: str = "",
+    served_model: str = "",
 ) -> None:
     """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
 
@@ -992,7 +1006,10 @@ def _finalize_stats(
     stats = result.stats
     stats.request = task.instruction
     stats.engine = task.engine
-    stats.model = model
+    # A seat addressed by a role-name alias (the ``associate`` wire model,
+    # t18/c49) records the SERVED model the reply named, never the alias; a
+    # real model id is never overwritten by a served-model observation.
+    stats.model = served_model if (served_model and model in _ROLE_WIRE_ALIASES) else model
     stats.started_at = started_at
     stats.duration_seconds = duration_seconds
     stats.step_count = len(result.steps)
@@ -2207,6 +2224,8 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     # (even a "" value overwrites), matching the wire's own semantics of "the
     # last completion's own reason", not merely the last non-empty one.
     ctx._last_finish_reason[:] = [resp.finish_reason]
+    if resp.served_model and not ctx._served_model:
+        ctx._served_model[:] = [resp.served_model]
 
 
 def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
@@ -5189,6 +5208,7 @@ def run(
         started_at=started_at,
         duration_seconds=round(time.monotonic() - start_monotonic, 6),
         model=model or "",
+        served_model=(ctx._served_model[0] if ctx._served_model else ""),
     )
     telemetry.on_bytes_written(result.stats.bytes_written)
 
