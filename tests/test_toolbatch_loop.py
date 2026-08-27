@@ -405,3 +405,47 @@ def test_mock_style_multi_call_turn_finishes_and_counts_steps(
         executor=executor,
     )
     assert result.status == OK and result.stats.step_count == 3
+
+
+def test_pre_tool_rewrite_into_a_mutating_command_is_demoted_out_of_the_pool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Qodo #441-13: the partition saw `cat a.txt` (batch-safe); a pre_tool hook
+    rewrites it into `touch mutated.txt` (mutating) — it must run, but never in
+    the pool: sequentially on the main thread, after the parallel reads, with its
+    step still recorded in request order."""
+    import stat
+
+    from colleague.hooks import HookConfig, HookEntry
+
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    script = tmp_path / "rewrite.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        'echo \'{"decision": "rewrite", "arguments": {"command": "touch mutated.txt"}}\'\n'
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    hooks = HookConfig(
+        _entries={
+            "pre_tool": [HookEntry(event="pre_tool", matcher="run_command", command=str(script))]
+        }
+    )
+    executor = _SpyExecutor(_repo(tmp_path), sleeps={"b.txt": 0.1, "c.txt": 0.1})
+    calls = [ToolCall("1", "run_command", {"command": "cat a.txt"}), *_reads("b.txt", "c.txt")]
+    task = Task.new(str(tmp_path), "rewritten batch")
+    result = run(
+        _scripted([ModelResponse(tool_calls=calls), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+        hooks=hooks,
+    )
+    assert result.status == OK
+    assert (tmp_path / "mutated.txt").exists(), "the rewritten command did run"
+    assert "cat a.txt" not in executor.started, "the pre-rewrite command never ran"
+    assert executor.threads["touch mutated.txt"] == threading.get_ident(), "never in the pool"
+    assert executor.started.index("touch mutated.txt") > max(
+        executor.started.index("b.txt"), executor.started.index("c.txt")
+    ), "demoted: runs after the parallel part"
+    assert [s.tool for s in result.steps][:3] == ["run_command", "read_file", "read_file"]
+    assert result.steps[0].arguments == {"command": "touch mutated.txt"}

@@ -164,12 +164,15 @@ def make_associate_complete(
 
     def factory(seat: str, warn: Callable[[str], None]) -> Optional[CompleteFn]:
         _check_seat(seat)
-        engine = loader(engine_name)
         try:
+            engine = loader(engine_name)
             primary = engine.make_complete(resolve_associate_seat_config(config, seat), tools=[])
         except NotImplementedError as exc:
             warn(fallback_warning(seat, f"engine '{engine_name}': {exc}"))
             return None
+        except Exception as exc:  # noqa: BLE001 — Qodo #441-7: setup failures fall back too
+            warn(fallback_warning(seat, f"setup {type(exc).__name__}: {exc}"))
+            return engine.make_complete(fallback_seat_config(config, seat), tools=[])
 
         def complete(messages: list[dict[str, Any]]) -> Any:
             try:

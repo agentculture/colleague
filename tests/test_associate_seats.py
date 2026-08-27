@@ -67,7 +67,7 @@ def test_unknown_seat_is_refused() -> None:
 def test_feature_doc_table_has_the_associate_row() -> None:
     doc = (REPO_ROOT / "docs/features/thinking-effort.md").read_text(encoding="utf-8")
     assert "| `associate` | `off` |" in doc
-    assert "| `scout` | `low` |" in doc
+    assert "| `scout` | `off` |" in doc  # Qodo #441-4: read-only scouts think OFF
 
 
 #: Every module allowed to touch ``config.associate`` — the seat builders, the
@@ -216,7 +216,7 @@ def test_scout_is_a_read_only_builtin_role() -> None:
     scout = BUILTIN_ROLES["scout"]
     assert scout.read_only is True
     assert is_read_only("scout")
-    assert scout.effort == "low"  # ROLE_TABLE row: unarmed scout = cortex@low
+    assert scout.effort == "off"  # ROLE_TABLE row: unarmed scout = read-only, thinking off
 
 
 def test_scout_tools_are_a_strict_subset_of_the_read_only_set() -> None:
@@ -350,3 +350,29 @@ def test_distill_associate_rung_never_authors_in_tae_mode() -> None:
     armed = _config(armed=True)
     armed.thought_action_evaluation = True
     assert distill.resolve_distill_author_from_config(armed) is None
+
+
+def test_setup_failure_on_the_associate_seat_warns_and_falls_back_to_cortex_low() -> None:
+    """Qodo #441-7: an exception from make_complete() DURING SETUP (not only
+    NotImplementedError) must warn once and hand back a cortex@low completion."""
+
+    class _SetupFails(_FakeEngine):
+        def make_complete(self, config, *, tools):
+            if config.model == ASSOCIATE_WIRE_MODEL:
+                raise RuntimeError("loader exploded")
+            return super().make_complete(config, tools=tools)
+
+    engine = _SetupFails()
+    factory = associate_seats.make_associate_complete(
+        _config(armed=True), "fake", engine_loader=lambda name: engine
+    )
+    assert factory is not None
+    warnings: list[str] = []
+    complete = factory("compact", warnings.append)
+    assert complete is not None
+    resp = complete([{"role": "user", "content": "summarise"}])
+    assert resp.content == "from cortex-model"
+    assert engine.calls == [("cortex-model", "low")]
+    assert len(warnings) == 1
+    assert "RuntimeError" in warnings[0]
+    assert "loader exploded" in warnings[0]
