@@ -30,6 +30,14 @@ from colleague.engines.vllm_openai import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_output_clamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These pins prove the pre-t16 payload shape (#416 / #393 invariants), so the
+    t16 window clamp is kill-switched here; the clamp's own presence/absence is
+    pinned in tests/test_loop_microcompact.py and tests/test_turnbudget.py."""
+    monkeypatch.setenv("COLLEAGUE_MAX_OUTPUT_TOKENS", "0")
+
+
 class _FakeStreamResponse:
     """A minimal stand-in for ``http.client.HTTPResponse`` supporting the
     ``with urlopen(...) as response: for line in response:`` shape the

@@ -44,6 +44,14 @@ from colleague.engines.vllm_openai import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_output_clamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These pins prove the pre-t16 payload shape (#416 / #393 invariants), so the
+    t16 window clamp is kill-switched here; the clamp's own presence/absence is
+    pinned in tests/test_loop_microcompact.py and tests/test_turnbudget.py."""
+    monkeypatch.setenv("COLLEAGUE_MAX_OUTPUT_TOKENS", "0")
+
+
 def _cfg(**overrides: Any) -> EngineConfig:
     cfg = EngineConfig.resolve(base_url="http://host:9999/v1", model="m")
     return dataclasses.replace(cfg, **overrides) if overrides else cfg

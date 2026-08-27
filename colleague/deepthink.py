@@ -90,10 +90,9 @@ def deepthink_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
             context_budget_tokens=dt.context_budget,
         ),
     )
-    # Per-seat thinking effort (#416 t4): the deepthink seat carries its own
-    # table rung (xhigh default) via the plain ``reasoning_effort_seat``
-    # attribute that ``vllm_openai._effort_for`` honors ahead of the acting
-    # seat's resolved rung.
+    # Per-seat thinking effort (#416 t4): the deepthink seat carries its own table
+    # rung (xhigh default) via the plain ``reasoning_effort_seat`` attribute that
+    # ``vllm_openai._effort_for`` honors ahead of the acting seat's resolved rung.
     from colleague import effort
 
     setattr(
@@ -105,6 +104,7 @@ def deepthink_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
             seat="deepthink",
         ),
     )
+    setattr(seat, "output_seat", "deepthink")  # t16: the high output ceiling (c48)
     return seat
 
 

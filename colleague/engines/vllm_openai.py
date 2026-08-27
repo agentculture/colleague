@@ -25,6 +25,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
+import colleague.turnbudget as turnbudget
 from colleague import associate, associate_seats, effort, stallguard, streamguards, tokenestimate
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
@@ -613,8 +614,7 @@ def _post_json_stream(
 # sink is present OR headless streaming is enabled (the default). The sink
 # seam itself is untouched — an unarmed ``on_delta`` still means "nobody wants
 # to see the tokens", it just no longer means "read the whole answer in one
-# blocking gulp". The delta callback the transport needs in that case is the
-# no-op below.
+# blocking gulp". The delta callback the transport needs in that case is the no-op below.
 
 #: The one env opt-out. Absent (the default) = streaming armed; any falsy
 #: spelling (``0``/``false``/``no``/``off``/empty, the repo-wide
@@ -657,8 +657,7 @@ def _noop_delta(_chunk: str) -> None:
 # A broken stream must never break a run: ``_stream_or_blocking`` is the ONLY
 # call site ``_make_complete`` uses when ``on_delta`` is armed (replacing a
 # bare ``_post_json_stream`` call) — pure machinery layered on top of the
-# single-attempt primitive above, with no opinion about when streaming itself
-# is armed.
+# single-attempt primitive above, with no opinion about when streaming itself is armed.
 
 
 def _blocking_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1006,16 +1005,13 @@ class VllmOpenAIEngine(Engine):
         Extracted from ``_make_complete``'s closure (SonarCloud S3776). An
         EMPTY offered-tools list omits BOTH "tools" and "tool_choice" (the
         honest tools-off invariant the deepthink seam relies on).
-
-        Streaming (#393) arms when a delta sink is armed **or** headless
-        streaming is enabled (:func:`_headless_streaming_enabled`, default on;
-        ``COLLEAGUE_STREAM=0`` opts out). This is the SINGLE arming decision
-        in the driver, so it is engine-uniform by construction: every
-        vllm-openai completion — the acting cortex/worker seat, deepthink,
-        senses, an evaluator — is built here, via ``_make_complete``, and gets
-        the identical rule. Opted out (or, before #393, unarmed) the body
-        carries NEITHER SSE key and is byte-identical to the pre-streaming
-        blocking payload.
+        Streaming (#393) arms when a delta sink is armed **or** headless streaming
+        is enabled (:func:`_headless_streaming_enabled`, default on; ``COLLEAGUE_STREAM=0``
+        opts out) — the SINGLE arming decision in the driver, engine-uniform by
+        construction (every seat's completion is built here via ``_make_complete``).
+        Opted out, the body carries NEITHER SSE key (the pre-streaming payload).
+        ``max_tokens`` (t16) is :func:`colleague.turnbudget.max_tokens_for`'s
+        window clamp; absent under ``COLLEAGUE_MAX_OUTPUT_TOKENS=0``.
         """
         payload: dict[str, Any] = {
             "model": config.model,
@@ -1025,16 +1021,17 @@ class VllmOpenAIEngine(Engine):
         if offered_tools:
             payload["tools"] = offered_tools
             payload["tool_choice"] = "auto"
-        # Per-seat thinking effort (#416 t3, c2/h2/c7/h6): the fragment is
-        # ABSENT when nothing should be sent (kill-switched, or a rung/seat
-        # that resolves to None) — a vLLM/OpenAI-only extension key
-        # (CLAUDE.md's third documented "vLLM adapter only touches the
-        # OpenAI surface" carve-out), so an operator-installed non-vLLM
-        # server that ignores unknown keys behaves exactly as today, and a
-        # config with nothing set stays byte-identical to the pre-#416 body.
+        # Per-seat thinking effort (#416 t3, c2/h2/c7/h6): the fragment is ABSENT
+        # when nothing should be sent (kill-switched, or a rung/seat resolving to
+        # None) — a vLLM/OpenAI-only extension key (CLAUDE.md's documented "vLLM
+        # adapter only touches the OpenAI surface" carve-out), so a non-vLLM server
+        # ignoring unknown keys behaves as today; nothing set = pre-#416 body.
         effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
         if effort_fragment:
             payload["chat_template_kwargs"] = effort_fragment
+        limit = turnbudget.max_tokens_for(config, messages)  # t16 clamp; None = omit
+        if limit is not None:
+            payload["max_tokens"] = limit
         streaming = config.on_delta is not None or _headless_streaming_enabled()
         if streaming:
             payload["stream"] = True
@@ -1196,6 +1193,8 @@ class VllmOpenAIEngine(Engine):
                 resp = self._recover_http_error(
                     exc, payload, role_name, sent_effort, config, dispatch
                 )
+            if turnbudget.escalate_on_length(payload, config, resp):  # t16: once
+                resp = dispatch()
             tokenestimate.observe(config, messages, resp.prompt_tokens)  # t12 anchor
             return resp
 

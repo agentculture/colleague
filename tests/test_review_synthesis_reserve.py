@@ -33,7 +33,12 @@ def _read_until_synthesis():
         n["i"] += 1
         return ModelResponse(
             content="still reading",
-            tool_calls=[ToolCall(f"r{n['i']}", "read_file", {"path": "mod.py"})],
+            # Alternate the spelling: five identical calls in a row trip the t16 loop guard.
+            tool_calls=[
+                ToolCall(
+                    f"r{n['i']}", "read_file", {"path": "mod.py" if n["i"] % 2 else "./mod.py"}
+                )
+            ],
             prompt_tokens=1,
             completion_tokens=1,
         )

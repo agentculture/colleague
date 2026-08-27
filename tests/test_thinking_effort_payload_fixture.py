@@ -45,6 +45,14 @@ _MESSAGES: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
 _TOOLS: list[dict[str, Any]] = [{"type": "function", "function": {"name": "read_file"}}]
 
 
+@pytest.fixture(autouse=True)
+def _no_output_clamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These pins prove the pre-t16 payload shape (#416 / #393 invariants), so the
+    t16 window clamp is kill-switched here; the clamp's own presence/absence is
+    pinned in tests/test_loop_microcompact.py and tests/test_turnbudget.py."""
+    monkeypatch.setenv("COLLEAGUE_MAX_OUTPUT_TOKENS", "0")
+
+
 def _frozen_pre_change_payload(
     *, tools: bool, streaming: bool, temperature: float
 ) -> dict[str, Any]:
