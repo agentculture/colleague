@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 
-from colleague import associate_cli, effort
+from colleague import associate_cli, effort, harness_cli
 from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
@@ -98,6 +98,7 @@ def _config_show(repo: str = ".") -> object:
     # Lobes rung (t4): ARMED state; to_dict() byte-identical, lobes key only when armed.
     data = cfg.to_dict()
     data["config_files"] = provenance
+    data.update(harness_cli.config_show_lines(lines, cfg))  # t20/c43: clamp + window
     gateway = resolve_lobes_gateway_url(repo)
     if gateway is not None:
         lines.append(f"lobes: armed (gateway={gateway!r}) — resolved model={cfg.model}")

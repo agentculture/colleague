@@ -48,7 +48,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague import artifact, background, experiment, flight, handoff, worktrees
+from colleague import artifact, background, experiment, flight, handoff, truncation, worktrees
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
 
@@ -81,15 +81,9 @@ def cmd_clean(args: argparse.Namespace) -> int:
     # daemon, so mtime is the liveness signal). Computed up front so BOTH the iso
     # worktree reap and the flight reap can spare an in-flight run.
     active_flights = flight.recent_flight_task_ids(repo)
-    # Reap orphaned isolation worktrees (#222) BEFORE the branch reap: a crashed /
-    # SIGKILLed isolated run leaves a .colleague/worktrees/iso-<id> worktree with its
-    # colleague/<id> branch checked out, which blocks the branch reap until the
-    # worktree is gone. Scoped strictly to iso-* (never a sub/* child or an unrelated
-    # worktree) and SPARING an iso worktree whose work item is a currently-active
-    # flight (so clean never deletes an in-flight piloted run out from under it —
-    # review of #228); --dry-run reports without removing. The git-touching reap lives
-    # in worktrees.py (the sanctioned subprocess consumer), so clean.py stays
-    # subprocess-free.
+    # Reap orphaned iso-* worktrees (#222) BEFORE the branch reap (a crashed run's
+    # checked-out colleague/<id> branch blocks it); scoped to iso-*, sparing an
+    # active flight (#228); the git reap lives in worktrees.py (subprocess consumer).
     iso_worktrees = worktrees.reap_orphaned_iso_worktrees(
         str(repo), active_task_ids=active_flights, dry_run=dry_run
     )
@@ -101,14 +95,12 @@ def cmd_clean(args: argparse.Namespace) -> int:
         base_branch=args.base,
     )
     artifacts = artifact.reap_artifacts(repo, dry_run=dry_run)
-    # Reap stale flight residue but SPARE a flight that is still running (same
-    # active-id set used above). reap_orphans treats the recent ids as "active".
+    tool_output = truncation.reap_spill_dir(repo, dry_run=dry_run)  # t20: spilled outputs
+    # Reap stale flight residue, SPARING a still-running flight (same active-id set).
     flights = [str(p) for p in flight.reap_orphans(repo, active_flights, dry_run=dry_run)]
-    # Reap background one-shot residue (t12): a kill -9'd `work --background`
-    # child leaves its .colleague/background/<id>/ log dir behind with no
-    # supervisor to clean it up. Liveness is checked by holder PID (os.kill(pid,
-    # 0)), not the flight mtime heuristic above, so a genuinely still-running
-    # background child is never reaped out from under it.
+    # Reap background one-shot residue (t12): a kill -9'd `work --background` child's
+    # .colleague/background/<id>/ dir; liveness = holder PID (os.kill(pid, 0)), so a
+    # still-running child is never reaped out from under it.
     backgrounds = background.reap_background(repo, dry_run=dry_run)
     # Reap stale `colleague experiment` residue (colleague#291 S5, t23): a
     # dead-pid experiment dir is reaped only once it's ALSO aged past a day
@@ -135,6 +127,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         "iso_worktrees": iso_worktrees,
         "branches": branches,
         "artifacts": artifacts,
+        "tool_output": tool_output,
         "flights": flights,
         "background": backgrounds,
         "experiments": experiments,
@@ -165,6 +158,11 @@ def _render(report: dict) -> str:
     if reaped_arts:
         lines.append(f"artifacts ({verb}):")
         lines += [f"  - {a['artifact']}" for a in reaped_arts]
+    spill = report.get("tool_output") or {}
+    if spill.get("files"):
+        lines.append(
+            f"tool-output spill ({verb}): {spill['files']} file(s), {spill['bytes_freed']} B"
+        )
     reaped_flights = report.get("flights", [])
     if reaped_flights:
         lines.append(f"flight files ({verb}):")
@@ -189,6 +187,7 @@ def _render(report: dict) -> str:
         and not reaped_experiments
         and not iso_worktrees
         and not reaped_ledgers
+        and not spill.get("files")
     ):
         lines.append(
             "nothing to reap — no stale colleague/* branches, orphaned .colleague/ "

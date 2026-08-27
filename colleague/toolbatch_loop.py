@@ -53,7 +53,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
 from colleague import flight as _flightmod
-from colleague import toolbatch
+from colleague import runcounts, toolbatch
 
 #: Default width of the read-only batch pool (qwen-code's
 #: ``QWEN_CODE_MAX_TOOL_CONCURRENCY`` default).
@@ -159,6 +159,8 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
     )
     for item, (outcome, exc, seconds) in zip(runnable, results):
         item.outcome, item.exc, item.seconds = outcome, exc, seconds
+    runcounts.bump(ctx.result, "batches_run")  # t20: exact scoreboard
+    runcounts.bump(ctx.result, "calls_parallelised", len(runnable))
     finished = False
     for item in prepared:  # phase 3 — bookkeeping on the main thread, request order
         step_index = len(ctx.result.steps)

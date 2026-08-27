@@ -159,6 +159,14 @@ step_count
 tool_counts
 ```
 
+Optional — emitted only when at least one is non-zero, so an untouched run
+keeps the shape above (plan t20, `colleague/runcounts.py`): `counts`, a
+dict of exact harness counters `batches_run` (parallel read-only tool
+batches), `calls_parallelised` (tool calls executed inside them),
+`results_blanked` (old tool results the microcompaction floor blanked),
+`outputs_spilled` (tool outputs spilled to `.colleague/tool-output/`) and
+`guard_trips` (always-on loop-guard halts).
+
 `tool_counts` is a `{tool_name: count}` map, not a fixed key set.
 
 #### `FinishRecord` (`finish_states[]` item)

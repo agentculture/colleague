@@ -220,3 +220,29 @@ def truncate_output(
         "absolute file path above.\n\n"
         f"{preview}"
     )
+
+
+def reap_spill_dir(repo_path: str | "Path", *, dry_run: bool = False) -> dict:
+    """Reap ``<repo>/.colleague/tool-output/`` (``colleague clean``, plan t20).
+
+    Spilled tool outputs are re-readable scratch for the run that produced
+    them, never a gradable record, so ``clean`` removes every ``*.txt`` there
+    and reports the bytes freed: ``{dir, files, bytes_freed, action}`` with
+    ``action`` in ``reaped`` / ``would-reap`` (dry-run) / ``none`` (nothing
+    there). A missing directory is a no-op; an unlink failure is skipped and
+    counted neither as a file nor as bytes.
+    """
+    spill_dir = Path(repo_path) / ".colleague" / "tool-output"
+    files, freed = 0, 0
+    if spill_dir.is_dir():
+        for path in sorted(spill_dir.glob("*.txt")):
+            try:
+                size = path.stat().st_size
+                if not dry_run:
+                    path.unlink()
+            except OSError:
+                continue
+            files += 1
+            freed += size
+    action = "none" if files == 0 else ("would-reap" if dry_run else "reaped")
+    return {"dir": str(spill_dir), "files": files, "bytes_freed": freed, "action": action}
