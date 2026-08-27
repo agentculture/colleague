@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
-from colleague import culture, devague, media, memory, readpage, testintegrity
+from colleague import culture, devague, editgate, media, memory, readpage, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
@@ -794,10 +794,10 @@ class ToolExecutor:
     ) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
+        self.read_set = editgate.new_read_set()  # prior-read rule (t13): what was SHOWN
         # Total UTF-8 bytes the model authored into files via write_file/edit_file
         # across the work item — the exact "tokens written" measure (no tokenizer, so
-        # bytes not tokens). An edit_file contributes only its replacement bytes, not
-        # the whole file, so this stays the honest cost-of-output signal. The loop
+        # bytes not tokens; an edit_file counts only its replacement bytes). The loop
         # snapshots it onto WorkStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
         self._spawn = spawn
@@ -932,9 +932,9 @@ class ToolExecutor:
         except OSError as exc:
             raise ToolError(f"cannot read {arguments['path']}: {exc}") from exc
         offset, limit = arguments.get("offset"), arguments.get("limit")  # paging (t9, #240 kept)
-        return ToolOutcome(
-            result=readpage.render_read(text, offset, limit, ceiling=self._max_output_chars)
-        )
+        rendered = readpage.render_read(text, offset, limit, ceiling=self._max_output_chars)
+        editgate.record_read(self.read_set, str(path), text, rendered)
+        return ToolOutcome(result=rendered)
 
     def _view_media(self, arguments: dict[str, Any]) -> ToolOutcome:
         """The ``view_media`` tool (t5) — load a repo image as a content part.
@@ -976,10 +976,10 @@ class ToolExecutor:
         content = str(arguments.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
         # newline="" disables newline translation so the on-disk bytes equal
-        # len(content.encode("utf-8")) on EVERY platform (default newline=None
-        # would rewrite "\n" -> "\r\n" on Windows, inflating the file and making
-        # bytes_written wrong). Keeps file writes byte-deterministic cross-platform.
+        # len(content.encode("utf-8")) on EVERY platform (newline=None would write
+        # "\r\n" on Windows, inflating bytes_written) — byte-deterministic writes.
         path.write_text(content, encoding="utf-8", newline="")
+        editgate.record_written(self.read_set, str(path), content)  # authored == shown (t13)
         self.changed.add(rel)
         # Accumulate exact UTF-8 bytes written (== the on-disk size, given
         # newline=""), summed across every write_file — snapshotted into WorkStats.
@@ -1018,12 +1018,8 @@ class ToolExecutor:
             raise ToolError("old_string must be non-empty; use write_file to create a file")
         if old == new:
             raise ToolError("old_string and new_string are identical (no-op edit)")
-        count = text.count(old)
-        if count == 0:
-            raise ToolError(
-                f"old_string not found in {rel} (it must match the file exactly, "
-                "including whitespace and indentation)"
-            )
+        old, count = editgate.resolve_old_string(text, old, rel)  # exact, then relaxed (t13)
+        editgate.require_prior_read(self.read_set, str(path), rel, text, old)
         if count > 1 and not replace_all:
             raise ToolError(
                 f"old_string is not unique in {rel} ({count} matches); add surrounding "
