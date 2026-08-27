@@ -176,6 +176,49 @@ def _iter_files(root: Path, base: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
+def _translate_star_run(pattern: str, i: int, n: int, out: list[str]) -> int:
+    """Consume the ``*``/``**`` run starting at *i* (which points at a
+    ``*``); append its regex equivalent to *out*; return the index just past
+    what was consumed."""
+    if i + 1 < n and pattern[i + 1] == "*":
+        j = i + 2
+        if j < n and pattern[j] == "/":
+            out.append("(?:.*/)?")
+            return j + 1
+        out.append(".*")
+        return j
+    out.append("[^/]*")
+    return i + 1
+
+
+def _bracket_expression_end(pattern: str, i: int, n: int) -> int:
+    """Index of the ``]`` closing the bracket expression opened at *i*
+    (which points at the ``[``), or *n* if it is never closed."""
+    j = i + 1
+    if j < n and pattern[j] == "!":
+        j += 1
+    j += 1
+    while j < n and pattern[j] != "]":
+        j += 1
+    return j
+
+
+def _translate_bracket_expression(pattern: str, i: int, n: int, out: list[str]) -> int:
+    """Consume the ``[...]`` bracket expression starting at *i* (which points
+    at the ``[``); append its regex equivalent — or an escaped literal ``[``
+    when it is never closed — to *out*; return the index just past what was
+    consumed."""
+    j = _bracket_expression_end(pattern, i, n)
+    if j >= n:
+        out.append(re.escape(pattern[i]))
+        return i + 1
+    body = pattern[i + 1 : j]
+    if body.startswith("!"):
+        body = "^" + body[1:]
+    out.append(f"[{body}]")
+    return j + 1
+
+
 def _translate_glob(pattern: str) -> re.Pattern[str]:
     """Translate a POSIX-style glob (``*``, ``?``, ``[seq]``, ``**``) into a
     compiled regex matched against a forward-slash relative path.
@@ -185,42 +228,23 @@ def _translate_glob(pattern: str) -> re.Pattern[str]:
     supports brace expansion (``*.{ts,tsx}``) — brace groups are NOT
     supported here (stdlib only, per repo convention). ``**`` IS supported,
     matching zero or more path segments.
+
+    The per-token translation (a ``*``/``**`` run, a ``[...]`` bracket
+    expression) is each factored into its own helper purely to keep this
+    function's own cognitive complexity low (SonarCloud python:S3776); the
+    resulting regex is unchanged from the single-function form.
     """
     i, n = 0, len(pattern)
     out: list[str] = []
     while i < n:
         c = pattern[i]
         if c == "*":
-            if i + 1 < n and pattern[i + 1] == "*":
-                j = i + 2
-                if j < n and pattern[j] == "/":
-                    out.append("(?:.*/)?")
-                    i = j + 1
-                else:
-                    out.append(".*")
-                    i = j
-            else:
-                out.append("[^/]*")
-                i += 1
+            i = _translate_star_run(pattern, i, n, out)
         elif c == "?":
             out.append("[^/]")
             i += 1
         elif c == "[":
-            j = i + 1
-            if j < n and pattern[j] == "!":
-                j += 1
-            j += 1
-            while j < n and pattern[j] != "]":
-                j += 1
-            if j >= n:
-                out.append(re.escape(c))
-                i += 1
-            else:
-                body = pattern[i + 1 : j]
-                if body.startswith("!"):
-                    body = "^" + body[1:]
-                out.append(f"[{body}]")
-                i = j + 1
+            i = _translate_bracket_expression(pattern, i, n, out)
         else:
             out.append(re.escape(c))
             i += 1

@@ -33,7 +33,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from colleague.stallguard import TurnStalled
 
@@ -129,6 +129,50 @@ class StreamGuards:
         return max(0.0, min(d for d, *_ in deadlines) - current) if deadlines else None
 
 
+def _guarded_line_fallback(response: Any, guards: StreamGuards) -> Iterator[bytes]:
+    """Per-line guard checks for a response with no ``read1`` (a test
+    double) — the degrade path ``guarded_lines`` falls back to."""
+    for raw_line in response:
+        guards.saw_bytes()
+        guards.check()
+        yield raw_line
+
+
+def _retime_socket(sock: Any, wait: Optional[float], base: Optional[float]) -> Any:
+    """Shorten *sock*'s timeout to the nearer of *wait*/*base* (never
+    lengthened past *base*, so ``COLLEAGUE_TIMEOUT`` keeps its meaning);
+    return ``None`` if the socket is already closed underneath us (a fully
+    buffered body), so the caller stops re-timing it."""
+    try:
+        sock.settimeout(wait if base is None or wait is None else min(base, wait))
+        return sock
+    except OSError:
+        return None  # closed underneath us: the body is already buffered
+
+
+def _read_next_chunk(read1: Callable[[int], bytes], guards: StreamGuards) -> bytes:
+    """Read one chunk via *read1*, converting a timeout into whichever guard
+    tripped it. A timeout landing past a guard deadline becomes that guard's
+    :class:`StreamGuardTripped`; any other timeout re-raises unchanged as the
+    request timeout it always was. A read on an already-closed file returns
+    ``b""`` (end of stream)."""
+    try:
+        return read1(8192)
+    except TimeoutError:
+        guards.check()  # a guard deadline passed -> StreamGuardTripped names it
+        raise  # otherwise: the request timeout, unchanged
+    except ValueError:
+        return b""  # read on a closed file: end of stream
+
+
+def _drain_complete_lines(buffer: bytearray) -> Iterator[bytes]:
+    """Yield and remove every complete (newline-terminated) line at the
+    front of *buffer*, leaving any trailing partial line in place."""
+    while (newline := buffer.find(b"\n")) >= 0:
+        yield bytes(buffer[: newline + 1])
+        del buffer[: newline + 1]
+
+
 def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
     """Yield *response*'s lines one socket READ at a time, consulting *guards*
     before and after every read.
@@ -143,31 +187,25 @@ def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
     no ``read1`` (a test double) degrades to the plain line iterator with
     per-line checks; a socket that is already closed (a fully buffered body)
     simply stops being re-timed.
+
+    The per-chunk deadline/idle bookkeeping (socket re-timing, the guarded
+    read itself, draining complete lines out of the buffer) is each factored
+    into its own helper purely to keep this function's own cognitive
+    complexity low (SonarCloud python:S3776); the read1-chunking semantics
+    are unchanged from the single-function form.
     """
     read1 = getattr(response, "read1", None)
     sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
     if read1 is None:
-        for raw_line in response:
-            guards.saw_bytes()
-            guards.check()
-            yield raw_line
+        yield from _guarded_line_fallback(response, guards)
         return
     buffer = bytearray()
     base = guards.base_timeout
     while True:
         wait = guards.wait_for()
         if sock is not None:
-            try:
-                sock.settimeout(wait if base is None or wait is None else min(base, wait))
-            except OSError:
-                sock = None  # closed underneath us: the body is already buffered
-        try:
-            chunk = read1(8192)
-        except TimeoutError:
-            guards.check()  # a guard deadline passed -> StreamGuardTripped names it
-            raise  # otherwise: the request timeout, unchanged
-        except ValueError:
-            chunk = b""  # read on a closed file: end of stream
+            sock = _retime_socket(sock, wait, base)
+        chunk = _read_next_chunk(read1, guards)
         if not chunk:
             if buffer:
                 yield bytes(buffer)
@@ -175,9 +213,7 @@ def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
         guards.saw_bytes()
         guards.check()
         buffer.extend(chunk)
-        while (newline := buffer.find(b"\n")) >= 0:
-            yield bytes(buffer[: newline + 1])
-            del buffer[: newline + 1]
+        yield from _drain_complete_lines(buffer)
 
 
 def stall_notice(guard: str, seconds: float, bound: float) -> str:
