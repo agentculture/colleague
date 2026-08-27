@@ -79,20 +79,20 @@ _WRITE_TOOLS = frozenset({"write_file", "edit_file", "run_command"})
 
 #: Read-only tools available to explorer / planner / reviewer.
 #: Strictly pure-read so a read-only role *provably cannot mutate the tree*:
-#: ``culture``/``devague`` are deliberately excluded because they shell out to
+#: ``culture``/``devague`` are excluded because they shell out to
 #: write-capable CLIs (``devex``, ``devague converge`` writes a frame), which
-#: would quietly contradict the read-only guarantee. ``finish`` is REQUIRED —
-#: without it a curated read-only child has no way to complete cleanly and
-#: would always burn to budget exhaustion. ``deepthink`` (plan t4) is included
-#: too: it is pure computation — ONE bounded tools-off completion against a
-#: second model, no writes, no shell — so a read-only reviewer/explorer/planner
-#: can escalate a hard verdict without weakening the read-only guarantee at all.
-#: ``memory`` is included for recall (search) only — the executor enforces that
-#: read-only roles cannot use the 'remember' verb (write-capable shell-out).
+#: would quietly contradict the read-only guarantee. ``finish`` is REQUIRED — without
+#: it a curated child would always burn to budget exhaustion. ``deepthink`` (plan t4) is
+#: included too: pure computation — ONE bounded tools-off completion against a
+#: second model, no writes, no shell — a read-only role can escalate a verdict.
+#: ``memory`` is recall-only (the executor refuses 'remember' for read-only roles);
+#: ``grep_search``/``glob`` (t14) are pure reads, repo-confined like ``read_file``.
 _READONLY_TOOLS = (
     "read_file",
     "view_media",
     "list_dir",
+    "grep_search",
+    "glob",
     "check_test_integrity",
     "deepthink",
     "memory",

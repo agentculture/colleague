@@ -185,6 +185,8 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
         "run_tests",
         "memory",
         "view_media",
+        "grep_search",
+        "glob",
     }
     # Base six remain, the chassis tools are added, and nothing else creeps in.
     assert _BASE_TOOLS <= exposed, "the six base tools must remain exposed"

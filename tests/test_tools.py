@@ -23,6 +23,8 @@ def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
         "write_file",
         "edit_file",
         "list_dir",
+        "grep_search",
+        "glob",
         "run_command",
         "finish",
         "culture",
