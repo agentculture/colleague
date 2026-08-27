@@ -1,0 +1,1036 @@
+{
+  "slug": "adopt-from-qwen-code",
+  "title": "adopt-from-qwen-code",
+  "frame_slug": "adopt-from-qwen-code",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-27T14:39:37Z",
+  "updated": "2026-08-27T14:46:32Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague adopts the harness mechanics that let Qwen Code drive the same Qwen3.8-27B to finished PRs on this rig \u2014 parallel read-only tool batches, an output-token clamp, no per-turn /tokenize round-trip, grep/glob tools, paged reads, tolerant edit matching, spill-to-disk truncation, rule-based microcompaction \u2014 and credits Qwen Code (Alibaba) and its Google Gemini CLI lineage in the provenance ledger",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Each named mechanism ships as its own small Python module or function with an adapted-from marker, byte-identical to main when its knob is off \u2014 no mechanism lands unmeasured",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The vLLM adapter sends a bounded max_tokens on every main-loop completion, clamped to the remaining window (port of qwen-code tokenLimits.ts:64-77 clampOutputTokensToWindow: prompt + max_tokens <= window, floor 4,000, ceiling 64,000, escalate-on-length) \u2014 today _build_chat_payload (colleague/engines/vllm_openai.py:1023-1027) sends none, so generation is bounded only by max_model_len; the 3h07m / 9-turn / 686,893-reasoning-char run at docs/live-testing.md:99 is the direct consequence",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "max_tokens = min(ceiling, window - prompt_tokens - margin) is computed from the LAST reported usage.prompt_tokens (or the chars/4 estimate on turn 1), floor 4,000, ceiling 64,000 (COLLEAGUE_MAX_OUTPUT_TOKENS), margin max(10,000, 5% of window); a finish_reason=length turn retries ONCE with the ceiling before the existing truncated-turn handling",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "The per-turn blocking POST /tokenize of the full history is removed from the hot path: window_messages counts the whole message list before every completion (colleague/context.py:270 via the engine counter, vllm_openai.py:830-855) and silently degrades to chars/4 on any error \u2014 qwen-code has NO token-count API at all (core/contentGenerator.ts declares only generateContent/generateContentStream/embedContent) and gates compaction on the last response's usage plus a conservative chars/4 estimate (services/tokenEstimation.ts). Exact counts stay available from usage (tokens are never estimated in the artifact)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "After the port the loop makes exactly ONE HTTP call per model turn on the happy path (the streamed /chat/completions); /tokenize remains available only for the exact per-turn count in the artifact when COLLEAGUE_EXACT_TOKENS=1, and the artifact still never estimates \u2014 usage is the source",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Tool calls in one model turn run as ordered batches: consecutive concurrency-safe calls (read_file, list_dir, grep/glob, read-only run_command judged by a fail-closed checker) execute in parallel under a cap, mutating calls stay sequential, results are appended in request order \u2014 port of qwen-code coreToolScheduler.ts:1331 partitionByConcurrencySafety + tools.ts:1111 CONCURRENCY_SAFE_KINDS + the QWEN_CODE_MAX_TOOL_CONCURRENCY cap (default 10) at coreToolScheduler.ts:4279; today _run_tool_calls is a plain sequential for-loop (colleague/loop.py:1246-1258)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The batch predicate is fail-closed: only read_file, list_dir, grep_search, glob, view_media, memory recall and a run_command whose argv passes a conservative read-only checker are batch-safe; anything unknown, any edit/write/run_tests/subagent/finish is sequential; results are appended to messages in the model's request order regardless of completion order; hooks/policy/TAE gates fire per call exactly as today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "colleague gains first-class grep_search and glob tools (ripgrep when installed, pure-Python fallback; mtime-sorted glob) \u2014 colleague/tools.py SCHEMAS has 14 tools and NO search tool, so every code search is a sequential shell=True run_command step; qwen-code selects tools/ripGrep.ts or tools/grep.ts at config.ts:9280-9315 and ships tools/glob.ts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "grep_search and glob are repo-confined like read_file (neighbour clones allowed read-only), ripgrep is used when on PATH else a pure-stdlib walker with the same result shape, output goes through the c10 truncation, and both are in CONCURRENCY_SAFE kinds",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "read_file gains offset/limit paging plus a line cap (1000) and char cap (25,000) that report 'Read lines X-Y of N' so the model can page \u2014 port of qwen-code tools/read-file.ts:102 + utils/fileUtils.ts:1447/1475; today read_file has path only and tail-truncates at COLLEAGUE_MAX_OUTPUT_CHARS=68,000 with no resume (colleague/tools.py:927-939, config.py:88-95); the cat -n grounding (#240) stays",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "read_file(path, offset?, limit?) keeps cat -n numbering true to the ORIGINAL file line numbers when paged, reports 'Read lines X-Y of N' (and nothing else) when truncated, and defaults stay 1,000 lines / 25,000 chars; a paged or truncated read does not satisfy edit's prior-read check for the unread span",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "edit_file gains a deterministic tolerant-match tier (smart quotes, line-trim relaxed match that returns the canonical on-disk slice) and prior-read enforcement, with NO LLM repair \u2014 port of qwen-code utils/editHelper.ts:313 normalizeEditStrings + tools/priorReadEnforcement.ts (qwen-code deleted Gemini CLI's ensureCorrectEdit LLM corrector: 0 references remain); today edit_file is exact str.count/str.replace only (colleague/tools.py:1017-1042) so whitespace drift costs a full non-ok step",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The tolerant tier is deterministic and returns the exact on-disk slice for replacement (never rewrites the model's new_string), tries ONLY smart-quote and per-line trim normalization, and is skipped entirely when the exact match succeeds; a file not read in this work item is refused with a typed error naming the rule",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Tool output truncation keeps head+tail (25,000 chars / 1,000 lines; shell 30,000) and spills the full output to a 0600 temp file whose path the model may re-read \u2014 port of qwen-code tools/truncation.ts:207 (fs.writeFile mode 0o600, MAX_SESSION_BYTES 500MB at :22) + shell.ts:91; today ToolExecutor._truncate is a tail cut at 68,000 chars with nothing recoverable (colleague/tools.py:838-842)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Truncation keeps head and tail, names the spilled file's absolute path under .colleague/tool-output/ (mode 0600, session cap 500 MB, removed by colleague clean), and the model may read_file it with paging; run_command gets 30,000 chars, other tools 25,000 (COLLEAGUE_MAX_OUTPUT_CHARS keeps overriding both)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "A rule-based microcompaction floor blanks OLD tool results and inline media (keeping the recent N) before any model-authored fill-line compact \u2014 port of qwen-code services/microcompaction/microcompact.ts (831 lines, COMPACTABLE_TOOLS at :40-52, no LLM call) with thresholds modeled on services/chatCompressionService.ts:109-124 (0.85, 20k summary reserve, 13k buffer); today the floor is in-place drop-oldest windowing that inserts one placeholder (colleague/context.py:208-282, loop.py:1270) and invalidates the KV prefix from that point",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Microcompaction never calls the model: past the threshold (0.85 of budget, from last usage) it replaces the content of tool results older than the most recent N (default 10) with a one-line marker naming the tool and path, keeps every assistant message and tool_call intact so the OpenAI wire stays valid, records how many were blanked on the artifact, and runs BEFORE the fill-line offer; the model-authored compact and drop-oldest windowing remain as the next floors",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The streaming completion gets a three-tier watchdog \u2014 request 120s, stream-idle 240s, stream-lifetime 900s, each env-overridable, 0 = disabled \u2014 port of qwen-code openaiContentGenerator/constants.ts:1,33,60 (the lifetime cap exists because a drip-feeding gateway resets an idle watchdog forever); today stallguard's floor is 5,400s scaling to 6x mean turn latency (colleague/loop.py:196, 1826-1847) and the #415 silent-turn stall is still open",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Three env knobs COLLEAGUE_TIMEOUT (request, 120s today), COLLEAGUE_STREAM_IDLE_TIMEOUT (240s), COLLEAGUE_STREAM_MAX_LIFETIME (900s); 0 disables; a trip surfaces as the existing TurnStalled/timeout degradation with which guard tripped on TaskResult.warnings; stallguard's 6x-mean scaling is retired",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "colleague's base system prompt adopts qwen-code's prompt structure and text where it fits the runtime \u2014 Core Mandates, Using Your Tools, Executing actions with care, Final Reminder (core/prompts.ts:278-440, 192-213 lines in the committed snapshots), the headless variant that also REMOVES ask-style tools from the registry (prompts.ts:56-60, config.ts:9348-9356), and per-model tool-call example blocks keyed by model id (prompts.ts:1131-1171: qwen-coder XML / qwen-vl JSON / gemma4 native) \u2014 into _DEFAULT_SYSTEM (colleague/loop.py:105-164, 3,970 chars) with an inline adapted-from marker; the env/context prelude stays a first user message (qwen environmentContext.ts:89-100 does the same)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Adopted prompt text is quoted or adapted with an inline adapted-from marker in _DEFAULT_SYSTEM, remains under COLLEAGUE_SYSTEM_MD-style operator override, stays cache-stable (built once), and the headless variant removes tools the prompt says not to call; per-model example blocks are keyed by model id with the current bracket/JSON default when no key matches",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Credit lands in three places: a NOTICE file (Apache-2.0 requires notice retention; colleague has LICENSE only, no NOTICE) naming Qwen Code (QwenLM/qwen-code v0.22.2, Apache-2.0, copyright Qwen Team) and its lineage Google Gemini CLI v0.8.2 (Apache-2.0, Google LLC); a docs/adopted-from.md provenance ledger in the docs/skill-sources.md idiom (upstream | origin | what was ported | path:lines | last synced); and an inline marker on every ported algorithm/prompt (adapted-from: qwen-code <path:lines>) \u2014 cite-don't-import: algorithms are re-implemented in Python, zero npm/TS dependency",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "NOTICE names both projects with license, version and copyright holder; docs/adopted-from.md has one row per ported mechanism (mechanism | qwen-code path:lines | colleague path | date); every ported function's docstring carries adapted-from; README + CLAUDE.md link the ledger; no npm package, no TypeScript, no vendored JS lands in the tree",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "boundary",
+      "text": "The lineage credit names Google Gemini CLI, not Antigravity: qwen-code README.md:158-160 states 'originally based on Google Gemini CLI v0.8.2 \u2026 stopped syncing at v0.1'; its first commit is 'Initial commit of Gemini Code CLI' (add233c50, 2025-04-15); 427 core files still carry 'Copyright 2025 Google LLC'; zero 'antigravity' hits across packages/*/src, docs and git log. The antigravityd in this workspace is agentculture's own daemon, unrelated. Crediting Antigravity would be a fabricated attribution unless the operator has a separate basis",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A repo-wide grep for 'antigravity' (case-insensitive) returns zero hits in NOTICE, docs/ and colleague/ after the arc",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "Every adopted mechanic is runtime-owned and holds under the all-engines rule: batches, search tools, paging, truncation, microcompaction and the watchdog land in colleague/loop.py + tools.py and behave identically on mock (tests/test_e2e_mock.py); max_tokens and stream_options are plain OpenAI-surface keys so the vLLM adapter stays a config-change retarget, and dropping the per-turn /tokenize call REMOVES one of the three documented non-OpenAI carve-outs rather than adding one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "tests/test_e2e_mock.py passes unchanged and the mock engine's result shape is identical before/after; the vLLM adapter diff touches only OpenAI-surface keys plus the /tokenize removal",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "Only the always-on loop guards are adopted \u2014 5 consecutive identical tool calls (loopDetectionService.ts:35) and a 100-calls-per-turn cap (:140), tripping by dropping pending calls (client.ts:3717) \u2014 colleague's existing unknown-tool streak guard (loop.py:1240) and step-stall watchdog (loop.py:1872) stay",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Five consecutive identical (name + arguments) tool calls or 100 calls in one turn halt the run with a named warning and drop the pending calls \u2014 never silently continue",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "A pre-registered before/after measurement gates each adoption: the same brief (game-benchmark and one real repo task) on both harnesses against this rig, reporting wall-clock-to-deliverable, model turns, prompt+completion tokens, tool calls and success \u2014 recorded on docs/live-testing.md the way #421 pre-registers its thinking-effort arm; an adoption that does not move the metric is reverted, not kept",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The two arms run on the SAME rig, model and effort table within one day, main vs branch, n>=3 per brief, with artifact ids recorded in docs/live-testing.md; the ratios in c28 are computed from artifact duration_seconds and model_turns, not from prose",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "audience",
+      "text": "Operators running colleague against a local vLLM rig (Ori first), the agents that dispatch through ask-colleague, and mesh peers reading colleague's provenance ledger",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The feature doc's first paragraph names the three readers and what each takes from it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "after_state",
+      "text": "A bare colleague work item on this rig finishes real repo tasks in fewer model turns and less wall-clock: every completion carries a window-clamped max_tokens, no /tokenize round-trip precedes a turn, read-only tool calls in one turn run as a parallel batch, the model can grep/glob/page files instead of shelling out, a whitespace-drifted edit lands on the first try, and NOTICE + docs/adopted-from.md credit Qwen Code and Gemini CLI for every ported mechanism",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "Every clause of the after-state maps to one confirmed requirement (c4\u2013c12, c14, c15) and each has its live-testing row",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "before_state",
+      "text": "Today colleague drives the same Qwen3.8-27B as qwen-code on the same rig but with unbounded generation (no max_tokens), a blocking /tokenize POST every turn, strictly sequential tools, no search tool, whole-file reads cut at 68K chars, exact-only edits and unrecoverable truncation \u2014 so a task qwen-code finishes as a PR costs colleague more turns and stalls (docs/live-testing.md:99: 9 turns / 3h07m)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The before-state is reproduced on main at the arc's base SHA and recorded in the first live-testing row of the arc",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "why_it_matters",
+      "text": "The operator already gets finished PRs from this model through qwen-code; every turn colleague wastes on the same model is a harness defect, not a model limit \u2014 and qwen-code's mechanisms are Apache-2.0, measured (its RT doc), and portable as small stdlib Python, so the cost of not adopting them is pure loss",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "The feature doc cites the qwen-code session usage line and RT doc \u00a71.2 verbatim, with dates",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "success_signal",
+      "text": "On the pre-registered c22 brief (game-benchmark + one repo task, n>=3 each) against this rig, the ported colleague reaches the deliverable in <= 0.7x the wall-clock and <= 0.8x the model turns of main, with success rate >= main's; the mock e2e suite stays byte-identical; NOTICE + docs/adopted-from.md list every ported path:lines; and a grep for 'antigravity' over the repo returns 0 hits",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "Ratios are computed from artifacts by script; if either ratio is missed the arc's doc says so and the failing mechanism is reverted or flagged, not kept silently",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "colleague consumes the lobes 'associate' role as a FIXED, ENUMERATED non-coding seat set \u2014 the read-only scout subagent role (colleague/roles.py: provably cannot mutate; #411 cross-role binding, child surface \u2286 parent), the fill-line compact summary author, forced synthesis (#191), the affected-tests/lint digest and rung-2 distillation author rung \u2014 resolved BY ROLE NAME from lobes like muse\u2192deepthink; absent = the SAME seats run on cortex with thinking off/low (a resolution rung: the #416 table gains an 'associate' row with a cortex@low fallback), never a per-turn choice; code-authoring seats never route to associate (orin advertises forbidden: code_authoring, repo_action, final_decision, security_decision)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "Every associate-eligible seat is listed in one tuple and documented in docs/features/thinking-effort.md's table; the scout child's tool surface is a strict subset of the parent's read-only set; an associate call that returns a repo-mutating tool call is refused and recorded, not executed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "The c22 measurement runs THREE arms, not two: main; branch with associate unarmed (the mechanics ratio in c28); branch with associate armed via the spark gateway \u2014 so the harness speedup and the associate speedup are attributed separately and neither hides the other",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "Arm 3 is only claimed once the spark gateway advertises associate (ASSOCIATE_PEER_ORIGIN/PROXY); until then the row reads 'blocked: gateway' rather than being skipped silently",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "Batch execution splits each call's lifecycle: pre_tool hook, TAE gate and policy gate run on the MAIN thread in request order BEFORE the parallel section; only ToolExecutor.execute runs in the pool; step_index assignment (today len(ctx.result.steps) at call start \u2014 would collide in parallel), Step/tool-message append, post_tool hook, progress emit and flight record happen on the main thread in request order after the join \u2014 no worker thread touches ctx (challenge pass / concurrency lens: loop.py:1071-1204 _run_tool_call)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "Reading _run_tool_call after the port shows exactly one call site inside the pool \u2014 executor.execute(name, arguments) \u2014 and every ctx mutation outside it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "Batch failure semantics are explicit: one call erroring or hitting its own timeout never cancels its siblings (each result is per-call, ok or error, in request order); a flight stop / SIGTERM is honoured at the batch boundary \u2014 in-flight tools finish or time out (threads cannot be killed) and the SIGTERM artifact write (loop.py:4958) lands with every completed step; the batch's wall-clock is bounded by the slowest call's own timeout (run_command 300s) (challenge pass / failure-mode lens: loop.py:2274 _flight_stop_requested, loop.py:4958, tools.py:70)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "docs/features/work-and-loop.md states the batch-boundary stop latency honestly (up to the slowest in-flight tool's timeout) instead of claiming immediate stop",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "associate follows the v1.63 opt-in convention, NOT #411 agents mode: COLLEAGUE_ASSOCIATE_MODEL=lobes (or an explicit model id) arms it; a bare run still dials exactly one model and config show lists 'not consumed (opt-in): associate \u2192 <model>'; when armed it resolves as a second EngineConfig the way deepthink does (config.py:2301 env keys, :3421 lobes sentinel), and the read-only scout child swaps model/base_url/api_key/effort on its child EngineConfig \u2014 subagents.py:594's role.model binding exists only under agents-armed _child_config_for_profile, so it is not the path (challenge pass / adjacent-systems lens: config.py:3417-3431, subagents.py:238-270 + :582-604, roles.py)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "This refines c33: 'cross-role binding' there means the child EngineConfig swap on a typed read-only role, available with agents OFF; under agents ON the same seat additionally lands on the ledger as a delegation",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "The c4 clamp window is read live with a fixed precedence \u2014 the lobes-advertised context for the resolved role (262144 today) \u2192 ONE /tokenize at run start (its reply carries max_model_len, and gives the exact turn-1 count; this is the single remaining /tokenize call) \u2192 COLLEAGUE_CONTEXT_BUDGET as the floor \u2014 never assumed from the compose default (docker-compose.yml:125 defaults 131072 while .env pins 262144) and never re-fetched per turn; the window source is printed by config show (challenge pass / adjacent-systems + probe: POST /tokenize reply {count:53, max_model_len:262144}; ~/.lobes/.env:57; lobes.py:228)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "A wrong window shows up as a vLLM 400 'maximum context length' \u2014 the test suite includes that exact server reply and proves the clamp prevents it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "The mock engine (the contract reference) gains a batch scenario \u2014 one turn returning several read-only calls plus one mutating call \u2014 so tests/test_e2e_mock.py pins the batch contract (order, step indices, result shape) on mock exactly as on vllm-openai; today mock.py:97-107 returns one call per turn and would leave batches untested on the reference backend (challenge pass / all-engines lens: colleague/engines/mock.py)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "mock and vllm-openai produce the same Step sequence for the same batch \u2014 pinned by a shared fixture",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "grep_search and glob confine paths through the same resolve()-based check as read_file (tools.py:846; symlink escape refused; neighbour clones readable, never written per :852) and the read-only run_command checker is the conservative allow-list form: root-command allow-list, fail-closed on any of ; | & $( backticks > >> < redirections, sh -c, xargs, find -exec/-delete, sed -i, awk system() \u2014 qwen-code's own regex checker (utils/shellReadOnlyChecker.ts) is DEPRECATED for a tree-sitter-bash AST parser, which is out of colleague's zero-deps line, so the allow-list stays deliberately narrower; the checker decides ONLY batch parallelism, never permission \u2014 the policy gate still gates every command (challenge pass / security lens: tools.py:793-862, :1069-1132; qwen shellReadOnlyChecker.ts:1-45)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "docs/features/approval-gate.md gains one paragraph: the batch checker is a parallelism hint, not a sandbox and not an approval",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "The prior-read set is per work item and is NOT carried across work --continue: a continued run re-reads before its first edit of a file, and the refusal names the rule and the continuation (challenge pass / lifecycle lens: continuation.py:216 rehydrate_snapshot restores a snapshot, not the read set)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "The continuation seed body tells the model this rule up front so the first edit does not burn a turn discovering it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "With agents armed, every microcompaction blanking appends a ledger event (count + blanked step indices) so ledger_digest and the reconstruction manifest stay truthful about what the model saw; unarmed, the artifact count from h9 is the record (challenge pass / adjacent-systems lens: colleague/agents/runtime.py manifest + ledger_digest docstring lines 5-44)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "Rehydration from the ledger after a blanking reproduces the blanked history, not the pre-blanking one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c43",
+      "kind": "requirement",
+      "text": "Observability: doctor gains informational rows for the stream guards (idle < lifetime sanity), the tool-concurrency cap, ripgrep presence and associate resolution state (consumed / opt-in / fallback); config show prints the max_tokens ceiling and window source; TaskResult carries per-run counts (batches run, calls parallelised, blanked results, spilled outputs, guard trips) (challenge pass / observability lens: doctor.py has no per-seat row pattern today \u2014 grep empty)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "Every new count is exact (integers from the loop), never estimated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c44",
+      "kind": "requirement",
+      "text": "Reversibility: each mechanism has ONE knob whose off-value is byte-identical to main \u2014 COLLEAGUE_MAX_OUTPUT_TOKENS=0 (no clamp), COLLEAGUE_EXACT_TOKENS=1 (per-turn /tokenize back), COLLEAGUE_TOOL_CONCURRENCY=1, COLLEAGUE_MICROCOMPACT=0, COLLEAGUE_STREAM_IDLE_TIMEOUT=0 + COLLEAGUE_STREAM_MAX_LIFETIME=0, COLLEAGUE_TOOL_SPILL=0, COLLEAGUE_PROMPT_VARIANT=v1 (the pre-arc _DEFAULT_SYSTEM kept verbatim), COLLEAGUE_ASSOCIATE_MODEL unset \u2014 listed in one table in the feature doc (challenge pass / reversibility lens: h1 demands it; config.py knob idiom e.g. COLLEAGUE_STREAM=0 at vllm_openai.py:634-645)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "The new grep_search/glob tools are the one exception \u2014 they are additive schemas; the table says so rather than pretending a knob removes them (COLLEAGUE_TOOLS_LEGACY=1 hides them for the byte-identical proof)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c47",
+      "kind": "requirement",
+      "text": "Attribution on copied TEXT (c14 prompt sections) retains the upstream copyright lines, not just a path marker: the adapted-from marker on prompt text reads 'adapted-from: qwen-code core/prompts.ts:<lines> \u2014 Copyright 2025 Google LLC, Copyright 2026 Qwen Team, Apache-2.0' (Apache-2.0 \u00a74(c) attribution retention on derivative works); qwen-code itself ships no NOTICE file, so colleague's NOTICE is voluntary credit but the header retention is not (challenge pass / licensing lens: qwen-code LICENSE, ls qwen-code (no NOTICE), packages/core/src/core/prompts.ts header)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "Ported ALGORITHMS re-implemented from reading are marked adapted-from with path:lines only; copied prose carries the copyright lines",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "The c4 output ceiling is per seat, riding the #416 per-seat table shape: acting seats 64,000; deepthink/design seats a higher ceiling (COLLEAGUE_MAX_OUTPUT_TOKENS_DESIGN, default 131,072 or the window remainder) so xhigh reasoning is not starved; the same clamp formula applies to every seat (challenge pass / unstated-assumption lens: hard question on c4; effort.py:64-66 seat table; live-testing.md:99 686,893 reasoning chars \u2248 170k tokens on one run)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "The feature doc records the 686,893-char run as the reason design seats get a larger ceiling, and the live row shows a design-seat call finishing under it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "A proxied lobes role is addressed on the wire BY ROLE NAME: spark's gateway completes {\"model\":\"associate\"} through the Orin proxy (probe: 8 completion tokens, reply model nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4) but refuses both the raw model id and \"worker\" with role_infeasible (the same checkpoint maps to the hardware-infeasible local worker backend) \u2014 so the associate EngineConfig sends model=\"associate\" and records the SERVED model from the response's model field on the artifact/ledger, never the role name; the associate seat's own effort default is off (Nemotron spends its first tokens thinking: content None at max_tokens 8) (challenge pass / probe: POST /v1/chat/completions via localhost:8001 with model \u2208 {associate, worker, <id>})",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h36",
+      "kind": "honesty",
+      "text": "config show prints both: 'associate \u2192 nvidia/\u2026Lightning\u2026 (addressed as role name via proxy)'; a gateway that rejects the role name falls back to the model id once, then to cortex@low with a recorded warning",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "NOTICE + docs/adopted-from.md ledger + antigravity guard",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "NOTICE exists at repo root naming Qwen Code (QwenLM/qwen-code v0.22.2, Apache-2.0, Copyright Qwen Team) and Google Gemini CLI v0.8.2 (Apache-2.0, Copyright Google LLC) with license, version and copyright holder each",
+        "docs/adopted-from.md exists with the header row 'mechanism | qwen-code path:lines | colleague path | date' and is linked from README.md and CLAUDE.md",
+        "tests/test_adopted_from.py asserts every colleague path listed in the ledger exists and contains the literal 'adapted-from: qwen-code', and that grep -ri antigravity over NOTICE docs/ colleague/ returns nothing",
+        "tests/test_zero_deps.py still allow-lists exactly agentfront"
+      ],
+      "deps": [],
+      "covers": [
+        "c15",
+        "h12",
+        "c16",
+        "h13"
+      ],
+      "instruction": "Files: NOTICE (new), docs/adopted-from.md (new), README.md + CLAUDE.md (one link line each), tests/test_adopted_from.py (new). Model the ledger on docs/skill-sources.md's table. Start the ledger with the rows the later tasks will fill (one per mechanism, colleague path TBD until each lands); the test tolerates a 'pending' colleague path only while the row's date column reads 'pending'."
+    },
+    {
+      "id": "t2",
+      "summary": "colleague/toolbatch.py \u2014 partition + read-only shell checker (pure)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "partition_by_concurrency_safety(calls, is_safe) is a pure function whose docstring example [Read,Read,Edit,Read] -> [[Read,Read],[Edit],[Read]] is asserted by a test",
+        "is_shell_command_read_only(cmd) is table-tested on at least 30 commands; every compound form (; | & $( backticks > >> < sh -c xargs find -exec find -delete sed -i awk system()) is unsafe; unknown root commands are unsafe",
+        "CONCURRENCY_SAFE_TOOLS is a frozenset {read_file, list_dir, grep_search, glob, view_media} plus memory recall; edit/write/run_tests/subagent/subagents/finish/devague/culture are never safe",
+        "no import of loop.py or tools.py \u2014 the module is standalone stdlib"
+      ],
+      "deps": [],
+      "covers": [
+        "c40",
+        "h29"
+      ],
+      "instruction": "New file colleague/toolbatch.py + tests/test_toolbatch.py. Port the ALGORITHM of qwen-code coreToolScheduler.ts:1331 partitionByConcurrencySafety and the allow-list form of utils/shellReadOnlyChecker.ts (root-command allow-list via shlex; fail closed on any shell metachar). Docstring marker: adapted-from: qwen-code packages/core/src/core/coreToolScheduler.ts:1284-1348, utils/shellReadOnlyChecker.ts. Add a one-paragraph note that the checker decides batch parallelism only, never permission."
+    },
+    {
+      "id": "t3",
+      "summary": "colleague/outputclamp.py \u2014 window-clamped max_tokens with per-seat ceilings (pure)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "clamp_output_tokens(ceiling, window, prompt_tokens) returns min(ceiling, window - prompt_tokens - margin) with margin max(10000, 5% of window), floored at 4000; tested against the qwen-code numbers (window 262144, prompt 200000 -> 48934 at ceiling 64000)",
+        "resolve_window(lobes_context, tokenize_max_model_len, budget) applies the precedence lobes context -> /tokenize max_model_len -> COLLEAGUE_CONTEXT_BUDGET and reports which source won",
+        "seat_ceiling(seat) returns 64000 for acting seats and the design ceiling (COLLEAGUE_MAX_OUTPUT_TOKENS_DESIGN, default 131072) for deepthink/design seats; COLLEAGUE_MAX_OUTPUT_TOKENS=0 means no clamp (returns None)"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "h2",
+        "c38",
+        "h27",
+        "c48",
+        "h35"
+      ],
+      "instruction": "New file colleague/outputclamp.py + tests/test_outputclamp.py. adapted-from: qwen-code packages/core/src/core/tokenLimits.ts:36-77 (clampOutputTokensToWindow, MIN_CLAMPED_OUTPUT_TOKENS, OUTPUT_TOKEN_CEILING). Pure functions only; the loop wiring is t15."
+    },
+    {
+      "id": "t4",
+      "summary": "colleague/microcompact.py \u2014 rule-based blanking of old tool results (pure)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "microcompact(messages, keep_recent=10) replaces the content of tool-role messages older than the most recent N with a one-line marker naming the tool and path, leaves every assistant message and tool_calls entry intact, and returns (messages, blanked_count)",
+        "a wire-validity test proves every tool_call id still has exactly one paired tool message after blanking",
+        "should_microcompact(prompt_tokens, budget) returns True at >= 0.85 of budget; the module never imports an engine or makes a network call"
+      ],
+      "deps": [],
+      "covers": [
+        "c11",
+        "h9"
+      ],
+      "instruction": "New file colleague/microcompact.py + tests/test_microcompact.py. adapted-from: qwen-code packages/core/src/services/microcompaction/microcompact.ts:14,40-64 and services/chatCompressionService.ts:109-124 (thresholds). The marker must name the path so the model knows to re-read (hard question on c11). Loop wiring + fill-line ordering is t15."
+    },
+    {
+      "id": "t5",
+      "summary": "colleague/search_tools.py \u2014 grep_search + glob (ripgrep with stdlib fallback)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "grep_search(root, pattern, path=None, glob=None, max_results) uses rg when on PATH else a pure-stdlib walker, and both backends produce identical output on a fixture tree (test runs both)",
+        "glob(root, pattern) returns matches sorted by mtime descending, repo-confined; a pattern or path escaping the root (including via symlink) is refused with the same error shape read_file uses",
+        "neighbour clones under .colleague/neighbours are searchable read-only; .git and .colleague/worktrees are excluded by default"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h5"
+      ],
+      "instruction": "New file colleague/search_tools.py + tests/test_search_tools.py. adapted-from: qwen-code packages/core/src/tools/ripGrep.ts, tools/grep.ts, tools/glob.ts and config.ts:9280-9315 (backend selection). Reuse tools.py's resolve()-based confinement by importing its helper, do not duplicate it. Registration into SCHEMAS/curate_schemas is t13."
+    },
+    {
+      "id": "t6",
+      "summary": "colleague/editmatch.py \u2014 tolerant edit match + prior-read set (pure)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "normalize_edit_strings(text, old, new) returns the exact on-disk slice for a match that differs only by smart quotes or per-line leading/trailing whitespace, never rewrites new_string, and returns None (caller falls to the exact path) when the exact match already succeeds",
+        "a CRLF- or indent-drifted old_string lands; two relaxed matches still raise the ambiguity error; there is no LLM call and no import of an engine",
+        "ReadSet records (path, line ranges) fully read in this work item; is_read_for_edit(path, span) is False for a paged/truncated read whose span was not shown"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h7"
+      ],
+      "instruction": "New file colleague/editmatch.py + tests/test_editmatch.py. adapted-from: qwen-code packages/core/src/utils/editHelper.ts:313-380 (normalizeEditStrings, findMatchedSlice) and tools/priorReadEnforcement.ts. Wiring into edit_file is t12."
+    },
+    {
+      "id": "t7",
+      "summary": "Stream guards \u2014 idle + lifetime watchdog on the SSE path (vllm_openai.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "COLLEAGUE_STREAM_IDLE_TIMEOUT (default 240) and COLLEAGUE_STREAM_MAX_LIFETIME (default 900) are read in the stream reader; 0 disables; a trip raises the existing TurnStalled path and TaskResult.warnings names which guard tripped",
+        "tests use a real os.pipe/PTY drip-feed server (never a fake stream): an idle gap trips at the idle bound; a 1-byte-per-second stream trips at the lifetime bound",
+        "stallguard's 6x-mean scaling is removed and its tests updated; COLLEAGUE_TIMEOUT semantics unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h10"
+      ],
+      "instruction": "Files: colleague/engines/vllm_openai.py (stream reader around :368 stallguard.check), colleague/stallguard.py, tests/test_stream_guards.py. adapted-from: qwen-code packages/core/src/core/openaiContentGenerator/constants.ts:1-68 and pipeline.ts:412-530 (withStreamGuards). Keep the blocking-fallback ladder (:723-789) untouched. This task owns vllm_openai.py in its wave; t9 follows it."
+    },
+    {
+      "id": "t8",
+      "summary": "Prompt text adoption \u2014 colleague/prompttext.py with per-model examples + variant knob",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_DEFAULT_SYSTEM moves to colleague/prompttext.py; the adopted sections (Core Mandates, Using Your Tools, Executing actions with care, Final Reminder) carry the marker 'adapted-from: qwen-code core/prompts.ts:278-440 \u2014 Copyright 2025 Google LLC, Copyright 2026 Qwen Team, Apache-2.0' and a test greps both copyright holders",
+        "tool-call example blocks are keyed by model id (qwen-coder, qwen-vl, gemma4, default) with a snapshot test per family; the headless variant omits ask-style guidance and the matching tools are absent from the offered schemas",
+        "COLLEAGUE_PROMPT_VARIANT=v1 yields the pre-arc _DEFAULT_SYSTEM byte-for-byte (snapshot pinned from main); the prompt is still built once per run (prefix-stable)"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h11",
+        "c47",
+        "h34"
+      ],
+      "instruction": "Files: colleague/prompttext.py (new), colleague/loop.py (only the _DEFAULT_SYSTEM import at :105-164 \u2014 one hunk), tests/test_prompttext.py with snapshots. Prose is adapted, not pasted wholesale: keep colleague's Destination/Subagents/Culture/Test-integrity sections. The env/context prelude stays a first user message."
+    },
+    {
+      "id": "t9",
+      "summary": "tools.py wiring A \u2014 read_file offset/limit + spill truncation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "read_file(path, offset=None, limit=None) numbers lines with the ORIGINAL file line numbers when paged (test at offset 500 keeps #240 grounding), defaults 1000 lines / 25000 chars, and a truncated read ends with exactly 'Read lines X-Y of N'",
+        "ToolExecutor._truncate delegates to colleague/truncation.py: run_command output is head+tail at 30000 with the spilled path named; read_file at 25000; spilled files land under .colleague/tool-output/",
+        "tests/test_e2e_mock.py passes unchanged"
+      ],
+      "deps": [
+        "t5",
+        "t11"
+      ],
+      "covers": [
+        "c8",
+        "h6",
+        "c10",
+        "h8"
+      ],
+      "instruction": "Files: colleague/tools.py (read_file :927-939, _truncate :838-842, SCHEMAS entry for read_file), tests/test_tools_read.py. This task owns tools.py in its wave; t12 and t13 chain after it."
+    },
+    {
+      "id": "t10",
+      "summary": "Measurement harness \u2014 scripts/compare_arms.py + pre-registration + before-state row",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "scripts/compare_arms.py reads N lists of artifact ids, computes wall-clock and model_turns ratios from artifact duration_seconds/model_turns (never prose), prints them, and exits 1 when a ratio misses the c28 bar (<= 0.7 wall, <= 0.8 turns) \u2014 unit-tested on fixture artifacts",
+        "docs/live-testing.md carries a pre-registration row naming the brief (game-benchmark + one repo task), n>=3 per brief, the arms (main / branch associate-unarmed / branch associate-armed / temperature arm per c51), the rig, model and effort table, BEFORE any arm runs",
+        "the before-state row exists: main at the arc's base SHA, COLLEAGUE_DUMP_REQUEST=1 dump showing no max_tokens, and the artifact ids of the n>=3 main runs"
+      ],
+      "deps": [],
+      "covers": [
+        "c22",
+        "h16",
+        "c26",
+        "h19"
+      ],
+      "instruction": "Files: scripts/compare_arms.py (new), tests/test_compare_arms.py, docs/live-testing.md (two rows). Run the main arm on this rig now (wave 1) so the baseline predates the port; use the game-benchmark command template at ~/.colleague/commands/game-benchmark.md plus one small repo task; cap at 2 concurrent loops, COLLEAGUE_TIMEOUT=300."
+    },
+    {
+      "id": "t11",
+      "summary": "colleague/truncation.py \u2014 head+tail truncation with spill-to-disk (pure + fs)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "truncate_output(text, max_chars, max_lines, spill_dir) keeps head and tail, writes the full text to spill_dir/<hash>.txt with mode 0o600, and returns text that names the spilled file's absolute path; spilled content == original (test)",
+        "per-tool defaults: 25000 chars / 1000 lines for tools, 30000 for run_command; COLLEAGUE_MAX_OUTPUT_CHARS acts as a CEILING over both, and COLLEAGUE_READ_MAX_CHARS / COLLEAGUE_SHELL_MAX_CHARS set a tool beneath it (decision c50 test: exported COLLEAGUE_MAX_OUTPUT_CHARS=100000 leaves read_file at 25000)",
+        "a session cap (500 MB) stops spilling with a recorded warning; COLLEAGUE_TOOL_SPILL=0 disables spilling and falls back to head+tail only"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h8"
+      ],
+      "instruction": "New file colleague/truncation.py + tests/test_truncation.py. adapted-from: qwen-code packages/core/src/tools/truncation.ts:22,200-296 and tools/shell.ts:91-112. Spill dir is <repo>/.colleague/tool-output/ (gitignored via .colleague/*); the reap hook in colleague clean is wired in the observability task."
+    },
+    {
+      "id": "t12",
+      "summary": "Drop the per-turn /tokenize \u2014 run-start window discovery + COLLEAGUE_EXACT_TOKENS",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with a counting fake server, a 3-turn run makes exactly one /tokenize call (at run start) and one /chat/completions per turn; COLLEAGUE_EXACT_TOKENS=1 restores the per-turn call",
+        "window_messages counts with the last usage.prompt_tokens plus the chars/4 estimate for new messages (context.py), never a network call per turn; the artifact's token fields still come from usage only",
+        "the run-start /tokenize reply's max_model_len feeds outputclamp.resolve_window with the documented precedence; a fake server advertising max_model_len=8192 never sees prompt + max_tokens above 8192, and the vLLM 400 'maximum context length' reply is reproduced in a test that proves the clamp prevents it",
+        "docs/features/graceful-degradation.md and CLAUDE.md's vLLM carve-out list read two carve-outs, not three"
+      ],
+      "deps": [
+        "t7",
+        "t3"
+      ],
+      "covers": [
+        "c5",
+        "h3",
+        "c38",
+        "h27"
+      ],
+      "instruction": "Files: colleague/context.py (window_messages counter path :232-282), colleague/engines/vllm_openai.py (counter closure :976-998 \u2192 run-start call), config.py knob, tests. adapted-from: qwen-code services/tokenEstimation.ts (estimatePromptTokens) \u2014 cite in context.py's docstring. Runs after t7 because both edit vllm_openai.py."
+    },
+    {
+      "id": "t13",
+      "summary": "tools.py wiring B \u2014 edit_file tolerant tier + prior-read enforcement",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "edit_file tries the exact match first, then editmatch.normalize_edit_strings; a whitespace-drifted old_string lands in one step; ambiguity still errors naming the count",
+        "editing a file not read in this work item (or a span not shown by a paged/truncated read) is refused with a typed error naming the rule; write_file of a NEW file is unaffected",
+        "no LLM call anywhere in tools.py (grep test for engine imports)"
+      ],
+      "deps": [
+        "t6",
+        "t9"
+      ],
+      "covers": [
+        "c9",
+        "h7"
+      ],
+      "instruction": "Files: colleague/tools.py (edit_file :992-1059; ToolExecutor gains a ReadSet fed by read_file), tests/test_tools_edit.py. The refusal message must say 'read the file (or that span) first' \u2014 a cheap model must recover in one step."
+    },
+    {
+      "id": "t14",
+      "summary": "tools.py wiring C \u2014 register grep_search + glob, concurrency kinds, role curation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "SCHEMAS contains grep_search and glob with descriptions naming ripgrep-style patterns; ToolExecutor.execute dispatches them; curate_schemas offers them to every read-capable role (read-only roles included)",
+        "both go through truncation.py; both are listed in toolbatch.CONCURRENCY_SAFE_TOOLS; COLLEAGUE_TOOLS_LEGACY=1 hides both schemas (the byte-identical proof path)",
+        "docs/features/work-and-loop.md's tool table lists both"
+      ],
+      "deps": [
+        "t5",
+        "t13"
+      ],
+      "covers": [
+        "c7",
+        "h5"
+      ],
+      "instruction": "Files: colleague/tools.py (SCHEMAS, execute dispatch :867-916, curate_schemas :590-626), colleague/roles.py (read-only role tool sets), tests. Last tools.py task in the chain."
+    },
+    {
+      "id": "t15",
+      "summary": "loop.py \u2014 batched tool execution (lifecycle split, pool, failure + stop semantics, convention change 6)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_run_tool_calls partitions via toolbatch and runs pre_tool hook, TAE gate and policy gate on the main thread in request order BEFORE the pool; only executor.execute runs in the pool; step indices, Step/tool-message appends, post_tool hooks, progress and flight records happen on the main thread in request order after the join (test with inverted sleep durations pins order and indices)",
+        "an AST test proves the pool target references no ctx/_Work attribute; COLLEAGUE_TOOL_CONCURRENCY (default 10, 1 = sequential) \u2014 at 1 the mock e2e suite is byte-identical",
+        "a batch of [ok, error, ok] yields three ordered steps with one non-ok; a flight stop written mid-batch takes effect before the next batch and the artifact carries the completed batch; SIGTERM handling unchanged",
+        "tests/test_boundary.py's thread allow-list adds colleague/toolbatch.py with its stated reason; CLAUDE.md's v1 section records convention change (6)"
+      ],
+      "deps": [
+        "t2",
+        "t14"
+      ],
+      "covers": [
+        "c6",
+        "h4",
+        "c35",
+        "h24",
+        "c36",
+        "h25"
+      ],
+      "instruction": "Files: colleague/loop.py (_run_tool_calls :1246-1258 and the _run_tool_call split :1071-1204), tests/test_boundary.py, CLAUDE.md (conventions + v1 scope), tests/test_toolbatch_loop.py. Put the ThreadPoolExecutor in colleague/toolbatch.py behind run_batch(execute, calls, width) so loop.py does not import concurrent.futures directly. Batch-boundary stop latency is documented honestly (the docs task writes the doc; this task adds the docstring)."
+    },
+    {
+      "id": "t16",
+      "summary": "loop.py \u2014 clamp, microcompaction, loop guards, ledger event",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "every main-loop payload carries max_tokens from outputclamp (seat-aware); a finish_reason=length turn retries once at the seat ceiling then falls to the existing TRUNCATED_TURN_MARKER handling; distill/oilcheck payloads unchanged",
+        "microcompact runs BEFORE the fill-line offer at >= 0.85 of budget; the fill-line offer fires only if still over the line afterwards; blanked_count lands on the artifact; COLLEAGUE_MICROCOMPACT=0 restores today's path",
+        "5 consecutive identical (name+arguments) tool calls or 100 calls in one turn halt the run with a named warning and drop pending calls; the unknown-tool streak test is unchanged",
+        "with agents armed, each microcompaction pass appends one ledger event (count + blanked step indices) and rehydration reproduces the blanked history"
+      ],
+      "deps": [
+        "t15",
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c4",
+        "h2",
+        "c11",
+        "h9",
+        "c20",
+        "h15",
+        "c42",
+        "h31"
+      ],
+      "instruction": "Files: colleague/loop.py (turn path :2072-2151 for the clamp; _maybe_offer_fillline :1480 ordering; a new _loop_guards check next to _tool_protocol_broken :1240), colleague/engines/vllm_openai.py gets max_tokens in _build_chat_payload (one hunk), colleague/agents/runtime.py (ledger event), tests. adapted-from markers: loopDetectionService.ts:35,140 on the guards."
+    },
+    {
+      "id": "t17",
+      "summary": "mock engine batch scenario + all-engines pin",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "engines/mock.py gains an opt-in scenario (task text trigger, like existing recipes) returning one turn with three read-only calls plus one write; default mock output is unchanged",
+        "tests/test_e2e_mock.py pins the batch Step sequence and result shape via a shared fixture also run against a fake vllm-openai server \u2014 identical",
+        "a diff-scope test asserts vllm_openai.py's payload keys are OpenAI-surface keys plus chat_template_kwargs, and that no per-turn /tokenize call remains"
+      ],
+      "deps": [
+        "t15"
+      ],
+      "covers": [
+        "c39",
+        "h28",
+        "c19",
+        "h14"
+      ],
+      "instruction": "Files: colleague/engines/mock.py, tests/test_e2e_mock.py, tests/test_all_engines_batch.py. Keep the mock's contract-reference role: the fixture is the source of truth both engines are compared against."
+    },
+    {
+      "id": "t18",
+      "summary": "Associate seat A \u2014 opt-in resolution, role-name addressing, streaming, config/lobes show",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "COLLEAGUE_ASSOCIATE_MODEL=lobes (or an explicit id) resolves a second EngineConfig via the lobes gateway the way deepthink does; unset -> byte-identical to main (pinning test with lobes armed)",
+        "the associate EngineConfig sends model='associate' on the wire and records the SERVED model from the reply's model field on the artifact/ledger; a gateway rejecting the role name falls back once to the model id, then to cortex@low with a recorded warning",
+        "associate completions stream (stream + stream_options.include_usage) on the same engine path as cortex, headless included (decision c52)",
+        "config show prints 'associate \u2192 <served model> (addressed as role name via proxy)' when armed and 'not consumed (opt-in): associate \u2192 \u2026' when advertised but unarmed; lobes show lists the associate role; effort.py's table gains an 'associate' row defaulting to off"
+      ],
+      "deps": [],
+      "covers": [
+        "c37",
+        "h26",
+        "c49",
+        "h36"
+      ],
+      "instruction": "Files: colleague/config.py (mirror the deepthink keys at :2301 and the lobes sentinel at :3417-3431), colleague/lobes.py (role list), colleague/effort.py, colleague/cli/_commands/config.py + lobes.py (show lines), tests/test_associate_config.py. Do NOT touch subagents.py/roles.py here (Associate seat B)."
+    },
+    {
+      "id": "t19",
+      "summary": "Associate seat B \u2014 the enumerated consumers (scout child, compact summary, synthesis, digests, distill rung)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ASSOCIATE_SEATS is one module-level tuple listing the scout subagent role, fill-line compact author, forced synthesis, lint/affected-tests digest and rung-2 distill author rung; docs/features/thinking-effort.md's table has the row; an AST guard pins that no other call site references the associate config",
+        "a read-only scout child (roles.py) runs on the associate EngineConfig with a tool surface that is a strict subset of the parent's read-only set (edit_file/write_file/run_tests absent \u2014 test); an associate reply containing a repo-mutating tool call is refused and recorded, not executed",
+        "unarmed, every seat runs on cortex with chat_template_kwargs for 'low' (test), and the code-authoring seats never reference the associate config"
+      ],
+      "deps": [
+        "t18"
+      ],
+      "covers": [
+        "c33",
+        "h22"
+      ],
+      "instruction": "Files: colleague/subagents.py (child EngineConfig swap near _child_config_lifecycle :238-270), colleague/roles.py (scout role), colleague/distill.py (author precedence :101-138 gains the associate rung after deepthink/muse), colleague/loop.py (compact/synthesis author selection \u2014 one hunk each), tests. Keep the resolution-rung shape: precedence deepthink/muse > associate > cortex@low, recorded on the artifact."
+    },
+    {
+      "id": "t20",
+      "summary": "Observability \u2014 doctor rows, config show clamp/window, artifact counts, clean reaps spill",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "doctor --json gains informational rows: stream guards (idle < lifetime), tool concurrency cap, ripgrep presence, associate resolution state (consumed / opt-in / fallback); snapshot test",
+        "config show prints the max_tokens ceiling and the window source that won; TaskResult/WorkStats carry exact integer counts: batches_run, calls_parallelised, results_blanked, outputs_spilled, guard_trips (artifact schema test; mock shape unchanged when all are 0)",
+        "colleague clean reaps .colleague/tool-output/ and reports the bytes freed"
+      ],
+      "deps": [
+        "t16",
+        "t18"
+      ],
+      "covers": [
+        "c43",
+        "h32"
+      ],
+      "instruction": "Files: colleague/doctor.py, colleague/cli/_commands/config.py (show), colleague/contract.py + colleague/artifact.py (WorkStats fields), colleague/cleanup.py, tests. Counts are incremented in loop.py by the two loop tasks \u2014 read them here, add the fields here."
+    },
+    {
+      "id": "t21",
+      "summary": "Continuation \u2014 no read-set across work --continue",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a continued run that edits a file before reading it gets the typed refusal naming the rule and the continuation id; read-then-edit succeeds",
+        "the continuation seed body states the rule up front (snapshot test of render)"
+      ],
+      "deps": [
+        "t13"
+      ],
+      "covers": [
+        "c41",
+        "h30"
+      ],
+      "instruction": "Files: colleague/continuation.py (seed body :304), tests/test_continuation_readset.py. The ReadSet is simply not persisted \u2014 verify nothing in the snapshot carries it."
+    },
+    {
+      "id": "t22",
+      "summary": "Reversibility \u2014 one off-knob per mechanism, byte-identical pinning suite",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_knobs_byte_identical.py flips each knob to its off value (COLLEAGUE_MAX_OUTPUT_TOKENS=0, COLLEAGUE_EXACT_TOKENS=1, COLLEAGUE_TOOL_CONCURRENCY=1, COLLEAGUE_MICROCOMPACT=0, COLLEAGUE_STREAM_IDLE_TIMEOUT=0 + COLLEAGUE_STREAM_MAX_LIFETIME=0, COLLEAGUE_TOOL_SPILL=0, COLLEAGUE_PROMPT_VARIANT=v1, COLLEAGUE_TOOLS_LEGACY=1, COLLEAGUE_ASSOCIATE_MODEL unset) and diffs request payloads, offered tool schemas and messages against main's recorded fixtures \u2014 identical",
+        "the knob table lives once in docs/features/adopt-from-qwen-code.md and a test asserts every knob in the table is read somewhere in colleague/ (grep) and vice versa"
+      ],
+      "deps": [
+        "t16",
+        "t8",
+        "t14",
+        "t18"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c44",
+        "h33"
+      ],
+      "instruction": "Files: tests/test_knobs_byte_identical.py (new), tests/fixtures/main_baseline/ (recorded from the arc's base SHA), docs/features/adopt-from-qwen-code.md (knob table section only \u2014 the docs task writes the rest). Record the baseline fixtures FIRST from main before any mechanism lands."
+    },
+    {
+      "id": "t23",
+      "summary": "Docs \u2014 feature doc, CLAUDE.md bullet + carve-outs, ledger rows, approval-gate + work-and-loop paragraphs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/adopt-from-qwen-code.md: first paragraph names the three readers and what each takes; every after-state clause maps to a requirement with its live-testing row or is listed under Honest limits; cites the qwen-code session usage line and rt-optimization-design.md \u00a71.2 verbatim with dates",
+        "CLAUDE.md gains the architecture bullet + the carve-out list reads two; docs/features/approval-gate.md gains the 'batch checker is a parallelism hint, not permission' paragraph; docs/features/work-and-loop.md states batch-boundary stop latency honestly",
+        "docs/adopted-from.md rows are complete (no 'pending' dates) and tests/test_adopted_from.py passes; markdownlint-cli2 passes on every touched doc"
+      ],
+      "deps": [
+        "t22",
+        "t19",
+        "t20",
+        "t21",
+        "t17",
+        "t12"
+      ],
+      "covers": [
+        "c24",
+        "h17",
+        "c25",
+        "h18",
+        "c27",
+        "h20",
+        "c15",
+        "h12"
+      ],
+      "instruction": "Files: docs/features/adopt-from-qwen-code.md (new), CLAUDE.md, docs/features/{approval-gate,work-and-loop,graceful-degradation,thinking-effort}.md, docs/adopted-from.md, README.md. Trim discipline c17: bullets point to the feature doc."
+    },
+    {
+      "id": "t24",
+      "summary": "Run the arms \u2014 three model arms + temperature arm, ratios recorded, revert-or-flag",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/live-testing.md carries one row per arm with artifact ids; compare_arms.py output is pasted verbatim; arm 3 reads 'blocked: gateway' if associate is not routable at run time rather than being skipped",
+        "if a ratio misses the bar the feature doc's Honest limits says so and the responsible mechanism is reverted or flagged in the PR \u2014 never kept silently; the summarize-delivery record cites the script output",
+        "the temperature arm (T=0.0 vs model default, decision c51) is reported beside the model arms"
+      ],
+      "deps": [
+        "t23",
+        "t10"
+      ],
+      "covers": [
+        "c28",
+        "h21",
+        "c34",
+        "h23"
+      ],
+      "instruction": "Run on this rig within one day of the main arm, same effort table; associate via model='associate' through spark's gateway. Cap 2 concurrent loops. Attach artifact ids, not prose."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "GPU serialisation: on this rig only ~2 colleague loops run concurrently, so wide waves execute mostly serially in practice \u2014 plan waves are content-parallel, not throughput-parallel",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "loop.py (270 KB) is edited by t10 (one hunk), t14, t15 and t18 \u2014 chained by dependency, but each merge must re-run tests/test_e2e_mock.py before the next loop.py task starts; colleague itself times out editing large files, so these tasks are Claude-side or narrowly briefed",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "Arm 3 depends on spark's proxied associate staying routable by role name; the advert currently says ready:false \u2014 if the proxy regresses, t24 records 'blocked: gateway' and the arc still ships the mechanics ratio",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}

@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-27T13:59:34Z",
-  "updated": "2026-08-27T14:39:17Z",
+  "updated": "2026-08-27T14:42:41Z",
   "claims": [
     {
       "id": "c1",
@@ -894,6 +894,18 @@
       "id": "c51",
       "kind": "decision",
       "text": "q5: the c22 measurement adds a temperature arm \u2014 the same brief at temperature 0.0 vs the served model's default \u2014 reported beside the three model arms",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c52",
+      "kind": "decision",
+      "text": "Operator (2026-08-27): the associate seat streams its completions like cortex/qwen \u2014 stream + stream_options.include_usage on the same engine path, headless included",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],
