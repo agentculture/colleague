@@ -16,7 +16,8 @@ independent guards close that:
 - ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 900s) — seconds since the stream
   opened, regardless of activity.
 
-``0`` (or anything unparsable) disables a guard; both disabled means
+``0``, a negative, a non-finite (``inf``/``nan``), or an unparsable value
+disables a guard; both disabled means
 :meth:`StreamGuards.from_env` returns ``None`` and the SSE reader is
 byte-identical to the unguarded one. A trip raises :class:`StreamGuardTripped`
 — a :class:`colleague.stallguard.TurnStalled` — so it rides the loop's existing
@@ -28,6 +29,7 @@ import from the loop, config or any engine.
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -54,7 +56,13 @@ class StreamGuardTripped(TurnStalled):
 
 
 def _read_bound(env: str, default: float) -> Optional[float]:
-    """One knob: unset -> *default*; ``0``/negative/unparsable -> disabled (``None``)."""
+    """One knob: unset -> *default*; only a FINITE positive float arms a guard.
+
+    ``0``/negative/unparseable -> disabled (``None``), and so do ``inf``/``nan``
+    (``float("inf")`` parses and passes ``> 0`` but is not a valid
+    ``socket.settimeout`` argument — an infinite bound would arm a guard that
+    can never trip, and ``nan`` poisons every comparison).
+    """
     raw = os.environ.get(env)
     if raw is None:
         return default
@@ -62,7 +70,9 @@ def _read_bound(env: str, default: float) -> Optional[float]:
         value = float(raw)
     except ValueError:
         return None
-    return value if value > 0 else None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return value
 
 
 @dataclass

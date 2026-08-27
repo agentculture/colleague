@@ -13,6 +13,7 @@ checkable number, never an estimate:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -96,6 +97,75 @@ def test_load_arm_armed_means():
     arm = load_arm(FIXTURE_REPO, "branch-armed", ["armed-1", "armed-2", "armed-3"])
     assert arm.mean_wall == pytest.approx(95.0)
     assert arm.mean_turns == pytest.approx(29.0 / 3.0)
+
+
+def _write_artifact(repo: Path, task_id: str, stats: dict) -> None:
+    (repo / ".colleague").mkdir(parents=True, exist_ok=True)
+    (repo / ".colleague" / f"{task_id}.json").write_text(
+        json.dumps({"task_id": task_id, "stats": stats}), encoding="utf-8"
+    )
+
+
+def test_load_artifact_stats_malformed_stats_raise_lookup_error(tmp_path: Path):
+    """Non-numeric duration/turns must raise ArtifactLookupError (never a
+    TypeError escaping the script's error wrapper)."""
+    _write_artifact(tmp_path, "bad-1", {"duration_seconds": "not-a-number", "model_turns": 10})
+    with pytest.raises(ArtifactLookupError, match="bad-1"):
+        load_artifact_stats(tmp_path, "bad-1")
+    _write_artifact(tmp_path, "bad-2", {"duration_seconds": 100.0, "model_turns": "ten"})
+    with pytest.raises(ArtifactLookupError, match="bad-2"):
+        load_artifact_stats(tmp_path, "bad-2")
+
+
+def test_load_artifact_stats_non_positive_stats_raise_lookup_error(tmp_path: Path):
+    """A zero/negative duration or turns is malformed (it would make a ratio
+    divide by zero or invert) — ArtifactLookupError, not a silent 0.0."""
+    _write_artifact(tmp_path, "zero-1", {"duration_seconds": 0, "model_turns": 10})
+    with pytest.raises(ArtifactLookupError, match="zero-1"):
+        load_artifact_stats(tmp_path, "zero-1")
+    _write_artifact(tmp_path, "zero-2", {"duration_seconds": 100.0, "model_turns": 0})
+    with pytest.raises(ArtifactLookupError, match="zero-2"):
+        load_artifact_stats(tmp_path, "zero-2")
+
+
+def test_main_exits_two_on_malformed_artifact(tmp_path: Path, capsys):
+    """End-to-end: a malformed artifact is a lookup error (exit 2, clear
+    stderr message), never a traceback."""
+    _write_artifact(tmp_path, "bad-1", {"duration_seconds": "oops", "model_turns": 10})
+    _write_artifact(tmp_path, "ok-1", {"duration_seconds": 100.0, "model_turns": 10})
+    exit_code = main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--arm",
+            "baseline=ok-1",
+            "--arm",
+            "other=bad-1",
+        ]
+    )
+    assert exit_code == 2
+    err = capsys.readouterr().err
+    assert "bad-1" in err
+
+
+def test_main_exits_two_on_zero_turn_baseline(tmp_path: Path, capsys):
+    """A zero-turn baseline would divide by zero in compute_ratios — the
+    script must refuse it at load time with exit 2."""
+    _write_artifact(tmp_path, "zero-1", {"duration_seconds": 100.0, "model_turns": 0})
+    _write_artifact(tmp_path, "ok-1", {"duration_seconds": 100.0, "model_turns": 10})
+    exit_code = main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--arm",
+            "baseline=zero-1",
+            "--arm",
+            "other=ok-1",
+        ]
+    )
+    assert exit_code == 2
+    err = capsys.readouterr().err
+    assert "zero-1" in err
 
 
 # --- compute_ratios -------------------------------------------------------

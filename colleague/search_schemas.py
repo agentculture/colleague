@@ -184,14 +184,17 @@ def run_grep_search(root: Path, arguments: dict[str, Any]) -> str:
 
     pattern = _require_pattern(arguments, "grep_search")
     cap = _max_results(arguments, "grep_search")
+    # Fetch one PAST the cap: the cap marker means "there were more matches",
+    # not "we hit the number" — exactly cap matches with no more existing is
+    # a complete result and must not be flagged as truncated.
     matches = search_tools.grep_search(
         root,
         pattern,
         path=_optional_str(arguments, "path"),
         glob=_optional_str(arguments, "glob"),
-        max_results=cap,
+        max_results=cap + 1,
     )
-    return render_matches(matches, capped=len(matches) >= cap)
+    return render_matches(matches[:cap], capped=len(matches) > cap)
 
 
 def run_glob(root: Path, arguments: dict[str, Any]) -> str:
@@ -200,8 +203,11 @@ def run_glob(root: Path, arguments: dict[str, Any]) -> str:
 
     pattern = _require_pattern(arguments, "glob")
     cap = _max_results(arguments, "glob")
-    paths = search_tools.glob(root, pattern, path=_optional_str(arguments, "path"), max_results=cap)
-    return render_paths(paths, capped=len(paths) >= cap)
+    # Fetch one PAST the cap (same "there were more" semantics as grep_search).
+    paths = search_tools.glob(
+        root, pattern, path=_optional_str(arguments, "path"), max_results=cap + 1
+    )
+    return render_paths(paths[:cap], capped=len(paths) > cap)
 
 
 _RUNNERS: dict[str, Callable[[Path, dict[str, Any]], str]] = {

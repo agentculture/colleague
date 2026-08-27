@@ -117,6 +117,32 @@ def test_defaults_and_zero_disables(monkeypatch) -> None:
     assert guards.idle == 12.5 and guards.lifetime is None
 
 
+@pytest.mark.parametrize(
+    "raw",
+    ["inf", "-inf", "nan", "-5", "garbage"],
+)
+def test_non_finite_or_non_positive_knobs_disable_the_guard(monkeypatch, raw) -> None:
+    """Only FINITE positive floats may arm a guard: inf/nan/negative/unparseable
+    all disable it (None) — inf/nan would be passed straight to
+    socket.settimeout, which is not a valid timeout."""
+    monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", raw)
+    monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", raw)
+    assert streamguards.StreamGuards.from_env() is None
+    # One bad knob disables only that guard; the other keeps its default.
+    monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "900")
+    guards = streamguards.StreamGuards.from_env()
+    assert guards is not None
+    assert guards.idle is None
+    assert guards.lifetime == 900.0
+
+
+def test_finite_positive_knob_still_arms(monkeypatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "12.5")
+    guards = streamguards.StreamGuards.from_env()
+    assert guards is not None
+    assert guards.idle == 12.5
+
+
 # --- the two trips, on a real socket -----------------------------------------
 
 
