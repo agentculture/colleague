@@ -191,7 +191,9 @@ def test_unreachable_associate_falls_to_cortex_low_with_a_recorded_warning() -> 
     assert resp.content == "from cortex-model"
     assert engine.calls == [(ASSOCIATE_WIRE_MODEL, "off"), ("cortex-model", "low")]
     assert len(warnings) == 1
-    assert "associate" in warnings[0] and "synthesis" in warnings[0] and "low" in warnings[0]
+    assert "associate" in warnings[0]
+    assert "synthesis" in warnings[0]
+    assert "low" in warnings[0]
 
 
 def test_engine_without_one_shot_completions_degrades_with_a_warning() -> None:
@@ -204,7 +206,8 @@ def test_engine_without_one_shot_completions_degrades_with_a_warning() -> None:
     assert factory is not None
     warnings: list[str] = []
     assert factory("compact", warnings.append) is None
-    assert len(warnings) == 1 and "mock" in warnings[0]
+    assert len(warnings) == 1
+    assert "mock" in warnings[0]
 
 
 # ---------------------------------------------------------------------------
@@ -330,18 +333,21 @@ def test_distill_precedence_deepthink_then_associate_then_cortex() -> None:
     armed.lobes_gateway_url = "http://localhost:8001"
     # associate beats the lobes-cortex floor
     author = distill.resolve_distill_author_from_config(armed)
-    assert author is not None and author.model == ASSOCIATE_WIRE_MODEL
+    assert author is not None
+    assert author.model == ASSOCIATE_WIRE_MODEL
     # deepthink still beats associate
     armed.deepthink = DeepthinkConfig(
         model="muse-model", base_url="http://x", api_key="", context_budget=1000
     )
     author = distill.resolve_distill_author_from_config(armed)
-    assert author is not None and author.model == "muse-model"
+    assert author is not None
+    assert author.model == "muse-model"
     # unarmed: byte-identical to main (the cortex floor)
     plain = _config(armed=False)
     plain.lobes_gateway_url = "http://localhost:8001"
     author = distill.resolve_distill_author_from_config(plain)
-    assert author is not None and author.model == "cortex-model"
+    assert author is not None
+    assert author.model == "cortex-model"
 
 
 def test_distill_associate_rung_never_authors_in_tae_mode() -> None:
