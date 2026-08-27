@@ -94,6 +94,19 @@ def test_at_least_one_line_is_always_shown() -> None:
     assert trailer == "Read lines 1-1 of 2"
 
 
+def test_char_truncated_single_line_file_still_emits_trailer() -> None:
+    """finding #441-9(readpage) / D: a file whose ONE total line exceeds the
+    char cap used to omit the trailer entirely (``start == 1 and shown_end
+    == total`` looked byte-for-byte like a complete, untruncated render even
+    though the line's tail was cut). A char-truncated last line is still a
+    PARTIAL read and must carry the trailer."""
+    text = "w" * 5000  # a single line, no trailing newline: total == 1
+    out = readpage.render_read(text, None, None, ceiling=100)
+    body, trailer = out.rsplit("\n", 1)
+    assert len(body) <= 100
+    assert trailer == "Read lines 1-1 of 1"
+
+
 @pytest.mark.parametrize("bad", [{"offset": 0}, {"offset": -3}, {"limit": 0}, {"offset": "x"}])
 def test_bad_offset_or_limit_is_a_self_correcting_tool_error(bad: dict) -> None:
     offset = bad.get("offset")
@@ -112,6 +125,38 @@ def test_bound_output_uses_per_tool_budgets_and_spills(tmp_path) -> None:
     assert spilled[0].read_text(encoding="utf-8") == big
     small = "fits"
     assert readpage.bound_output(small, "", 68_000, tmp_path) == small
+
+
+# --------------------------------------------------------------------------
+# finding #441-9(readpage) / D, end-to-end with editgate: a char-truncated
+# read must never authorize an edit to content the model never actually saw
+# — including content appended to the file AFTER the read.
+# --------------------------------------------------------------------------
+
+
+def test_char_truncated_read_does_not_authorize_edits_to_content_added_later() -> None:
+    from colleague import editgate
+
+    key = "single_line.txt"
+    read_set = editgate.new_read_set()
+
+    # The file is one line, too long for the char cap — the exact scenario
+    # that used to omit the trailer (D) and, via record_full's blanket
+    # grant, would have authorized edits to ANY future content at this path.
+    text = "w" * 5000
+    rendered = readpage.render_read(text, None, None, ceiling=100)
+    assert rendered.endswith("Read lines 1-1 of 1")  # the D fix: trailer present
+
+    editgate.record_read(read_set, key, text, rendered)
+
+    # The line actually shown (partially) is still a legitimate span check.
+    assert read_set.is_read_for_edit(key, 1, 1) is True
+
+    # The file then grows (another tool call, or a later episode, appends a
+    # line) — line 2 was never shown by this read and must NOT be authorized
+    # for edit just because the earlier read's numeric span happened to
+    # cover [1, total-at-read-time].
+    assert read_set.is_read_for_edit(key, 2, 2) is False
 
 
 def test_bound_output_ceiling_is_the_tighter_of_config_and_tool(tmp_path) -> None:

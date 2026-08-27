@@ -89,11 +89,19 @@ def render_read(
             break
         kept.append(entry)
         size += 1 + len(entry)
+    char_truncated = False
     if size > cap:  # a single line wider than the whole budget: keep its head
         kept[0] = kept[0][:cap]
+        char_truncated = True
     shown_end = start + len(kept) - 1
     rendered = "\n".join(kept)
-    if start == 1 and shown_end == total:
+    # finding #441-9(readpage)/D: a char-truncated last line is still a
+    # PARTIAL read even when its line number happens to equal the file's
+    # final line and the window started at line 1 — omitting the trailer in
+    # that case made editgate.record_read() treat unseen trailing text on
+    # that line as fully shown, letting an edit touch text the model never
+    # actually saw.
+    if start == 1 and shown_end == total and not char_truncated:
         return rendered
     return f"{rendered}\nRead lines {start}-{shown_end} of {total}"
 

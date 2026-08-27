@@ -250,12 +250,32 @@ class ReadSet:
     _ranges: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
     _full: set[str] = field(default_factory=set)
 
-    def record(self, path: str, start_line: int, end_line: int, total_lines: int) -> None:
+    def record(
+        self,
+        path: str,
+        start_line: int,
+        end_line: int,
+        total_lines: int,
+        *,
+        promote_full: bool = True,
+    ) -> None:
         """Record that ``path`` lines ``[start_line, end_line]`` (1-indexed,
         inclusive) were shown. A range spanning the whole file (``start_line
-        <= 1`` and ``end_line >= total_lines``) is recorded as a full read.
+        <= 1`` and ``end_line >= total_lines``) is recorded as a full read —
+        UNLESS ``promote_full=False``.
+
+        ``promote_full`` exists for a caller that knows its ``end_line`` is a
+        LINE-NUMBER count only and cannot vouch that the line's full
+        CONTENT was shown (finding #441-9/D — a char-truncated final line
+        can coincidentally span ``[1, total_lines]`` at line granularity
+        while showing only a prefix of that line's characters). Passing
+        ``promote_full=False`` still records the exact ``[start_line,
+        end_line]`` range for line-granularity checks, it just refuses to
+        let that numeric coincidence grant blanket future authorization
+        for the whole path — including lines added to the file AFTER this
+        read, which a promoted-to-full record would otherwise cover.
         """
-        if start_line <= 1 and end_line >= total_lines:
+        if promote_full and start_line <= 1 and end_line >= total_lines:
             self._full.add(path)
         self._ranges.setdefault(path, []).append((start_line, end_line))
 
