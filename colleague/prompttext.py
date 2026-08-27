@@ -12,7 +12,8 @@ AgentFront surface) are carried over verbatim from the pre-arc prompt.
 Two knobs, both read at BUILD time (the prompt is built once per run and never
 mutated per turn — prefix-stable):
 
-* ``COLLEAGUE_PROMPT_VARIANT=v1`` — the pre-arc ``_DEFAULT_SYSTEM`` byte-for-byte
+* ``COLLEAGUE_PROMPT_VARIANT`` — unset/``v1`` (the default) = the pre-arc
+  ``_DEFAULT_SYSTEM`` byte-for-byte; ``qwen`` opts into the adopted text
   (the reversibility floor, decision c44/h33); anything else = the adopted text.
 * ``COLLEAGUE_TOOL_CALL_STYLE`` — force one tool-call example family
   (``qwen-coder`` | ``qwen-vl`` | ``general``); unset = keyed by the model id (the
@@ -440,8 +441,11 @@ def default_system(
 ) -> str:
     """Build the loop's default system prompt ONCE for a run.
 
-    * ``variant`` (default ``COLLEAGUE_PROMPT_VARIANT``): ``v1`` → the pre-arc text
-      byte-for-byte, ignoring every other argument; anything else → the adopted text.
+    * ``variant`` (default ``COLLEAGUE_PROMPT_VARIANT``, unset → ``v1``): ``v1`` (or
+      anything but ``qwen``/``adopted``) → the pre-arc text byte-for-byte, ignoring
+      every other argument; ``qwen``/``adopted`` → the adopted text. The default
+      flipped to ``v1`` after the 2026-08-27 arms measured the adopted text at
+      2.3× wall-clock / 3× reasoning on Qwen3.8 (docs/live-testing.md rows 43-44).
     * ``headless`` (default: ``COLLEAGUE_PROMPT_INTERACTIVE`` unset → True): picks
       the identity sentence and the Questions guidance; no ask-style tool exists in
       either mode.
@@ -451,8 +455,8 @@ def default_system(
     build it at run start and never per turn (prefix-stable).
     """
     if variant is None:
-        variant = os.environ.get("COLLEAGUE_PROMPT_VARIANT", "")
-    if variant.strip().lower() == "v1":
+        variant = os.environ.get("COLLEAGUE_PROMPT_VARIANT", "v1")
+    if variant.strip().lower() not in ("qwen", "adopted"):
         return V1_DEFAULT_SYSTEM
     if headless is None:
         headless = not _truthy(os.environ.get("COLLEAGUE_PROMPT_INTERACTIVE"))

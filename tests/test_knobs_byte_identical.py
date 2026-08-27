@@ -262,7 +262,9 @@ def test_prompt_variant_on_changes_system_prompt(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("COLLEAGUE_PROMPT_VARIANT", "v1")
     assert prompttext.default_system() == prompttext.V1_DEFAULT_SYSTEM
 
-    monkeypatch.delenv("COLLEAGUE_PROMPT_VARIANT", raising=False)  # on: adopted qwen-code structure
+    monkeypatch.setenv(
+        "COLLEAGUE_PROMPT_VARIANT", "qwen"
+    )  # on: the adopted qwen-code structure (opt-in since the measurement)
     adopted = prompttext.default_system()
     assert adopted != prompttext.V1_DEFAULT_SYSTEM
     assert "# Core Mandates" in adopted  # only in the adopted structure

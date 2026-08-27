@@ -134,7 +134,7 @@ edited net-zero under the file-length ratchet (`tests/test_file_length_ratchet.p
   (`general` / `qwen-coder` / `qwen-vl`; no `gemma4` family — the
   qwen-direct-no-gemma guard forbids the literal) and a headless variant;
   colleague's own Destination/Subagents/Culture/Test-integrity sections stay.
-  `COLLEAGUE_PROMPT_VARIANT=v1` is the pre-arc text byte-for-byte. The marker
+  `COLLEAGUE_PROMPT_VARIANT` unset or `v1` (the default since the measurement) is the pre-arc text byte-for-byte; `qwen` opts into the adopted text. The marker
   keeps both copyright holders. adapted-from `core/prompts.ts:278-440,
   1131-1171`.
 - **Observability (c43, `colleague/oilcheck/harness.py`, `colleague/harness_cli.py`,
@@ -209,11 +209,47 @@ scored as a failure (the #415 shape the branch's stream-idle guard cuts at
 
 ### Results
 
-**pending t24.** The three model arms + the temperature arm on the pre-registered
-brief have not run yet; the bar is **wall-clock ≤ 0.7× and model turns ≤ 0.8× of
-main, with success rate ≥ main's, n ≥ 3 per brief**, computed by
-`scripts/compare_arms.py`. If a ratio is missed the responsible mechanism is
-reverted or flagged in the PR — never kept silently — and this section says so.
+Measured 2026-08-27/28 on this rig (Qwen3.8-27B @ `localhost:8001`, GPU
+otherwise idle, `COLLEAGUE_TIMEOUT=300`), `scripts/compare_arms.py` over the
+artifact ids in `docs/live-testing.md` rows 42–46. Bar (c28): ≤ 0.7× wall-clock
+**and** ≤ 0.8× model turns vs `main @ ff7331e`.
+
+| arm | game-benchmark | wall / turns vs main | repo task | wall / turns vs main | finished |
+|---|---|---|---|---|---|
+| main | 699 s / 14 (n=2) | — | 30 s / 3.3 | — | 2/3 (1 gateway stall, 5,400 s floor) |
+| branch, all mechanics, adopted prompt | 1604 s / 19.3 | **2.30× / 1.38×** | 52 s / 5.3 | 1.70× / 1.60× | 3/3 |
+| branch + `COLLEAGUE_PROMPT_VARIANT=v1` | 769 s / 15 | **1.10× / 1.07×** | 36 s / 3.7 | 1.18× / 1.10× | 2/3 (1 cut by the 900 s guard) |
+| branch + associate armed | 1367 s / 26 | 1.96× / 1.86× | 38 s / 4.0 | 1.25× / 1.20× | 3/3 (associate never called) |
+| branch + temperature 0.6 | 1029 s / 12 (n=1) | 1.47× / 0.86× | 38 s / 3.7 | 1.26× / 1.10× | 1/3 (2 gateway hangs) |
+
+**Every arm misses the bar.** Stated plainly, per h21/c28 (revert-or-flag, never
+keep silently):
+
+- The **adopted prompt text (t8) is the cost**: on the same code, reverting only
+  the prompt moves the game brief from 2.30× to 1.10× and the repo brief from
+  1.70× to 1.18×. The artifacts show ~3× the reasoning per turn (99–101k vs
+  24–37k reasoning chars per run) and 2–3 extra `grep_search`/`glob`
+  verification turns on a fully specified task. **Decision:** the adopted text
+  is now **opt-in** (`COLLEAGUE_PROMPT_VARIANT=qwen`); the default is the
+  pre-arc `v1` text. Re-adopt per section under measurement — #437.
+- The **mechanics are at parity, not faster** (1.10× / 1.07× with the v1 prompt,
+  inside main's own 581–817 s spread) — and **more reliable**: branch game runs
+  finished 8/9 vs main's 2/3, and the stream-lifetime guard cut two gateway hangs
+  at 900 s where main sat 5,400 s. Batches and search tools pay on read-heavy work
+  (a 13-file survey in 3 turns vs ~15 — dogfood explore-1), not on a brief that
+  writes one file per turn. They stay on.
+- **Associate** was never called by the armed arm: cortex spawned no scout
+  (#435) and the throwaway repo has no eidetic store, so the distill seat never
+  fired. Its evidence is the direct seat runs (survey 17 s / digest 9 s with
+  reasoning off; 25 s / 61 s at `low`) — #439.
+- **Temperature** is underpowered (the gateway ate two of three game runs); the
+  one run had 0.86× turns — rerun after #438.
+- The **gateway stall** (vLLM idle while the client waits) hit 5 of 15 game runs
+  and is the rig's dominant failure: colleague now bounds most of them (900 s) but
+  two escaped through the blocking-fallback path — #438, lobes-cli#220.
+
+Anchor: #440. The levers that move wall-clock on this model are **prompt
+wording and thinking effort** (#421), not the ported mechanics.
 
 ## Honest limits
 
@@ -292,7 +328,7 @@ pin for the on-state; see the row's note.
 | `COLLEAGUE_TOOL_SPILL` | `0` | Disables spill-to-disk on an over-budget tool result: head+tail truncation only, no file written under `.colleague/tool-output/`. | `colleague/truncation.py` |
 | `COLLEAGUE_READ_MAX_CHARS` | n/a — value override | Per-tool char budget override for every tool but `run_command` (default 25000); `COLLEAGUE_MAX_OUTPUT_CHARS` still applies on top as a ceiling. | `colleague/truncation.py` |
 | `COLLEAGUE_SHELL_MAX_CHARS` | n/a — value override | `run_command`'s char budget override (default 30000); same ceiling rule as the row above. | `colleague/truncation.py` |
-| `COLLEAGUE_PROMPT_VARIANT` | `v1` | Selects the pre-arc `_DEFAULT_SYSTEM` text byte-for-byte (the reversibility floor); any other value builds the adopted qwen-code-structured prompt. | `colleague/prompttext.py` |
+| `COLLEAGUE_PROMPT_VARIANT` | unset / `v1` (the default) | The pre-arc `_DEFAULT_SYSTEM` text byte-for-byte is the DEFAULT since the measurement (rows 43–44); `qwen` (or `adopted`) opts into the qwen-code-structured prompt. | `colleague/prompttext.py` |
 | `COLLEAGUE_PROMPT_INTERACTIVE` | n/a — value override | Selects the interactive vs. headless identity/Questions guidance inside the ADOPTED prompt; has no effect under `COLLEAGUE_PROMPT_VARIANT=v1` (the v1 text is fixed). | `colleague/prompttext.py` |
 | `COLLEAGUE_TOOL_CALL_STYLE` | n/a — value override | Forces one tool-call example family (`qwen-coder` / `qwen-vl` / `general`) inside the ADOPTED prompt instead of the model-id-keyed default; has no effect under `COLLEAGUE_PROMPT_VARIANT=v1`. | `colleague/prompttext.py` |
 | `COLLEAGUE_TOOLS_LEGACY` | `1` | Hides `grep_search`/`glob` from both the offered tool schemas and dispatch — `curate_schemas` offers exactly the pre-arc surface. | `colleague/search_schemas.py` |

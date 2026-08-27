@@ -189,6 +189,6 @@ def test_work_and_loop_tool_table_lists_both() -> None:
 def test_prompt_text_prefers_search_tools_over_shell_grep() -> None:
     from colleague import prompttext
 
-    text = prompttext.default_system("unsloth/Qwen3.8-27B-NVFP4")
+    text = prompttext.default_system("unsloth/Qwen3.8-27B-NVFP4", variant="qwen")
     assert "grep_search" in text and "glob" in text
     assert "grep_search" not in prompttext.V1_DEFAULT_SYSTEM  # the pre-arc prompt is untouched

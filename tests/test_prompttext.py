@@ -51,7 +51,7 @@ def test_default_system_moved_to_prompttext_and_loop_reexports_it():
     ["# Core Mandates", "# Using Your Tools", "# Executing actions with care", "# Final Reminder"],
 )
 def test_adopted_sections_carry_the_marker(heading: str):
-    prompt = default_system("unsloth/Qwen3.8-27B-NVFP4", variant="v2")
+    prompt = default_system("unsloth/Qwen3.8-27B-NVFP4", variant="qwen")
     idx = prompt.index(heading)
     section = prompt[idx : idx + 400]
     assert ADAPTED_FROM_MARKER in section, f"{heading} lacks the adapted-from marker"
@@ -68,7 +68,7 @@ def test_marker_names_both_copyright_holders():
 
 
 def test_colleague_owned_sections_are_kept_verbatim():
-    prompt = default_system("any", variant="v2")
+    prompt = default_system("any", variant="qwen")
     for para in V1_DEFAULT_SYSTEM.split("\n\n")[1:]:  # Destination … AgentFront
         assert para in prompt, para[:40]
 
@@ -100,7 +100,7 @@ def test_style_override_wins_and_unknown_falls_back():
 
 @pytest.mark.parametrize("family", TOOL_CALL_FAMILIES)
 def test_snapshot_per_family(family: str):
-    _snapshot(family, default_system("x", headless=True, variant="v2", style_override=family))
+    _snapshot(family, default_system("x", headless=True, variant="qwen", style_override=family))
 
 
 def test_examples_use_colleague_tool_names_only():
@@ -119,7 +119,7 @@ def test_examples_use_colleague_tool_names_only():
 
 def test_headless_variant_never_asks_and_no_ask_tool_is_offered(monkeypatch):
     monkeypatch.delenv("COLLEAGUE_PROMPT_INTERACTIVE", raising=False)
-    prompt = default_system("x", variant="v2")
+    prompt = default_system("x", variant="qwen")
     assert "non-interactive" in prompt
     assert "Never ask the operator a question" in prompt
     assert "Interaction mode reminder:" in prompt
@@ -128,7 +128,7 @@ def test_headless_variant_never_asks_and_no_ask_tool_is_offered(monkeypatch):
 
 def test_interactive_variant_keeps_no_ask_tool(monkeypatch):
     monkeypatch.setenv("COLLEAGUE_PROMPT_INTERACTIVE", "1")
-    prompt = default_system("x", variant="v2")
+    prompt = default_system("x", variant="qwen")
     assert "no ask-style tool is offered" in prompt
     assert interaction_guidance(headless=False) in prompt
     assert "Never ask the operator a question" not in prompt.split("# Final Reminder")[0]
