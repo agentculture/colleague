@@ -793,10 +793,12 @@ class ToolExecutor:
         deepthink: Callable[..., Any] | None = None,
         max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
         allowlist: "Role | tuple[str, ...] | None" = None,
+        context_note: str | None = None,
     ) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
         self.read_set = editgate.new_read_set()  # prior-read rule (t13): what was SHOWN
+        self.context_note = context_note  # t21: continuation id folded into edit refusals
         # Total UTF-8 bytes the model authored into files via write_file/edit_file
         # across the work item — the exact "tokens written" measure (no tokenizer, so
         # bytes not tokens; an edit_file counts only its replacement bytes). The loop
@@ -1013,7 +1015,6 @@ class ToolExecutor:
             ) from exc
         except OSError as exc:
             raise ToolError(f"cannot read {rel}: {exc}") from exc
-
         old = str(_require(arguments, "old_string", "edit_file"))
         new = str(_require(arguments, "new_string", "edit_file"))
         replace_all = bool(arguments.get("replace_all", False))
@@ -1022,7 +1023,9 @@ class ToolExecutor:
         if old == new:
             raise ToolError("old_string and new_string are identical (no-op edit)")
         old, count = editgate.resolve_old_string(text, old, rel)  # exact, then relaxed (t13)
-        editgate.require_prior_read(self.read_set, str(path), rel, text, old)
+        editgate.require_prior_read(
+            self.read_set, str(path), rel, text, old, context_note=self.context_note
+        )
         if count > 1 and not replace_all:
             raise ToolError(
                 f"old_string is not unique in {rel} ({count} matches); add surrounding "

@@ -244,6 +244,7 @@ class TestModuleConstraints:
             "colleague.escalation",
             "colleague.contract",
             "colleague.agents.state",
+            "colleague.editgate",
             "json",
             "pathlib",
             "typing",

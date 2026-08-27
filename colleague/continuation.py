@@ -12,11 +12,10 @@ Two seams build the seed body (#411, t17):
 - **the task ledger** — when the caller says the ``agents`` mode is ARMED and
   ``<repo>/.colleague/ledger/<task_id>.jsonl`` reads cleanly
   (:func:`colleague.agents.state.read_ledger`, fail-closed), the seed is
-  rendered from the replay-derived :class:`~colleague.agents.state.TaskSnapshot`
-  by :func:`build_ledger_seed` instead — the verbatim original request, the
-  latest operator input ABOVE every summary line, authority, constraints,
-  acceptance, changed paths, verification, open loops, open delegations,
-  promised follow-ups.
+  rendered from the replay-derived :class:`~colleague.agents.state.TaskSnapshot` by
+  :func:`build_ledger_seed` instead — the verbatim original request, the latest operator input
+  ABOVE every summary line, authority, constraints, acceptance, changed paths, verification, open
+  loops, open delegations, promised follow-ups.
 
 The artifact stays the wrong-run guard's source in both cases: the
 missing/corrupt/finished-ok guards run BEFORE the ledger is consulted, and the
@@ -26,7 +25,7 @@ prose recap; a ledger present while unarmed records an "ignored" warning; no
 ledger at all is byte-identical to the pre-t17 behaviour.
 
 Pure stdlib. Imports only from
-``colleague.{artifact,feedback,escalation,contract,agents.state}``.
+``colleague.{artifact,feedback,escalation,contract,agents.state,editgate}``.
 """
 
 from __future__ import annotations
@@ -44,6 +43,7 @@ from colleague.agents.state import (
 )
 from colleague.artifact import find_artifact
 from colleague.contract import OK, TaskResult
+from colleague.editgate import continuation_preamble
 from colleague.escalation import build_continuation
 
 #: The ``kind`` every continuation-ledger warning dict carries.
@@ -145,7 +145,7 @@ def resolve_continuation(
         raise ContinuationError(f"nothing to continue: {task_id} finished ok")
 
     request = result.stats.request
-    preamble = f"You are CONTINUING work item {task_id} that stopped early. Prior state:\n\n"
+    preamble = continuation_preamble(task_id)  # t21: prior-read rule stated up front
 
     # The ledger seam (t17): only the BODY below the preamble is ever replaced,
     # and only when armed + readable. Every other outcome is the prose path.
