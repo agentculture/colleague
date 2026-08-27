@@ -20,7 +20,10 @@ ratchet pins that module at its baseline):
   ``write_file`` itself stays ungated — overwriting is a whole-file act the
   model authors, and gating it broke the mock engine's rerun determinism.
   The refusal names the rule and says how to recover ("read the file (or
-  that span) first") so a cheap model lands the retry in one step.
+  that span) first") so a cheap model lands the retry in one step; on a
+  continued run it also names which prior work item it resumed
+  (``context_note``, t21 — the read set itself is NEVER persisted across a
+  continuation, see :func:`continuation_id`).
   ``COLLEAGUE_PRIOR_READ=0`` disables the rule (the escape knob for
   operators driving colleague as a plain editor).
 
@@ -33,6 +36,7 @@ from __future__ import annotations
 
 import os
 import re
+from typing import Optional
 
 from colleague import editmatch
 
@@ -44,6 +48,35 @@ _TRAILER = re.compile(r"(?:^|\n)Read lines (\d+)-(\d+) of (\d+)$")
 PRIOR_READ_ENV = "COLLEAGUE_PRIOR_READ"
 
 RULE = "the prior-read rule"
+
+#: The continuation seed preamble's marker (:func:`continuation_preamble`) —
+#: also what :func:`continuation_id` matches to read the id back out of a
+#: continued run's ``task.instruction``, with no wiring between
+#: ``continuation.py`` and the executor (t21).
+_CONTINUATION_RE = re.compile(r"^You are CONTINUING work item (\S+) that stopped early\.")
+
+
+def continuation_preamble(task_id: str) -> str:
+    """The one-sentence continuation seed preamble (t21, plan t21): states the
+    prior-read rule up front — files this executor edited in an EARLIER
+    episode are NOT in this run's read set, so an edit still needs its own
+    ``read_file`` first. :func:`colleague.continuation.resolve_continuation`
+    prepends this to every seed body (prose or ledger)."""
+    return (
+        f"You are CONTINUING work item {task_id} that stopped early. This is a "
+        f"continuation of {task_id}: files edited earlier are NOT considered read — "
+        "read_file a file (or the span) before edit_file. Prior state:\n\n"
+    )
+
+
+def continuation_id(instruction: str) -> Optional[str]:
+    """The continuation id embedded in *instruction*'s seed preamble (rendered
+    by :func:`continuation_preamble`), or ``None`` for an ordinary work item.
+    Lets the loop recognize a continuation from the task alone (set onto
+    ``ToolExecutor.context_note``) with no wiring between ``continuation.py``
+    and the executor."""
+    match = _CONTINUATION_RE.match(instruction)
+    return match.group(1) if match else None
 
 
 def _enabled() -> bool:
@@ -118,22 +151,35 @@ def resolve_old_string(text: str, old: str, rel: str) -> tuple[str, int]:
     return canonical, text.count(canonical)
 
 
-def _refuse(tool: str, rel: str, detail: str):
+def _refuse(tool: str, rel: str, detail: str, context_note: Optional[str] = None):
     from colleague.tools import ToolError
 
+    # t21: an optional continuation id (ToolExecutor.context_note) names which
+    # prior work item this refusal's run resumed — the read set itself is
+    # never carried across the continuation, so the rule applies fresh.
+    continuing = f" (continuing work item {context_note})" if context_note else ""
     return ToolError(
-        f"{tool} refused for {rel}: read the file (or that span) first — {RULE}: an existing "
-        f"file may only be changed where read_file showed it in this work item ({detail}); "
-        f"{PRIOR_READ_ENV}=0 disables the rule"
+        f"{tool} refused for {rel}: read the file (or that span) first — {RULE}{continuing}: an "
+        f"existing file may only be changed where read_file showed it in this work item "
+        f"({detail}); {PRIOR_READ_ENV}=0 disables the rule"
     )
 
 
 def require_prior_read(
-    read_set: editmatch.ReadSet, key: str, rel: str, text: str, old: str
+    read_set: editmatch.ReadSet,
+    key: str,
+    rel: str,
+    text: str,
+    old: str,
+    *,
+    context_note: Optional[str] = None,
 ) -> None:
-    """Every occurrence of ``old`` in ``text`` must lie within a shown span of ``key``."""
+    """Every occurrence of ``old`` in ``text`` must lie within a shown span of
+    ``key``. ``context_note`` (t21) is the executor's continuation id, when
+    set — folded into the refusal so a continued run's message names which
+    prior work item it resumed."""
     if not _enabled():
         return
     for start, end in occurrence_spans(text, old):
         if not read_set.is_read_for_edit(key, start, end):
-            raise _refuse("edit_file", rel, f"lines {start}-{end} were not shown")
+            raise _refuse("edit_file", rel, f"lines {start}-{end} were not shown", context_note)

@@ -50,6 +50,7 @@ from colleague import autosplit as _autosplit
 from colleague import backpressure
 from colleague import coherence as _coherencemod
 from colleague import configlifecycle as _configlifecycle
+from colleague import editgate as _editgate
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
@@ -4888,6 +4889,10 @@ def run(
     (h11): no other code path reads or branches on ``seat``.
     """
     _spawns, _context, executor = _resolve_run_collaborators(spawns, context, executor, task)
+    # t21: a continuation seed's own preamble names the resumed task id (all
+    # engines build ``executor`` from ``task.repo_path`` alone); reading it
+    # back here needs no wiring between continuation.py and the executor.
+    executor.context_note = _editgate.continuation_id(task.instruction)
     # hooks/telemetry/policy each default from the repo (or the environment, for
     # telemetry) when not injected — see _resolve_runtime_defaults for the
     # per-field contract (byte-identical to the prior inline defaulting).
