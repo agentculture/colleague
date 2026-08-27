@@ -6,7 +6,10 @@ modules stay under the file-length ratchet: each calls ONE function here.
 
 from __future__ import annotations
 
+import os
 from typing import Any
+
+ARMED_STATES = ("not_configured", "armed_reachable", "armed_unreachable")
 
 
 def config_show_lines(lines: list[str], cfg: object) -> dict[str, Any]:
@@ -44,3 +47,27 @@ def optional_roles(roles: object) -> tuple[tuple[str, object], ...]:
         ("muse", getattr(roles, "muse", None)),
         ("associate", getattr(roles, "associate", None)),
     )
+
+
+def declared(repo: object) -> bool:
+    """Whether an associate seat is DECLARED (env or config.json) — no network."""
+    if (os.environ.get("COLLEAGUE_ASSOCIATE_MODEL") or "").strip():
+        return True
+    from colleague import associate_config
+
+    try:
+        return bool((associate_config.load_associate_overrides(repo).get("model") or "").strip())
+    except Exception:  # noqa: BLE001 — an unreadable config.json is "not declared"
+        return False
+
+
+def armed_state(role: object, repo: object) -> str:
+    """The canonical armed state of the associate row (Qodo #441-3).
+
+    ``not_configured`` when no seat is declared; otherwise ``armed_reachable`` /
+    ``armed_unreachable`` from the gateway's already-fetched ``ready`` flag —
+    one of :data:`ARMED_STATES`, never a fourth value, no extra network call.
+    """
+    if not declared(repo):
+        return ARMED_STATES[0]
+    return ARMED_STATES[1] if getattr(role, "ready", False) else ARMED_STATES[2]

@@ -525,3 +525,43 @@ def test_lobes_show_without_associate_is_unchanged(
         assert main(["lobes", "show", "--repo", str(tmp_path), "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert "associate" not in data["roles"]
+
+
+def test_config_show_renders_an_explicit_associate_without_any_gateway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Qodo #441-8: an explicit-model associate needs no lobes gateway to show."""
+    monkeypatch.delenv("COLLEAGUE_LOBES_URL", raising=False)
+    monkeypatch.setenv("COLLEAGUE_ASSOCIATE_MODEL", "some/explicit")
+    monkeypatch.setenv("COLLEAGUE_ASSOCIATE_BASE_URL", "http://orin:8000/v1")
+    monkeypatch.setenv("COLLEAGUE_ASSOCIATE_API_KEY", "assoc-key")
+    assert main(["config", "show", "--repo", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "associate → some/explicit (explicit model id)" in out
+    assert "lobes: armed" not in out
+    assert main(["config", "show", "--repo", str(tmp_path), "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["associate"]["served_model"] == "some/explicit"
+    assert data["associate"]["addressed_as_role"] is False
+
+
+def test_lobes_show_associate_row_carries_a_canonical_armed_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Qodo #441-3: one of not_configured / armed_reachable / armed_unreachable."""
+    from colleague import associate_cli
+
+    with _serving(PAYLOAD_WITH_ASSOCIATE) as url:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", url)
+        monkeypatch.delenv("COLLEAGUE_ASSOCIATE_MODEL", raising=False)
+        assert main(["lobes", "show", "--repo", str(tmp_path), "--json"]) == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["roles"]["associate"]["armed_state"] == "not_configured"
+        monkeypatch.setenv("COLLEAGUE_ASSOCIATE_MODEL", "lobes")
+        assert main(["lobes", "show", "--repo", str(tmp_path)]) == 0
+        text = capsys.readouterr().out
+        assert "  armed_state: armed_unreachable" in text  # the advert says not ready
+        assert main(["lobes", "show", "--repo", str(tmp_path), "--json"]) == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["roles"]["associate"]["armed_state"] in associate_cli.ARMED_STATES
+        assert data["roles"]["associate"]["armed_state"] == "armed_unreachable"

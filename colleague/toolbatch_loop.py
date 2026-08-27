@@ -153,12 +153,23 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
     for call in batch:  # phase 1 — every gate on the main thread, request order
         arguments, reason, hook_denied = _loop._gate_tool_call(ctx, call)
         prepared.append(_Prepared(call, arguments, reason, hook_denied))
-    runnable = [item for item in prepared if item.reason is None]
+    # A pre_tool REWRITE can turn a read-only call into a mutating one after the
+    # partition (Qodo #441-13): re-check safety on the GATED arguments — a call
+    # that is no longer batch-safe is demoted and runs alone after the pool.
+    allowed = [item for item in prepared if item.reason is None]
+    runnable = [
+        p for p in allowed if toolbatch.is_tool_call_concurrency_safe(p.call.name, p.arguments)
+    ]
+    demoted = [p for p in allowed if p not in runnable]
     results = toolbatch.run_batch(  # phase 2 — only execute() in the pool
         _execute_item, [(ctx.executor, p.call.name, p.arguments) for p in runnable], width
     )
     for item, (outcome, exc, seconds) in zip(runnable, results):
         item.outcome, item.exc, item.seconds = outcome, exc, seconds
+    for item in demoted:  # sequential, request order, never in the pool
+        item.outcome, item.exc, item.seconds = _execute_item(
+            (ctx.executor, item.call.name, item.arguments)
+        )
     runcounts.bump(ctx.result, "batches_run")  # t20: exact scoreboard
     runcounts.bump(ctx.result, "calls_parallelised", len(runnable))
     finished = False
@@ -170,7 +181,7 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
                     ctx, item.call, item.arguments, span, step_index, item.reason, item.hook_denied
                 )
                 continue
-            span.set(batched=True, exec_seconds=item.seconds)
+            span.set(batched=item in runnable, exec_seconds=item.seconds)
             if _loop._record_execution(
                 ctx, item.call, item.arguments, span, step_index, item.outcome, item.exc
             ):

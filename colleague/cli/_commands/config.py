@@ -75,9 +75,8 @@ def _config_show(repo: str = ".") -> object:
         f"timeout:                {cfg.timeout}",
         f"context_budget_tokens:  {cfg.context_budget_tokens}",
     ]
-    # Per-seat thinking-effort ladder (#416 t2): one resolved line per seat.
-    # "default" (the kill-switch sentinel) sends nothing to every seat, so
-    # the winning layer is named there instead of a per-seat rung.
+    # Per-seat thinking-effort ladder (#416 t2): one line per seat; the "default"
+    # kill-switch sends nothing, so the winning layer is named instead of a rung.
     kill_switch = cfg.reasoning_effort == effort.DEFAULT_SENTINEL
     lines.append("reasoning_effort:" + (" (kill-switch)" if kill_switch else ""))
     for seat in effort.SEAT_TABLE:
@@ -106,6 +105,8 @@ def _config_show(repo: str = ".") -> object:
         # qwen-direct (c7/h7): advertised-but-not-consumed roles (senses/muse opt-in).
         data["lobes"]["not_consumed"] = append_not_consumed(lines, gateway, cfg, indent="")
         data["lobes"].update(associate_cli.config_show_lines(lines, cfg))  # t18/c49
+    else:  # Qodo #441-8: an explicit-model associate needs no gateway to show
+        data.update(associate_cli.config_show_lines(lines, cfg))
     # Model-bound agents (#411 t7): show the mode; payload key only when armed.
     lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
     return rendered(data, "\n".join(lines))

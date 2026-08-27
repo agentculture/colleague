@@ -12,15 +12,13 @@ Each role's ``ready`` is labeled with its ``ready_kind`` (``colleague/lobes.py``
 (gateway-local bookkeeping, not a liveness probe; ``ready`` and ``loaded`` may
 diverge for proxied roles; see lobes-cli issue 146) vs ``"live-probed"`` for
 stt/tts (lobes-cli#89, 0.38.0: the gateway's realtime bridge health-checks the
-audio backend itself) — so an operator never conflates the two. ``muse`` and
-``associate`` are shown as plain resolved roles (consumption is opt-in).
-``lobes overview`` describes the noun (the agent-first rubric).
+audio backend itself) — so an operator never conflates the two; ``muse`` and
+``associate`` are plain resolved roles (consumption is opt-in).
 
 **Armed-signal precedence:** ``lobes show`` uses the same resolution as the
 runtime: ``COLLEAGUE_LOBES_URL`` env (``CONVERTIBLE_LOBES_URL`` honored as
 deprecated fallback) > a ``lobes`` section in ``.colleague/config.json`` (repo-level
-or user-level) > ``None``. Scope of ``--repo`` (default: ``.``) reflects the
-repo-level ``.colleague/config.json`` override.
+or user-level) > ``None``; ``--repo`` (default ``.``) scopes the repo-level override.
 """
 
 from __future__ import annotations
@@ -180,12 +178,15 @@ def _lobes_show(repo: str = ".") -> object:
     lines = [f"lobes: armed at {url} — reachable"]
     lines += _role_lines("cortex", roles.cortex)
     lines += _role_lines("senses", roles.senses)
-    # OPTIONAL roles (stt/tts, muse, associate) — shown only when the gateway
-    # serves them; the set lives in :func:`colleague.associate_cli.optional_roles`.
+    # OPTIONAL roles (stt/tts, muse, associate) — only when the gateway serves them.
     for opt_name, opt_role in associate_cli.optional_roles(roles):
         if opt_role is not None:
             payload["roles"][opt_name] = _role_info_to_dict(opt_name, opt_role)
             lines += _role_lines(opt_name, opt_role)
+            if opt_name == "associate":  # Qodo #441-3: canonical armed state
+                state = associate_cli.armed_state(opt_role, repo)
+                payload["roles"][opt_name]["armed_state"] = state
+                lines.append(f"  armed_state: {state}")
     payload["not_consumed"] = append_not_consumed(lines, url, None, roles=roles, repo=repo)  # c7
     return rendered(payload, "\n".join(lines))
 
