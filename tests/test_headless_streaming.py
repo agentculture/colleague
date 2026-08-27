@@ -58,7 +58,8 @@ _BLOCKING_PAYLOAD_KEYS = {
     "tools",
     "tool_choice",
     "chat_template_kwargs",
-}
+    "max_tokens",
+}  # t16: the window clamp rides every payload
 
 
 class _FakeStreamResponse:

@@ -56,12 +56,14 @@ from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
+from colleague import loopguards as _loopguards
 from colleague import media
 from colleague import memory as _memorymod
 from colleague import salvage, stallguard, streamguards
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague import toolbatch_loop as _toolbatch_loop
+from colleague import turnbudget as _turnbudget
 from colleague.agents import runtime as _agents_runtime
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
@@ -138,6 +140,7 @@ _EXIT_BUDGET = "budget"  # ran out of model turns (max_steps) without finishing
 _EXIT_PILOT_STOP = "pilot_stop"  # a pilot wrote a cooperative `stop` to the flight control file
 _EXIT_TOOL_PROTOCOL = "tool_protocol"  # consecutive unknown-tool calls -> channel is broken (#321)
 _EXIT_STALLED = "stalled"  # no completed step within the step-stall bound (#400)
+_EXIT_LOOP_GUARD = "loop_guard"  # an always-on loop guard tripped; pending calls dropped (t16)
 
 # Step-stall watchdog (#400): the operator knob (seconds; 0 or negative disables) and
 # the default policy — the bound never drops below the floor and scales to 6x the
@@ -1428,6 +1431,20 @@ def _record_fillline_cap(ctx: _Work) -> None:
     _emit_phase(ctx, note)
 
 
+def _maybe_microcompact(ctx: _Work, last_prompt_tokens: int) -> int:
+    """Rule-based floor (t16, c11/h9): blank OLD tool results at 0.85 of the budget
+    BEFORE the fill-line offer; returns the re-estimated prompt size so the offer
+    fires only if still over the line (:func:`colleague.turnbudget.microcompact_turn`)."""
+    return _turnbudget.microcompact_turn(
+        ctx.messages,
+        last_prompt_tokens,
+        ctx.context_budget,
+        ctx.result,
+        ctx.agents,
+        ctx.count_tokens,
+    )
+
+
 def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
     """Offer the fill-line decision at each crossing of the line (#156, t1).
 
@@ -2217,6 +2234,10 @@ def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, st
     """
     if not resp.tool_calls:
         return _handle_no_tool_turn(ctx, resp, nudges)
+    trip = _loopguards.check(ctx.result.steps, resp.tool_calls)  # t16: always-on guards
+    if trip is not None:
+        ctx.result.warnings.append(trip)
+        return nudges, _EXIT_LOOP_GUARD
     ctx.messages.append(_assistant_message(resp))
     # Run the turn's tool calls; a finish on any of them ends the work item once the
     # turn completes (the remaining calls in the turn still run).
@@ -2370,6 +2391,7 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         _EXIT_STOPPED,
         _EXIT_PILOT_STOP,
         _EXIT_TOOL_PROTOCOL,
+        _EXIT_LOOP_GUARD,
     )
     if outcome != _EXIT_FINISHED:
         result.status = INCOMPLETE
@@ -2395,6 +2417,10 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
                     "is preserved on the artifact"
                 ),
             )
+    if outcome == _EXIT_LOOP_GUARD:
+        trip = next((w for w in result.warnings if w.get("kind") == _loopguards.WARNING_KIND), {})
+        note = _loopguards.summary_note(trip, len(result.steps))
+        result.summary = f"{note} {last_sub}".strip() if last_sub else note
     if outcome == _EXIT_TOOL_PROTOCOL:
         note = (
             f"Stopped after {len(result.steps)} step(s): the tool-call channel is "
@@ -2996,6 +3022,7 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # provably broken rather than re-burning the remaining budget on it.
         if _tool_protocol_broken(ctx):
             return _EXIT_TOOL_PROTOCOL
+        last_prompt_tokens = _maybe_microcompact(ctx, last_prompt_tokens)  # t16: floor first
         # Proactive fill-line decision (#156): when the last turn's context crossed the
         # threshold, offer the one capacity decision (compact | split | handoff) BEFORE
         # this turn completes, so the model declares it by its next action. No-op when

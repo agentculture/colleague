@@ -83,7 +83,14 @@ def test_proactive_windowing_trims_history_each_turn(tmp_path: Path) -> None:
         # accumulate — windowing must keep the list from growing without bound.
         return ModelResponse(
             content="thinking about the next move " * 4,
-            tool_calls=[ToolCall(f"c{len(seen_lengths)}", "list_dir", {"path": "."})],
+            # Alternate the path: five identical calls in a row trip the t16 loop guard.
+            tool_calls=[
+                ToolCall(
+                    f"c{len(seen_lengths)}",
+                    "list_dir",
+                    {"path": "." if len(seen_lengths) % 2 else "./"},
+                )
+            ],
         )
 
     task = Task.new(str(tmp_path), "loop and accumulate history")
