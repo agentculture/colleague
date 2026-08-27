@@ -947,4 +947,7 @@ layer for free.
 
 ## License
 
-Apache 2.0 — see [`LICENSE`](LICENSE).
+Apache 2.0 — see [`LICENSE`](LICENSE). Some harness mechanisms are ported
+(cite-don't-import: small stdlib Python, never a vendored dependency) from
+Qwen Code and its Google Gemini CLI lineage — see [`NOTICE`](NOTICE) and the
+provenance ledger at [`docs/adopted-from.md`](docs/adopted-from.md).
