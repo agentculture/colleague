@@ -70,7 +70,8 @@ def test_explicit_ceiling_below_default_tightens(monkeypatch: pytest.MonkeyPatch
     out = readpage.render_read(text, None, None, ceiling=100)
     body, trailer = out.rsplit("\n", 1)
     assert len(body) <= 100
-    assert trailer.startswith("Read lines 1-") and trailer.endswith(" of 50")
+    assert trailer.startswith("Read lines 1-")
+    assert trailer.endswith(" of 50")
 
 
 def test_env_ceiling_cannot_loosen_the_25000_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,22 +89,27 @@ def test_at_least_one_line_is_always_shown() -> None:
     text = "w" * 5000 + "\n" + "v\n"
     out = readpage.render_read(text, None, None, ceiling=100)
     body, trailer = out.rsplit("\n", 1)
-    assert body.startswith("     1\t") and len(body) <= 100
+    assert body.startswith("     1\t")
+    assert len(body) <= 100
     assert trailer == "Read lines 1-1 of 2"
 
 
 @pytest.mark.parametrize("bad", [{"offset": 0}, {"offset": -3}, {"limit": 0}, {"offset": "x"}])
 def test_bad_offset_or_limit_is_a_self_correcting_tool_error(bad: dict) -> None:
+    offset = bad.get("offset")
+    limit = bad.get("limit")
     with pytest.raises(ToolError):
-        readpage.render_read("a\n", bad.get("offset"), bad.get("limit"))
+        readpage.render_read("a\n", offset, limit)
 
 
 def test_bound_output_uses_per_tool_budgets_and_spills(tmp_path) -> None:
     big = "\n".join("line %d %s" % (i, "q" * 80) for i in range(2000)) + "\n"
     out = readpage.bound_output(big, "run_command", 68_000, tmp_path)
-    assert "saved to:" in out and str(tmp_path / ".colleague" / "tool-output") in out
+    assert "saved to:" in out
+    assert str(tmp_path / ".colleague" / "tool-output") in out
     spilled = list((tmp_path / ".colleague" / "tool-output").glob("*.txt"))
-    assert len(spilled) == 1 and spilled[0].read_text(encoding="utf-8") == big
+    assert len(spilled) == 1
+    assert spilled[0].read_text(encoding="utf-8") == big
     small = "fits"
     assert readpage.bound_output(small, "", 68_000, tmp_path) == small
 
