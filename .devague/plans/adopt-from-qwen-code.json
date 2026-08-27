@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-27T14:39:37Z",
-  "updated": "2026-08-27T14:46:32Z",
+  "updated": "2026-08-27T20:47:44Z",
   "targets": [
     {
       "id": "c1",
@@ -1029,6 +1029,70 @@
       "text": "Arm 3 depends on spark's proxied associate staying routable by role name; the advert currently says ready:false \u2014 if the proxy regresses, t24 records 'blocked: gateway' and the arc still ships the mechanics ratio",
       "kind": "unknown_nonblocking",
       "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "turnbudget.py:146-152 \u2014 microcompaction blanking records step_indices by tool-message ORDINAL, which drifts after _window_in_place drops head tool messages; ledger_blanking/rehydrate_blanking can mis-index (found by dogfood review-1 e9ab75938688)",
+      "kind": "follow_up",
+      "task_id": "t16",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "turnbudget.py:86-93 \u2014 max_tokens is clamped against an ESTIMATED prompt count; a low estimate can still let prompt + max_tokens exceed the window (a 400) \u2014 the invariant holds only as well as tokenestimate.py does (review-1)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t16",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "vllm_openai.py:1196-1197 \u2014 the length-escalation retry calls dispatch() outside the HTTPError try, so a 400 on the escalated request propagates raw instead of entering the recovery ladder (review-1; d21)",
+      "kind": "follow_up",
+      "task_id": "t16",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "Gateway SSE drop (vLLM 0 running while the client waits) hit 2 of the first 4 game-benchmark runs (main game-3, branch game-1); the 240 s idle guard did not fire on the branch \u2014 likely because the gateway relays keepalive/comment lines after its upstream died \u2014 so the 900 s lifetime guard is the effective bound; the arms' success rate will carry this flake honestly; lobes-cli issue candidate",
+      "kind": "unknown_nonblocking",
+      "task_id": "t24",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r8",
+      "text": "Scout is the one multi-turn associate consumer; Nemotron's template drops <think> blocks before the last user message by default (truncate_history_thinking=true) \u2014 thinking continuity across scout turns would need chat_template_kwargs truncate_history_thinking=false on the associate seat (request-side only; no server default). Not wired in this arc; decide with the associate arm's results (operator note 2026-08-27)",
+      "kind": "follow_up",
+      "task_id": "t19",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r9",
+      "text": "Delegation observed: zero subagent/subagents calls across every measured run (main + branch game arms, three dogfood runs) \u2014 cortex never hands over on these briefs, so the scout-on-associate path only fires via the direct experiment. Operator intent (2026-08-27): do NOT force it; document and adjust later toward cortex handing over scoped tasks, reviewing, and collecting results (prompt guidance / role shaping to be decided against the arm numbers)",
+      "kind": "follow_up",
+      "task_id": "t24",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r10",
+      "text": "Filed as issues: #435 (delegation doctrine \u2014 hand over, review, collect; observed zero subagent use) and #436 (associate drives WebGlass as the web scout)",
+      "kind": "follow_up",
+      "task_id": "t24",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r11",
+      "text": "Stream-lifetime guard gap: temp-default game-1 sat 1413 s in one turn with vLLM idle and was NOT cut at 900 s (v1prompt game-2 was) \u2014 likely the blocking-fallback / raised-timeout (600 s) path after backpressure, where only the request timeout applies; the guard needs to cover every path a turn can wait on (follow-up to t7)",
+      "kind": "follow_up",
+      "task_id": "t7",
       "resolved": false,
       "resolution": ""
     }
