@@ -104,7 +104,14 @@ def record_read(read_set: editmatch.ReadSet, key: str, text: str, rendered: str)
         return
     start, end = int(match.group(1)), int(match.group(2))
     if end >= start:
-        read_set.record(key, start, end, total)
+        # finding #441-9(readpage)/D: a trailer's presence means render_read
+        # did NOT vouch for the whole file's content (paging, or a char-level
+        # cut on the final displayed line) — never let the numeric span
+        # auto-promote to a full read just because it happens to span
+        # [1, total] at THIS read's line count. A blanket full-read grant
+        # would also cover lines appended to the file after this read, which
+        # this read never showed.
+        read_set.record(key, start, end, total, promote_full=False)
 
 
 def record_written(read_set: editmatch.ReadSet, key: str, content: str) -> None:

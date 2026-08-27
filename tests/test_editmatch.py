@@ -255,3 +255,29 @@ def test_readset_multiple_paths_are_independent() -> None:
     rs.record_full("a.py", total_lines=10)
     assert rs.is_read_for_edit("a.py", 1, 10) is True
     assert rs.is_read_for_edit("b.py", 1, 10) is False
+
+
+def test_readset_record_promote_full_false_does_not_grant_blanket_full_read() -> None:
+    """finding #441-9(readpage) / D: a caller that can't vouch the recorded
+    span's CONTENT (not just its line numbers) was completely shown passes
+    ``promote_full=False`` — the exact span is still recorded (so a repeat
+    check of the SAME span still passes), but the coincidence of the span
+    numerically covering ``[1, total_lines]`` must not grant blanket
+    authorization for the rest of the path (in particular, content added to
+    the file after this record call)."""
+    rs = ReadSet()
+    rs.record("one_liner.py", start_line=1, end_line=1, total_lines=1, promote_full=False)
+
+    # The exact span that was recorded is still a legitimate match.
+    assert rs.is_read_for_edit("one_liner.py", 1, 1) is True
+
+    # But the path was NOT promoted to `_full` — a span beyond what was
+    # recorded (e.g. a line appended to the file afterwards) is refused.
+    assert rs.is_read_for_edit("one_liner.py", 2, 2) is False
+
+    # The default (promote_full=True, unchanged) still auto-promotes an
+    # equivalent whole-range span — this is the pre-existing, still-correct
+    # behavior for a read that genuinely vouches for the whole file.
+    rs2 = ReadSet()
+    rs2.record("full.py", start_line=1, end_line=1, total_lines=1)
+    assert rs2.is_read_for_edit("full.py", 1, 1) is True
