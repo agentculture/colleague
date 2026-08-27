@@ -61,6 +61,7 @@ from colleague import memory as _memorymod
 from colleague import salvage, stallguard, streamguards
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
+from colleague import toolbatch_loop as _toolbatch_loop
 from colleague.agents import runtime as _agents_runtime
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
@@ -852,24 +853,18 @@ def _tae_drain(ctx: _Work) -> None:
         ctx.messages.append({"role": "user", "content": line})
 
 
-def _tae_gate(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
-    """Host classification + the evaluator boundary; True when the call is denied.
+def _tae_verdict(ctx: _Work, call: ToolCall) -> str | None:
+    """Host classification + the evaluator boundary (t13): the deny reason, or ``None``.
 
-    Mirrors :func:`_deny_by_policy`'s recorded shape (span, non-ok Step, tool
-    message, progress) so a TAE denial reads like every other refusal in the
-    trace. A strict no-op returning ``False`` when the mode is unarmed.
+    Decision only — the caller records the refusal (:func:`_record_denial`) so a TAE
+    denial reads like every other refusal in the trace. A strict no-op returning
+    ``None`` when the mode is unarmed.
     """
     if ctx.tae is None:
-        return False
+        return None
     decision = ctx.tae.before_tool_call(call.name, call.arguments, policy=ctx.policy)
     _tae_drain(ctx)
-    if decision.allowed:
-        return False
-    span.set(ok=False, denied=True, reason=decision.reason)
-    ctx.result.steps.append(Step(step_index, call.name, call.arguments, decision.reason, ok=False))
-    ctx.messages.append(_tool_message(call.id, decision.reason))
-    _emit_progress(ctx, step_index, call.name, call.arguments, ok=False)
-    return True
+    return None if decision.allowed else decision.reason
 
 
 def _tae_close(ctx: _Work, tool: str, ok: bool) -> None:
@@ -992,161 +987,153 @@ def _emit_phase(ctx: _Work, detail: str) -> None:
         ctx.progress(step_index, "", detail, True)
 
 
-def _deny_by_policy(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
-    """Check the approval policy for ``run_command``; record and return True on deny.
+def _policy_verdict(ctx: _Work, call: ToolCall) -> str | None:
+    """The approval policy on ``run_command`` (decision only): the deny reason, or ``None``.
 
-    Returns ``True`` when the call is denied (the caller must return False from
-    the tool-call helper). Returns ``False`` when the policy allows the call.
-    Only ``run_command`` is gated — all other tools pass through unchanged.
+    Only ``run_command`` is gated — every other tool passes through unchanged.
     """
     if call.name != "run_command":
-        return False
+        return None
     verdict = ctx.policy.check_run_command(str(call.arguments.get("command", "")))
-    if verdict.allowed:
+    return None if verdict.allowed else verdict.reason
+
+
+_EXECUTE_ERRORS = (ToolError, KeyError, TypeError, ValueError)
+
+
+def _execute_tool(executor: ToolExecutor, name: str, arguments: Any) -> tuple[Any, Any]:
+    """Execute ONE tool call: ``(outcome, None)``, or ``(None, exc)`` for the model's own mistake.
+
+    ToolError is the tools' own contract. KeyError/TypeError/ValueError are the
+    argument-shaped residue of a malformed MODEL tool call that slipped past
+    per-tool validation (live: work item 4c6a96107269 died mid-run on a bare
+    KeyError('path') the old ToolError-only catch let escape as an engine failure).
+    Either way it costs ONE non-ok step — never the run. Anything else
+    (AttributeError, OSError, …) is a genuine harness bug and still aborts loudly.
+    This is the ONLY function the read-only batch pool runs (c35/h24): it holds no
+    ``_Work`` state, so a worker thread never touches ``ctx``.
+    """
+    try:
+        return executor.execute(name, arguments), None
+    except _EXECUTE_ERRORS as exc:
+        return None, exc
+
+
+def _gate_tool_call(ctx: _Work, call: ToolCall) -> tuple[Any, str | None, bool]:
+    """The three gates, decision only: ``(arguments, deny_reason, hook_denied)``.
+
+    ``pre_tool`` hook (the only control-bearing event — first deny/rewrite wins, a
+    rewrite swaps the arguments) → the thought→action→evaluation boundary (t13:
+    the HOST classifies a consequential action; alignment is never permission) →
+    the operator's approval policy AFTER hooks so a rewrite is still gated. Every
+    gate runs on the MAIN thread in request order BEFORE any execution — the
+    batch path (:mod:`colleague.toolbatch_loop`) relies on that.
+    """
+    arguments = call.arguments
+    decision = _fire_hooks(
+        ctx.hooks,
+        ctx.result,
+        event="pre_tool",
+        task=ctx.task,
+        tool=call.name,
+        arguments=arguments,
+        policy=ctx.policy,
+    )
+    kind = decision.decision if decision is not None else None
+    if kind == DECISION_DENY:
+        return arguments, (decision and decision.reason) or "denied by a pre_tool hook", True
+    if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
+        arguments = decision.arguments
+    gated = ToolCall(call.id, call.name, arguments)
+    reason = _tae_verdict(ctx, gated)
+    if reason is None:
+        reason = _policy_verdict(ctx, gated)
+    return arguments, reason, False
+
+
+def _record_denial(
+    ctx: _Work, call: ToolCall, arguments: Any, span: Any, step_index: int, reason: str, hook: bool
+) -> None:
+    """Record a refused call — span, (hook-denial metric,) non-ok Step, tool message, progress."""
+    span.set(ok=False, denied=True, reason=reason)
+    if hook:
+        ctx.telemetry.on_hook_denial()
+    ctx.result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
+    ctx.messages.append(_tool_message(call.id, reason))
+    _emit_progress(ctx, step_index, call.name, arguments, ok=False)
+
+
+def _fire_post_tool(ctx: _Work, tool: str, arguments: Any) -> None:
+    """``post_tool`` fires after every tool *attempt*; observe-only this increment."""
+    _fire_hooks(
+        ctx.hooks,
+        ctx.result,
+        event="post_tool",
+        task=ctx.task,
+        tool=tool,
+        arguments=arguments,
+        policy=ctx.policy,
+    )
+
+
+def _record_execution(
+    ctx: _Work, call: ToolCall, arguments: Any, span: Any, step_index: int, outcome: Any, exc: Any
+) -> bool:
+    """Bookkeeping after ONE execute attempt (sequential AND batch paths); True on finish."""
+    if exc is not None:
+        msg = (
+            str(exc)
+            if isinstance(exc, ToolError)
+            else f"bad tool arguments: {type(exc).__name__}: {exc}"
+        )
+        _track_unknown_tool(ctx, call.name, exc)
+        _tae_close(ctx, call.name, False)
+        span.set(ok=False, error=msg)
+        ctx.result.steps.append(Step(step_index, call.name, arguments, f"error: {msg}", ok=False))
+        ctx.messages.append(_tool_message(call.id, f"error: {msg}"))
+        _emit_progress(ctx, step_index, call.name, arguments, ok=False)
+        _fire_post_tool(ctx, call.name, arguments)
         return False
-    # Denied — mirror the pre_tool DENY shape (span, Step, tool message, progress).
-    span.set(ok=False, denied=True, reason=verdict.reason)
-    ctx.result.steps.append(Step(step_index, call.name, call.arguments, verdict.reason, ok=False))
-    ctx.messages.append(_tool_message(call.id, verdict.reason))
-    _emit_progress(ctx, step_index, call.name, call.arguments, ok=False)
+    _track_unknown_tool(ctx, call.name, None)
+    _tae_close(ctx, call.name, True)
+    span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
+    ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
+    ctx.messages.append(_tool_message(call.id, outcome.result))
+    if outcome.media_part is not None:
+        # view_media fold (t5): the tool message stays a plain string (wire-safe);
+        # the image rides a follow-up user parts message the next turn sees.
+        ctx.messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"[{call.name}] {outcome.result}"},
+                    outcome.media_part,
+                ],
+            }
+        )
+    _emit_progress(ctx, step_index, call.name, arguments, ok=True)
+    _fire_post_tool(ctx, call.name, arguments)
+    if not outcome.finished:
+        return False
+    span.set(finished=True)
+    _apply_finish(ctx.result, outcome)
     return True
 
 
 def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
     """Run one tool call inside its own telemetry span; return whether it finished.
 
-    Owns the per-call lifecycle: the ``pre_tool`` hook (first deny/rewrite wins),
-    execution, the ``post_tool`` hook, and finish detection. Kept as a single
-    ``with tool_span`` block so exactly one step/tool-call metric is recorded per
-    call — including the deny and error paths, which still close the span on the
-    way out (they ``return False``, replacing the loop's old ``continue``).
+    gate → execute → record, inside ONE ``with tool_span`` block so exactly one
+    step/tool-call metric is recorded per call — deny and error paths included.
     """
     step_index = len(ctx.result.steps)
-
-    # One span per tool-call iteration, auto-nesting under the work item span. A
-    # ``return False`` still runs the span's exit (so its metrics — one step +
-    # one tool call — are recorded for deny/error paths too).
     with ctx.telemetry.tool_span(tool=call.name, step_index=step_index) as span:
-        # pre_tool — the only control-bearing event. The first deny/rewrite
-        # wins; allow/observe pass through. arguments may be swapped here.
-        arguments = call.arguments
-        decision = _fire_hooks(
-            ctx.hooks,
-            ctx.result,
-            event="pre_tool",
-            task=ctx.task,
-            tool=call.name,
-            arguments=arguments,
-            policy=ctx.policy,
-        )
-        kind = decision.decision if decision is not None else None
-        if kind == DECISION_DENY:
-            # Skip execution entirely; feed the reason back so the model can
-            # adapt. Recorded as a non-ok Step (the firing is already recorded
-            # by _fire_hooks).
-            reason = (decision and decision.reason) or "denied by a pre_tool hook"
-            span.set(ok=False, denied=True, reason=reason)
-            ctx.telemetry.on_hook_denial()
-            ctx.result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
-            ctx.messages.append(_tool_message(call.id, reason))
-            _emit_progress(ctx, step_index, call.name, arguments, ok=False)
+        arguments, reason, hook_denied = _gate_tool_call(ctx, call)
+        if reason is not None:
+            _record_denial(ctx, call, arguments, span, step_index, reason, hook_denied)
             return False
-        if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
-            # Execute with the hook-supplied arguments instead.
-            arguments = decision.arguments
-
-        # Thought->action->evaluation gate (t13): the HOST classifies whether
-        # this call is a consequential action and, only then, invokes the
-        # evaluator at the enumerated ``consequential_action`` (or
-        # ``drift_threshold``) boundary and applies its route. Placed AFTER
-        # hooks and BEFORE the policy gate so the operator's approval gate
-        # below still runs on every route — alignment is never permission. An
-        # ordinary tool call returns allowed without touching the evaluator; an
-        # unarmed run is a strict no-op.
-        if _tae_gate(ctx, ToolCall(call.id, call.name, arguments), span, step_index):
-            return False
-
-        # Policy gate: check run_command against the operator-declared allow/deny
-        # policy AFTER hooks (so a hook rewrite is still gated), BEFORE execution.
-        # All other tools pass through unchanged. When denied, mirrors the hook-deny
-        # shape — non-ok Step + tool message — but does NOT increment the hook-denial
-        # telemetry counter (this is a policy denial, not a hook denial).
-        if _deny_by_policy(ctx, ToolCall(call.id, call.name, arguments), span, step_index):
-            return False
-
-        try:
-            outcome = ctx.executor.execute(call.name, arguments)
-        except (ToolError, KeyError, TypeError, ValueError) as exc:
-            # ToolError is the tools' own contract. KeyError/TypeError/ValueError
-            # are the argument-shaped residue of a malformed MODEL tool call that
-            # slipped past per-tool validation (live: work item 4c6a96107269 died
-            # mid-run on a bare KeyError('path') the old ToolError-only catch let
-            # escape as an engine failure). Either way it costs ONE non-ok step
-            # with a self-correcting message — never the run. Anything else
-            # (AttributeError, OSError, …) is a genuine harness bug and still
-            # aborts loudly.
-            msg = (
-                str(exc)
-                if isinstance(exc, ToolError)
-                else f"bad tool arguments: {type(exc).__name__}: {exc}"
-            )
-            _track_unknown_tool(ctx, call.name, exc)
-            _tae_close(ctx, call.name, False)
-            span.set(ok=False, error=msg)
-            ctx.result.steps.append(
-                Step(step_index, call.name, arguments, f"error: {msg}", ok=False)
-            )
-            ctx.messages.append(_tool_message(call.id, f"error: {msg}"))
-            _emit_progress(ctx, step_index, call.name, arguments, ok=False)
-            # post_tool still fires after a tool *attempt*; observe-only.
-            _fire_hooks(
-                ctx.hooks,
-                ctx.result,
-                event="post_tool",
-                task=ctx.task,
-                tool=call.name,
-                arguments=arguments,
-                policy=ctx.policy,
-            )
-            return False
-
-        _track_unknown_tool(ctx, call.name, None)
-        _tae_close(ctx, call.name, True)
-        span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
-        ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
-        ctx.messages.append(_tool_message(call.id, outcome.result))
-        if outcome.media_part is not None:
-            # view_media fold (t5): the tool message above stays a plain string
-            # (the wire-safe convention); the image itself rides a follow-up
-            # user parts message the next turn sees.
-            ctx.messages.append(
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"[{call.name}] {outcome.result}"},
-                        outcome.media_part,
-                    ],
-                }
-            )
-        _emit_progress(ctx, step_index, call.name, arguments, ok=True)
-
-        # post_tool — after the tool executed. Observe-only: the decision does
-        # not alter the already-executed result this increment.
-        _fire_hooks(
-            ctx.hooks,
-            ctx.result,
-            event="post_tool",
-            task=ctx.task,
-            tool=call.name,
-            arguments=arguments,
-            policy=ctx.policy,
-        )
-
-        if not outcome.finished:
-            return False
-        span.set(finished=True)
-        _apply_finish(ctx.result, outcome)
-        return True
+        outcome, exc = _execute_tool(ctx.executor, call.name, arguments)
+        return _record_execution(ctx, call, arguments, span, step_index, outcome, exc)
 
 
 def _track_unknown_tool(ctx: _Work, name: str, exc: Exception | None) -> None:
@@ -1190,15 +1177,18 @@ def _tool_protocol_broken(ctx: _Work) -> bool:
 def _run_tool_calls(ctx: _Work, calls: list[ToolCall]) -> bool:
     """Run every tool call in one model turn; return whether any finished.
 
-    A finish does *not* stop the turn — the remaining calls in the same response
-    still run (matching the original loop, where ``finished`` was set but the
-    inner ``for`` kept iterating; only the outer step loop broke afterwards).
+    Calls are partitioned into ordered batches (:mod:`colleague.toolbatch_loop`,
+    c6/c35): consecutive read-only calls run in parallel under
+    ``COLLEAGUE_TOOL_CONCURRENCY`` (default 10; 1 = the sequential path,
+    byte-identical to the pre-batch loop), every mutating call runs alone, and
+    results land in request order. A finish does *not* stop the turn — the
+    remaining calls still run (the original inner ``for`` kept iterating; only the
+    outer step loop broke afterwards). A flight stop is honoured at the BATCH
+    boundary: in-flight tools finish or hit their own timeout first (threads
+    cannot be killed), so stop latency is up to the slowest in-flight tool's own
+    timeout — never "immediate" (c36/h25).
     """
-    finished = False
-    for call in calls:
-        if _run_tool_call(ctx, call):
-            finished = True
-    return finished
+    return _toolbatch_loop.run_turn_calls(ctx, calls, _run_tool_call)
 
 
 def _window_in_place(ctx: _Work, budget: int) -> None:
