@@ -117,6 +117,7 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
     distillation,
     engines,
     environment,
+    harness,
     identity,
     model_membership,
     organs,
@@ -127,13 +128,9 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
     usage,
 )
 
-# Ordered registry of check-groups. Identity first (who am I), then the
-# backend/provider plumbing (provider config, usage-readiness, backend plugins),
-# then observability, then the broader environment, then the organism map. The
-# order here is the report order. Every group registered here is contractually
-# read-only and opens no socket / makes no network call (see the check-group
-# contract above) — the opt-in reachability probe (``diagnose(probe=True)``) is
-# deliberately NOT a registered group for exactly that reason.
+# Ordered registry of check-groups = the report order: identity, provider
+# plumbing, observability, environment, organism map, harness (t20). Every group
+# is read-only / no-network (the opt-in reachability probe is NOT registered).
 CHECK_GROUPS: List[CheckGroup] = [
     identity.checks,
     provider.checks,
@@ -147,6 +144,7 @@ CHECK_GROUPS: List[CheckGroup] = [
     three_tier.checks,
     agents.checks,
     distillation.checks,
+    harness.checks,
 ]
 
 #: Check-groups whose ``checks()`` accepts a ``repo_path=`` kwarg (they read
@@ -154,8 +152,8 @@ CHECK_GROUPS: List[CheckGroup] = [
 #: bare zero-arg callable. Kept as an explicit set (not a signature probe) so
 #: the aggregator's dispatch stays simple and testable.
 _REPO_AWARE_GROUPS = frozenset(
-    {provider.checks, organs.checks, model_membership.checks, three_tier.checks, agents.checks}
-)
+    {provider.checks, organs.checks, model_membership.checks, three_tier.checks}
+) | {agents.checks, harness.checks}
 
 
 def diagnose(probe: bool = False, repo_path=None) -> dict:

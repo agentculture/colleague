@@ -3041,6 +3041,7 @@ class EngineConfig:
     # :class:`SensesConfig` and :func:`_resolve_senses`.
     senses: Optional[SensesConfig] = None
     associate: Optional[AssociateConfig] = None  # t18: colleague/associate_config.py
+    lobes_context: Optional[int] = None  # t20: cortex's advertised window (closes d15)
     # Voice (stt/tts) escalation target (senses live-presence + voice arc).
     # ``None`` = no voice declared, byte-identical to today. See
     # :class:`VoiceConfig` and :func:`_resolve_voice`.
@@ -3676,6 +3677,7 @@ class EngineConfig:
                 )
             ),
             context_budget_tokens=acting_context_budget_tokens,
+            lobes_context=getattr(getattr(lobes_roles, "cortex", None), "context", None) or None,
             max_output_chars=int(
                 _pick(
                     _str(ov.max_output_chars),

@@ -98,8 +98,16 @@ def render_read(
     return f"{rendered}\nRead lines {start}-{shown_end} of {total}"
 
 
-def bound_output(text: str, tool: str, ceiling: int, root: str | Path) -> str:
-    """Bound a non-read tool result at its per-tool budget, spilling the rest to disk."""
+def bound_output(text: str, tool: str, ceiling: int, root: str | Path, executor=None) -> str:
+    """Bound a non-read tool result at its per-tool budget, spilling the rest to disk.
+
+    *executor* (t20): when given, a spill bumps its ``outputs_spilled`` tally —
+    the exact counter :mod:`colleague.runcounts` folds onto the artifact.
+    """
     max_chars = min(truncation.resolve_max_chars(tool or "read_file"), int(ceiling))
     spill_dir = Path(root) / ".colleague" / "tool-output"
-    return truncation.truncate_output(text, max_chars, truncation.resolve_max_lines(), spill_dir)
+    before = truncation.session_bytes_spilled()
+    out = truncation.truncate_output(text, max_chars, truncation.resolve_max_lines(), spill_dir)
+    if executor is not None and truncation.session_bytes_spilled() > before:
+        executor.outputs_spilled = int(getattr(executor, "outputs_spilled", 0)) + 1
+    return out

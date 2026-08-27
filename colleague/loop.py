@@ -57,6 +57,7 @@ from colleague import flight as flightmod
 from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import loopguards as _loopguards
+from colleague import runcounts as _runcounts
 from colleague import media
 from colleague import memory as _memorymod
 from colleague import salvage, stallguard, streamguards
@@ -924,12 +925,10 @@ def _finalize_stats(
     model: str = "",
     served_model: str = "",
 ) -> None:
-    """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
+    """Fill the :class:`WorkStats` fields known only at loop exit (every exit path).
 
-    The per-turn fields (``model_turns``, generated sizes) accumulate in
-    :func:`_work_loop`; this fills the rest. Called on EVERY exit path so a
-    partial drive still gets populated stats. ``engine``/``model`` make the ROI
-    block self-describing; ``served_model`` (t18) is what the reply named.
+    Per-turn fields accumulate in :func:`_work_loop`; ``engine``/``model`` make
+    the ROI block self-describing, ``served_model`` (t18) is what the reply named.
     """
     stats = result.stats
     stats.request = task.instruction
@@ -941,6 +940,7 @@ def _finalize_stats(
     stats.tool_counts = dict(Counter(step.tool for step in result.steps))
     stats.files_changed = len(result.changed_files)
     stats.bytes_written = executor.bytes_written
+    _runcounts.finalize(result, executor)  # t20: derived harness counters
 
 
 def _emit_progress(ctx: _Work, step_index: int, tool: str, arguments: Any, ok: bool) -> None:

@@ -842,7 +842,7 @@ class ToolExecutor:
             self._is_read_only = allowlist.read_only
 
     def _truncate(self, text: str, tool: str = "") -> str:
-        return readpage.bound_output(text, tool, self._max_output_chars, self.root)
+        return readpage.bound_output(text, tool, self._max_output_chars, self.root, self)
 
     def _safe_path(self, rel: str) -> Path:
         """Resolve ``rel`` under the root, refusing any path that escapes it."""

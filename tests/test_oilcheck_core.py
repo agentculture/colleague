@@ -186,6 +186,7 @@ def test_check_groups_registered_in_order() -> None:
         distillation,
         engines,
         environment,
+        harness,
         identity,
         model_membership,
         organs,
@@ -209,6 +210,7 @@ def test_check_groups_registered_in_order() -> None:
         three_tier.checks,
         agents.checks,
         distillation.checks,
+        harness.checks,
     ]
 
 
