@@ -247,7 +247,7 @@ minds. The architecture, part by part:
 
 ## v1 scope (hold this line)
 
-**v0 → v1 graduation.** Five deliberate, **recorded** convention changes since v0
+**v0 → v1 graduation.** Six deliberate, **recorded** convention changes since v0
 — never silent breaches: (1) *"no LLM-generated summary"* superseded by the
 fill-line `compact` move (lossy windowing retained as the floor, #156); (2) *"zero
 base dependencies"* superseded by **one** sanctioned base dep, `agentfront` (base
@@ -263,7 +263,13 @@ are opt-in (the `lobes` sentinel / an explicit model id), a bare run dials exact
 one model, the front door + senses loop live behind the opt-in, and switching a
 seat via `/model` is an explicit per-session operator choice — NOT a routing
 policy; lobes-cli keeps advertising senses/muse, colleague ignores them by
-default and says so. Everything else holds.
+default and says so; (6) *"threads confined to subagents + the input line"*
+extended once more to ONE bounded read-only tool-batch pool —
+`colleague/toolbatch.py`'s `run_batch` (cap `COLLEAGUE_TOOL_CONCURRENCY`, default
+10; `1` = the sequential loop, byte-identical), the batch orchestration in
+`colleague/toolbatch_loop.py` (gates on the main thread before the pool, only
+`executor.execute` inside it, bookkeeping in request order after the join),
+plan `adopt-from-qwen-code`. Everything else holds.
 
 **In scope:** the runtime + every architecture part listed above (each added via an
 explicit re-spec under `docs/specs/` / `docs/plans/`), within the zero-deps /
@@ -400,8 +406,10 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   `strive.py` (the operator-supplied measure command, approval-gated like
   `run_command`), and `correction.py` (git/gh for the integrator-correction
   diff). Threads (`concurrent.futures`) stay confined to
-  `colleague/subagents.py` and `colleague/cli/_commands/_input_line.py` (the
-  session's colour-TTY reader thread; any failure degrades to cooked-mode). Every
+  `colleague/subagents.py`, `colleague/cli/_commands/_input_line.py` (the
+  session's colour-TTY reader thread; any failure degrades to cooked-mode),
+  `colleague/realtime.py`, and `colleague/toolbatch.py` (the read-only tool-batch
+  pool behind `run_batch`, convention change (6)). Every
   shell-out targets an operator-installed CLI via explicit allow-listing; none opens
   a socket or forks a daemon. `worktrees.py`'s admin mutations are serialized by an
   advisory `fcntl` lock (#239).

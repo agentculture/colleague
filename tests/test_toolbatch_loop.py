@@ -1,0 +1,407 @@
+"""Batched tool execution in the loop (plan adopt-from-qwen-code t15; spec c6/h4, c35/h24, c36/h25).
+
+The pins: gates run on the main thread in request order BEFORE the pool; only
+``executor.execute`` runs inside it; step indices, Step/tool-message appends,
+post_tool hooks and progress emits land in request order after the join; one
+error never cancels its siblings; a flight stop written mid-batch takes effect
+before the NEXT batch; width 1 is byte-identical to the sequential loop.
+"""
+
+from __future__ import annotations
+
+import ast
+import inspect
+import json
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from colleague import flight as flightmod
+from colleague import loop as loopmod
+from colleague import toolbatch, toolbatch_loop
+from colleague.contract import OK, Task
+from colleague.loop import ModelResponse, ToolCall, run
+from colleague.tools import ToolError, ToolExecutor, ToolOutcome
+
+
+class _SpyExecutor(ToolExecutor):
+    """A repo-confined executor that records execution order + overlap and can sleep/fail."""
+
+    def __init__(
+        self, root: Path, *, sleeps: dict[str, float] | None = None, fail: set[str] = frozenset()
+    ):
+        super().__init__(root)
+        self.sleeps = sleeps or {}
+        self.fail = set(fail)
+        self.started: list[str] = []
+        self.finished: list[str] = []
+        self.max_overlap = 0
+        self._active = 0
+        self._lock = threading.Lock()
+        self.threads: dict[str, int] = {}
+
+    def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
+        if name == "finish":
+            return super().execute(name, arguments)
+        key = str(arguments.get("path", arguments.get("command", name)))
+        with self._lock:
+            self.started.append(key)
+            self._active += 1
+            self.max_overlap = max(self.max_overlap, self._active)
+            self.threads[key] = threading.get_ident()
+        try:
+            time.sleep(self.sleeps.get(key, 0.0))
+            if key in self.fail:
+                raise ToolError(f"boom for {key}")
+            return super().execute(name, arguments)
+        finally:
+            with self._lock:
+                self._active -= 1
+                self.finished.append(key)
+
+
+def _scripted(responses: list[ModelResponse]):
+    state = {"i": 0}
+
+    def complete(_messages: list[dict]) -> ModelResponse:
+        i = min(state["i"], len(responses) - 1)
+        state["i"] += 1
+        return responses[i]
+
+    return complete
+
+
+def _repo(tmp_path: Path) -> Path:
+    for name in ("a.txt", "b.txt", "c.txt"):
+        (tmp_path / name).write_text(f"{name} body\n")
+    return tmp_path
+
+
+def _reads(*names: str) -> list[ToolCall]:
+    return [ToolCall(f"id-{n}", "read_file", {"path": n}) for n in names]
+
+
+_FINISH = ModelResponse(tool_calls=[ToolCall("fin", "finish", {"summary": "done"})])
+
+
+def test_inverted_sleeps_land_in_request_order_and_run_in_parallel(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Sleeps 0.3/0.2/0.1: finish order inverts, steps stay in request order."""
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    executor = _SpyExecutor(_repo(tmp_path), sleeps={"a.txt": 0.3, "b.txt": 0.2, "c.txt": 0.1})
+    task = Task.new(str(tmp_path), "read three files")
+    started = time.monotonic()
+    result = run(
+        _scripted([ModelResponse(tool_calls=_reads("a.txt", "b.txt", "c.txt")), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+    )
+    elapsed = time.monotonic() - started
+    assert result.status == OK
+    reads_done = [k for k in executor.finished if k.endswith(".txt")]
+    assert reads_done == ["c.txt", "b.txt", "a.txt"], "completion order inverted (parallel)"
+    assert executor.max_overlap == 3
+    assert elapsed < 0.55, f"batch took {elapsed:.2f}s — not parallel"
+    steps = [s for s in result.steps if s.tool == "read_file"]
+    assert [s.index for s in steps] == [0, 1, 2]
+    assert [s.arguments["path"] for s in steps] == ["a.txt", "b.txt", "c.txt"]
+    tool_msgs = [m for m in result_messages(result) if m.get("role") == "tool"]
+    assert [m["tool_call_id"] for m in tool_msgs][:3] == ["id-a.txt", "id-b.txt", "id-c.txt"]
+    # the pool did the executing, the main thread did the bookkeeping
+    assert len(set(executor.threads.values())) >= 2
+
+
+def result_messages(result) -> list[dict]:
+    """The wire-shaped messages the loop appended (from the artifact's step trace)."""
+    return [
+        {"role": "tool", "tool_call_id": f"id-{s.arguments.get('path')}", "content": s.result}
+        for s in result.steps
+        if s.tool == "read_file"
+    ]
+
+
+def test_ok_error_ok_batch_yields_three_ordered_steps_with_one_non_ok(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    executor = _SpyExecutor(_repo(tmp_path), fail={"b.txt"})
+    task = Task.new(str(tmp_path), "read three files")
+    result = run(
+        _scripted([ModelResponse(tool_calls=_reads("a.txt", "b.txt", "c.txt")), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+    )
+    steps = [s for s in result.steps if s.tool == "read_file"]
+    assert [s.ok for s in steps] == [True, False, True]
+    assert steps[1].result.startswith("error: boom for b.txt")
+    assert [s.index for s in steps] == [0, 1, 2]
+    assert sorted(executor.started) == [
+        "a.txt",
+        "b.txt",
+        "c.txt",
+    ], "an error never cancels siblings"
+    assert result.status == OK
+
+
+def test_mutating_call_splits_the_batch_and_runs_alone(tmp_path: Path, monkeypatch) -> None:
+    """[read, read, write, read] → [[read, read] ‖, [write], [read]] — the write never overlaps."""
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    executor = _SpyExecutor(
+        _repo(tmp_path), sleeps={"a.txt": 0.15, "b.txt": 0.15, "new.txt": 0.05, "c.txt": 0.05}
+    )
+    calls = [
+        *_reads("a.txt", "b.txt"),
+        ToolCall("w", "write_file", {"path": "new.txt", "content": "x"}),
+        *_reads("c.txt"),
+    ]
+    task = Task.new(str(tmp_path), "mixed turn")
+    result = run(
+        _scripted([ModelResponse(tool_calls=calls), _FINISH]), task, max_steps=10, executor=executor
+    )
+    assert result.status == OK
+    assert executor.started[:2] in (["a.txt", "b.txt"], ["b.txt", "a.txt"])
+    assert executor.started[2:] == [
+        "new.txt",
+        "c.txt",
+    ], "the write and the trailing read stay sequential"
+    assert executor.finished.index("new.txt") > max(
+        executor.finished.index("a.txt"), executor.finished.index("b.txt")
+    )
+    assert [s.tool for s in result.steps][:4] == [
+        "read_file",
+        "read_file",
+        "write_file",
+        "read_file",
+    ]
+
+
+def test_read_only_run_command_batches_but_a_mutating_one_does_not() -> None:
+    safe = ToolCall("1", "run_command", {"command": "ls -la"})
+    unsafe = ToolCall("2", "run_command", {"command": "rm -rf build"})
+    read = ToolCall("3", "read_file", {"path": "a.txt"})
+    batches = toolbatch.partition_by_concurrency_safety(
+        [safe, read, unsafe, read], toolbatch_loop.is_batch_safe
+    )
+    assert [[c.id for c in b] for b in batches] == [["1", "3"], ["2"], ["3"]]
+
+
+def test_policy_denied_call_inside_a_batch_is_recorded_in_request_order_and_never_executed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Gates run on the main thread before the pool: the denied middle call gets its
+    non-ok step at index 1, the executor never sees it."""
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    from colleague.policy import Policy
+
+    class _DenyCat(Policy):
+        def check_run_command(self, command: str):
+            verdict = super().check_run_command(command)
+            if command.startswith("cat"):
+                return type(verdict)(allowed=False, reason="denied by policy: cat")
+            return verdict
+
+    executor = _SpyExecutor(_repo(tmp_path))
+    calls = [
+        ToolCall("1", "run_command", {"command": "ls"}),
+        ToolCall("2", "run_command", {"command": "cat a.txt"}),
+        *_reads("b.txt"),
+    ]
+    task = Task.new(str(tmp_path), "gated batch")
+    result = run(
+        _scripted([ModelResponse(tool_calls=calls), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+        policy=_DenyCat(),
+    )
+    steps = result.steps[:3]
+    assert [s.ok for s in steps] == [True, False, True]
+    assert steps[1].result == "denied by policy: cat" and steps[1].index == 1
+    assert "cat a.txt" not in executor.started
+
+
+def test_flight_stop_written_mid_batch_takes_effect_before_the_next_batch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Batch 1 (two reads) writes the stop file from inside a tool; batch 2 (a write) and
+    batch 3 (a read) are recorded as skipped non-ok steps; the run ends on the stop."""
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    repo = _repo(tmp_path)
+    task = Task.new(str(repo), "stop mid-turn", watch=True)
+    control = flightmod.control_path(str(repo), task.id)
+
+    class _StopWriter(_SpyExecutor):
+        def execute(self, name, arguments):
+            outcome = super().execute(name, arguments)
+            control.parent.mkdir(parents=True, exist_ok=True)
+            control.write_text(json.dumps({"stop": True, "guidance": ["hello"]}))
+            return outcome
+
+    executor = _StopWriter(repo)
+    calls = [
+        *_reads("a.txt", "b.txt"),
+        ToolCall("w", "write_file", {"path": "n.txt", "content": "x"}),
+        *_reads("c.txt"),
+    ]
+    result = run(
+        _scripted([ModelResponse(tool_calls=calls), _FINISH]), task, max_steps=10, executor=executor
+    )
+    assert [s.tool for s in result.steps] == ["read_file", "read_file", "write_file", "read_file"]
+    assert [s.ok for s in result.steps] == [True, True, False, False]
+    assert result.steps[2].result == toolbatch_loop.STOP_SKIPPED
+    assert "n.txt" not in executor.started and not (repo / "n.txt").exists()
+    assert result.status != OK, "the turn-boundary stop check still ends the run"
+    assert (
+        result.stats.step_count == 4
+    ), "the artifact carries the completed batch + the skipped calls"
+
+
+def test_width_one_is_the_sequential_path_and_never_builds_a_pool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "1")
+
+    def _explode(*a, **k):  # pragma: no cover - the assertion is that this never runs
+        raise AssertionError("ThreadPoolExecutor instantiated at width 1")
+
+    monkeypatch.setattr(toolbatch, "ThreadPoolExecutor", _explode)
+    parallel_calls: list[Any] = []
+    monkeypatch.setattr(
+        toolbatch_loop, "_run_parallel_batch", lambda *a, **k: parallel_calls.append(a) or False
+    )
+    executor = _SpyExecutor(_repo(tmp_path))
+    task = Task.new(str(tmp_path), "sequential")
+    result = run(
+        _scripted([ModelResponse(tool_calls=_reads("a.txt", "b.txt", "c.txt")), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+    )
+    assert result.status == OK
+    assert parallel_calls == []
+    assert executor.max_overlap == 1 and executor.started == ["a.txt", "b.txt", "c.txt"]
+    assert len({t for t in executor.threads.values()}) == 1
+
+
+def test_width_one_and_width_ten_produce_identical_steps_and_messages(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The batch path records exactly what the sequential path records (same helpers)."""
+    traces = {}
+    for width in ("1", "10"):
+        monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", width)
+        (tmp_path / width).mkdir()
+        repo = _repo(tmp_path / width)
+        executor = _SpyExecutor(repo, fail={"b.txt"})
+        task = Task.new(str(repo), "same turn")
+        calls = [
+            *_reads("a.txt", "b.txt", "c.txt"),
+            ToolCall("w", "write_file", {"path": "n.txt", "content": "x"}),
+        ]
+        result = run(
+            _scripted([ModelResponse(tool_calls=calls), _FINISH]),
+            task,
+            max_steps=10,
+            executor=executor,
+        )
+        traces[width] = [(s.index, s.tool, s.arguments, s.result, s.ok) for s in result.steps]
+    assert traces["1"] == traces["10"]
+
+
+def test_unset_knob_defaults_to_ten_and_garbage_falls_back(monkeypatch) -> None:
+    monkeypatch.delenv("COLLEAGUE_TOOL_CONCURRENCY", raising=False)
+    assert toolbatch_loop.concurrency_width() == 10
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "0")
+    assert toolbatch_loop.concurrency_width() == 1
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "nope")
+    assert toolbatch_loop.concurrency_width() == 10
+
+
+def _names_in(fn) -> set[str]:
+    tree = ast.parse(inspect.getsource(fn))
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    return names | attrs
+
+
+def test_ast_guard_the_pool_target_references_no_loop_state() -> None:
+    """Neither the pool target nor the execute primitive names ``ctx`` or ``_Work``."""
+    for fn in (toolbatch_loop._execute_item, loopmod._execute_tool):
+        seen = _names_in(fn)
+        assert (
+            "ctx" not in seen and "_Work" not in seen
+        ), f"{fn.__name__} touches loop state: {seen & {'ctx', '_Work'}}"
+    source = inspect.getsource(toolbatch_loop)
+    assert "concurrent.futures" not in source and "import threading" not in source
+    assert "ThreadPoolExecutor" not in Path(loopmod.__file__).read_text()
+
+
+def test_thread_allowlist_and_claude_md_record_convention_change_six() -> None:
+    boundary = Path(__file__).with_name("test_boundary.py").read_text()
+    assert '"colleague/toolbatch.py"' in boundary and "convention change (6)" in boundary
+    claude = (Path(__file__).resolve().parent.parent / "CLAUDE.md").read_text()
+    assert "Six deliberate, **recorded** convention changes" in claude
+    assert (
+        "(6)" in claude and "COLLEAGUE_TOOL_CONCURRENCY" in claude and "toolbatch_loop.py" in claude
+    )
+
+
+def test_stop_peek_does_not_consume_guidance(tmp_path: Path) -> None:
+    session = flightmod.arm(str(tmp_path), "t-1")
+    flightmod.control_path(str(tmp_path), "t-1").write_text(
+        json.dumps({"stop": True, "guidance": ["g1"]})
+    )
+
+    class _Ctx:
+        flight = session
+
+    assert toolbatch_loop.stop_requested(_Ctx()) is True
+    assert session.read_control().guidance == ["g1"], "the peek left the guidance cursor alone"
+    assert toolbatch_loop.stop_requested(type("C", (), {"flight": None})()) is False
+
+
+def test_tool_span_is_opened_exactly_once_per_call_in_a_batch(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    from colleague.telemetry import Telemetry
+
+    opened: list[tuple[str, int]] = []
+    telemetry = Telemetry.disabled() if hasattr(Telemetry, "disabled") else Telemetry()
+    real = telemetry.tool_span
+
+    def spy(*, tool, step_index):
+        opened.append((tool, step_index))
+        return real(tool=tool, step_index=step_index)
+
+    monkeypatch.setattr(telemetry, "tool_span", spy)
+    executor = _SpyExecutor(_repo(tmp_path))
+    task = Task.new(str(tmp_path), "spans")
+    run(
+        _scripted([ModelResponse(tool_calls=_reads("a.txt", "b.txt", "c.txt")), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+        telemetry=telemetry,
+    )
+    assert opened == [("read_file", 0), ("read_file", 1), ("read_file", 2), ("finish", 3)]
+
+
+@pytest.mark.parametrize("width", ["1", "10"])
+def test_mock_style_multi_call_turn_finishes_and_counts_steps(
+    tmp_path: Path, monkeypatch, width: str
+) -> None:
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", width)
+    executor = _SpyExecutor(_repo(tmp_path))
+    task = Task.new(str(tmp_path), "count")
+    result = run(
+        _scripted([ModelResponse(tool_calls=_reads("a.txt", "b.txt")), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+    )
+    assert result.status == OK and result.stats.step_count == 3
