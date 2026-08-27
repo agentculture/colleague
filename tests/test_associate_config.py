@@ -313,7 +313,8 @@ def test_seat_sends_the_role_name_on_the_wire_and_streams_like_cortex(
     messages = [{"role": "user", "content": "hi"}]
     cortex_payload, cortex_streams = engine._build_chat_payload(cfg, messages, [])
     seat_payload, seat_streams = engine._build_chat_payload(seat, messages, [])
-    assert cortex_streams is True and seat_streams is True
+    assert cortex_streams is True
+    assert seat_streams is True
     assert seat_payload["model"] == "associate"
     # c52: the associate seat streams exactly as cortex does, headless included.
     assert cortex_payload["stream"] is True

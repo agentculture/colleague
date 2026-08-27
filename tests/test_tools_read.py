@@ -75,8 +75,9 @@ def test_explicit_max_output_chars_still_tightens_read(tmp_path: Path) -> None:
 
 def test_bad_offset_is_a_tool_error(tmp_path: Path) -> None:
     _write(tmp_path, "f.py", 3)
+    ex = ToolExecutor(tmp_path)
     with pytest.raises(ToolError):
-        ToolExecutor(tmp_path).execute("read_file", {"path": "f.py", "offset": 0})
+        ex.execute("read_file", {"path": "f.py", "offset": 0})
 
 
 def test_run_command_output_is_head_tail_at_30000_and_spilled(tmp_path: Path) -> None:

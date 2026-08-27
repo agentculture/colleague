@@ -112,7 +112,7 @@ def _strip_line_terminator(raw_line: str) -> str:
     """Remove a trailing ``\\r\\n``/``\\n``/``\\r`` from one ``splitlines(keepends=True)`` line."""
     if raw_line.endswith("\r\n"):
         return raw_line[:-2]
-    if raw_line.endswith("\n") or raw_line.endswith("\r"):
+    if raw_line.endswith(("\n", "\r")):
         return raw_line[:-1]
     return raw_line
 
@@ -187,7 +187,7 @@ def _find_relaxed_matches(text: str, old: str) -> list[str]:
     ``str.splitlines`` is itself CRLF/LF/CR agnostic, so an ``old_string``
     written with different line endings than the file still lines up.
     """
-    ends_with_newline = old.endswith("\n") or old.endswith("\r")
+    ends_with_newline = old.endswith(("\n", "\r"))
     old_lines = old.splitlines()
     if not old_lines:
         return []

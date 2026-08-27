@@ -294,7 +294,7 @@ _QUESTIONS_INTERACTIVE = (
 # such a model id keys to "general" (bracket examples) — a recorded deviation of task t8.
 TOOL_CALL_FAMILIES = ("general", "qwen-coder", "qwen-vl")
 
-_EXAMPLES_HEADER = "# Examples (Illustrating Tone and Workflow)\n" "(" + ADAPTED_FROM_MARKER + ")\n"
+_EXAMPLES_HEADER = "# Examples (Illustrating Tone and Workflow)\n(" + ADAPTED_FROM_MARKER + ")\n"
 
 _EXAMPLES_GENERAL = _EXAMPLES_HEADER + (
     "<example>\n"
