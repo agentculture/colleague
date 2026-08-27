@@ -48,7 +48,8 @@ def test_default_line_cap_1000_then_page_on(tmp_path: Path) -> None:
     first = ex.execute("read_file", {"path": "long.py"}).result
     assert first.endswith("\nRead lines 1-1000 of 1200")
     nxt = ex.execute("read_file", {"path": "long.py", "offset": 1001}).result
-    assert nxt.startswith("  1001\tL1001") and nxt.endswith("\nRead lines 1001-1200 of 1200")
+    assert nxt.startswith("  1001\tL1001")
+    assert nxt.endswith("\nRead lines 1001-1200 of 1200")
 
 
 def test_default_char_cap_25000_even_with_a_loose_env_ceiling(
@@ -58,16 +59,17 @@ def test_default_char_cap_25000_even_with_a_loose_env_ceiling(
     (tmp_path / "wide.py").write_text("\n".join("x" * 99 for _ in range(400)) + "\n", "utf-8")
     out = ToolExecutor(tmp_path, max_output_chars=100_000).execute("read_file", {"path": "wide.py"})
     body, trailer = out.result.rsplit("\n", 1)
-    assert (
-        len(body) <= 25_000 and trailer.startswith("Read lines 1-") and trailer.endswith(" of 400")
-    )
+    assert len(body) <= 25_000
+    assert trailer.startswith("Read lines 1-")
+    assert trailer.endswith(" of 400")
 
 
 def test_explicit_max_output_chars_still_tightens_read(tmp_path: Path) -> None:
     (tmp_path / "wide.py").write_text("\n".join("x" * 10 for _ in range(50)) + "\n", "utf-8")
     out = ToolExecutor(tmp_path, max_output_chars=100).execute("read_file", {"path": "wide.py"})
     body, trailer = out.result.rsplit("\n", 1)
-    assert len(body) <= 100 and trailer.endswith(" of 50")
+    assert len(body) <= 100
+    assert trailer.endswith(" of 50")
     assert body.split("\n")[0] == "     1\t" + "x" * 10  # numbering never shifted
 
 
@@ -85,8 +87,10 @@ def test_run_command_output_is_head_tail_at_30000_and_spilled(tmp_path: Path) ->
     spilled = list(spill_dir.glob("*.txt"))
     assert len(spilled) == 1
     full = spilled[0].read_text(encoding="utf-8")
-    assert full.startswith("exit=0\n1\n") and full.rstrip().endswith("20000")
-    assert "19999\n20000" in out and "exit=0" in out  # head AND tail survive
+    assert full.startswith("exit=0\n1\n")
+    assert full.rstrip().endswith("20000")
+    assert "19999\n20000" in out
+    assert "exit=0" in out  # head AND tail survive
     preview = out.split("\n\n", 1)[1]
     assert len(preview) < 32_000
 
@@ -96,14 +100,16 @@ def test_run_command_shell_cap_env_tightens_beneath_ceiling(
 ) -> None:
     monkeypatch.setenv("COLLEAGUE_SHELL_MAX_CHARS", "500")
     out = ToolExecutor(tmp_path).execute("run_command", {"command": "seq 1 5000"}).result
-    assert "saved to:" in out and len(out.split("\n\n", 1)[1]) < 1_200
+    assert "saved to:" in out
+    assert len(out.split("\n\n", 1)[1]) < 1_200
 
 
 def test_other_tools_get_25000_and_spill(tmp_path: Path) -> None:
     for i in range(3000):
         (tmp_path / f"file_with_a_long_name_{i:05d}.txt").write_text("", "utf-8")
     out = ToolExecutor(tmp_path).execute("list_dir", {"path": "."}).result
-    assert "saved to:" in out and len(out.split("\n\n", 1)[1]) < 27_000
+    assert "saved to:" in out
+    assert len(out.split("\n\n", 1)[1]) < 27_000
 
 
 def test_spill_disabled_falls_back_to_head_tail(
@@ -111,9 +117,8 @@ def test_spill_disabled_falls_back_to_head_tail(
 ) -> None:
     monkeypatch.setenv("COLLEAGUE_TOOL_SPILL", "0")
     out = ToolExecutor(tmp_path).execute("run_command", {"command": "seq 1 20000"}).result
-    assert (
-        "COLLEAGUE_TOOL_SPILL=0" in out and not (tmp_path / ".colleague" / "tool-output").exists()
-    )
+    assert "COLLEAGUE_TOOL_SPILL=0" in out
+    assert not (tmp_path / ".colleague" / "tool-output").exists()
 
 
 def test_spilled_file_is_readable_with_paging(tmp_path: Path) -> None:
@@ -122,5 +127,6 @@ def test_spilled_file_is_readable_with_paging(tmp_path: Path) -> None:
     spilled = next((tmp_path / ".colleague" / "tool-output").glob("*.txt"))
     rel = str(spilled.relative_to(tmp_path))
     page = ex.execute("read_file", {"path": rel, "offset": 19000, "limit": 3}).result
-    assert page.startswith(" 19000\t") and page.endswith("Read lines 19000-19002 of 20001")
+    assert page.startswith(" 19000\t")
+    assert page.endswith("Read lines 19000-19002 of 20001")
     assert json.dumps(out)  # the preview is plain text, serialisable as a tool message
