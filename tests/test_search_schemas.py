@@ -99,6 +99,46 @@ def test_max_results_caps_and_flags(tree: Path) -> None:
     assert len(lines) == 2 and lines[-1].startswith("... [capped at 1 matches")
 
 
+def test_grep_exactly_max_results_matches_is_not_capped(tmp_path: Path) -> None:
+    """Exactly max_results matches (no more exist) must NOT carry the cap
+    marker — the marker means 'there were more', not 'we hit the number'."""
+    for i in range(3):
+        (tmp_path / f"f{i}.py").write_text("needle\n")
+    out = ToolExecutor(tmp_path).execute("grep_search", {"pattern": "needle", "max_results": 3})
+    lines = out.result.splitlines()
+    assert len(lines) == 3
+    assert not any(line.startswith("... [capped") for line in lines)
+
+
+def test_grep_max_results_plus_one_matches_is_capped(tmp_path: Path) -> None:
+    """max_results + 1 matches: the result is truncated to max_results and the
+    cap marker is present."""
+    for i in range(4):
+        (tmp_path / f"f{i}.py").write_text("needle\n")
+    out = ToolExecutor(tmp_path).execute("grep_search", {"pattern": "needle", "max_results": 3})
+    lines = out.result.splitlines()
+    assert len(lines) == 4
+    assert lines[-1].startswith("... [capped at 3 matches")
+
+
+def test_glob_exactly_max_results_matches_is_not_capped(tmp_path: Path) -> None:
+    for i in range(3):
+        (tmp_path / f"f{i}.txt").write_text("x")
+    out = ToolExecutor(tmp_path).execute("glob", {"pattern": "*.txt", "max_results": 3})
+    lines = out.result.splitlines()
+    assert len(lines) == 3
+    assert not any(line.startswith("... [capped") for line in lines)
+
+
+def test_glob_max_results_plus_one_matches_is_capped(tmp_path: Path) -> None:
+    for i in range(4):
+        (tmp_path / f"f{i}.txt").write_text("x")
+    out = ToolExecutor(tmp_path).execute("glob", {"pattern": "*.txt", "max_results": 3})
+    lines = out.result.splitlines()
+    assert len(lines) == 4
+    assert lines[-1].startswith("... [capped at 3 files")
+
+
 @pytest.mark.parametrize("tool", ["grep_search", "glob"])
 def test_bad_arguments_are_tool_errors_not_crashes(tree: Path, tool: str) -> None:
     ex = ToolExecutor(tree)

@@ -28,6 +28,7 @@ from colleague.outputclamp import (
     clamp_output_tokens,
     output_clamp_margin,
     resolve_window,
+    room_is_short,
     seat_ceiling,
 )
 
@@ -197,6 +198,38 @@ def test_seat_ceiling_zero_kill_switch_beats_design_override(monkeypatch):
     monkeypatch.setenv("COLLEAGUE_MAX_OUTPUT_TOKENS", "0")
     monkeypatch.setenv("COLLEAGUE_MAX_OUTPUT_TOKENS_DESIGN", "999999")
     assert seat_ceiling("deepthink") is None
+
+
+@pytest.mark.parametrize("bad", ["-5", "0", "abc"])
+def test_seat_ceiling_design_override_ignored_when_not_positive_int(monkeypatch, bad):
+    """A design override replaces the default ONLY when it parses as a positive
+    int — negative, zero, or unparseable values are ignored and the default
+    131072 stands (a negative max_tokens must never reach the API)."""
+    monkeypatch.setenv("COLLEAGUE_MAX_OUTPUT_TOKENS_DESIGN", bad)
+    for seat in ("deepthink", "design"):
+        assert seat_ceiling(seat) == DEFAULT_DESIGN_OUTPUT_CEILING
+
+
+def test_room_is_short_true_when_room_is_below_the_floor():
+    # room = 40_000 - 39_000 - 10_000 = -9_000 < 4_000
+    assert room_is_short(40_000, 39_000) is True
+    # room = 40_000 - 60_000 - 10_000, deeply negative
+    assert room_is_short(40_000, 60_000) is True
+
+
+def test_room_is_short_false_when_room_meets_or_beats_the_floor():
+    # room = 200_000 - 170_000 - 10_000 = 20_000 >= 4_000
+    assert room_is_short(200_000, 170_000) is False
+    # room = 200_000 - 186_000 - 10_000 = 4_000 == floor -> not short
+    assert room_is_short(200_000, 186_000) is False
+
+
+def test_clamp_still_returns_the_floor_when_room_is_short():
+    """Upstream parity: clamp_output_tokens keeps returning the 4000 floor when
+    the room is short; room_is_short is the caller's signal, not a change to
+    the clamped value."""
+    assert clamp_output_tokens(32_000, 40_000, 39_000) == MIN_CLAMPED_OUTPUT_TOKENS
+    assert room_is_short(40_000, 39_000) is True
 
 
 def test_seat_ceiling_unknown_seat_raises():

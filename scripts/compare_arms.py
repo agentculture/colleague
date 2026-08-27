@@ -102,11 +102,22 @@ def load_artifact_stats(repo: str | Path, task_id: str) -> ArtifactStats:
     stats = data.get("stats") or {}
     if "duration_seconds" not in stats or "model_turns" not in stats:
         raise ArtifactLookupError(f"artifact {path} is missing stats.duration_seconds/model_turns")
-    return ArtifactStats(
-        task_id=task_id,
-        duration_seconds=float(stats["duration_seconds"]),
-        model_turns=int(stats["model_turns"]),
-    )
+    try:
+        duration = float(stats["duration_seconds"])
+        turns = int(stats["model_turns"])
+    except (TypeError, ValueError) as exc:
+        raise ArtifactLookupError(
+            f"artifact {path} has non-numeric stats "
+            f"(duration_seconds={stats['duration_seconds']!r}, "
+            f"model_turns={stats['model_turns']!r})"
+        ) from exc
+    if duration <= 0 or turns <= 0:
+        raise ArtifactLookupError(
+            f"artifact {path} has non-positive stats "
+            f"(duration_seconds={duration!r}, model_turns={turns!r}) — "
+            "a ratio against it would divide by zero or invert"
+        )
+    return ArtifactStats(task_id=task_id, duration_seconds=duration, model_turns=turns)
 
 
 def load_arm(repo: str | Path, name: str, task_ids: Sequence[str]) -> ArmResult:

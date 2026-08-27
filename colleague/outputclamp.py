@@ -109,6 +109,20 @@ def clamp_output_tokens(output_ceiling: int, context_window_size: int, prompt_to
     return min(output_ceiling, max(MIN_CLAMPED_OUTPUT_TOKENS, room))
 
 
+def room_is_short(context_window_size: int, prompt_tokens: int) -> bool:
+    """Whether the window ROOM is below :data:`MIN_CLAMPED_OUTPUT_TOKENS`.
+
+    ``room = context_window_size - prompt_tokens - output_clamp_margin(...)``.
+    :func:`clamp_output_tokens` keeps returning the 4000 floor in this case
+    (upstream parity — the floor is never dropped), so this helper is the
+    caller's signal that the clamped value is the floor, not the room: the
+    request will be larger than the window can actually hold and the backend
+    may still truncate.
+    """
+    room = context_window_size - prompt_tokens - output_clamp_margin(context_window_size)
+    return room < MIN_CLAMPED_OUTPUT_TOKENS
+
+
 # ---------------------------------------------------------------------------
 # resolve_window (colleague-side addition: window-source precedence)
 # ---------------------------------------------------------------------------
@@ -172,8 +186,10 @@ def seat_ceiling(seat: str) -> Optional[int]:
     - ``COLLEAGUE_MAX_OUTPUT_TOKENS=0`` is the global kill-switch: returns
       ``None`` (no clamp) for ANY seat, regardless of the design knob below.
     - The two high-ceiling seats (:data:`DESIGN_SEATS` — ``deepthink`` and
-      ``design``) resolve ``COLLEAGUE_MAX_OUTPUT_TOKENS_DESIGN``, default
-      :data:`DEFAULT_DESIGN_OUTPUT_CEILING` (131072).
+      ``design``) resolve ``COLLEAGUE_MAX_OUTPUT_TOKENS_DESIGN`` when it
+      parses as a POSITIVE int, else the default
+      :data:`DEFAULT_DESIGN_OUTPUT_CEILING` (131072) — a negative, zero, or
+      unparseable override is ignored, never returned as a ceiling.
     - Every other (acting) seat resolves a non-zero
       ``COLLEAGUE_MAX_OUTPUT_TOKENS`` if set, else :data:`OUTPUT_TOKEN_CEILING`
       (64000).
@@ -191,7 +207,10 @@ def seat_ceiling(seat: str) -> Optional[int]:
 
     if seat in DESIGN_SEATS:
         design = _read_int_env(_MAX_OUTPUT_TOKENS_DESIGN_ENV)
-        if design is not None:
+        # The override replaces the default ONLY when it parses as a positive
+        # int — a negative/zero value would become a negative max_tokens sent
+        # straight to the API, so it is ignored and the default stands.
+        if design is not None and design > 0:
             return design
         return DEFAULT_DESIGN_OUTPUT_CEILING
 
