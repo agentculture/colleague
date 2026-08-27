@@ -31,6 +31,8 @@ from typing import TYPE_CHECKING, Callable, Collection, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from colleague import configdir, effort
+from colleague.associate_config import ASSOCIATE_WIRE_MODEL  # noqa: F401 - re-export
+from colleague.associate_config import AssociateConfig, resolve_associate_seat
 from colleague.fillline import DEFAULT_COMPACTION_CAP
 
 if TYPE_CHECKING:
@@ -3038,6 +3040,7 @@ class EngineConfig:
     # task t3). ``None`` = no senses declared, byte-identical to today. See
     # :class:`SensesConfig` and :func:`_resolve_senses`.
     senses: Optional[SensesConfig] = None
+    associate: Optional[AssociateConfig] = None  # t18: colleague/associate_config.py
     # Voice (stt/tts) escalation target (senses live-presence + voice arc).
     # ``None`` = no voice declared, byte-identical to today. See
     # :class:`VoiceConfig` and :func:`_resolve_voice`.
@@ -3411,27 +3414,25 @@ class EngineConfig:
             default=_file_or_default(file_api_key, _DEFAULT_API_KEY),
         )
 
-        # Dual-model deepthink (t1) — resolved once as a local so the reviewer
-        # default backfill (t7) can inspect it. Discovery from the lobes muse
-        # role is OPT-IN ONLY (qwen-direct, c4): the operator declares the
-        # sentinel ``lobes`` as the deepthink model (COLLEAGUE_DEEPTHINK_MODEL /
-        # config.json deepthink.model); an advertised muse alone arms nothing.
-        # Dial target, budget and key hygiene: :func:`_deepthink_lobes_fallback`.
+        # Dual-model deepthink (t1) — a local so the reviewer default backfill (t7)
+        # can inspect it. Muse discovery is OPT-IN ONLY (qwen-direct c4): the
+        # sentinel ``lobes`` asks for it; see :func:`_deepthink_lobes_fallback`.
         resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
         if resolved_deepthink is not None and resolved_deepthink.model == "lobes":
             resolved_deepthink = _deepthink_lobes_fallback(
                 lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_deepthink
             )
-        # Senses front-door target — resolved once as a local. Discovery from the
-        # lobes senses role is OPT-IN ONLY (qwen-direct, c2): the sentinel
-        # ``lobes`` as the senses model (COLLEAGUE_SENSES_MODEL / config.json
-        # senses.model) asks for it; its own dial target, window budget and key
-        # hygiene: :func:`_senses_lobes_fallback` (colleague#292/#348).
+        # Senses front-door target — OPT-IN ONLY (qwen-direct c2): the sentinel
+        # ``lobes`` asks for it; see :func:`_senses_lobes_fallback` (#292/#348).
         resolved_senses = _resolve_senses(file_senses, resolved_base_url, resolved_api_key)
         if resolved_senses is not None and resolved_senses.model == "lobes":
             resolved_senses = _senses_lobes_fallback(
                 lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_senses
             )
+        # Associate seat (t18) — OPT-IN like senses/muse; :mod:`colleague.associate_config`.
+        resolved_associate = resolve_associate_seat(
+            repo_path, resolved_base_url, resolved_api_key, lobes_roles, lobes_gateway_url
+        )
         # Voice (stt/tts) escalation target (senses live-presence + voice arc) —
         # resolved once as a local, mirroring senses. Precedence: env >
         # config.json > lobes discovery > absent. When voice is NOT declared via
@@ -3865,15 +3866,14 @@ class EngineConfig:
                 ),
                 default=DEFAULT_COMPACTION_CAP,
             ),
-            # Dual-model deepthink (t1) — env > config.json `deepthink` section >
-            # absent (None). base_url/api_key default to the resolved MAIN
-            # endpoint values computed above.
+            # Dual-model deepthink (t1) — env > config.json `deepthink` > absent.
             deepthink=resolved_deepthink,
             # Senses (multimodal front-door, cortex/senses arc task t3) —
             # env > config.json `senses` section > absent (None). Scope: no
             # lobes discovery rung yet (t4); base_url/api_key default to the
             # resolved MAIN endpoint values computed above.
             senses=resolved_senses,
+            associate=resolved_associate,  # t18: see colleague/associate_config.py
             voice=resolved_voice,
             # Realtime dial target (realtime-speech arc, task t1) — env >
             # config.json `realtime` section > lobes discovery (stt's

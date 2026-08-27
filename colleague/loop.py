@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
+from colleague import associate
 from colleague import autosplit as _autosplit
 from colleague import backpressure
 from colleague import coherence as _coherencemod
@@ -348,13 +349,10 @@ class ModelResponse:
     ``finish_reason`` is the raw backend-reported reason THIS turn's completion
     ended (OpenAI-compatible ``choices[0].finish_reason``, e.g. ``"stop"`` /
     ``"tool_calls"`` / ``"length"`` / ``"content_filter"``), carried out of the
-    vLLM adapter's blocking AND streaming SSE paths unchanged (plan task t1,
-    covers c4/h4) — previously read only to detect SSE stream termination and
-    then dropped. ``""`` for a backend/engine that never reports the field (the
-    mock engine still sets a representative deliberate value). The loop's own
-    per-work-item classification onto the five ``FINISH_*`` states
-    (:mod:`colleague.finishstate`) reads the LAST turn's value via a private
-    tracking cell, never re-derives it from ``content``/``tool_calls``.
+    vLLM adapter's blocking AND streaming paths unchanged (t1, c4/h4); ``""``
+    for an engine that never reports it. :mod:`colleague.finishstate` reads the
+    LAST turn's value via a private tracking cell, never re-derived from content.
+    ``served_model`` is the id the reply itself named (t18/c49; ``""`` when absent).
     """
 
     content: str = ""
@@ -363,6 +361,7 @@ class ModelResponse:
     completion_tokens: int = 0
     reasoning: str = ""
     finish_reason: str = ""
+    served_model: str = ""
 
 
 # A ``complete`` performs one model turn given the running message list.
@@ -602,6 +601,7 @@ class _Work:
     # through the binding. Read by ``_finalize_finish_states`` at every exit
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
+    _served_model: list[str] = field(default_factory=list)  # first served id (t18)
     # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
     # step completed (the loop start until one does); ``_stalled`` holds the elapsed
     # seconds once the bound was crossed — a single-element cell the frozen ``_Work``
@@ -922,22 +922,19 @@ def _finalize_stats(
     started_at: str,
     duration_seconds: float,
     model: str = "",
+    served_model: str = "",
 ) -> None:
     """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
 
-    The per-turn fields (``model_turns`` and the generated reasoning/answer sizes)
-    are accumulated in :func:`_work_loop`; this fills the rest from the finished
-    result + executor. Called on EVERY exit path (model finish / empty turn /
-    budget / mid-loop abort) so a partial drive still gets populated stats.
-
-    ``engine``/``model`` make the ROI block self-describing (which mind ran it):
-    ``engine`` is ``task.engine``; ``model`` is the id the engine was configured
-    to call (threaded from :func:`run`'s ``model`` param, ``""`` when not given).
+    The per-turn fields (``model_turns``, generated sizes) accumulate in
+    :func:`_work_loop`; this fills the rest. Called on EVERY exit path so a
+    partial drive still gets populated stats. ``engine``/``model`` make the ROI
+    block self-describing; ``served_model`` (t18) is what the reply named.
     """
     stats = result.stats
     stats.request = task.instruction
     stats.engine = task.engine
-    stats.model = model
+    stats.model = associate.recorded_model(model, served_model)  # t18/c49
     stats.started_at = started_at
     stats.duration_seconds = duration_seconds
     stats.step_count = len(result.steps)
@@ -2153,6 +2150,8 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     # (even a "" value overwrites), matching the wire's own semantics of "the
     # last completion's own reason", not merely the last non-empty one.
     ctx._last_finish_reason[:] = [resp.finish_reason]
+    if resp.served_model and not ctx._served_model:
+        ctx._served_model[:] = [resp.served_model]
 
 
 def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
@@ -5135,6 +5134,7 @@ def run(
         started_at=started_at,
         duration_seconds=round(time.monotonic() - start_monotonic, 6),
         model=model or "",
+        served_model=(ctx._served_model[0] if ctx._served_model else ""),
     )
     telemetry.on_bytes_written(result.stats.bytes_written)
 

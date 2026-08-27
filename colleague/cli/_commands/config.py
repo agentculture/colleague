@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 
-from colleague import effort
+from colleague import associate_cli, effort
 from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
@@ -95,8 +95,7 @@ def _config_show(repo: str = ".") -> object:
     else:
         lines.append("config_file: (none — using env vars + built-in defaults)")
 
-    # Lobes rung (t4): show the ARMED state; cfg.model already reflects the rung.
-    # to_dict() stays byte-identical; the lobes key is added only when armed.
+    # Lobes rung (t4): ARMED state; to_dict() byte-identical, lobes key only when armed.
     data = cfg.to_dict()
     data["config_files"] = provenance
     gateway = resolve_lobes_gateway_url(repo)
@@ -105,6 +104,7 @@ def _config_show(repo: str = ".") -> object:
         data = {**data, "lobes": {"armed": True, "gateway": gateway, "resolved_model": cfg.model}}
         # qwen-direct (c7/h7): advertised-but-not-consumed roles (senses/muse opt-in).
         data["lobes"]["not_consumed"] = append_not_consumed(lines, gateway, cfg, indent="")
+        data["lobes"].update(associate_cli.config_show_lines(lines, cfg))  # t18/c49
     # Model-bound agents (#411 t7): show the mode; payload key only when armed.
     lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
     return rendered(data, "\n".join(lines))
