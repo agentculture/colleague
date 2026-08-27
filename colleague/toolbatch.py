@@ -119,7 +119,10 @@ def is_shell_command_read_only(command: str) -> bool:
     deliberate fail-closed simplifications).
 
     Returns ``False`` (never raises) for anything that is not a plain,
-    single, allow-listed read-only command invocation.
+    single, allow-listed read-only command invocation. The steps below are
+    each factored into a small helper purely to keep this function's own
+    cognitive complexity low (SonarCloud python:S3776); the control flow and
+    verdicts are unchanged from the single-function form.
     """
     if not isinstance(command, str) or not command.strip():
         return False
@@ -129,58 +132,83 @@ def is_shell_command_read_only(command: str) -> bool:
     # alone rejects every ``;``/``|``/``&&``/``||`` command chain, every
     # ``$(...)``/backtick command substitution, and every ``>``/``>>``/``<``
     # redirection in one pass.
-    for meta in _SHELL_METACHARACTERS:
-        if meta in command:
-            return False
+    if _contains_shell_metacharacter(command):
+        return False
 
+    tokens = _tokenize_shell_command(command)
+    if tokens is None:
+        return False
+
+    split = _split_env_prefix(tokens)
+    if split is None:
+        # A command that is nothing but env-var assignments (e.g. "FOO=bar")
+        # runs no program at all — fail closed rather than guess.
+        return False
+    root, args = split
+
+    if not _root_command_is_candidate(root):
+        return False
+
+    checker = _PER_ROOT_COMMAND_CHECKS.get(root)
+    if checker is not None:
+        return checker(args)
+    return True
+
+
+_SHELL_METACHARACTERS: tuple = (";", "|", "&", "$(", "`", ">", "<")
+
+# python:S6353 (NOSONAR): `[A-Za-z0-9_]` looks like it can collapse to `\w`,
+# but `\w` (without re.ASCII) also matches Unicode word characters, which
+# would widen what this regex accepts as an env-var-assignment token (shells
+# only ever produce ASCII identifiers here) and could change which token is
+# treated as the command root. Kept explicit deliberately — see the module
+# docstring's fail-closed philosophy.
+_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")  # NOSONAR
+
+
+def _contains_shell_metacharacter(command: str) -> bool:
+    """True if *command* contains any shell metacharacter/compounding form
+    anywhere in the raw string (see :data:`_SHELL_METACHARACTERS`)."""
+    return any(meta in command for meta in _SHELL_METACHARACTERS)
+
+
+def _tokenize_shell_command(command: str) -> Optional[List[str]]:
+    """Shell-split *command*, or ``None`` on unbalanced quotes / no tokens."""
     try:
         tokens = shlex.split(command, comments=False, posix=True)
     except ValueError:
         # Unbalanced quotes etc. — fail closed.
-        return False
-    if not tokens:
-        return False
+        return None
+    return tokens or None
 
+
+def _split_env_prefix(tokens: Sequence[str]) -> Optional[tuple]:
+    """Skip leading ``NAME=value`` assignment tokens; return the remaining
+    ``(root, args)`` pair, or ``None`` if nothing but assignments remain."""
     index = 0
     while index < len(tokens) and _ENV_ASSIGNMENT_RE.match(tokens[index]):
         index += 1
     if index >= len(tokens):
-        # A command that is nothing but env-var assignments (e.g. "FOO=bar")
-        # runs no program at all — fail closed rather than guess.
-        return False
+        return None
+    return tokens[index], tokens[index + 1 :]
 
-    root = tokens[index]
-    args = tokens[index + 1 :]
 
+def _root_command_is_candidate(root: str) -> bool:
+    """True when *root* is lowercase, not a wrapper command, and sits in the
+    read-only allow-list — the three gate checks every root must pass before
+    a per-command exception (find/sed/awk/git) even gets consulted."""
     if root != root.lower():
         # A command name is never expected to carry uppercase letters; fail
         # closed rather than case-fold it into a false allow-list match.
         return False
-
     if root in _SHELL_WRAPPER_COMMANDS:
         # sh -c / bash -c / xargs (and siblings) hand a sub-command to
         # another shell/process — never safe to treat as read-only regardless
         # of what follows. (Already excluded by the allow-list below; named
         # explicitly so the rejection reads as intentional, not incidental.)
         return False
+    return root in READ_ONLY_ROOT_COMMANDS
 
-    if root not in READ_ONLY_ROOT_COMMANDS:
-        return False
-
-    if root == "find":
-        return _find_args_are_read_only(args)
-    if root == "sed":
-        return _sed_args_are_read_only(args)
-    if root == "awk":
-        return _awk_args_are_read_only(args)
-    if root == "git":
-        return _git_args_are_read_only(args)
-    return True
-
-
-_SHELL_METACHARACTERS: tuple = (";", "|", "&", "$(", "`", ">", "<")
-
-_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 #: Root commands that hand their argument off to another interpreter/process
 #: and so can never be judged read-only from the outer command line alone.
@@ -281,6 +309,18 @@ def _git_args_are_read_only(args: Sequence[str]) -> bool:
         action = next((a for a in rest if not a.startswith("-")), None)
         return action is None or action.lower() in ("show", "get-url")
     return True
+
+
+#: Root commands with a dedicated per-command exception, dispatched from
+#: :func:`is_shell_command_read_only` by simple dict lookup (rather than a
+#: chain of ``if root == "...":`` branches) to keep that function's own
+#: cognitive complexity low.
+_PER_ROOT_COMMAND_CHECKS: Mapping[str, Callable[[Sequence[str]], bool]] = {
+    "find": _find_args_are_read_only,
+    "sed": _sed_args_are_read_only,
+    "awk": _awk_args_are_read_only,
+    "git": _git_args_are_read_only,
+}
 
 
 def is_tool_call_concurrency_safe(tool_name: str, arguments: Optional[Mapping[str, Any]]) -> bool:
