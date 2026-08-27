@@ -63,7 +63,7 @@ def batch_turns_or_none(task: Task) -> "list[ModelResponse] | None":
     return batch_turns(task) if is_batch_task(task) else None
 
 
-def batch_turns(task: Task) -> list[ModelResponse]:
+def batch_turns(_task: Task) -> list[ModelResponse]:
     """The batch scenario's two turns: one batched turn, then finish.
 
     Turn 1 carries FOUR tool calls in a single ``ModelResponse`` — three

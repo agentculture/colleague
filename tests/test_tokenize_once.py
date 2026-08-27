@@ -196,7 +196,9 @@ def test_run_start_reply_feeds_resolve_window_with_precedence(tmp_path: Path) ->
         counter([{"role": "user", "content": "hello"}])
         est = unarmed.token_estimator
         assert (est.window, est.window_source) == (8192, "tokenize_max_model_len")
-        assert est.max_model_len == 8192 and est.probed and est.exact_calls == 1
+        assert est.max_model_len == 8192
+        assert est.probed
+        assert est.exact_calls == 1
 
         armed = _config(base_url)
         armed.lobes_context = 262144  # stamped by a lobes resolution rung
@@ -238,7 +240,8 @@ def test_wrong_window_is_a_vllm_400_and_the_clamp_prevents_it(tmp_path: Path) ->
 
         # Clamped to the discovered window: accepted.
         max_tokens = outputclamp.clamp_output_tokens(64000, window, prompt)
-        assert max_tokens is not None and prompt + max_tokens <= window
+        assert max_tokens is not None
+        assert prompt + max_tokens <= window
         reply = vllm_openai._post_json(
             url,
             {"model": "m", "messages": big, "max_tokens": max_tokens},

@@ -49,7 +49,9 @@ def test_reap_spill_dir_counts_files_and_bytes(tmp_path: Path) -> None:
     }
     assert (repo / ".colleague" / "tool-output" / "aa.txt").exists()
     real = truncation.reap_spill_dir(repo)
-    assert real["action"] == "reaped" and real["bytes_freed"] == 1024 and real["files"] == 2
+    assert real["action"] == "reaped"
+    assert real["bytes_freed"] == 1024
+    assert real["files"] == 2
     assert not (repo / ".colleague" / "tool-output" / "aa.txt").exists()
     assert (repo / ".colleague" / "tool-output" / "keep.log").exists()
     assert truncation.reap_spill_dir(repo)["action"] == "none"

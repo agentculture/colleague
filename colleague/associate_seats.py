@@ -174,7 +174,8 @@ def make_associate_complete(
         def complete(messages: list[dict[str, Any]]) -> Any:
             try:
                 return primary(messages)
-            except Exception as exc:  # noqa: BLE001 — every failure shape falls back, recorded
+            # every failure shape falls back, recorded
+            except Exception as exc:  # noqa: BLE001
                 warn(fallback_warning(seat, f"{type(exc).__name__}: {exc}"))
                 low = engine.make_complete(fallback_seat_config(config, seat), tools=[])
                 return low(messages)

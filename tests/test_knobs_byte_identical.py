@@ -252,7 +252,8 @@ def test_tool_spill_on_writes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     monkeypatch.delenv("COLLEAGUE_TOOL_SPILL", raising=False)  # on: default enabled
     on_result = truncation.truncate_output(big_text, 100, 10, spill_dir)
-    assert spill_dir.exists() and list(spill_dir.iterdir())
+    assert spill_dir.exists()
+    assert list(spill_dir.iterdir())
     assert "saved to:" in on_result
 
 
@@ -275,7 +276,8 @@ def test_tools_legacy_on_offers_search_tools(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setenv("COLLEAGUE_TOOLS_LEGACY", "1")
     off_names = {s["function"]["name"] for s in curate_schemas(None)}
-    assert "grep_search" not in off_names and "glob" not in off_names
+    assert "grep_search" not in off_names
+    assert "glob" not in off_names
 
     monkeypatch.delenv("COLLEAGUE_TOOLS_LEGACY", raising=False)  # on: default surface
     on_names = {s["function"]["name"] for s in curate_schemas(None)}
@@ -291,7 +293,8 @@ def test_associate_model_on_resolves_seat(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setenv("COLLEAGUE_ASSOCIATE_MODEL", "a-fast-model")  # on: declared
     on_result = resolve_associate({}, "http://main:8000/v1", "main-key")
-    assert on_result is not None and on_result.model == "a-fast-model"
+    assert on_result is not None
+    assert on_result.model == "a-fast-model"
 
 
 def test_prior_read_on_refuses_unread_edit(monkeypatch: pytest.MonkeyPatch) -> None:
