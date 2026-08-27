@@ -523,6 +523,10 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   resolves squash merge commits via `gh pr view --json` and
 #                   computes `git diff <tip>..<merge> -- <files>`; subprocess
 #                   is the transport, no daemon, no polling loop
+#   search_tools.py  — grep_search's fast-path backend (task t5, adapted from
+#                   qwen-code's ripGrep.ts): ripgrep search backend,
+#                   operator-installed CLI; subprocess is the transport, a
+#                   pure-stdlib walker is the fallback when `rg` is absent
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -542,6 +546,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/experiment.py",
         "colleague/strive.py",
         "colleague/correction.py",
+        "colleague/search_tools.py",
     }
 )
 
