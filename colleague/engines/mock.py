@@ -19,6 +19,7 @@ from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
+from colleague.engines import mock_scenarios
 from colleague.loop import (
     CompleteFn,
     ContextControls,
@@ -79,7 +80,7 @@ def _with_synthetic_deltas(complete: CompleteFn, on_delta: "Callable[[str], None
 
 
 def _script(task: Task) -> CompleteFn:
-    """A deterministic two-turn script: write a marker file, then finish."""
+    """A deterministic script: write a marker file, then finish (or, opt-in, a batched turn)."""
     content = f"# Colleague mock engine\n\nHandled instruction:\n\n{task.instruction}\n"
     # Deterministic reasoning/answer text so WorkStats' generated-size fields are
     # non-zero and engine-agnostic (the mock is the contract reference, h5): the
@@ -91,7 +92,7 @@ def _script(task: Task) -> CompleteFn:
     # value itself — a scripted engine choosing to act/finish, never truncated
     # by a token cap — so `result.finish_states` stays populated with the same
     # shape a live backend produces (test_e2e_mock.py's shape parity).
-    turns = [
+    turns = mock_scenarios.batch_turns_or_none(task) or [
         ModelResponse(
             content="writing the marker file",
             reasoning="mock reasoning: decide to write the marker file",
