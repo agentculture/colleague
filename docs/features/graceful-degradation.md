@@ -88,25 +88,44 @@ not a change to `_DEFAULT_TIMEOUT` itself.
 The loop takes an injected `count_tokens(messages) -> int` callable. This is a
 pluggable seam, like the `complete` function itself.
 
-### vLLM backend — exact via `/tokenize`
+### vLLM backend — one exact `/tokenize` probe, then `usage`-anchored estimates
 
-The vLLM engine's `_make_count_tokens` returns a counter that POSTs the
-candidate messages to `{base_url-root}/tokenize` with `{"model": model,
-"messages": messages}` and reads the integer `count` field. This is the vLLM
-extension — **exact token counting**, matching what the server will actually
-consume on the `/v1/chat/completions` call.
+Since the adopt-from-qwen-code arc (t12, spec c5/h3) the vLLM engine's
+`_make_count_tokens` returns a `colleague.tokenestimate.TokenEstimator`:
+
+- **Run start — one exact probe.** The first count a run asks for POSTs the
+  candidate messages to `{base_url-root}/tokenize` with `{"model": model,
+  "messages": messages}` and reads the integer `count`. The reply's
+  `max_model_len` is the **window-discovery rung** — it feeds
+  `outputclamp.resolve_window` (precedence: lobes-advertised context →
+  `/tokenize` `max_model_len` → `COLLEAGUE_CONTEXT_BUDGET`) and is recorded as
+  `(window, window_source)` on the estimator.
+- **Every later turn — an estimate, never a network call.** The engine feeds
+  the estimator each completion's `usage.prompt_tokens` (`tokenestimate.observe`);
+  a candidate list that still starts with that snapshot costs
+  `prompt_tokens + chars/4` of whatever was appended; a trimmed candidate
+  (windowing) is scaled by the calibrated tokens-per-char ratio, floored at
+  `chars/4`. The estimate is a conservative lower bound on room: windowing and
+  the fill-line may over-trigger, never skip (qwen-code's stated rule —
+  adapted-from `packages/core/src/services/tokenEstimation.ts`).
+- **`COLLEAGUE_EXACT_TOKENS=1`** restores the exact `/tokenize` count on every
+  turn (the pre-arc behaviour: one extra blocking POST per model turn).
+
+The artifact's token fields never come from the estimate — `usage` stays the
+only source (CLAUDE.md: tokens are exactly what `usage` reports).
 
 ### Fallback — char heuristic
 
-If `/tokenize` returns a 404 (non-vLLM server), any network error, decode error,
-or malformed response, the engine's counter returns `None` and the loop uses
-`count_tokens_chars` (a zero-dependency estimate: `sum(message text) / 4`).
+If the run-start `/tokenize` returns a 404 (non-vLLM server), any network
+error, decode error, or malformed response, the probe returns `None`: the
+window falls to the next rung and the count falls to `count_tokens_chars` (a
+zero-dependency estimate: `sum(message text) / 4`) until the first `usage`
+calibrates the estimator.
 
 This fallback is **why retargeting a non-vLLM OpenAI-compatible server stays a
-config change**. The counter returns `None` gracefully; correctness is unchanged,
-only precision downgrades to approximate. So:
+config change**. Correctness is unchanged, only precision downgrades. So:
 
-- vLLM with `/tokenize` → exact count → tight budget.
+- vLLM with `/tokenize` → one exact probe + `max_model_len` window → tight budget.
 - vLLM without `/tokenize` (if it ever existed) → char fallback → looser budget.
 - Non-vLLM OpenAI (llama.cpp, proxies, etc.) → char fallback → looser budget.
 
@@ -217,6 +236,8 @@ final give-up, the partial result is returned.
 - `colleague/engines/vllm_openai.py` — `_make_count_tokens`, `_tokenize_count`,
   `_tokenize_url`; `_post_json` wraps a read-phase timeout legibly (keeping
   "timed out", surfacing `COLLEAGUE_TIMEOUT`).
+- `colleague/tokenestimate.py` — `TokenEstimator` (the run-start probe +
+  `usage`-anchored estimate), `observe`, `attach`, `COLLEAGUE_EXACT_TOKENS`.
 - `tests/test_e2e_degradation.py` — end-to-end tests (overflow recovery, partial
   result on stdout).
 - `tests/test_zero_deps.py` — guards `dependencies = []` (context module has no

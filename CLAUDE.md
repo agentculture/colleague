@@ -374,15 +374,18 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   stay colleague-owned via the legacy-parser shim in `main()`. Doc: `cli-on-agentfront.md`.
 - **The vLLM adapter only touches the OpenAI surface** — retargeting any
   OpenAI-compatible server must stay a config change, never a code change.
-  THREE carve-outs, all graceful-degrade so a server without them stays a
-  config change: the `/tokenize` endpoint for exact token counting (`None` on
-  error); — only when lobes is ARMED — the call-time stale-pin refresh's one
-  same-role lookup against the gateway (c11/h8; lobes unarmed = the original
-  error surfaces unchanged, zero non-OpenAI calls); and the per-seat
-  `chat_template_kwargs` body key on the existing `/chat/completions` call
-  (the thinking-effort ladder, #416 — a vLLM extension a server may ignore;
-  unset = byte-identical, a ladder-400 retries once without the key). Doc:
-  `thinking-effort.md`.
+  TWO per-turn carve-outs, both graceful-degrade so a server without them stays
+  a config change: — only when lobes is ARMED — the call-time stale-pin
+  refresh's one same-role lookup against the gateway (c11/h8; lobes unarmed =
+  the original error surfaces unchanged, zero non-OpenAI calls); and the
+  per-seat `chat_template_kwargs` body key on the existing `/chat/completions`
+  call (the thinking-effort ladder, #416 — a vLLM extension a server may
+  ignore; unset = byte-identical, a ladder-400 retries once without the key).
+  Plus ONE run-scoped probe, never per turn: a single `/tokenize` POST at run
+  start (exact turn-1 count + `max_model_len` window discovery, `None` on
+  error; `COLLEAGUE_EXACT_TOKENS=1` restores the per-turn call — the
+  adopt-from-qwen-code arc, t12). Docs: `thinking-effort.md`,
+  `graceful-degradation.md`.
 - **Hook commands run as subprocesses, never imported.** `colleague/hooks.py` uses
   `subprocess.run` (shell=True) in the repo working dir; command templates are
   Markdown text, never executed. No code path opens a socket or forks a daemon.

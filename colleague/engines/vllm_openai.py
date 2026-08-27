@@ -25,10 +25,9 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
-from colleague import associate, effort, stallguard, streamguards
+from colleague import associate, effort, stallguard, streamguards, tokenestimate
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
-from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
 from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
@@ -804,12 +803,9 @@ def _tokenize_post(
 ) -> dict[str, Any]:
     """POST ``payload`` to the vLLM ``/tokenize`` endpoint and parse the JSON reply.
 
-    Reuses the same wire *style* as :func:`_post_json` (stdlib urllib, JSON body,
-    Bearer auth) but is a SEPARATE function on purpose: the chat-completions tests
-    monkeypatch ``_post_json`` with a stateful scripted mock, and the per-turn
-    windowing tokenize probe must NOT consume that script. Keeping tokenize on its
-    own function means a chat mock never intercepts a tokenize call (and vice
-    versa); the unit tests drive this path by patching :func:`_tokenize_count`.
+    Same wire style as :func:`_post_json` but a SEPARATE function on purpose: the
+    chat-completions tests monkeypatch ``_post_json`` with a scripted mock, and the
+    tokenize probe must never consume that script (tests patch :func:`_tokenize_count`).
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -824,27 +820,31 @@ def _tokenize_post(
         return json.loads(response.read().decode("utf-8"))
 
 
+#: ``/tokenize`` URL → the reply's ``max_model_len`` (t12 window discovery); filled
+#: by :func:`_tokenize_count`, read by the run-start probe. A plain dict, never a
+#: thread primitive: the value is per endpoint, so concurrent writers agree.
+_MAX_MODEL_LEN_BY_URL: dict[str, int] = {}
+
+
 def _tokenize_count(
     messages: list[dict[str, Any]], *, url: str, model: str, api_key: str, timeout: float
 ) -> int | None:
     """Return the server's exact token count for *messages*, or ``None`` on any error.
 
     POSTs ``{"model", "messages"}`` to the vLLM ``/tokenize`` endpoint and reads the
-    integer ``"count"`` field. Returns ``None`` for *any* failure — HTTPError
-    (incl. a 404 on a server with no ``/tokenize``), URLError, timeout, JSON decode
-    error, or a missing / non-int ``count`` — so the public counter can fall back to
-    the char estimate. Tolerating failure is what keeps retargeting a non-vLLM
-    OpenAI server a config change, not a code change.
+    integer ``"count"`` field; ``None`` for *any* failure (HTTPError incl. a 404,
+    URLError, timeout, decode error, missing/non-int count) so the caller can fall
+    back to the char estimate — retargeting a non-vLLM server stays a config
+    change. The reply's ``max_model_len`` lands in :data:`_MAX_MODEL_LEN_BY_URL`.
     """
     try:
         data = _tokenize_post(
-            url,
-            {"model": model, "messages": messages},
-            api_key=api_key,
-            timeout=timeout,
+            url, {"model": model, "messages": messages}, api_key=api_key, timeout=timeout
         )
     except Exception:  # nosec B110 - any tokenize failure falls back to the char estimate
         return None
+    if isinstance(data.get("max_model_len"), int):
+        _MAX_MODEL_LEN_BY_URL[url] = data["max_model_len"]
     count = data.get("count")
     if isinstance(count, bool) or not isinstance(count, int):
         return None
@@ -971,28 +971,29 @@ class VllmOpenAIEngine(Engine):
     name = "vllm-openai"
 
     def _make_count_tokens(self, config: EngineConfig) -> Callable[[list[dict[str, Any]]], int]:
-        """Build the exact-or-estimate token counter the loop windows history with.
+        """Build the token counter the loop windows history with (t12).
 
-        The returned callable counts tokens for a candidate message list via the
-        server's ``/tokenize`` endpoint (exact) and falls back to the zero-dep
-        :func:`count_tokens_chars` estimate on any error. It ALWAYS returns an int.
-        Exact when the served model exposes ``/tokenize``; char-approximate when it
-        does not — so the same engine works against any OpenAI-compatible server
-        with no code change (honesty condition h2).
+        ONE exact ``/tokenize`` count at run start (its ``max_model_len`` is
+        the window-discovery rung), then ``usage``-anchored estimates — never a
+        per-turn network call unless ``COLLEAGUE_EXACT_TOKENS=1``. Any probe
+        failure falls back to the char estimate, so a server without
+        ``/tokenize`` stays a config change (h2). ALWAYS returns an int.
         """
         url = _tokenize_url(config.base_url)
 
-        def counter(messages: list[dict[str, Any]]) -> int:
-            exact = _tokenize_count(
+        def exact(messages: list[dict[str, Any]], reply: dict[str, Any]) -> int | None:
+            count = _tokenize_count(
                 messages,
                 url=url,
                 model=config.model,
                 api_key=config.api_key,
                 timeout=config.timeout,
             )
-            return exact if exact is not None else count_tokens_chars(messages)
+            if url in _MAX_MODEL_LEN_BY_URL:
+                reply["max_model_len"] = _MAX_MODEL_LEN_BY_URL[url]
+            return count
 
-        return counter
+        return tokenestimate.attach(config, exact)
 
     @staticmethod
     def _build_chat_payload(
@@ -1171,15 +1172,12 @@ class VllmOpenAIEngine(Engine):
         self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
     ) -> CompleteFn:
         url = f"{config.base_url.rstrip('/')}/chat/completions"
-        # The offered tool schema: the full SCHEMAS by default, or the role-curated
-        # subset (#t4) when work() resolved a role. Captured once (per-config, not
-        # per-turn). make_complete()/plan mode pass no tools → full SCHEMAS.
+        # The offered tool schema: full SCHEMAS by default, or the role-curated
+        # subset (#t4); captured once per config. plan mode passes none → SCHEMAS.
         offered_tools = tools if tools is not None else SCHEMAS
-        # The acting seat this completion drives (same-role stale-pin refresh,
-        # plan task t9): mirrors work()'s own seat computation (line ~833) —
-        # "worker" in three-tier mode, "cortex" otherwise — so a call-time
-        # refresh (below) queries the lobes gateway for the SAME role that is
-        # actually driving this loop, never a different one.
+        # The acting seat this completion drives (same-role stale-pin refresh, plan
+        # task t9): mirrors work()'s seat computation — "worker" in three-tier mode,
+        # "cortex" otherwise — so a call-time refresh queries the SAME role.
         role_name = "worker" if config.worker is not None else "cortex"
 
         def complete(messages: list[dict[str, Any]]) -> ModelResponse:
@@ -1193,11 +1191,13 @@ class VllmOpenAIEngine(Engine):
                 return self._dispatch_once(url, payload, config, streaming)
 
             try:
-                return dispatch()
+                resp = dispatch()
             except urllib.error.HTTPError as exc:
-                return self._recover_http_error(
+                resp = self._recover_http_error(
                     exc, payload, role_name, sent_effort, config, dispatch
                 )
+            tokenestimate.observe(config, messages, resp.prompt_tokens)  # t12 anchor
+            return resp
 
         return complete
 
