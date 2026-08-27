@@ -36,11 +36,17 @@ from colleague.config import ASSOCIATE_WIRE_MODEL, EngineConfig
 
 __all__ = [
     "ASSOCIATE_WIRE_MODEL",
+    "ROLE_WIRE_ALIASES",
     "associate_engine_config",
+    "recorded_model",
     "retry_role_alias",
     "served_model_expected",
     "wire_fallback_model",
 ]
+
+#: Wire-model aliases that are ROLE NAMES, not served ids (c49): a run whose
+#: configured model is one of these records the reply's served model instead.
+ROLE_WIRE_ALIASES = frozenset({ASSOCIATE_WIRE_MODEL})
 
 # Plain (non-field) attributes the seat builder stamps on its replaced config.
 # Like ``reasoning_effort_seat``, ``dataclasses.replace`` drops them — a copy
@@ -90,6 +96,13 @@ def associate_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
     # The one-shot wire fallback exists only for a role-name-addressed seat.
     setattr(seat, _WIRE_FALLBACK_ATTR, assoc.model if assoc.addressed_as_role else None)
     return seat
+
+
+def recorded_model(configured: str, served: str) -> str:
+    """The model id the artifact records: the reply's SERVED id when the run
+    was configured with a role-name alias (``associate``), else the configured
+    id — a real model id is never overwritten by a served-model observation."""
+    return served if (served and configured in ROLE_WIRE_ALIASES) else configured
 
 
 def served_model_expected(config: object) -> Optional[str]:

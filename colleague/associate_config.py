@@ -29,6 +29,7 @@ __all__ = [
     "associate_lobes_fallback",
     "load_associate_overrides",
     "resolve_associate",
+    "resolve_associate_seat",
 ]
 
 # Associate seat defaults (adopt-from-qwen-code t18, spec c37/c49). The role's
@@ -226,3 +227,27 @@ def load_associate_overrides(repo_path: str | Path) -> dict[str, str]:
         for key, value in section.items()
         if key in _ASSOCIATE_CONFIG_KEYS and value is not None
     }
+
+
+def resolve_associate_seat(
+    repo_path: object,
+    main_base_url: str,
+    main_api_key: str,
+    lobes_roles: object,
+    lobes_gateway_url: str | None,
+) -> "AssociateConfig | None":
+    """The ONE call ``EngineConfig.resolve`` makes for the associate seat (t18).
+
+    Loads the config.json ``associate`` section (when *repo_path* is given,
+    mirroring the other section loaders), resolves env > file > absent, and —
+    ONLY when the declared model is the sentinel ``lobes`` — replaces it with
+    the gateway's advertised role via :func:`associate_lobes_fallback`. An
+    advert alone arms nothing (the v1.63 line: a bare run dials ONE model).
+    """
+    file_associate = load_associate_overrides(repo_path) if repo_path is not None else {}
+    resolved = resolve_associate(file_associate, main_base_url, main_api_key)
+    if resolved is not None and resolved.model == "lobes":
+        resolved = associate_lobes_fallback(
+            lobes_roles, lobes_gateway_url, main_base_url, main_api_key, file_associate
+        )
+    return resolved

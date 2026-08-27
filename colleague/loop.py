@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
+from colleague import associate
 from colleague import autosplit as _autosplit
 from colleague import backpressure
 from colleague import coherence as _coherencemod
@@ -389,11 +390,6 @@ class ToolCall:
     arguments: dict[str, Any] = field(default_factory=dict)
 
 
-# Wire-model aliases that are ROLE NAMES, not served ids (t18/c49): a run whose
-# configured model is one of these records the reply's served model instead.
-_ROLE_WIRE_ALIASES = frozenset({"associate"})
-
-
 @dataclass
 class ModelResponse:
     """One model turn: free text, reasoning, any tool calls, and token usage.
@@ -408,13 +404,10 @@ class ModelResponse:
     ``finish_reason`` is the raw backend-reported reason THIS turn's completion
     ended (OpenAI-compatible ``choices[0].finish_reason``, e.g. ``"stop"`` /
     ``"tool_calls"`` / ``"length"`` / ``"content_filter"``), carried out of the
-    vLLM adapter's blocking AND streaming SSE paths unchanged (plan task t1,
-    covers c4/h4) — previously read only to detect SSE stream termination and
-    then dropped. ``""`` for a backend/engine that never reports the field (the
-    mock engine still sets a representative deliberate value). The loop's own
-    per-work-item classification onto the five ``FINISH_*`` states
-    (:mod:`colleague.finishstate`) reads the LAST turn's value via a private
-    tracking cell, never re-derives it from ``content``/``tool_calls``.
+    vLLM adapter's blocking AND streaming paths unchanged (t1, c4/h4); ``""``
+    for an engine that never reports it. :mod:`colleague.finishstate` reads the
+    LAST turn's value via a private tracking cell, never re-derived from content.
+    ``served_model`` is the id the reply itself named (t18/c49; ``""`` when absent).
     """
 
     content: str = ""
@@ -423,10 +416,6 @@ class ModelResponse:
     completion_tokens: int = 0
     reasoning: str = ""
     finish_reason: str = ""
-    # The model id the reply itself named (``response.model``), t18/c49 — ""
-    # for engines that never report it. Read by ``_finalize_stats`` so a seat
-    # addressed by a role-name alias (``associate``) still records the SERVED
-    # model on the artifact; never consulted for anything else.
     served_model: str = ""
 
 
@@ -667,9 +656,7 @@ class _Work:
     # through the binding. Read by ``_finalize_finish_states`` at every exit
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
-    # First non-empty ``resp.served_model`` seen this run (t18) — see
-    # ``_finalize_stats``.
-    _served_model: list[str] = field(default_factory=list)
+    _served_model: list[str] = field(default_factory=list)  # first served id (t18)
     # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
     # step completed (the loop start until one does); ``_stalled`` holds the elapsed
     # seconds once the bound was crossed — a single-element cell the frozen ``_Work``
@@ -994,22 +981,15 @@ def _finalize_stats(
 ) -> None:
     """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
 
-    The per-turn fields (``model_turns`` and the generated reasoning/answer sizes)
-    are accumulated in :func:`_work_loop`; this fills the rest from the finished
-    result + executor. Called on EVERY exit path (model finish / empty turn /
-    budget / mid-loop abort) so a partial drive still gets populated stats.
-
-    ``engine``/``model`` make the ROI block self-describing (which mind ran it):
-    ``engine`` is ``task.engine``; ``model`` is the id the engine was configured
-    to call (threaded from :func:`run`'s ``model`` param, ``""`` when not given).
+    The per-turn fields (``model_turns``, generated sizes) accumulate in
+    :func:`_work_loop`; this fills the rest. Called on EVERY exit path so a
+    partial drive still gets populated stats. ``engine``/``model`` make the ROI
+    block self-describing; ``served_model`` (t18) is what the reply named.
     """
     stats = result.stats
     stats.request = task.instruction
     stats.engine = task.engine
-    # A seat addressed by a role-name alias (the ``associate`` wire model,
-    # t18/c49) records the SERVED model the reply named, never the alias; a
-    # real model id is never overwritten by a served-model observation.
-    stats.model = served_model if (served_model and model in _ROLE_WIRE_ALIASES) else model
+    stats.model = associate.recorded_model(model, served_model)  # t18/c49
     stats.started_at = started_at
     stats.duration_seconds = duration_seconds
     stats.step_count = len(result.steps)

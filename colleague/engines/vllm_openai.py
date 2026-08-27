@@ -25,7 +25,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
-from colleague import effort, stallguard
+from colleague import associate, effort, stallguard
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
@@ -180,16 +180,11 @@ def _is_model_not_found_404(exc: urllib.error.HTTPError) -> bool:
 # ── ladder-400 retry (per-seat thinking effort, #416 t3, c2/h2/c7/h6/c27/h18) ─
 #
 # vLLM/Qwen3's chat template validates ``chat_template_kwargs.reasoning_effort``
-# against its OWN ladder (observed: low/medium/xhigh, default xhigh, "high" is
-# an alias — see ``colleague/effort.py``'s module docstring) and answers an
-# unknown/unsupported rung with an HTTP 400 naming "reasoning effort" in the
-# body. That is a SERVER-SIDE ladder mismatch, not a Colleague bug: dropping
-# ``chat_template_kwargs`` and retrying once (below, in ``_make_complete``)
-# degrades to the server's own default rather than failing the whole turn —
-# exactly the same "stale config, not a reason to die" posture the call-time
-# stale-pin refresh above already takes for a 404 ``model_not_found``, and
-# disjoint from it by status code (a 404 is never a 400) so the two retries
-# never interact.
+# against its OWN ladder (low/medium/xhigh; see ``colleague/effort.py``) and
+# answers an unknown rung with an HTTP 400 naming "reasoning effort" — a
+# SERVER-SIDE mismatch, not a Colleague bug: drop the kwargs and retry once
+# (``_make_complete``), the same "stale config, not a reason to die" posture as
+# the 404 stale-pin refresh above, disjoint from it by status code.
 
 
 def _is_ladder_400(exc: urllib.error.HTTPError) -> bool:
@@ -310,9 +305,7 @@ def _parse_response(data: dict[str, Any]) -> ModelResponse:
         completion_tokens=int(usage.get("completion_tokens", 0)),
         reasoning=message.get("reasoning") or message.get("reasoning_content") or "",
         finish_reason=str(choices[0].get("finish_reason") or ""),
-        # The SERVED model the reply names (t18, c49) — for a seat addressed
-        # by role name this is the only place the real id is observable.
-        served_model=str(data.get("model") or ""),
+        served_model=str(data.get("model") or ""),  # t18/c49: the SERVED id
     )
 
 
@@ -365,9 +358,7 @@ def _iter_sse_frames(
     trigger, see ``_post_json_stream``).
     """
     for raw_line in response:
-        # Step-stall watchdog (#400): a no-op unless the loop armed a progress
-        # deadline for this turn; raises TurnStalled past it (never a fallback
-        # error — it propagates to the loop, which ends the episode honestly).
+        # Step-stall watchdog (#400): no-op unless the loop armed a deadline.
         stallguard.check()
         line = raw_line.decode("utf-8").strip()
         if not line or line.startswith(":"):
@@ -491,6 +482,7 @@ def _capture_frame_usage(frame: dict[str, Any], acc: _StreamAccumulator) -> None
     frame_usage = frame.get("usage")
     if frame_usage:
         acc.usage = frame_usage
+    acc.served_model = acc.served_model or str(frame.get("model") or "")  # t18/c49
 
 
 def _apply_stream_frame(
@@ -514,9 +506,6 @@ def _apply_stream_frame(
             # survived; the string itself was dropped at stream termination.
             acc.finish_reason = str(raw_finish_reason)
     _capture_frame_usage(frame, acc)
-    frame_model = frame.get("model")
-    if frame_model and not acc.served_model:
-        acc.served_model = str(frame_model)
 
 
 class _StreamIncomplete(Exception):
@@ -1130,19 +1119,6 @@ class VllmOpenAIEngine(Engine):
         """
         return _refreshed_model_id(config, role_name, exc)
 
-    @staticmethod
-    def _maybe_retry_role_alias(
-        exc: urllib.error.HTTPError,
-        payload: "dict[str, Any]",
-        config: EngineConfig,
-        dispatch: "Callable[[], ModelResponse]",
-    ) -> "ModelResponse | None":
-        """ONE retry by served id when a gateway rejects a role-name address
-        (t18, c49/h36) — the rule lives in :func:`colleague.associate.retry_role_alias`."""
-        from colleague import associate as _associate
-
-        return _associate.retry_role_alias(exc, payload, config, dispatch)
-
     def _recover_http_error(
         self,
         exc: urllib.error.HTTPError,
@@ -1167,7 +1143,7 @@ class VllmOpenAIEngine(Engine):
         )
         if retried is not None:
             return retried
-        aliased = self._maybe_retry_role_alias(exc, payload, config, dispatch)
+        aliased = associate.retry_role_alias(exc, payload, config, dispatch)  # t18/c49
         if aliased is not None:
             return aliased
         refreshed_id = self._maybe_refresh_on_404(exc, config, role_name)
