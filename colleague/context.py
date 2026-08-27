@@ -238,7 +238,9 @@ def window_messages(
 
     Rules
     -----
-    - When ``count_tokens`` is ``None``, :func:`count_tokens_chars` is used.
+    - ``count_tokens`` is the engine's :class:`colleague.tokenestimate.TokenEstimator`
+      (a ``usage``-anchored estimate, adapted-from qwen-code
+      services/tokenEstimation.ts; t12) or :func:`count_tokens_chars` when ``None``.
     - If the list already fits, it is returned unchanged (no copy overhead).
     - Otherwise the oldest droppable history is dropped in matched units:
       an assistant turn with ``tool_calls`` plus all its tool replies form
@@ -250,11 +252,9 @@ def window_messages(
     - Exactly one placeholder message ``{"role":"user","content":"[earlier
       steps elided to fit the context budget]"}`` is inserted after the
       preserved head and before the retained tail.
-    - At most a small constant number of ``count_tokens`` calls are made
-      (one initial check + one estimate + one or two verification calls —
-      never a per-segment loop of calls).
-    - If nothing can be dropped and the list is still over budget, the
-      minimal valid list (head + whatever tail fits) is returned.
+    - At most a small constant number of ``count_tokens`` calls are made (one
+      check + one estimate + one or two verifications — never a per-segment loop).
+    - If nothing can be dropped and still over budget: head + whatever tail fits.
 
     OpenAI validity is maintained: no assistant ``tool_calls`` turn without
     its matching tool replies, and no orphan ``tool`` message.
