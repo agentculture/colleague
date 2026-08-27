@@ -217,6 +217,7 @@ reverted or flagged in the PR — never kept silently — and this section says 
 
 ## Honest limits
 
+- **Delegation is never chosen by the model on these briefs.** Every measured run so far (main and branch game-benchmark arms, the three dogfood runs) shows zero `subagent`/`subagents` calls and no `sub-<id>` worktrees — cortex did all the work itself even with delegation on the offered surface. So the associate arm exercises associate only where the *harness* routes to it (the rung-2 distill seat; compact/synthesis when a run crosses the fill-line), not the scout child. Recorded, not forced (operator, 2026-08-27): the intended shape is cortex **handing over** scoped tasks to scouts/workers, **reviewing** what comes back and **collecting** the results — how much prompt guidance or role shaping that needs is a follow-up to adjust against these numbers.
 - **The c28 ratios are not yet measured** — every after-state clause about
   fewer turns / less wall-clock rests on the two dogfood runs above until t24
   lands its rows.
