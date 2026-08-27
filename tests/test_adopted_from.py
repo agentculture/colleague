@@ -123,8 +123,7 @@ def test_every_ledger_colleague_path_exists_and_is_marked_or_pending():
 
         target = REPO_ROOT / colleague_path_clean
         assert target.exists(), (
-            f"row {mechanism!r} names colleague path {colleague_path!r} "
-            "which does not exist"
+            f"row {mechanism!r} names colleague path {colleague_path!r} " "which does not exist"
         )
         content = _read(target)
         assert "adapted-from: qwen-code" in content, (

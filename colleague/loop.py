@@ -57,9 +57,9 @@ from colleague import flight as flightmod
 from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import loopguards as _loopguards
-from colleague import runcounts as _runcounts
 from colleague import media
 from colleague import memory as _memorymod
+from colleague import runcounts as _runcounts
 from colleague import salvage, stallguard, streamguards
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
