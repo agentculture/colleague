@@ -222,7 +222,8 @@ def test_policy_denied_call_inside_a_batch_is_recorded_in_request_order_and_neve
     )
     steps = result.steps[:3]
     assert [s.ok for s in steps] == [True, False, True]
-    assert steps[1].result == "denied by policy: cat" and steps[1].index == 1
+    assert steps[1].result == "denied by policy: cat"
+    assert steps[1].index == 1
     assert "cat a.txt" not in executor.started
 
 
@@ -255,7 +256,8 @@ def test_flight_stop_written_mid_batch_takes_effect_before_the_next_batch(
     assert [s.tool for s in result.steps] == ["read_file", "read_file", "write_file", "read_file"]
     assert [s.ok for s in result.steps] == [True, True, False, False]
     assert result.steps[2].result == toolbatch_loop.STOP_SKIPPED
-    assert "n.txt" not in executor.started and not (repo / "n.txt").exists()
+    assert "n.txt" not in executor.started
+    assert not (repo / "n.txt").exists()
     assert result.status != OK, "the turn-boundary stop check still ends the run"
     assert (
         result.stats.step_count == 4
@@ -285,7 +287,8 @@ def test_width_one_is_the_sequential_path_and_never_builds_a_pool(
     )
     assert result.status == OK
     assert parallel_calls == []
-    assert executor.max_overlap == 1 and executor.started == ["a.txt", "b.txt", "c.txt"]
+    assert executor.max_overlap == 1
+    assert executor.started == ["a.txt", "b.txt", "c.txt"]
     assert len({t for t in executor.threads.values()}) == 1
 
 
@@ -334,22 +337,23 @@ def test_ast_guard_the_pool_target_references_no_loop_state() -> None:
     """Neither the pool target nor the execute primitive names ``ctx`` or ``_Work``."""
     for fn in (toolbatch_loop._execute_item, loopmod._execute_tool):
         seen = _names_in(fn)
-        assert (
-            "ctx" not in seen and "_Work" not in seen
-        ), f"{fn.__name__} touches loop state: {seen & {'ctx', '_Work'}}"
+        assert "ctx" not in seen, f"{fn.__name__} touches loop state: {seen & {'ctx', '_Work'}}"
+        assert "_Work" not in seen, f"{fn.__name__} touches loop state: {seen & {'ctx', '_Work'}}"
     source = inspect.getsource(toolbatch_loop)
-    assert "concurrent.futures" not in source and "import threading" not in source
+    assert "concurrent.futures" not in source
+    assert "import threading" not in source
     assert "ThreadPoolExecutor" not in Path(loopmod.__file__).read_text()
 
 
 def test_thread_allowlist_and_claude_md_record_convention_change_six() -> None:
     boundary = Path(__file__).with_name("test_boundary.py").read_text()
-    assert '"colleague/toolbatch.py"' in boundary and "convention change (6)" in boundary
+    assert '"colleague/toolbatch.py"' in boundary
+    assert "convention change (6)" in boundary
     claude = (Path(__file__).resolve().parent.parent / "CLAUDE.md").read_text()
     assert "Six deliberate, **recorded** convention changes" in claude
-    assert (
-        "(6)" in claude and "COLLEAGUE_TOOL_CONCURRENCY" in claude and "toolbatch_loop.py" in claude
-    )
+    assert "(6)" in claude
+    assert "COLLEAGUE_TOOL_CONCURRENCY" in claude
+    assert "toolbatch_loop.py" in claude
 
 
 def test_stop_peek_does_not_consume_guidance(tmp_path: Path) -> None:
@@ -404,7 +408,8 @@ def test_mock_style_multi_call_turn_finishes_and_counts_steps(
         max_steps=10,
         executor=executor,
     )
-    assert result.status == OK and result.stats.step_count == 3
+    assert result.status == OK
+    assert result.stats.step_count == 3
 
 
 def test_pre_tool_rewrite_into_a_mutating_command_is_demoted_out_of_the_pool(

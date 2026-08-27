@@ -130,7 +130,8 @@ def test_every_main_loop_payload_carries_the_seat_clamped_max_tokens(tmp_path: P
     with rig as base_url:
         result = _work(base_url, _repo(tmp_path), "t16-clamp")
     assert result.status == OK, result
-    assert rig.calls["/v1/chat/completions"] == 2 and rig.payloads
+    assert rig.calls["/v1/chat/completions"] == 2
+    assert rig.payloads
     for payload in rig.payloads:
         prompt = count_tokens_chars(payload["messages"])
         assert payload["max_tokens"] == outputclamp.clamp_output_tokens(64_000, 262_144, prompt)
@@ -257,12 +258,14 @@ def test_microcompaction_blanks_old_results_at_the_line_before_the_fillline_offe
     assert result.status == OK, result
     passes = [w for w in result.warnings if w.get("kind") == "microcompaction"]
     assert len(passes) == 1
-    assert passes[0]["blanked"] == 2 and passes[0]["step_indices"] == [0, 1]
+    assert passes[0]["blanked"] == 2
+    assert passes[0]["step_indices"] == [0, 1]
     assert passes[0]["blanked_total"] == 2
     # The finish turn saw the blanked history: the two oldest tool results are markers.
     final = complete.state["seen"][-1]
     tool_msgs = [m for m in final if m.get("role") == "tool"]
-    assert "cleared" in tool_msgs[0]["content"] and "cleared" in tool_msgs[1]["content"]
+    assert "cleared" in tool_msgs[0]["content"]
+    assert "cleared" in tool_msgs[1]["content"]
     assert all("cleared" not in m["content"] for m in tool_msgs[2:])
     # After blanking the (re-estimated) history is under the line -> NO fill-line offer.
     assert not _offered(complete.state["seen"])
@@ -327,9 +330,11 @@ def test_calls_per_turn_guard_drops_the_whole_turn(tmp_path: Path) -> None:
         )
 
     result = _run(complete, _task(tmp_path))
-    assert result.status == INCOMPLETE and result.steps == []
+    assert result.status == INCOMPLETE
+    assert result.steps == []
     trip = next(w for w in result.warnings if w.get("kind") == "loop-guard")
-    assert trip["guard"] == "calls-per-turn" and trip["dropped"] == 101
+    assert trip["guard"] == "calls-per-turn"
+    assert trip["dropped"] == 101
 
 
 def test_varied_calls_never_trip(tmp_path: Path) -> None:
