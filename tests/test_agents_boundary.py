@@ -245,6 +245,7 @@ _PINNED_THREADS_ALLOWED = frozenset(
         "colleague/subagents.py",
         "colleague/cli/_commands/_input_line.py",
         "colleague/realtime.py",
+        "colleague/toolbatch.py",
     }
 )
 
