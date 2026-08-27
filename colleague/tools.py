@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
-from colleague import culture, devague, media, memory, testintegrity
+from colleague import culture, devague, media, memory, readpage, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
@@ -115,16 +115,18 @@ SCHEMAS: list[dict[str, Any]] = [
         "function": {
             "name": "read_file",
             "description": (
-                "Read a UTF-8 text file, relative to the repo root. Each line "
-                "in the result is prefixed with its exact 1-based line number "
-                "and a tab (cat -n style, e.g. '    12\\tsome code'), so you "
-                "can cite an exact file:line location. The line-number prefix "
-                "is DISPLAY ONLY — it is never part of the file on disk, so "
-                "never include it in edit_file's old_string."
+                "Read a UTF-8 text file (relative to the repo root), cat -n style: every line is "
+                "prefixed with its exact 1-based number + a tab (DISPLAY ONLY — never put it in "
+                "edit_file's old_string). Long files are paged: pass offset (1-based first line) "
+                "and limit (line count); a cut result ends with 'Read lines X-Y of N' — page on."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": _PATH_DESC}},
+                "properties": {
+                    "path": {"type": "string", "description": _PATH_DESC},
+                    "offset": {"type": "integer", "description": readpage.OFFSET_DESC},
+                    "limit": {"type": "integer", "description": readpage.LIMIT_DESC},
+                },
                 "required": ["path"],
             },
         },
@@ -835,11 +837,8 @@ class ToolExecutor:
         if hasattr(allowlist, "read_only"):
             self._is_read_only = allowlist.read_only
 
-    def _truncate(self, text: str) -> str:
-        limit = self._max_output_chars
-        if len(text) <= limit:
-            return text
-        return text[:limit] + f"\n... [truncated at {limit} chars]"
+    def _truncate(self, text: str, tool: str = "") -> str:
+        return readpage.bound_output(text, tool, self._max_output_chars, self.root)
 
     def _safe_path(self, rel: str) -> Path:
         """Resolve ``rel`` under the root, refusing any path that escapes it."""
@@ -932,11 +931,10 @@ class ToolExecutor:
             raise ToolError(f"no such file: {arguments['path']}") from exc
         except OSError as exc:
             raise ToolError(f"cannot read {arguments['path']}: {exc}") from exc
-        # Ground every line with its true 1-based number BEFORE truncating (#240)
-        # so a surviving line's prefix always matches the real file — truncation
-        # only ever drops the tail, never renumbers what remains — and the
-        # existing max_output_chars budget still bounds the final string.
-        return ToolOutcome(result=self._truncate(_number_lines(text)))
+        offset, limit = arguments.get("offset"), arguments.get("limit")  # paging (t9, #240 kept)
+        return ToolOutcome(
+            result=readpage.render_read(text, offset, limit, ceiling=self._max_output_chars)
+        )
 
     def _view_media(self, arguments: dict[str, Any]) -> ToolOutcome:
         """The ``view_media`` tool (t5) — load a repo image as a content part.
@@ -1161,7 +1159,7 @@ class ToolExecutor:
             raise ToolError(f"run_command failed: {type(exc).__name__}: {exc}") from exc
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
-        return ToolOutcome(result=self._truncate(result))
+        return ToolOutcome(result=self._truncate(result, "run_command"))
 
     def _culture(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Dispatch the shared ``culture`` tool to an allow-listed AgentCulture CLI.
