@@ -51,7 +51,8 @@ def test_stream_guard_sanity_note_and_off(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "900")
     monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "240")
     row = _by_id(harness.checks())["harness_stream_guards"]
-    assert row["passed"] and "idle >= lifetime" in row["message"]
+    assert row["passed"]
+    assert "idle >= lifetime" in row["message"]
     monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "0")
     monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "0")
     assert _by_id(harness.checks())["harness_stream_guards"]["message"] == (
@@ -91,7 +92,8 @@ def test_unreachable_gateway_reports_unknown_never_fails(
     monkeypatch.delenv("COLLEAGUE_ASSOCIATE_MODEL", raising=False)
     monkeypatch.setenv("COLLEAGUE_LOBES_URL", "http://127.0.0.1:9")
     row = _by_id(harness.checks(repo_path=tmp_path))["harness_associate"]
-    assert row["passed"] and row["message"].startswith("associate: unknown")
+    assert row["passed"]
+    assert row["message"].startswith("associate: unknown")
 
 
 def test_doctor_json_carries_the_rows(
