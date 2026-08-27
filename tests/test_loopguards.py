@@ -19,8 +19,11 @@ def test_thresholds_are_qwen_codes_always_on_values() -> None:
 def test_four_identical_prior_steps_plus_one_more_trips() -> None:
     trip = loopguards.check(_steps(4), [ToolCall("x", "read_file", {"path": "a"})])
     assert trip is not None
-    assert trip["kind"] == "loop-guard" and trip["guard"] == "identical-calls"
-    assert trip["tool"] == "read_file" and trip["repeats"] == 5 and trip["dropped"] == 1
+    assert trip["kind"] == "loop-guard"
+    assert trip["guard"] == "identical-calls"
+    assert trip["tool"] == "read_file"
+    assert trip["repeats"] == 5
+    assert trip["dropped"] == 1
 
 
 def test_three_identical_prior_steps_do_not_trip() -> None:
@@ -37,13 +40,16 @@ def test_different_arguments_break_the_run() -> None:
 def test_argument_order_does_not_matter_for_identity() -> None:
     prior = [Step(i, "grep_search", {"pattern": "x", "path": "."}, "ok") for i in range(4)]
     trip = loopguards.check(prior, [ToolCall("x", "grep_search", {"path": ".", "pattern": "x"})])
-    assert trip is not None and trip["guard"] == "identical-calls"
+    assert trip is not None
+    assert trip["guard"] == "identical-calls"
 
 
 def test_five_identical_calls_inside_one_turn_trip_and_drop_the_whole_turn() -> None:
     calls = [ToolCall(str(i), "list_dir", {"path": "."}) for i in range(5)]
     trip = loopguards.check([], calls)
-    assert trip is not None and trip["repeats"] == 5 and trip["dropped"] == 5
+    assert trip is not None
+    assert trip["repeats"] == 5
+    assert trip["dropped"] == 5
 
 
 def test_a_prior_run_of_five_never_retrips_on_a_different_call() -> None:

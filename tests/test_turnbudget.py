@@ -163,7 +163,8 @@ def test_blank_old_results_is_due_only_at_the_line_and_names_step_indices() -> N
     assert msgs == original  # under the line: untouched
     count, indices = turnbudget.blank_old_results(msgs, 85, 100)
     assert (count, indices) == (2, [0, 1])
-    assert "cleared" in msgs[3]["content"] and "f0" in msgs[3]["content"]
+    assert "cleared" in msgs[3]["content"]
+    assert "f0" in msgs[3]["content"]
     assert msgs[-1]["content"] == "body 11"  # the recent window keeps its content
 
 
@@ -193,7 +194,8 @@ def test_microcompact_turn_records_reestimates_and_accumulates_the_total() -> No
     msgs.extend(_history(2)[2:])  # two more tool results -> two more to blank
     got = turnbudget.microcompact_turn(msgs, 90, 100, result, None, None)
     assert got == 90  # no counter: the caller's figure is returned unchanged
-    assert result.warnings[-1]["blanked"] == 2 and result.warnings[-1]["blanked_total"] == 4
+    assert result.warnings[-1]["blanked"] == 2
+    assert result.warnings[-1]["blanked_total"] == 4
 
 
 def test_microcompact_turn_under_the_line_returns_the_input_unchanged() -> None:
@@ -216,7 +218,8 @@ def test_ledger_blanking_appends_one_event_and_rehydration_reproduces_the_histor
     result = SimpleNamespace(warnings=[])
     turnbudget.microcompact_turn(msgs, 90, 100, result, agents, None)
     events = [e for e in ledger.events() if e.data.get("subject") == "microcompaction"]
-    assert len(events) == 1 and events[0].kind == "evidence"
+    assert len(events) == 1
+    assert events[0].kind == "evidence"
     assert events[0].data == {
         "subject": "microcompaction",
         "count": 3,
