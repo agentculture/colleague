@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
+import colleague.search_schemas as search_schemas
 from colleague import culture, devague, editgate, media, memory, readpage, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
@@ -216,6 +217,7 @@ SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    *search_schemas.SEARCH_SCHEMAS,
     {
         "type": "function",
         "function": {
@@ -622,7 +624,7 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
     else:
         raise TypeError(f"curate_schemas expects a Role or role name, got {type(role).__name__}")
 
-    curated = [s for s in SCHEMAS if allow is None or s["function"]["name"] in allow]
+    curated = [s for s in SCHEMAS if search_schemas.offered(s["function"]["name"], allow)]
     if deepthink and (allow is None or DEEPTHINK in allow):
         curated = curated + [DEEPTHINK_SCHEMA]
     return curated
@@ -880,6 +882,7 @@ class ToolExecutor:
             "write_file": self._write_file,
             "edit_file": self._edit_file,
             "list_dir": self._list_dir,
+            **search_schemas.dispatch(self),
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,

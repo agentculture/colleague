@@ -59,6 +59,8 @@ via the mesh-member re-spec:
 | `write_file` | Create/overwrite a UTF-8 file, relative to the repo root. |
 | `edit_file` | Replace an exact string in an existing file (partial edit; cost scales with the change, not file size). Prefer over `write_file` for edits. |
 | `list_dir` | List a directory's entries, relative to the repo root. |
+| `grep_search` | Search file contents for a regex (ripgrep when installed, stdlib fallback; identical output), repo-confined, `path:line: text` hits — prefer it over `run_command` grep. Batch-safe (`colleague/search_schemas.py`, `colleague/search_tools.py`; plan t5/t14). |
+| `glob` | Find files by glob pattern (`**` for any depth), newest first, repo-confined — prefer it over `run_command` find/ls. Batch-safe. `COLLEAGUE_TOOLS_LEGACY=1` hides both search tools (the pre-arc surface). |
 | `run_command` | Run a shell command with `cwd` pinned to the repo root. |
 | `culture` | Run an allow-listed AgentCulture CLI (`agtag` / `devex`) with the agent's identity injected. See [mesh-member.md](mesh-member.md). |
 | `finish` | Signal completion with a short summary. |

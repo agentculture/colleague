@@ -69,6 +69,8 @@ class TestCultureToolExposed:
         # + check_test_integrity, the runtime chassis).
         assert names == _BASE_TOOLS | {
             "culture",
+            "grep_search",
+            "glob",
             "devague",
             "memory",
             "subagent",
