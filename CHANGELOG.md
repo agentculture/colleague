@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.64.0] - 2026-08-27
+
+### Added
+
+- **adopt-from-qwen-code** — harness mechanics ported (as small stdlib Python, cite-don't-import) from Qwen Code and its Google Gemini CLI lineage, each behind one off-knob and pinned byte-identical to ``main`` when off (``tests/test_knobs_byte_identical.py``): a window-clamped ``max_tokens`` on every main-loop completion with per-seat ceilings and one length escalation (``colleague/outputclamp.py``, ``turnbudget.py``); the per-turn ``/tokenize`` round-trip replaced by one run-start probe plus a usage-anchored estimate (``tokenestimate.py``, ``COLLEAGUE_EXACT_TOKENS=1`` restores it); parallel batches of concurrency-safe tool calls with a fail-closed read-only shell checker — the sixth recorded convention change, one bounded thread pool in ``toolbatch.py`` (``toolbatch_loop.py``, ``COLLEAGUE_TOOL_CONCURRENCY``); first-class ``grep_search`` + ``glob`` tools (ripgrep with a stdlib fallback; ``search_tools.py``, ``search_schemas.py``); ``read_file`` ``offset``/``limit`` paging with ``Read lines X-Y of N`` (``readpage.py``); a deterministic tolerant edit tier plus prior-read enforcement, no LLM repair (``editmatch.py``, ``editgate.py``); head+tail tool-output truncation with a 0600 spill file the model can page (``truncation.py``; ``colleague clean`` reaps it); rule-based microcompaction before the fill-line offer (``microcompact.py``); stream idle/lifetime guards (``streamguards.py``); always-on loop guards (``loopguards.py``); adopted prompt text with per-model tool-call examples and a ``v1`` variant (``prompttext.py``); the opt-in **associate** seat (``COLLEAGUE_ASSOCIATE_MODEL=lobes``, addressed by role name via the gateway proxy, streaming like cortex; ``associate*.py``) with a read-only ``scout`` role and an enumerated seat tuple; run counters, doctor ``harness`` rows and ``config show`` clamp/window lines. Credit: ``NOTICE`` + ``docs/adopted-from.md`` (one row per port). Doc: ``docs/features/adopt-from-qwen-code.md``.
+- ``scripts/compare_arms.py`` + the pre-registered before/after measurement (``docs/live-testing.md`` rows 41+).
+
+### Changed
+
+- ``COLLEAGUE_MAX_OUTPUT_CHARS`` is now a **ceiling** over per-tool defaults (25,000 / 30,000 for ``run_command``); the old tail-cut suffix is gone.
+- CLAUDE.md: the vLLM carve-out list reads two per-turn carve-outs plus one run-scoped probe; convention change (6) recorded.
+
+### Fixed
+
+- A silent gateway stall no longer holds a turn for the 5,400 s stall floor — the stream idle guard cuts it at 240 s (issue #415 shape; evidence in ``docs/features/adopt-from-qwen-code.md``).
+
 ## [1.63.1] - 2026-08-22
 
 ### Added
