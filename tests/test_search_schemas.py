@@ -56,7 +56,8 @@ def test_schemas_contain_both_search_tools_with_ripgrep_style_descriptions() -> 
 
 
 def test_tool_names_registry_and_toolbatch_agree() -> None:
-    assert "grep_search" in TOOL_NAMES and "glob" in TOOL_NAMES
+    assert "grep_search" in TOOL_NAMES
+    assert "glob" in TOOL_NAMES
     assert set(search_schemas.SEARCH_TOOL_NAMES) <= toolbatch.CONCURRENCY_SAFE_TOOLS
     assert search_schemas.DEFAULT_MAX_RESULTS == search_tools.DEFAULT_MAX_RESULTS
 
@@ -72,7 +73,8 @@ def test_execute_dispatches_grep_search(tree: Path) -> None:
         "notes.md:1: a Needle in the notes",
         "pkg/alpha.py:2:     return 'needle'",
     ]
-    assert out.changed_file is None and not out.finished
+    assert out.changed_file is None
+    assert not out.finished
 
 
 def test_execute_dispatches_grep_search_with_path_and_glob(tree: Path) -> None:
@@ -96,7 +98,8 @@ def test_execute_dispatches_glob(tree: Path) -> None:
 def test_max_results_caps_and_flags(tree: Path) -> None:
     out = ToolExecutor(tree).execute("grep_search", {"pattern": "needle", "max_results": 1})
     lines = out.result.splitlines()
-    assert len(lines) == 2 and lines[-1].startswith("... [capped at 1 matches")
+    assert len(lines) == 2
+    assert lines[-1].startswith("... [capped at 1 matches")
 
 
 def test_grep_exactly_max_results_matches_is_not_capped(tmp_path: Path) -> None:
@@ -230,5 +233,6 @@ def test_prompt_text_prefers_search_tools_over_shell_grep() -> None:
     from colleague import prompttext
 
     text = prompttext.default_system("unsloth/Qwen3.8-27B-NVFP4", variant="qwen")
-    assert "grep_search" in text and "glob" in text
+    assert "grep_search" in text
+    assert "glob" in text
     assert "grep_search" not in prompttext.V1_DEFAULT_SYSTEM  # the pre-arc prompt is untouched

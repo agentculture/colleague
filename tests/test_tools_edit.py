@@ -20,7 +20,7 @@ from colleague.tools import ToolError, ToolExecutor
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-@pytest.fixture()
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / "mod.py").write_text(
         "def f():\n    x = 1\n    return x\n\n\ndef g():\n    y = 2\n    return y\n",
@@ -204,4 +204,5 @@ def test_no_llm_or_engine_import_in_tools_py() -> None:
             names.update(f"{node.module}.{a.name}" for a in node.names)
     forbidden = ("engine", "engines", "vllm", "openai", "urllib", "http", "socket", "deepthink_run")
     assert not [n for n in names if any(tok in n for tok in forbidden)], names
-    assert "urlopen" not in src and "chat/completions" not in src
+    assert "urlopen" not in src
+    assert "chat/completions" not in src

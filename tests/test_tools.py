@@ -427,7 +427,8 @@ def test_read_file_max_output_chars_bounds_the_numbered_result(tmp_path: Path) -
     out = ex.execute("read_file", {"path": "wide.py"})
     body, trailer = out.result.rsplit("\n", 1)
     assert len(body) <= limit
-    assert trailer.startswith("Read lines 1-") and trailer.endswith(" of 50")
+    assert trailer.startswith("Read lines 1-")
+    assert trailer.endswith(" of 50")
 
 
 def test_edit_file_matches_raw_content_not_the_numbered_display(tmp_path: Path) -> None:
