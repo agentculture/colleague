@@ -181,6 +181,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Feature | Doc |
 |---------|-----|
 | Work & the tool-loop | [work-and-loop.md](docs/features/work-and-loop.md) |
+| Adopted harness mechanics (from Qwen Code) | [adopt-from-qwen-code.md](docs/features/adopt-from-qwen-code.md) · [`NOTICE`](NOTICE) |
 | Context budget / graceful degradation | [graceful-degradation.md](docs/features/graceful-degradation.md) |
 | Capacity standard / fill-line decision (v1) | [spec](docs/specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md) |
 | Backends & plugins | [engines.md](docs/features/engines.md) |

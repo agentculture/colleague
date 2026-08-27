@@ -35,6 +35,7 @@ colleague's skills from a peer, [learn-from.md](learn-from.md).
 | Feature | Doc | What it is | CLI surface |
 |---------|-----|------------|-------------|
 | Work & the tool-loop | [work-and-loop.md](work-and-loop.md) | Task runtime + the bounded tool-loop | `work` |
+| Adopted harness mechanics | [adopt-from-qwen-code.md](adopt-from-qwen-code.md) | Mechanics ported from Qwen Code / Gemini CLI: clamp, batches, search tools, paging, guards, associate seat; credit in `NOTICE` | `doctor` (`harness_*`), `config show`, knobs |
 | Backends & plugins | [engines.md](engines.md) | Backend + adapter + plugin discovery | `backends list`, `--engine` |
 | Model & endpoint selection | [model-selection.md](model-selection.md) | Backend config (model + endpoint) | `--model`, `--base-url`, env |
 | Git/PR handoff | [handoff.md](handoff.md) | Branch/commit/push/PR, gated for offline/CI | `work` (`--no-pr`, `--base`) |
