@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -41,6 +42,7 @@ __all__ = [
     "hidden_names",
     "offered",
     "render_result",
+    "summary_line",
     "web_hidden",
 ]
 
@@ -158,6 +160,38 @@ def render_result(envelope: dict[str, Any]) -> str:
     lines.extend(body if body else ["(no untrusted content)"])
     lines.append(UNTRUSTED_END)
     return "\n".join(lines)
+
+
+def summary_line(steps: Sequence[Any]) -> "str | None":
+    """The run report's ``web:`` line (t5) — ``None`` when no step used ``web``.
+
+    Reads ONLY the provenance header :func:`render_result` puts first in
+    ``Step.result`` (never re-fetches): a step is failed when its header
+    carries ``lifecycle_state: failed``. Each failed url is listed once, as
+    ``<url> (<operation_id>[, <error.code>])``.
+    """
+    web_steps = [s for s in steps if getattr(s, "tool", None) == WEB_TOOL_NAME]
+    if not web_steps:
+        return None
+    failed: list[str] = []
+    seen: set[str] = set()
+    for step in web_steps:
+        header = (step.result or "").split(UNTRUSTED_BEGIN, 1)[0]
+        state = re.search(r"^lifecycle_state: (.+)$", header, re.MULTILINE)
+        if not state or state.group(1).strip() != "failed":
+            continue
+        url = step.arguments.get("url") or step.arguments.get("query") or "?"
+        if url in seen:
+            continue
+        seen.add(url)
+        op = re.search(r"^operation_id: (.+)$", header, re.MULTILINE)
+        err = re.search(r"^error: code=(\S+)", header, re.MULTILINE)
+        detail = op.group(1).strip() if op else "?"
+        if err:
+            detail += f", {err.group(1)}"
+        failed.append(f"{url} ({detail})")
+    line = f"web: {len(web_steps)} fetch(es), {len(failed)} failed"
+    return f"{line}: {', '.join(failed)}" if failed else line
 
 
 def _build_args(verb: str, arguments: dict[str, Any]) -> list[str]:

@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import background, flight, media, registry, rig, salvage, worktrees
+from colleague import background, flight, media, registry, rig, salvage, web_schemas, worktrees
 from colleague.artifact import (
     artifact_dir,
     failed_result,
@@ -133,11 +133,11 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
         lines.append(f"branch: {result.branch}")
     lines.append(f"PR: {result.pr_url or '(none)'}")
     lines.append(f"artifact: {artifact_path}")
-    # The ROI-loop nudge: every completed work item is gradable (the artifact survives
-    # even on a failed work item — a 1/5 is exactly the ROI signal), so mirror the
-    # ask-colleague wrapper's `grade:` hint here pointing at the native feedback verb.
-    # `_render` is the text path only; the `--json` branch bypasses it, so the
-    # hint never pollutes machine output.
+    web_line = web_schemas.summary_line(result.steps)
+    if web_line:
+        lines.append(web_line)
+    # ROI-loop nudge (text path only; `--json` bypasses `_render` so this never
+    # pollutes machine output): mirror ask-colleague's `grade:` hint.
     if result.task_id:
         lines.append(f"grade: colleague feedback record {result.task_id} --rating N")
     return "\n".join(lines)
