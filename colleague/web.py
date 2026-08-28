@@ -63,8 +63,13 @@ FORBIDDEN_TOKENS: frozenset[str] = frozenset({"--session-id", "--page-ref", "--p
 #: A bare ``http(s)://`` URL — the only shape accepted for a url argument.
 _URL_RE = re.compile(r"^https?://")
 
-#: Cap child output fed back to the model (mirrors devague._MAX_OUTPUT_CHARS).
-_MAX_OUTPUT_CHARS = 20_000
+#: Safety ceiling on the raw CLI output returned to the caller. The model-facing
+#: bound is the executor's own ``_truncate`` (which honours
+#: ``EngineConfig.max_output_chars``); this only stops a runaway CLI from
+#: returning an unbounded blob. It is deliberately far above any legitimate
+#: JSON envelope so a large-but-valid envelope is never cut mid-way before it
+#: can be parsed (Qodo #2 + #5).
+_MAX_RAW_CHARS = 2_000_000
 
 #: Bound a runaway CLI so it cannot stall the loop indefinitely. A module
 #: constant (not a default arg) so tests can monkeypatch it directly.
@@ -80,9 +85,9 @@ class WebToolError(Exception):
 
 
 def _truncate(text: str) -> str:
-    if len(text) <= _MAX_OUTPUT_CHARS:
+    if len(text) <= _MAX_RAW_CHARS:
         return text
-    return text[:_MAX_OUTPUT_CHARS] + f"\n... [truncated at {_MAX_OUTPUT_CHARS} chars]"
+    return text[:_MAX_RAW_CHARS] + f"\n... [truncated at {_MAX_RAW_CHARS} chars]"
 
 
 def _check_forbidden_tokens(verb: str, args: Sequence[str]) -> None:
@@ -127,8 +132,23 @@ def _build_argv(verb: str, args: list[str]) -> list[str]:
         argv = ["webglass", "page", verb.split()[1], "--json", "--url", url]
         if verb == "page extract":
             # extract may carry a free-text query after a literal "--".
-            options = [a for a in rest if a.startswith("--")]
-            query = [a for a in rest if not a.startswith("--")]
+            # Options (--limit N, ...) are emitted as pairs BEFORE "--"; only
+            # the free-text query goes after it (Qodo #7).
+            options: list[str] = []
+            query: list[str] = []
+            i = 0
+            while i < len(rest):
+                token = rest[i]
+                if token.startswith("--"):
+                    options.append(token)
+                    # A flag with a value (--limit N) keeps its value adjacent
+                    # and BEFORE "--".
+                    if i + 1 < len(rest) and not rest[i + 1].startswith("--"):
+                        options.append(rest[i + 1])
+                        i += 1
+                else:
+                    query.append(token)
+                i += 1
             argv.extend(options)
             if query:
                 argv.extend(["--", *query])
@@ -149,8 +169,12 @@ def run_web(verb: str, args: Sequence[str], *, root: str | Path) -> str:
             resolved identity is injected into its environment.
 
     Returns:
-        A string of the form ``exit=<code>\\n<combined stdout+stderr>``,
-        truncated.
+        A string of the form ``exit=<code>\\n<combined stdout+stderr>`` — the
+        FULL output, bounded only by the :data:`_MAX_RAW_CHARS` safety ceiling.
+        The model-facing bound is applied by the executor's own ``_truncate``
+        (``EngineConfig.max_output_chars``) AFTER the envelope is parsed and
+        rendered, so a large-but-valid JSON envelope is never cut mid-way
+        before it can be parsed (Qodo #2 + #5).
 
     Raises:
         WebToolError: if *verb* is outside the allow-list, *args* contains a

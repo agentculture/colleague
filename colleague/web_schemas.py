@@ -157,6 +157,12 @@ def render_raw(output: str) -> str:
     ``error`` line with ``code=unparsed_output``; the raw text is then wrapped
     in the SAME :data:`UNTRUSTED_BEGIN` / :data:`UNTRUSTED_END` delimiters
     :func:`render_result` uses, so the untrusted body is never emitted bare.
+
+    Because this is the only path that echoes raw text, it must never leak
+    ``content.sensitive``: when the raw body contains the substring
+    ``"sensitive"`` (a JSON envelope cut mid-way before it could be parsed),
+    the body is replaced with a single withholding line instead of the raw
+    text (Qodo #2 + #5).
     """
     lines = [
         "operation_id: (none)",
@@ -165,7 +171,14 @@ def render_raw(output: str) -> str:
         "remediation=inspect the raw output below",
         UNTRUSTED_BEGIN,
     ]
-    lines.extend(output.splitlines() if output else ["(no untrusted content)"])
+    if '"sensitive"' in output:
+        # The raw text looks like a JSON envelope that carries a "sensitive"
+        # block (e.g. a large envelope cut mid-way before it could be parsed).
+        # render_raw is the ONLY path that echoes raw text, so it must never
+        # leak content.sensitive — withhold the body entirely (Qodo #2 + #5).
+        lines.append("(raw output withheld: contains a sensitive block that could not be parsed)")
+    else:
+        lines.extend(output.splitlines() if output else ["(no untrusted content)"])
     lines.append(UNTRUSTED_END)
     return "\n".join(lines)
 
@@ -268,6 +281,12 @@ def _build_args(verb: str, arguments: dict[str, Any]) -> list[str]:
         url = arguments.get("url")
         if isinstance(url, str) and url.strip():
             args.append(url)
+        if verb == "page extract":
+            # page extract also takes a free-text query (Qodo #6) — it goes
+            # after the url and is placed behind "--" by web._build_argv.
+            query = arguments.get("query")
+            if isinstance(query, str) and query.strip():
+                args.append(query)
     limit = arguments.get("limit")
     if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
         args.extend(["--limit", str(limit)])
@@ -310,10 +329,26 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
     (no ``webglass`` on PATH, or ``COLLEAGUE_WEB=0``) it refuses with a
     :class:`ToolError` naming the knob/PATH — the schema is hidden too, so a
     model only reaches this by guessing the name.
+
+    Budget (t9): the handler calls ``webbudget.check_and_increment`` before
+    the spawn and ``webbudget.record_result`` after it — UNLESS *arguments*
+    carries the private key ``_budget_counted: true`` (Qodo #8, contract with
+    t18), in which case BOTH are skipped (the batch loop counts on the main
+    thread before submission and records after the join); the key is stripped
+    before the argv is built. A raised ``web.WebToolError`` (timeout, launch
+    failure) is recorded as a failed call and re-raised as a clean
+    :class:`ToolError` (Qodo #9).
     """
     from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
 
     def handler(arguments: dict[str, Any]) -> Any:
+        # Pre-counted batch item (Qodo #8, contract with t18): the batch loop
+        # counts on the main thread before submission and records after the
+        # join, so this call must skip BOTH the check/increment and the
+        # record_result. Strip the private key before building argv.
+        pre_counted = arguments.get("_budget_counted") is True
+        if pre_counted:
+            arguments = {k: v for k, v in arguments.items() if k != "_budget_counted"}
         verb = arguments.get("verb")
         if not isinstance(verb, str) or verb not in web.ALLOWED_VERBS:
             raise ToolError(
@@ -331,12 +366,22 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
             raise ToolError(
                 f"tool '{WEB_TOOL_NAME}' is hidden by {WEB_ENV}=0 — unset it to use the web tool"
             )
-        webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
-        output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
+        if not pre_counted:
+            webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
+        try:
+            output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
+        except web.WebToolError as exc:
+            # A raised call (timeout, launch failure) counts as FAILED (Qodo #9)
+            # — record_result(None) bumps web_failed — then re-raise as a clean
+            # ToolError so the loop feeds a string back to the model.
+            if not pre_counted:
+                webbudget.record_result(executor, None)
+            raise ToolError(str(exc)) from exc
         envelope = _parse_envelope(output)
-        webbudget.record_result(
-            executor, envelope, exit_code=_exit_code(output)
-        )  # t9: counts a failed call
+        if not pre_counted:
+            webbudget.record_result(
+                executor, envelope, exit_code=_exit_code(output)
+            )  # t9: counts a failed call
         text = render_result(envelope) if envelope is not None else render_raw(output)
         return ToolOutcome(result=executor._truncate(text, WEB_TOOL_NAME))
 

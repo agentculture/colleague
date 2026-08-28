@@ -37,6 +37,20 @@ def _executor() -> MagicMock:
     return ex
 
 
+def _capturing_run_web(monkeypatch: pytest.MonkeyPatch, output: str) -> list:
+    """Patch ``web.run_web`` to return *output* and record the (verb, args)
+    it was called with — so a test can assert the exact argv the fake CLI
+    would receive."""
+    captured: list = []
+
+    def fake_run_web(verb, args, root):
+        captured.append((verb, list(args)))
+        return output
+
+    monkeypatch.setattr(web_schemas.web, "run_web", fake_run_web)
+    return captured
+
+
 # ---------------------------------------------------------------------------
 # AC: WEB_SCHEMA declares tool 'web'
 # ---------------------------------------------------------------------------
@@ -117,6 +131,27 @@ def test_dispatch_renders_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
     handler = web_schemas.dispatch(_executor())["web"]
     outcome = handler({"verb": "page read", "url": "https://example.com/report"})
     assert "op-2026-08-28-pageread-0003" in outcome.result
+
+
+def test_dispatch_page_extract_forwards_query_to_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Qodo #6: page extract must forward its free-text query (after --), not
+    just search. Assert the exact argv the fake CLI receives."""
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    captured = _capturing_run_web(monkeypatch, "exit=0\n{}")
+    handler = web_schemas.dispatch(_executor())["web"]
+    handler(
+        {
+            "verb": "page extract",
+            "url": "https://example.com/report",
+            "query": "what is the title",
+        }
+    )
+    verb, args = captured[0]
+    assert verb == "page extract"
+    # url first, then the free-text query (web._build_argv places the query
+    # behind "--").
+    assert args == ["https://example.com/report", "what is the title"]
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +300,32 @@ def test_render_raw_empty_output() -> None:
     assert web_schemas.UNTRUSTED_END in text
 
 
+def test_render_raw_withholds_sensitive_block() -> None:
+    """Qodo #2 + #5: a large-but-valid envelope cut mid-way (before it could
+    be parsed) must NOT leak content.sensitive through render_raw — the only
+    path that echoes raw text. The body is replaced with a withholding line."""
+    truncated = (
+        'exit=0\n{"operation_id": "op-x", "lifecycle_state": "succeeded", '
+        '"content": {"untrusted": ["visible"], "sensitive": {"token": '
+        '"SECRET-DO-NOT-RENDER"'
+    )
+    text = web_schemas.render_raw(truncated)
+    assert "SECRET-DO-NOT-RENDER" not in text
+    assert "raw output withheld: contains a sensitive block that could not be parsed" in text
+    # the provenance header + delimiters are still present
+    assert "lifecycle_state: unparsed" in text
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+
+
+def test_render_raw_without_sensitive_key_still_echoes_body() -> None:
+    """The withholding only fires on the '"sensitive"' substring — ordinary
+    non-JSON output is still echoed inside the delimiters."""
+    text = web_schemas.render_raw("plain banner, no json")
+    assert "plain banner, no json" in text
+    assert "raw output withheld" not in text
+
+
 def test_dispatch_non_json_fallback_is_delimited(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
     monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
@@ -281,6 +342,29 @@ def test_dispatch_non_json_fallback_is_delimited(monkeypatch: pytest.MonkeyPatch
     begin = outcome.result.index(web_schemas.UNTRUSTED_BEGIN)
     end = outcome.result.index(web_schemas.UNTRUSTED_END)
     assert begin < outcome.result.index("not json at all") < end
+
+
+def test_dispatch_truncated_envelope_with_sensitive_is_withheld(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Qodo #2 + #5 end-to-end: a large envelope cut mid-way after a
+    "sensitive" block is unparseable → render_raw → the secret must be
+    withheld, not echoed."""
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    truncated = (
+        'exit=0\n{"operation_id": "op-x", "lifecycle_state": "succeeded", '
+        '"content": {"untrusted": ["visible"], "sensitive": {"token": '
+        '"SECRET-DO-NOT-RENDER"'
+    )
+    monkeypatch.setattr(web_schemas.web, "run_web", lambda verb, args, root: truncated)
+    handler = web_schemas.dispatch(_executor())["web"]
+    outcome = handler({"verb": "page read", "url": "https://example.com/report"})
+    assert "SECRET-DO-NOT-RENDER" not in outcome.result
+    assert "raw output withheld: contains a sensitive block that could not be parsed" in (
+        outcome.result
+    )
+    assert "lifecycle_state: unparsed" in outcome.result
 
 
 def test_dispatch_top_level_list_fallback_is_delimited(monkeypatch: pytest.MonkeyPatch) -> None:

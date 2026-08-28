@@ -17,6 +17,7 @@ import pytest
 
 import colleague.web_schemas as web_schemas
 from colleague.web import (
+    _MAX_RAW_CHARS,
     ALLOWED_VERBS,
     FORBIDDEN_TOKENS,
     WebToolError,
@@ -233,6 +234,29 @@ def test_page_extract_argv_exact_with_query_after_dash(
     ]
 
 
+def test_page_extract_argv_url_query_limit_exact(repo_root: Path, fake_proc: MagicMock) -> None:
+    """Qodo #7: url + query + limit → the limit pair is adjacent and BEFORE
+    "--"; only the free-text query goes after it."""
+    argv = _argv_for(
+        "page extract",
+        ["https://example.com/report", "--limit", "5", "what is the title"],
+        repo_root,
+        fake_proc,
+    )
+    assert argv == [
+        "webglass",
+        "page",
+        "extract",
+        "--json",
+        "--url",
+        "https://example.com/report",
+        "--limit",
+        "5",
+        "--",
+        "what is the title",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # AC: FileNotFoundError / OSError → WebToolError, one-line message
 # ---------------------------------------------------------------------------
@@ -257,15 +281,30 @@ def test_os_error_on_launch_raises_web_tool_error(repo_root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC: output capped at 20,000 chars
+# AC: output is the FULL body, bounded only by the _MAX_RAW_CHARS safety
+# ceiling (Qodo #2 + #5). The old 20,000-char pre-parse truncation is gone —
+# the model-facing bound is the executor's own _truncate (max_output_chars),
+# applied AFTER the envelope is parsed and rendered.
 # ---------------------------------------------------------------------------
 
 
-def test_output_truncated_at_20000_chars(repo_root: Path, fake_proc: MagicMock) -> None:
+def test_output_not_truncated_below_raw_ceiling(repo_root: Path, fake_proc: MagicMock) -> None:
+    """A 30,000-char body (well under the 2M ceiling) is returned in full —
+    the old 20k pre-parse cut that made large-but-valid JSON unparseable is
+    gone."""
     fake_proc.communicate.return_value = ("x" * 30_000, "")
     with patch("subprocess.Popen", return_value=fake_proc):
         result = run_web("search", ["q"], root=repo_root)
-    assert len(result) < 30_100
+    assert result == "exit=0\n" + "x" * 30_000
+    assert "truncated" not in result
+
+
+def test_output_bounded_at_raw_ceiling(repo_root: Path, fake_proc: MagicMock) -> None:
+    """A runaway body above _MAX_RAW_CHARS is cut at the safety ceiling."""
+    fake_proc.communicate.return_value = ("x" * (_MAX_RAW_CHARS + 1000), "")
+    with patch("subprocess.Popen", return_value=fake_proc):
+        result = run_web("search", ["q"], root=repo_root)
+    assert len(result) < _MAX_RAW_CHARS + 100
     assert "truncated" in result
 
 
