@@ -1,6 +1,6 @@
 # Delivery Summary — web-scout-associate
 
-plan: `web-scout-associate` · run: `partial` · date: `2026-08-28`
+plan: `web-scout-associate` · run: `partial` · date: `2026-08-28` · merged: PR #444 `3b114dd` (2026-08-28)
 baseline: `devague summary skeleton`
 
 ## Intent
@@ -38,6 +38,9 @@ Added mid-run (not in the confirmed plan; recorded as deviations):
 
 - `t13` — harden `web_schemas.py`'s fallback path (bug found by the wave-2/3 colleague review, `d8`)
 - `t14` — correct the webglass argv grammar + usage-error provenance + failure counting (bug found by the row-47 live run, `d14`)
+- `t15` — PATH-independent tool-surface pins via a conftest fixture (CI failure on PR #444, `d16`)
+- `t16` / `t17` / `t18` — the nine Qodo FIX findings on PR #444 (`d17`)
+- `t19` / `t20` / `t21` — the 29 SonarCloud findings on PR #444 (`d18`)
 
 ## Actual Delivery
 
@@ -56,6 +59,11 @@ Added mid-run (not in the confirmed plan; recorded as deviations):
 | `t11` | delivered | `docs/features/web-scout.md` (179 lines, Honest limits incl. the D2 exfiltration channel and the upstream browser leak), CLAUDE.md bullet + scope clause, CHANGELOG 1.65.0, `pyproject.toml` 1.65.0 — merged `7015f4b` (colleague `7a1252fdb5e2` incomplete on the loop guard, `d13`; the integrator finished the MD018 reflow and `uv.lock`) |
 | `t12` | partial | rows 47 and 48 run and **both recorded as MISS** on their pre-registered bars (`dccbe30`, `716971e`); the byte-identical off-state is covered by the suite's `COLLEAGUE_WEB=0` knob + monkeypatched-PATH tests, not by a separate merged-checkout run; the `HANDOVER_EXAMPLE` section arm was **not run**; the associate diff is empty and `test_associate_seats.py` passes |
 | `t13` | delivered (added) | `render_raw`, shape-safe `render_result`, hidden-state re-check before spawn, `run_web` `COLLEAGUE_WEB=0` guard — merged `3d30f50` (colleague `17c0f143eee6`, ok); `record_result` non-dict fix `4ef1f4e` |
+| `t15` | delivered (added) | `tests/conftest.py` autouse fixture making `webglass` present for the suite (hidden-state tests still patch their own) — 7 CI-only failures gone; suite green on and off PATH — merged `0eeabfc` (colleague `9128dbb35a82`, ok) |
+| `t16` | delivered (added) | no pre-parse truncation (2 MB ceiling; the executor cap bounds the model-facing text), `render_raw` withholds bodies with a `"sensitive"` block, `page extract` query + `--limit` argv, raised calls counted, `_budget_counted` skip — merged `cc1a25e` (colleague `f74c38e7c9f5`, ok) |
+| `t17` | delivered (added) | per-turn relayed-operator confirmation (`WebConfirmationGate.reset()`), doctor probes share one 10 s deadline — merged `514e513` (sonnet) |
+| `t18` | delivered (added) | web page-cap partitioning + budget pre-count on the main thread before the pool, no worker semaphore (convention change (6)) — merged `76e0da3` (sonnet) |
+| `t19` / `t20` / `t21` | delivered (added) | Sonar hygiene: `_build_argv` split + verb constants, `render_result`/`dispatch` helpers, composite asserts split, decorator/noqa syntax, `feed_message` helpers — merged `46c57d3` (colleague), `67b3e96` (sonnet), `0eb6b03` (colleague) + `d35fe78` (integrator); Sonar 29 → 0 |
 | `t14` | delivered (added) | argv grammar (`--url` for page read/inspect/extract/links; options before `--` for search), usage-error provenance header, failure counting incl. non-zero exit — merged `098e46d` (colleague `0a2542790cfe`, ok; verified against the real CLI) |
 
 ## Mid-work Decisions
@@ -74,6 +82,9 @@ Added mid-run (not in the confirmed plan; recorded as deviations):
 - `d13` — the t11 colleague lane stopped on the loop guard (5 identical `edit_file` calls fighting an MD018 false positive); doc, CHANGELOG, bump landed; the integrator reflowed one line.
 - `d14` — the row-47 live run exposed that `web.py` built the wrong webglass argv (7 of 8 calls were CLI usage errors, rendered header-less and not counted failed) → new task t14 (colleague), merged and verified against the real CLI.
 - `d15` — in the row-47 re-run, after the page fetches failed DNS, cortex drifted into host network reconnaissance via `run_command` (`/etc/hosts`, `ss -ltnp`, `~/.cloudflared`); stopped cooperatively via `flight stop`; evidence posted on #443.
+- `d16` — the PR's CI test job failed 7 tool-surface pins that pass locally (webglass on PATH) and fail on CI (hidden by design, c6) → t15.
+- `d17` — Qodo's 11 findings: 2 PUSHBACK (the allow-list join and the surface change are the spec'd mechanism, c2/c21), 9 FIX as t16/t17/t18 — incl. a real breach of convention change (6) (a semaphore inside a pool worker) and a sensitive-leak path via pre-parse truncation.
+- `d18` — SonarCloud: gate OK, 29 open (complexity, duplicated literals, composite asserts, a `noqa` syntax) → t19/t20/t21; a residual `dispatch()` complexity (Sonar counts nested closures) was fixed by the integrator in `d35fe78`.
 - Not covered by a record: `uv.lock` was bumped to 1.65.0 by the integrator alongside t11 (the merge of t14 required it); the row-47 re-run was launched once on the unfixed tree by mistake and killed before producing a result (no artifact kept).
 
 ## Drift From Plan
@@ -95,6 +106,9 @@ Added mid-run (not in the confirmed plan; recorded as deviations):
 | `t11` (`d13`) | the loop-guard is doing its job (a stuck edit loop); the remaining work is a version bump and lint fixes — cheaper to finish than to resume; the doc content is colleague's and is reviewed before merge | acceptable |
 | `t1` (`d14`) | t1's fake-CLI tests echoed argv without validating it against the real webglass grammar; the live proof is exactly what catches this; the contract (c3/h3, c7/h7, c36) is unchanged | needs-follow-up |
 | `t12` (`d15`) | finding, not a plan change: a fetch failure turns cortex's web+run_command surface into a host-probing loop; this is the exfil/host class the challenge pass named (c38) and direct evidence for #443's 'web on the scout only, replace-not-add' constraint; recorded on row 47 and the delivery summary | needs-follow-up |
+| `t3` (`d16`) | bug in test determinism, not in the contract: c6's hidden-when-absent rule is correct; the pins must not depend on the CI image; t3's brief said tests must monkeypatch shutil.which and these seven pre-existing pins were missed | needs-follow-up |
+| `t12` (`d17`) | review findings are bugs in shipped code; fixed immediately as tasks per the operator's rule; the semaphore-in-worker finding is a real breach of convention change (6) | needs-follow-up |
+| `t12` (`d18`) | mechanical quality findings on shipped code; fixed immediately as tasks per the operator's rule; gate already OK so this is hygiene, not a blocker | acceptable |
 | `t12` | rows 47/48 both MISS on their pre-registered bars: 0 delegations in all 13 runs so the scout-on-associate / evidence-citing half of the bar was never exercised; row 48 branch 3.31× wall / 1.41× turns vs main; the `HANDOVER_EXAMPLE` section arm was not run; the pre-registered `docs.example.com` URLs never resolve (RFC 6761) and browser DNS is dead from this host — no record covers the un-run section arm | needs-follow-up |
 
 ## Evidence
@@ -106,6 +120,7 @@ Added mid-run (not in the confirmed plan; recorded as deviations):
 - real-CLI probe (2026-08-28, login shell, post-t14): `web.run_web("search", …)` → `lifecycle_state: succeeded` with a real `operation_id`; `web.run_web("page read", …)` → `lifecycle_state: failed` (`navigation_failed`, DNS) with a full provenance header
 - commits: `4e814c8..716971e` on `spec/web-scout-associate` (37 commits, 14 merges); artifacts of every colleague lane and t12 run archived in the session scratchpad (`artifacts/`, `artifacts/t12/`)
 - live-testing: rows 47 (`c6c53ac2c214`, `a5fe419b2a36`) and 48 (`df6a2ffd0437` `b6eb2ac23576` `d9590dbc7f09` vs `038619813cc8` `83a953c5c584` `84414109dddd`; `compare_arms.py` → 3.313× / 1.412×, MISS)
+- PR #444: merged `3b114dd` 2026-08-28; CI green (lint, test ×2, version-check, GitGuardian, SonarCloud); Qodo 11 inline threads — 11 replied, 11 resolved (9 FIX, 2 PUSHBACK); SonarCloud Quality Gate OK, 29 → 0 open issues on the final head `d35fe78`; final suite 10118 passed on and off PATH
 - PRs / issues: #436, #435 (closed → #443), #439 (closed → #442/#443), #440 (closed), #442, #443, culture#482, webglass-cli#14, lobes-cli#220 (comment)
 
 ## Delivery Claims
@@ -135,5 +150,5 @@ Added mid-run (not in the confirmed plan; recorded as deviations):
 - #442 — associate distill=low split (closes #439 when picked up).
 - #438 / lobes-cli#220 — gateway stall recovery: 3 of the 4 gateway-routed colleague lanes today hit the 900 s guard; the direct-origin lanes (d6) all finished `ok`.
 - webglass-cli#14 — upstream browser/session leak (127 sessions on this host after today's probes); colleague contains only its own calls.
-- Operator to confirm deviations `d1`–`d15` (`devague deviate --confirm`).
+- Operator to confirm deviations `d1`–`d18` (`devague deviate --confirm`).
 - The stale `agent-411-q1` worktree from the August #411 arc is still present under `/home/spark/git/worktrees/` — not this run's; left untouched.
