@@ -12,7 +12,7 @@ child is a good fit for a given piece of work. Two pieces:
   string when unarmed.
 * :func:`apply_armed_facts` — splices that sentence onto the ``subagent``/
   ``subagents`` tool descriptions AND (t10, post-t5 purpose-tools surface)
-  the ``web_survey``/``code_survey``/``handover_to_colleague`` purpose-tool
+  the ``web_survey``/``code_survey`` purpose-tool
   descriptions. Cortex's curated surface holds the purpose tools and no
   longer holds ``subagent``/``subagents`` (t5); a manual role config (or the
   raw, uncurated schema list) may still hold the latter — either way, only
@@ -31,9 +31,7 @@ __all__ = ["armed_facts", "apply_armed_facts"]
 #: delegation tools (still offered to a manual role config, or the
 #: uncurated full surface) plus the three purpose tools that replaced them on
 #: cortex's curated surface (t5/t10).
-_DELEGATION_TOOL_NAMES = frozenset(
-    {"subagent", "subagents", "web_survey", "code_survey", "handover_to_colleague"}
-)
+_DELEGATION_TOOL_NAMES = frozenset({"subagent", "subagents", "web_survey", "code_survey"})
 
 
 def armed_facts(config: Any) -> str:
@@ -60,7 +58,8 @@ def armed_facts(config: Any) -> str:
 def apply_armed_facts(schemas: list[dict[str, Any]], config: Any) -> list[dict[str, Any]]:
     """Splice :func:`armed_facts` onto every :data:`_DELEGATION_TOOL_NAMES` entry
     present in *schemas* (``subagent``/``subagents`` and the ``web_survey``/
-    ``code_survey``/``handover_to_colleague`` purpose tools — t10).
+    ``code_survey`` purpose tools — t10; never ``handover_to_colleague``,
+    whose child is a cortex writer, not the scout seat).
 
     Unarmed (or an empty sentence) returns *schemas* itself, unchanged — the
     same list object, so a caller comparing it against the pre-t8 fixture

@@ -136,7 +136,7 @@ def test_apply_armed_facts_curated_writer_surface_has_no_raw_subagent():
     names = _writer_schema_names(curate_schemas("writer"))
     assert "subagent" not in names
     assert "subagents" not in names
-    assert {"web_survey", "code_survey", "handover_to_colleague"} <= names
+    assert {"web_survey", "code_survey", "handover_to_colleague"} <= names  # surface has all three
 
 
 def test_apply_armed_facts_splices_onto_web_survey_code_survey_handover():
@@ -151,13 +151,16 @@ def test_apply_armed_facts_splices_onto_web_survey_code_survey_handover():
     for entry in result:
         name = entry["function"]["name"]
         desc = entry["function"]["description"]
-        if name in ("web_survey", "code_survey", "handover_to_colleague"):
+        if name in ("web_survey", "code_survey"):
             assert desc == before[name] + " " + sentence
             assert desc.count(sentence) == 1
             changed.add(name)
         else:
             assert desc == before[name]
-    assert changed == {"web_survey", "code_survey", "handover_to_colleague"}
+    assert changed == {
+        "web_survey",
+        "code_survey",
+    }  # handover child is a cortex writer: no scout sentence
 
 
 def test_apply_armed_facts_curated_writer_surface_unarmed_returns_same_list():
@@ -180,7 +183,7 @@ def test_apply_armed_facts_still_splices_subagent_when_present_alongside_purpose
     before = {s["function"]["name"]: s["function"]["description"] for s in manual}
     result = apply_armed_facts(manual, _ARMED)
     sentence = armed_facts(_ARMED)
-    target_names = {"web_survey", "code_survey", "handover_to_colleague", "subagent", "subagents"}
+    target_names = {"web_survey", "code_survey", "subagent", "subagents"}
     changed = set()
     for entry in result:
         name = entry["function"]["name"]
