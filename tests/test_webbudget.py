@@ -12,6 +12,7 @@ continuation resumes the counter and a doubled cap allows N more calls, and
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -76,6 +77,159 @@ def test_resolve_max_calls_falls_back_to_default_on_bad_value(
 ) -> None:
     monkeypatch.setenv(webbudget.ENV_MAX_CALLS, raw)
     assert webbudget.resolve_max_calls() == webbudget.DEFAULT_MAX_CALLS
+
+
+# ---------------------------------------------------------------------------
+# AC: a raised call (timeout / launch failure) counts as FAILED (Qodo #9)
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_raised_call_counts_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A webglass CLI that hangs past the timeout raises WebToolError; the
+    dispatch handler must record it as a failed call (web_failed += 1) and
+    re-raise as a clean ToolError."""
+    import stat
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script = bin_dir / "webglass"
+    script.write_text("#!/bin/sh\nsleep 60\n", encoding="utf-8")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+    monkeypatch.setattr("colleague.web._TIMEOUT_SECONDS", 2)
+    monkeypatch.delenv(webbudget.ENV_MAX_CALLS, raising=False)
+
+    executor = ToolExecutor(tmp_path)
+    handler = web_schemas.dispatch(executor)["web"]
+    with pytest.raises(ToolError):
+        handler({"verb": "search", "query": "x"})
+    assert executor.web_failed == 1
+    # the call was counted (it was attempted) but the failure is recorded
+    assert executor.web_calls == 1
+
+
+def test_dispatch_web_tool_error_counts_failed_without_real_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same contract, without a real subprocess: a WebToolError from run_web
+    (e.g. launch failure) is recorded as failed and re-raised as ToolError."""
+    from colleague.web import WebToolError
+
+    def _raise(verb, args, root):
+        raise WebToolError("webglass verb 'search' failed to launch: permission denied")
+
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    monkeypatch.delenv(webbudget.ENV_MAX_CALLS, raising=False)
+    monkeypatch.setattr(web_schemas.web, "run_web", _raise)
+    executor = ToolExecutor(tmp_path)
+    handler = web_schemas.dispatch(executor)["web"]
+    with pytest.raises(ToolError, match="failed to launch"):
+        handler({"verb": "search", "query": "x"})
+    assert executor.web_failed == 1
+
+
+# ---------------------------------------------------------------------------
+# AC: pre-counted items (Qodo #8, contract with t18) skip BOTH budget hooks
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_pre_counted_skips_check_and_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When arguments carries _budget_counted: true, dispatch must skip
+    check_and_increment AND record_result (the batch loop counts on the main
+    thread before submission and records after the join)."""
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    monkeypatch.delenv(webbudget.ENV_MAX_CALLS, raising=False)
+
+    check = MagicMock()
+    record = MagicMock()
+    monkeypatch.setattr(webbudget, "check_and_increment", check)
+    monkeypatch.setattr(webbudget, "record_result", record)
+    monkeypatch.setattr(
+        web_schemas.web,
+        "run_web",
+        lambda verb, args, root: "exit=0\n"
+        + json.dumps({"operation_id": "op-1", "lifecycle_state": "succeeded"}),
+    )
+
+    executor = ToolExecutor(tmp_path)
+    handler = web_schemas.dispatch(executor)["web"]
+    outcome = handler(
+        {
+            "verb": "search",
+            "query": "x",
+            "_budget_counted": True,
+        }
+    )
+    assert check.call_count == 0
+    assert record.call_count == 0
+    # the call still ran and rendered
+    assert "op-1" in outcome.result
+
+
+def test_dispatch_pre_counted_strips_key_before_argv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The private _budget_counted key must be stripped before the argv is
+    built — it never reaches the CLI."""
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    monkeypatch.delenv(webbudget.ENV_MAX_CALLS, raising=False)
+
+    check = MagicMock()
+    record = MagicMock()
+    monkeypatch.setattr(webbudget, "check_and_increment", check)
+    monkeypatch.setattr(webbudget, "record_result", record)
+
+    captured: list = []
+
+    def fake_run_web(verb, args, root):
+        captured.append((verb, list(args)))
+        return "exit=0\n" + json.dumps({"operation_id": "op-1", "lifecycle_state": "succeeded"})
+
+    monkeypatch.setattr(web_schemas.web, "run_web", fake_run_web)
+
+    executor = ToolExecutor(tmp_path)
+    handler = web_schemas.dispatch(executor)["web"]
+    handler({"verb": "search", "query": "x", "_budget_counted": True})
+    verb, args = captured[0]
+    assert verb == "search"
+    # the private key is gone; only the query reaches the CLI
+    assert args == ["x"]
+    assert check.call_count == 0
+    assert record.call_count == 0
+
+
+def test_dispatch_normal_path_still_counts_and_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The non-pre-counted path (no _budget_counted key) still runs BOTH
+    budget hooks — the skip is opt-in, not the default."""
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    monkeypatch.delenv(webbudget.ENV_MAX_CALLS, raising=False)
+
+    check = MagicMock()
+    record = MagicMock()
+    monkeypatch.setattr(webbudget, "check_and_increment", check)
+    monkeypatch.setattr(webbudget, "record_result", record)
+    monkeypatch.setattr(
+        web_schemas.web,
+        "run_web",
+        lambda verb, args, root: "exit=0\n"
+        + json.dumps({"operation_id": "op-1", "lifecycle_state": "succeeded"}),
+    )
+
+    executor = ToolExecutor(tmp_path)
+    handler = web_schemas.dispatch(executor)["web"]
+    handler({"verb": "search", "query": "x"})
+    assert check.call_count == 1
+    assert record.call_count == 1
 
 
 # ---------------------------------------------------------------------------
