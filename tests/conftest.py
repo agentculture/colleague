@@ -46,12 +46,29 @@ is inert for every test that has not patched ``_post_json`` (the real
 streaming suites — overrides it from its own body. A suite that genuinely pins
 the BLOCKING transport sets ``COLLEAGUE_STREAM=0``; that, not this bridge, is
 the honest opt-out.
+
+**PATH-independent ``web`` tool surface (deviation d16).** ``colleague/
+web_schemas.py`` hides the ``web`` tool whenever ``shutil.which("webglass")``
+is ``None`` — a rule that is CORRECT and must not change. But it makes the
+offered tool surface depend on whether the running machine happens to have
+``webglass`` installed: CI (no webglass) fails the full-surface pins that pass
+on a dev box (webglass present). The ``_webglass_on_path`` autouse fixture
+makes the check deterministic for the whole suite: it patches ``shutil.which``
+with a delegating fake that reports ``webglass`` present (``/fake/webglass``)
+and forwards every other name to the REAL ``shutil.which`` — so the
+PATH-dependent behavior of the other tools (git, gh, rg, eidetic, ...) is
+untouched. ``web`` is therefore OFFERED in every test unless a test explicitly
+hides it. Tests that deliberately pin the hidden state (``test_web_schemas``,
+``test_e2e_mock``, ``test_web``, ``test_webbudget``, ``test_livecheck``,
+``test_resident_web_trust``) patch ``shutil.which`` in their own body, which
+runs *after* this fixture, so their explicit setup wins.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import urllib.request
 
 import pytest
@@ -76,6 +93,35 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for key in _OPENAI_PROVIDER_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("COLLEAGUE_HOME", str(tmp_path / "isolated-home"))
+
+
+#: The pristine ``shutil.which`` — the real PATH lookup a delegating fake
+#: forwards non-webglass names to, captured once at import time (before any
+#: monkeypatching).
+_REAL_WHICH = shutil.which
+
+
+@pytest.fixture(autouse=True)
+def _webglass_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the ``web`` tool's PATH check deterministic for the whole suite (d16).
+
+    ``colleague.web_schemas`` hides ``web`` when ``shutil.which("webglass")``
+    is ``None``; that rule is correct and stays. This fixture patches
+    ``shutil.which`` with a delegating fake that reports ``webglass`` present
+    (``/fake/webglass``) and forwards every other name to the REAL
+    ``shutil.which`` — so ``web`` is offered in every test unless a test
+    explicitly hides it, and the PATH-dependent behavior of the other tools
+    (git, gh, rg, eidetic, ...) is untouched. A test that patches
+    ``shutil.which`` in its own body (the hidden-state pins) runs after this
+    fixture and wins.
+    """
+
+    def _which(name: str, *args, **kwargs):
+        if name == "webglass":
+            return "/fake/webglass"
+        return _REAL_WHICH(name, *args, **kwargs)
+
+    monkeypatch.setattr("shutil.which", _which)
 
 
 #: The pristine blocking transport — the identity a patched ``_post_json`` is
