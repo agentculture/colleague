@@ -174,7 +174,8 @@ unset every seat is **byte-identical to main** (the arc's standing invariant
 wins over c33's "absent = cortex@low"); cortex@low fires only when the seat is
 **armed but unreachable**, with one `TaskResult.warnings` entry — the plan's
 cortex@low-when-absent is realised only on the new `scout` role
-(`ROLE_TABLE["scout"] = "low"`, `docs/features/thinking-effort.md`).
+(`ROLE_TABLE["scout"] = "off"` — t19: a read-only scout with thinking OFF, the
+same rung the associate seat row carries; `docs/features/thinking-effort.md`).
 
 ## Measurement
 

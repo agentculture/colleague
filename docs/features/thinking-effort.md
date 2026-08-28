@@ -64,6 +64,47 @@ duplicate it.
 | `explorer` | `off` |
 | `scout` | `off` |
 
+### Associate sub-seats (`ASSOCIATE_SEAT_TABLE`, `colleague/efforttables.py`)
+
+The five enumerated associate seats (`ASSOCIATE_SEATS`) each carry their own
+rung; the `associate` row above is the whole-seat override. Precedence:
+`default` kill-switch > explicit per-child override >
+`COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT>` / `reasoning_effort_seats["associate.<seat>"]`
+> `COLLEAGUE_ASSOCIATE_REASONING_EFFORT` (the whole-seat row) > this table.
+Unset, every seat but `distill` resolves exactly as before.
+
+| Associate seat | Default rung |
+|----------------|--------------|
+| `scout` | `off` |
+| `compact` | `off` |
+| `synthesis` | `off` |
+| `digest` | `off` |
+| `distill` | `low` |
+
+### Purpose tools (`PURPOSE_TABLE` + `PURPOSE_STEPS`, `colleague/efforttables.py`)
+
+A purpose tool's child gets its OWN rung, passed to the spawn as the explicit
+override — never the parent's rung, the parent's seat override, or the global
+rung (decision q7 of the purpose-tools spec). Operator knob:
+`COLLEAGUE_<PURPOSE>_REASONING_EFFORT` / `reasoning_effort_purposes[<purpose>]`;
+the `default` kill-switch still yields no fragment. The step cap is the child's
+`max_steps` (`None` = the parent's default).
+
+| Purpose tool | Child role | Default rung | Step cap |
+|--------------|------------|--------------|----------|
+| `web_survey` | `scout` (associate when armed) | `off` | 12 |
+| `code_survey` | `scout` (associate when armed) | `off` | 12 |
+| `review` | `reviewer` | `low` | 16 |
+| `validate` | `validator` | `low` | 16 |
+| `plan` | `planner` | `medium` | 10 |
+| `handover_to_colleague` | `writer` | `medium` | parent default |
+
+Honest limit (follow-up v5 of the purpose-tools spec): a **manual**
+`subagent`/`subagents` child still resolves the parent's cortex seat override
+above its own `ROLE_TABLE` row (`colleague/subagents.py`, the child rung
+resolution) — so `COLLEAGUE_CORTEX_REASONING_EFFORT=medium` reaches a manual
+reviewer child; a purpose child does not inherit it.
+
 ### Top-level role overrides (`TOP_LEVEL_ROLE_TABLE`)
 
 A typed role is *also* a top-level `colleague work --role` flag, not only a
