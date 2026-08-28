@@ -2,7 +2,7 @@
   "plan_slug": "web-scout-associate",
   "schema_version": 1,
   "created": "2026-08-28T07:54:36Z",
-  "updated": "2026-08-28T11:10:59Z",
+  "updated": "2026-08-28T12:02:32Z",
   "deviations": [
     {
       "id": "d1",
@@ -195,6 +195,50 @@
       "origin": "llm",
       "status": "proposed",
       "classification": "needs-follow-up"
+    },
+    {
+      "id": "d16",
+      "what": "CI test job on PR #444 fails 7 tests (test_deepthink_tool \u00d72, test_role_curation \u00d72, test_roles_e2e \u00d71, test_search_schemas \u00d72) that pin curate_schemas()/the full surface against SCHEMAS \u2014 they pass locally because webglass is on PATH (web offered) and fail on CI where it is absent (web hidden by design, c6); the suite is environment-dependent. Fixed immediately in NEW task t15 (colleague): a deterministic test-environment pin so the offered surface does not depend on the runner's PATH",
+      "task_ref": "t3",
+      "reason": "bug in test determinism, not in the contract: c6's hidden-when-absent rule is correct; the pins must not depend on the CI image; t3's brief said tests must monkeypatch shutil.which and these seven pre-existing pins were missed",
+      "affects": [
+        "t3",
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d17",
+      "what": "Qodo review on PR #444: 11 findings \u2014 2 PUSHBACK (the _SUBPROCESS_ALLOWED join and the tool-surface change are the spec'd mechanism, c2/c21), 9 FIX as NEW tasks: t16 (web/web_schemas/webbudget: no pre-parse truncation so render_raw is only for real non-JSON [#2/#5 sensitive-leak via truncated JSON], page extract query + --limit argv [#6/#7], raised calls counted as failed [#9], pre-counted-item skip [#8]), t17 (webtrust per-turn confirmation [#10], livecheck shared deadline [#11]), t18 (toolbatch: web budget + page-cap gating on the main thread before the pool, no semaphore in workers [#4/#8])",
+      "task_ref": "t12",
+      "reason": "review findings are bugs in shipped code; fixed immediately as tasks per the operator's rule; the semaphore-in-worker finding is a real breach of convention change (6)",
+      "affects": [
+        "t1",
+        "t2",
+        "t4",
+        "t6",
+        "t9",
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d18",
+      "what": "SonarCloud on PR #444: Quality Gate OK but 29 OPEN issues (S3776 cognitive complexity in web.py/web_schemas.py/appserver.py, S1192 duplicated literals in web.py, S9073 composite assertions + S9083 in tests/test_resident_web_trust.py, \u2026) \u2014 fixed as NEW tasks t19 (colleague: web.py/web_schemas.py refactors + constants) and t20 (sonnet: resident test assertion splits + appserver complexity + the rest)",
+      "task_ref": "t12",
+      "reason": "mechanical quality findings on shipped code; fixed immediately as tasks per the operator's rule; gate already OK so this is hygiene, not a blocker",
+      "affects": [
+        "t1",
+        "t2",
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
     }
   ]
 }

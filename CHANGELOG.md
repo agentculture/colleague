@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.65.1] - 2026-08-28
+
+### Changed
+
+- **web-scout-associate delivery record** — the deviation store gains d16–d18 (the PR #444 CI/Qodo/Sonar fix tasks t15–t21) and the delivery summary records them; no code change.
+
 ## [1.65.0] - 2026-08-28
 
 ### Added
