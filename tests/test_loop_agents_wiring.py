@@ -153,7 +153,8 @@ def test_worker_purpose_is_narrowed_on_both_halves(tmp_path: Path) -> None:
     assert thinker_role is not None
     thinker_names = set(thinker_role.tool_allowlist)
     assert {"web", "subagent", "subagents"}.isdisjoint(thinker_names)
-    assert "code_survey" in thinker_names and "write_file" in thinker_names
+    assert "code_survey" in thinker_names
+    assert "write_file" in thinker_names
 
 
 def test_aborted_run_still_folds_the_block(armed) -> None:

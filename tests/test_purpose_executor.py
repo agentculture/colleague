@@ -121,8 +121,9 @@ def test_missing_required_argument_is_a_clean_tool_error(tmp_path, name: str) ->
     from colleague.tools import ToolError
 
     rec = _Recorder()
+    executor = _executor(tmp_path, rec)
     with pytest.raises(ToolError):
-        _executor(tmp_path, rec).execute(name, {})
+        executor.execute(name, {})
     assert rec.calls == []  # refused BEFORE any spawn
 
 
@@ -149,7 +150,7 @@ class _CapturingEngine:
         )
 
 
-@pytest.fixture()
+@pytest.fixture
 def capturing_engine(monkeypatch):
     """Replace the child engine registry lookup with a recording fake."""
 
@@ -360,8 +361,9 @@ def test_resolved_model_wins_as_the_served_model(tmp_path) -> None:
 def test_no_spawn_available_is_a_clean_tool_error(tmp_path) -> None:
     from colleague.tools import ToolError
 
+    executor = ToolExecutor(tmp_path)
     with pytest.raises(ToolError):
-        ToolExecutor(tmp_path).execute("code_survey", {"question": "q"})
+        executor.execute("code_survey", {"question": "q"})
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +489,8 @@ def test_all_engines_same_sub_results_shape(tmp_path, capturing_engine) -> None:
         shapes.append(ex.sub_results[0].to_dict())
 
     assert set(shapes[0]) == set(shapes[1])
-    assert shapes[0]["engine"] == "mock" and shapes[1]["engine"] == "vllm-openai"
+    assert shapes[0]["engine"] == "mock"
+    assert shapes[1]["engine"] == "vllm-openai"
 
 
 def _key_shape(value: Any) -> Any:

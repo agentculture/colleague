@@ -288,6 +288,30 @@ def _direct_web_failure(step: Any) -> "str | None":
     return detail
 
 
+def _note_failed(url: str, detail: str, seen: "set[str]", failed: "list[str]") -> None:
+    """Append ``url (detail)`` to *failed* once — a url is listed at most once."""
+    if url in seen:
+        return
+    seen.add(url)
+    failed.append(f"{url} ({detail})")
+
+
+def _fold_direct_web_step(step: Any, arguments: dict, seen: "set[str]", failed: "list[str]") -> int:
+    """Count one direct ``web`` step; note its failure from the provenance header."""
+    detail = _direct_web_failure(step)
+    if detail is not None:
+        _note_failed(arguments.get("url") or arguments.get("query") or "?", detail, seen, failed)
+    return 1
+
+
+def _fold_purpose_urls(arguments: dict, seen: "set[str]", failed: "list[str]") -> int:
+    """Count the urls a purpose-tool step carries; note the ones its child failed."""
+    urls = arguments.get("web_urls") or []
+    for url in arguments.get("web_urls_failed") or []:
+        _note_failed(url, "purpose child", seen, failed)
+    return len(urls)
+
+
 def summary_line(steps: Sequence[Any]) -> "str | None":
     """The run report's ``web:`` line (t5) — ``None`` when no ``web`` was used,
     directly OR embedded in a purpose-tool child (t7, c33/h32).
@@ -305,25 +329,9 @@ def summary_line(steps: Sequence[Any]) -> "str | None":
     for step in steps:
         arguments = step.arguments if isinstance(getattr(step, "arguments", None), dict) else {}
         if getattr(step, "tool", None) == WEB_TOOL_NAME:
-            total += 1
-            detail = _direct_web_failure(step)
-            if detail is None:
-                continue
-            url = arguments.get("url") or arguments.get("query") or "?"
-            if url in seen:
-                continue
-            seen.add(url)
-            failed.append(f"{url} ({detail})")
-            continue
-        urls = arguments.get("web_urls") or []
-        if not urls:
-            continue
-        total += len(urls)
-        for url in arguments.get("web_urls_failed") or []:
-            if url in seen:
-                continue
-            seen.add(url)
-            failed.append(f"{url} (purpose child)")
+            total += _fold_direct_web_step(step, arguments, seen, failed)
+        else:
+            total += _fold_purpose_urls(arguments, seen, failed)
     if total == 0:
         return None
     line = f"web: {total} fetch(es), {len(failed)} failed"

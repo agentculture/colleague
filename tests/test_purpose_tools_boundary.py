@@ -214,10 +214,12 @@ def test_new_module_does_not_import_a_per_turn_path(rel: str) -> None:
     for forbidden in _PER_TURN_PATHS:
         forbidden_module = forbidden.removeprefix("colleague/").removesuffix(".py")
         forbidden_dotted = f"colleague.{forbidden_module}"
-        assert forbidden_dotted not in imported and forbidden_module not in imported, (
+        msg = (
             f"{rel} imports the per-turn path {forbidden} — a new module must never "
             "become a de facto per-turn effort-assignment path (c1/h1)"
         )
+        assert forbidden_dotted not in imported, msg
+        assert forbidden_module not in imported, msg
 
 
 # ---------------------------------------------------------------------------

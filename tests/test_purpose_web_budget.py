@@ -97,7 +97,7 @@ def _make_scout_engine(pages: int):
 _SUCCESS_ENVELOPE = 'exit=0\n{"operation_id": "op", "lifecycle_state": "succeeded", "content": {}}'
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_webglass(monkeypatch: pytest.MonkeyPatch) -> None:
     """webglass is 'installed' and every call succeeds with a minimal envelope."""
     monkeypatch.setattr(
