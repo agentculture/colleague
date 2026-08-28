@@ -527,6 +527,10 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   qwen-code's ripGrep.ts): ripgrep search backend,
 #                   operator-installed CLI; subprocess is the transport, a
 #                   pure-stdlib walker is the fallback when `rg` is absent
+#   web.py           — the curated webglass web-scout tool (task t1): launches
+#                   the allow-listed webglass CLI as a group-leader child
+#                   (start_new_session=True) and kills the whole group with
+#                   os.killpg on timeout; subprocess is the transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -547,6 +551,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/strive.py",
         "colleague/correction.py",
         "colleague/search_tools.py",
+        "colleague/web.py",
     }
 )
 
