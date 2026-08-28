@@ -34,6 +34,7 @@ def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
         "check_test_integrity",
         "run_tests",
         "memory",
+        "web",
     }
     for schema in SCHEMAS:
         assert schema["type"] == "function"

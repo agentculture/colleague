@@ -15,24 +15,19 @@ additionally refuse writes into the read-only neighbour clone tree. ``run_comman
 runs with ``cwd`` pinned to the root. v0 trusts the command itself (decision D2);
 sandboxing is a later wheel.
 
-``read_file`` line-grounding (#240): the raw text the loop fed back to the model
-carried no line markers, so a model citing "line N" had to re-count from its own
-(possibly windowed/truncated) context — the root cause of a ~240-line citation
-drift seen live in ``ask-colleague explore``. :func:`_number_lines` now prefixes
-every real line with its true 1-based line number, ``cat -n`` style
-(``"   12\t<content>"``), before the result is (still) run through
-:meth:`ToolExecutor._truncate`, so a cited line number is copy-derived from tool
-output, never re-counted, and any surviving prefix after truncation still names
-the real file line. This is read-display only: numbering is never written to
-disk and never round-trips into ``edit_file`` — ``_edit_file`` reads the file
-itself via a separate ``path.read_text()`` call and matches ``old_string``
-against that raw content, so a numbered prefix pasted from a ``read_file``
-result will simply fail to match (by design).
+``read_file`` line-grounding (#240): the raw text fed back to the model now
+carries no bare line-number guesswork — :func:`_number_lines` prefixes every
+real line with its true 1-based line number, ``cat -n`` style
+(``"   12\t<content>"``), before the result runs through
+:meth:`ToolExecutor._truncate`, so a cited line is copy-derived, never
+re-counted, and any surviving prefix after truncation still names the real
+file line. Read-display only: numbering is never written to disk or
+round-tripped into ``edit_file`` (``_edit_file`` matches ``old_string`` against
+a separate raw read).
 
-A curated ``deepthink`` tool (:data:`DEEPTHINK_SCHEMA`, plan t4) is deliberately
-kept OUT of :data:`SCHEMAS` — it is appended only by :func:`curate_schemas` when a
-caller opts in (``deepthink=True``), which the loop does only when a dual-model
-config is present. A single-model run offers exactly the schemas above.
+A curated ``deepthink`` tool (:data:`DEEPTHINK_SCHEMA`, plan t4) stays OUT of
+:data:`SCHEMAS`; :func:`curate_schemas` appends it only when a caller opts in
+(``deepthink=True``) for a dual-model config — a single-model run is unaffected.
 """
 
 from __future__ import annotations
@@ -50,6 +45,7 @@ if TYPE_CHECKING:
     from colleague.roles import Role
 
 import colleague.search_schemas as search_schemas
+import colleague.web_schemas as web_schemas
 from colleague import culture, devague, editgate, media, memory, readpage, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
@@ -300,6 +296,7 @@ SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    web_schemas.WEB_SCHEMA,
     {
         "type": "function",
         "function": {
@@ -624,7 +621,12 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
     else:
         raise TypeError(f"curate_schemas expects a Role or role name, got {type(role).__name__}")
 
-    curated = [s for s in SCHEMAS if search_schemas.offered(s["function"]["name"], allow)]
+    curated = [
+        s
+        for s in SCHEMAS
+        if search_schemas.offered(s["function"]["name"], allow)
+        and web_schemas.offered(s["function"]["name"], allow)
+    ]
     if deepthink and (allow is None or DEEPTHINK in allow):
         curated = curated + [DEEPTHINK_SCHEMA]
     return curated
@@ -653,15 +655,12 @@ def narrow_role_by_tool_set(
 
     Non-empty narrows the role-curated surface down to its INTERSECTION with
     ``tool_set``: a ``tool_set`` entry outside *role*'s surface adds nothing
-    (the ceiling is always the role, never the narrowing — narrowing only
-    ever removes tools, never adds one the role itself withholds). *role*
-    ``None`` (the pre-role "full surface" default) narrows straight to
-    ``tool_set`` (full surface intersect tool_set == tool_set): the returned
-    synthetic :class:`Role` is non-read-only (``None`` meant unrestricted,
-    never read-only) — :data:`SCHEMAS`'s own silent-unknown-name skip
-    (:func:`curate_schemas`) and :class:`ToolExecutor`'s exact-name check do
-    the rest, so an unresolvable name in ``tool_set`` is simply never
-    offered/callable, never an error here.
+    (narrowing only ever removes tools, never adds one the role withholds).
+    *role* ``None`` (the pre-role "full surface" default) narrows straight to
+    ``tool_set``; the returned synthetic :class:`Role` is non-read-only
+    (``None`` meant unrestricted). :data:`SCHEMAS`'s silent-unknown-name skip
+    and :class:`ToolExecutor`'s exact-name check do the rest, so an
+    unresolvable name in ``tool_set`` is simply never offered/callable.
     """
     if not tool_set:
         return role
@@ -885,6 +884,7 @@ class ToolExecutor:
             "edit_file": self._edit_file,
             "list_dir": self._list_dir,
             **search_schemas.dispatch(self),
+            **web_schemas.dispatch(self),
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,
