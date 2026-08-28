@@ -18,6 +18,7 @@ instantiates a ThreadPoolExecutor).
 from __future__ import annotations
 
 import ast
+import threading
 import time
 from pathlib import Path
 
@@ -26,12 +27,15 @@ import pytest
 from colleague import toolbatch
 from colleague.toolbatch import (
     CONCURRENCY_SAFE_TOOLS,
+    DEFAULT_WEB_CONCURRENCY,
+    ENV_WEB_CONCURRENCY,
     READ_ONLY_ROOT_COMMANDS,
     is_memory_recall_call,
     is_shell_command_read_only,
     is_tool_call_concurrency_safe,
     partition_by_concurrency_safety,
     run_batch,
+    web_concurrency,
 )
 
 _PACKAGE_DIR = Path(__file__).resolve().parent.parent / "colleague"
@@ -199,7 +203,7 @@ class TestConcurrencySafeTools:
     def test_frozenset_contents(self) -> None:
         assert isinstance(CONCURRENCY_SAFE_TOOLS, frozenset)
         assert CONCURRENCY_SAFE_TOOLS == frozenset(
-            {"read_file", "list_dir", "grep_search", "glob", "view_media"}
+            {"read_file", "list_dir", "grep_search", "glob", "view_media", "web"}
         )
 
     @pytest.mark.parametrize("tool_name", sorted(CONCURRENCY_SAFE_TOOLS))
@@ -335,3 +339,116 @@ class TestRunBatch:
 
     def test_empty_calls(self) -> None:
         assert run_batch(lambda x: x, [], width=4) == []
+
+
+# ---------------------------------------------------------------------------
+# Web-specific in-flight cap (t4) — CONCURRENCY_SAFE_TOOLS + run_batch's
+# ``COLLEAGUE_WEB_CONCURRENCY``-sized semaphore.
+# ---------------------------------------------------------------------------
+
+
+def _call(name: str, arguments: dict) -> tuple:
+    """A loop-shaped call: mimics ``(executor, name, arguments)`` from
+    ``toolbatch_loop._run_parallel_batch`` — the exact item shape ``run_batch``
+    receives in production. ``executor`` is a stand-in placeholder (unused)."""
+    return (None, name, arguments)
+
+
+class TestWebBatchPartition:
+    def test_two_web_calls_merge_into_one_batch(self) -> None:
+        calls = [_call("web", {"verb": "search"}), _call("web", {"verb": "page open"})]
+        batches = partition_by_concurrency_safety(
+            calls, lambda c: is_tool_call_concurrency_safe(c[1], c[2])
+        )
+        assert batches == [calls]
+
+    def test_web_and_write_file_do_not_batch(self) -> None:
+        calls = [
+            _call("web", {"verb": "search"}),
+            _call("write_file", {"path": "x", "content": ""}),
+        ]
+        batches = partition_by_concurrency_safety(
+            calls, lambda c: is_tool_call_concurrency_safe(c[1], c[2])
+        )
+        assert batches == [[calls[0]], [calls[1]]]
+
+    def test_web_is_unconditionally_concurrency_safe(self) -> None:
+        assert is_tool_call_concurrency_safe("web", {"verb": "search"}) is True
+        assert is_tool_call_concurrency_safe("web", {"verb": "page open"}) is True
+        assert is_tool_call_concurrency_safe("web", {}) is True
+
+
+class TestWebConcurrencyEnvKnob:
+    def test_default_is_three(self, monkeypatch) -> None:
+        monkeypatch.delenv(ENV_WEB_CONCURRENCY, raising=False)
+        assert web_concurrency() == DEFAULT_WEB_CONCURRENCY == 3
+
+    def test_explicit_value_wins(self, monkeypatch) -> None:
+        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "5")
+        assert web_concurrency() == 5
+
+    def test_invalid_value_falls_back_to_default(self, monkeypatch) -> None:
+        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "not-a-number")
+        assert web_concurrency() == DEFAULT_WEB_CONCURRENCY
+
+    def test_zero_or_negative_floors_at_one(self, monkeypatch) -> None:
+        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "0")
+        assert web_concurrency() == 1
+        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "-3")
+        assert web_concurrency() == 1
+
+
+class TestWebInFlightCap:
+    def test_five_page_reads_at_most_three_in_flight(self, monkeypatch) -> None:
+        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "3")
+        lock = threading.Lock()
+        in_flight = 0
+        max_seen = 0
+
+        def execute(call: tuple) -> str:
+            nonlocal in_flight, max_seen
+            with lock:
+                in_flight += 1
+                max_seen = max(max_seen, in_flight)
+            time.sleep(0.05)
+            with lock:
+                in_flight -= 1
+            return call[1]
+
+        calls = [_call("web", {"verb": "page open", "url": f"https://x/{i}"}) for i in range(5)]
+        results = run_batch(execute, calls, width=10)
+        assert results == ["web"] * 5
+        assert max_seen <= 3, f"saw {max_seen} concurrent web page calls, cap is 3"
+
+    def test_search_not_gated_by_web_cap(self, monkeypatch) -> None:
+        # 'search' calls are bounded only by the general width, not the web cap.
+        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "1")
+        lock = threading.Lock()
+        in_flight = 0
+        max_seen = 0
+
+        def execute(call: tuple) -> str:
+            nonlocal in_flight, max_seen
+            with lock:
+                in_flight += 1
+                max_seen = max(max_seen, in_flight)
+            time.sleep(0.05)
+            with lock:
+                in_flight -= 1
+            return call[1]
+
+        calls = [_call("web", {"verb": "search"}) for _ in range(5)]
+        results = run_batch(execute, calls, width=5)
+        assert results == ["web"] * 5
+        assert max_seen >= 4, f"expected search calls to run concurrently, saw {max_seen}"
+
+    def test_concurrency_1_stays_sequential_web_cap_irrelevant(self, monkeypatch) -> None:
+        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "3")
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("ThreadPoolExecutor must not be instantiated")
+
+        monkeypatch.setattr(toolbatch, "ThreadPoolExecutor", _boom)
+        calls = [_call("web", {"verb": "page open"}) for _ in range(5)]
+        results = run_batch(lambda c: c[1], calls, width=1)
+        assert results == ["web"] * 5

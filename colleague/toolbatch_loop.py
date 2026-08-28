@@ -8,9 +8,12 @@ same predicate and finalises results in ORIGINAL request order).
 The loop hands every turn's tool calls to :func:`run_turn_calls`. The calls are
 partitioned with :func:`colleague.toolbatch.partition_by_concurrency_safety`:
 consecutive concurrency-safe calls (``read_file``, ``list_dir``,
-``grep_search``, ``glob``, ``view_media``, a ``memory`` recall, a
+``grep_search``, ``glob``, ``view_media``, ``web``, a ``memory`` recall, a
 ``run_command`` the fail-closed read-only checker approves) form one batch;
-every other call is a batch of its own and runs exactly as before.
+every other call is a batch of its own and runs exactly as before. A ``web``
+``page *`` call is additionally throttled inside :func:`colleague.toolbatch.run_batch`
+by its own ``COLLEAGUE_WEB_CONCURRENCY``-sized semaphore (default 3) — the
+general batch ``width`` still bounds the batch as a whole.
 
 The lifecycle split (spec c35 / honesty h24) — for a parallel batch:
 
