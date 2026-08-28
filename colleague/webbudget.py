@@ -44,9 +44,16 @@ WARNING_KIND = "web-budget-cap"
 _RESUME_RE = re.compile(r"\*\*Web calls:\*\* (\d+) \(failed: (\d+)\)")
 
 
-def resolve_max_calls() -> int:
-    """``COLLEAGUE_WEB_MAX_CALLS``, defaulting (and falling back) to 20 for an
-    unset, non-integer, or non-positive value."""
+def resolve_max_calls(override: "int | None" = None) -> int:
+    """*override* when given (t7, c33/h32 — the ONE work-item-wide budget a
+    purpose child inherits as its own effective cap, non-negative, 0 meaning
+    "no calls left"); otherwise ``COLLEAGUE_WEB_MAX_CALLS``, defaulting (and
+    falling back) to 20 for an unset, non-integer, or non-positive value —
+    unchanged for every caller that omits *override* (byte-identical). A
+    non-``int`` *override* (e.g. a test double's ``MagicMock`` attribute) is
+    treated as absent, never crashing the cap check."""
+    if isinstance(override, int) and not isinstance(override, bool):
+        return max(override, 0)
     raw = os.environ.get(ENV_MAX_CALLS)
     if raw is None:
         return DEFAULT_MAX_CALLS
@@ -55,6 +62,40 @@ def resolve_max_calls() -> int:
     except ValueError:
         return DEFAULT_MAX_CALLS
     return value if value > 0 else DEFAULT_MAX_CALLS
+
+
+def _spawn_config_attr(executor: Any, name: str) -> Any:
+    """*name* off the ``EngineConfig`` this *executor* was built from, reached
+    via ``executor._spawn.parent_config`` (:func:`colleague.subagents.make_spawn`'s
+    no-wiring seam, t7) — ``None`` when the executor carries no spawn callable
+    or the callable carries no ``parent_config`` (every construction path
+    before t7). Shared by :func:`check_and_increment` (the per-child cap
+    override) and :mod:`colleague.purpose_schemas` (the per-seat effort
+    overrides / kill-switch)."""
+    spawn = getattr(executor, "_spawn", None)
+    config = getattr(spawn, "parent_config", None)
+    return getattr(config, name, None)
+
+
+def remaining_for_child(executor: Any) -> int:
+    """The ONE work-item-wide web budget a purpose child should inherit (c33/
+    h32): this *executor*'s own effective cap (itself honoring an inherited
+    ``web_calls_remaining``, so a purpose-within-purpose child stays bounded)
+    minus what it has already spent, floored at 0 — never negative."""
+    max_calls = resolve_max_calls(_spawn_config_attr(executor, "web_calls_remaining"))
+    return max(max_calls - executor.web_calls, 0)
+
+
+def fold_child_counts(executor: Any, sub: Any) -> None:
+    """Fold a returned purpose child's web-call counters onto *executor*
+    (c33/h32) — ``sub.web_calls``/``web_failed`` are dynamic attributes
+    :func:`colleague.web_schemas.attach_web_report` sets, absent for a child
+    that made no ``web`` call (a strict no-op then)."""
+    web_calls = getattr(sub, "web_calls", None)
+    if not web_calls:
+        return
+    executor.web_calls += web_calls
+    executor.web_failed += getattr(sub, "web_failed", 0) or 0
 
 
 def cap_message(max_calls: int) -> str:
@@ -83,7 +124,7 @@ def check_and_increment(executor: Any) -> None:
     ``web.run_web`` (colleague/web_schemas.py ``dispatch``)."""
     from colleague.tools import ToolError  # local: avoids the import cycle
 
-    max_calls = resolve_max_calls()
+    max_calls = resolve_max_calls(_spawn_config_attr(executor, "web_calls_remaining"))
     if executor.web_calls >= max_calls:
         executor.web_cap_hit = max_calls
         raise ToolError(cap_message(max_calls))

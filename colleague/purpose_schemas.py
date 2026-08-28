@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from colleague import efforttables, web_schemas
+from colleague import efforttables, web_schemas, webbudget
 from colleague.contract import OK
 
 __all__ = [
@@ -330,9 +330,11 @@ def _purpose_effort(executor: Any, name: str) -> "str | None":
 
     :data:`~colleague.efforttables.PURPOSE_TABLE`'s row, unless an operator
     override is present. The overrides are read from OPTIONAL executor
-    attributes (``purpose_effort_overrides`` / ``effort_kill_switch``) —
-    absent today on every construction path, so the table row is what ships;
-    the seam exists so a later config thread has one place to land.
+    attributes (``purpose_effort_overrides`` / ``effort_kill_switch``) — t7
+    threads them from ``config.reasoning_effort_purposes``/``reasoning_effort``
+    onto *executor* at :func:`dispatch`'s top, so e.g.
+    ``reasoning_effort_purposes={'review': 'off'}`` reaches a review child's
+    rung; absent (a pre-t7 executor) falls back to the table row unchanged.
     """
     overrides = getattr(executor, "purpose_effort_overrides", None) or {}
     return efforttables.resolve_purpose_effort(
@@ -356,13 +358,27 @@ def _steps_for(executor: Any, name: str) -> int:
 
 
 def _render(name: str, sub: Any, steps: int) -> str:
-    """The tool result for one finished purpose child — mirrors ``_subagent``."""
+    """The tool result for one finished purpose child — mirrors ``_subagent``.
+
+    Ends with a ``urls fetched:`` block (t7, c33/h32) when the child made at
+    least one ``web`` call: every url from the child's OWN web steps,
+    verbatim and in fetch order (``sub.web_urls``, set by
+    ``colleague.web_schemas.attach_web_report`` off the child's
+    ``TaskResult.steps``) — a url the child's fetch failed on (a raised
+    error, or a ``.colleague/hooks.json`` ``pre_tool`` deny on ``web``) is
+    still listed (the digest says so), annotated ``(failed)``.
+    """
     text = (
         f"{name}[{sub.engine}/{sub.model}] {sub.status}: {sub.summary or '(no partial returned)'}\n"
         f"changed files: " + (", ".join(sub.changed_files) or "(none)")
     )
     if sub.status != OK:
         text = _EXHAUSTED.format(steps=steps) + text
+    urls = getattr(sub, "web_urls", None)
+    if urls:
+        failed = set(getattr(sub, "web_urls_failed", None) or ())
+        lines = [f"  - {u}" + (" (failed)" if u in failed else "") for u in urls]
+        text += "\nurls fetched:\n" + "\n".join(lines)
     return text
 
 
@@ -373,7 +389,12 @@ def _record(executor: Any, arguments: dict[str, Any], sub: Any) -> None:
     child's edits reach the single top-level handoff), plus the child's served
     model and id onto the CALLER's arguments dict — the same object the loop
     records as ``Step.arguments``, which is where ``scripts/compare_arms.py``
-    reads a purpose step's ``served_model`` from (t9).
+    reads a purpose step's ``served_model`` from (t9). t7 (c33/h32) additionally
+    folds the child's web-call counters onto the PARENT's executor (so the
+    NEXT purpose child computes a smaller remaining budget) and stashes the
+    child's fetched urls onto *arguments* — the same dict that becomes this
+    step's ``Step.arguments``, which is where ``web_schemas.summary_line``
+    reads a purpose-embedded url from for the artifact's ``web:`` report line.
     """
     executor.sub_results.append(sub)
     executor.changed.update(sub.changed_files)
@@ -381,6 +402,31 @@ def _record(executor: Any, arguments: dict[str, Any], sub: Any) -> None:
     if served:
         arguments["served_model"] = served
     arguments["purpose_child_id"] = sub.task_id
+    webbudget.fold_child_counts(executor, sub)
+    urls = getattr(sub, "web_urls", None)
+    if urls:
+        arguments["web_urls"] = urls
+        arguments["web_urls_failed"] = getattr(sub, "web_urls_failed", None) or []
+
+
+def _thread_effort_config(executor: Any) -> None:
+    """Set ``purpose_effort_overrides``/``effort_kill_switch`` on *executor*
+    from the ``EngineConfig`` it was built from (t7, note 1). No ToolExecutor
+    construction site names these two — instead this reads
+    ``executor._spawn.parent_config`` (:func:`colleague.subagents.make_spawn`'s
+    no-wiring seam), the SAME config object every engine (mock/vllm_openai)
+    already builds the executor from, since ``loop.py``'s OWN default
+    ``ToolExecutor(...)`` construction (``_resolve_run_collaborators``) is
+    never reached by either real engine — both always pass an explicit
+    ``executor=`` built inline from ``config``. A missing/config-less spawn
+    (a pre-t7 executor, or the `_Recorder` test double) is a no-op: the two
+    attributes stay absent and :func:`_purpose_effort` falls back unchanged.
+    """
+    config = getattr(getattr(executor, "_spawn", None), "parent_config", None)
+    if config is None:
+        return
+    executor.purpose_effort_overrides = getattr(config, "reasoning_effort_purposes", None)
+    executor.effort_kill_switch = getattr(config, "reasoning_effort", None) == "default"
 
 
 def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
@@ -393,8 +439,15 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
     (c24/h27). A refused launch (the depth cap, the global agent budget, an
     engine error) comes back as the tool RESULT text: a purpose call costs the
     caller one step and a readable line, never a crashed drive (h30).
+
+    Plan risk r2 note: this is where every purpose call enters the executor —
+    the resident's webtrust confirmation gate is deliberately NOT re-examined
+    here (out of scope for t7); a purpose child's ``web`` calls run under the
+    SAME policy/hook gates as any other tool call, no new gate is added.
     """
     from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
+
+    _thread_effort_config(executor)
 
     def _validate(name: str, arguments: dict[str, Any]) -> None:
         for key in _REQUIRED[name]:
@@ -418,6 +471,7 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
                     effort=_purpose_effort(executor, name),
                     max_steps=efforttables.PURPOSE_STEPS[name],
                     charges_budget=charges_budget(name),
+                    web_calls_remaining=webbudget.remaining_for_child(executor),
                 )
             except Exception as exc:  # refusal/launcher error -> a readable result
                 return ToolOutcome(result=executor._truncate(f"{name} refused: {exc}", name))
