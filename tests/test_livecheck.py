@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -631,3 +632,23 @@ class TestWebglassStatus:
         result = livecheck_mod.webglass_status(timeout=10.0)
         assert result["healthy"] is False
         assert "timed out" in result["detail"]
+
+    def test_shared_deadline_skips_session_probe_when_doctor_eats_it(self, monkeypatch) -> None:
+        """Qodo #11: a slow ``doctor`` probe must not let the pair take ~2x the
+        timeout — the session probe is skipped once the shared deadline is
+        spent, and total wall time stays well under ~11s (the 10s default +
+        slack), never ~20s."""
+        monkeypatch.setattr(livecheck_mod.shutil, "which", lambda name: "/usr/bin/webglass")
+
+        def _fake_run(argv, **kwargs):
+            to = kwargs.get("timeout")
+            time.sleep(to)  # a "sleepy" webglass that always eats its whole budget
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=to)
+
+        monkeypatch.setattr(livecheck_mod.subprocess, "run", _fake_run)
+        start = time.monotonic()
+        result = livecheck_mod.webglass_status(timeout=10.0)
+        elapsed = time.monotonic() - start
+        assert elapsed < 11.0
+        assert result["healthy"] is False
+        assert result["sessions"] == "skipped: probe deadline"

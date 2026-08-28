@@ -324,6 +324,17 @@ class WebConfirmationGate:
             self.confirmed = True
         return self.confirmed
 
+    def reset(self) -> None:
+        """Return to pristine state after granting one turn's web access.
+
+        c43 owes the confirmation once per relayed TURN — not once per
+        relaying sender for the rest of the harness lifetime. Called by
+        :func:`resolve_web_access` the moment a confirmed gate grants a
+        dispatch, so the NEXT relayed turn from the same sender starts over.
+        """
+        self.confirmed = False
+        self.requested = False
+
 
 @dataclass(frozen=True)
 class WebAccessVerdict:
@@ -359,7 +370,10 @@ def resolve_web_access(
       confirmed. The first such turn requests confirmation ONCE and runs with
       ``web`` withheld (the request is never held hostage — only its web
       access is); a bare affirmative from that sender confirms the gate and is
-      answered instead of dispatched.
+      answered instead of dispatched. The confirmation is spent by the NEXT
+      dispatched relayed turn: granting it resets the gate (c43 — once per
+      turn, never once per sender for the harness lifetime), so the turn
+      after that owes a fresh confirmation.
 
     ``web`` being unofferable at all (no webglass on PATH, ``COLLEAGUE_WEB=0``)
     short-circuits: there is no fetch to confirm, so no confirmation is asked.
@@ -377,6 +391,7 @@ def resolve_web_access(
     if gate.awaiting() and gate.affirm(body):
         return WebAccessVerdict(True, "web access confirmed for this turn.", handled=True)
     if gate.confirmed:
+        gate.reset()  # c43: spent by THIS turn — the next one owes a fresh confirmation.
         return WebAccessVerdict(True, None)
     verdict = gate.before_web_call()
     return WebAccessVerdict(verdict.allowed, verdict.confirmation_request)
