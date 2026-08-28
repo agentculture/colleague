@@ -2603,9 +2603,8 @@ def _resolve_distill_fn(ctx: _Work) -> Callable[..., Any] | None:
 
     Production wiring (t16): when from_config resolved an author and no
     explicit fn was injected, the detaching fn is built HERE so the child
-    targets the durable memory repo (never a reaped isolation worktree).
-    Lazy import — distill.py pulls background/memory and must not load for
-    memory-less runs. ``None`` = the rung-1 floor.
+    targets the durable memory repo. Lazy import (distill.py pulls
+    background/memory, must not load for memory-less runs). ``None`` = rung-1.
     """
     if ctx.distill_fn is not None:
         return ctx.distill_fn
@@ -2620,6 +2619,7 @@ def _resolve_distill_fn(ctx: _Work) -> Callable[..., Any] | None:
             getattr(author, "model", None),
             getattr(author, "base_url", ""),
             getattr(author, "api_key", ""),
+            getattr(author, "effort", None),
         )
     return None
 
