@@ -157,7 +157,7 @@ def is_shell_command_read_only(command: str) -> bool:
 
 _SHELL_METACHARACTERS: tuple = (";", "|", "&", "$(", "`", ">", "<")
 
-# python:S6353 (NOSONAR): `[A-Za-z0-9_]` looks like it can collapse to `\w`,
+# python:S6353 — deliberately kept: `[A-Za-z0-9_]` looks like it can collapse to `\w`,
 # but `\w` (without re.ASCII) also matches Unicode word characters, which
 # would widen what this regex accepts as an env-var-assignment token (shells
 # only ever produce ASCII identifiers here) and could change which token is
