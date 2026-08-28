@@ -166,6 +166,7 @@ def test_senses_unarmed_engine_config_to_dict_byte_identical() -> None:
         "three_tier",  # three-tier-execution arc, plan task t3
         "reasoning_effort",  # thinking-effort ladder, #416 t2
         "reasoning_effort_seats",  # thinking-effort ladder, #416 t2
+        "reasoning_effort_purposes",  # purpose-tools-associate-seat t1
         "too_long_min",  # thinking-effort ladder, #416 t2
     }
     assert set(snapshot.keys()) == expected_keys
