@@ -21,10 +21,10 @@ BRIEFS = REPO / "docs" / "live-testing" / "briefs"
 
 
 def _matrix_rows():
-    """Return {row_number: [feature, status, last_validated, issue]} cells.
+    """Return {row_number: [num, feature, files, status, last_validated+issue]} cells.
 
     The 'Last validated' cell may itself contain `|` (e.g. `#435 #436 |`),
-    so split only the first four cells and keep the rest of the line as the
+    so split only the first five cells and keep the rest of the line as the
     issue column.
     """
     rows = {}
@@ -33,7 +33,7 @@ def _matrix_rows():
         if not m:
             continue
         body = line.strip().strip("|")
-        cells = [re.sub(r"\s+", " ", c).strip() for c in body.split("|", 3)]
+        cells = [re.sub(r"\s+", " ", c).strip() for c in body.split("|", 4)]
         rows[int(m.group(1))] = cells
     return rows
 
@@ -43,7 +43,7 @@ def test_rows_49_and_50_exist_and_are_pending():
     assert 49 in rows, "row 49 missing from the live-testing matrix"
     assert 50 in rows, "row 50 missing from the live-testing matrix"
     for n in (49, 50):
-        status, last = rows[n][2], rows[n][3]
+        status, last = rows[n][3], rows[n][4]
         assert status == "❌", f"row {n} status must be ❌ (not yet validated live)"
         assert "PRE-REGISTERED" in last, f"row {n} must be marked PRE-REGISTERED"
         assert "BEFORE any run" in last, f"row {n} must state it was written before any run"
@@ -54,7 +54,7 @@ def test_rows_49_and_50_exist_and_are_pending():
 
 def test_row_49_shape():
     cells = _matrix_rows()[49]
-    last = cells[3]
+    last = cells[4]
     # brief pointer
     assert "docs/live-testing/briefs/row49-purpose.md" in last
     # repo: throwaway repo WITH an .eidetic store, eidetic CLI <version>
@@ -73,14 +73,14 @@ def test_row_49_shape():
 
 def test_row_50_shape():
     cells = _matrix_rows()[50]
-    last = cells[3]
+    last = cells[4]
     # brief pointer
     assert "docs/live-testing/briefs/row50-web-purpose.md" in last
     # repo: throwaway repo WITH an .eidetic store, eidetic CLI <version>
     assert "throwaway repo WITH an .eidetic store" in last
     assert re.search(r"eidetic CLI \d+\.\d+\.\d+", last), "row 50 must name the eidetic CLI version"
     # pass bar
-    assert "scout served model = the associate's" in last
+    assert "scout child's served model = the associate's" in last
     assert "evidence ids" in last
     assert "final answer" in last
     assert "zero `run_command` steps outside the repo" in last
