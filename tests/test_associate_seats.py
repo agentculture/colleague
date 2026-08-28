@@ -120,7 +120,11 @@ def test_armed_seat_config_is_the_associate_seat(seat: str) -> None:
     assert seat_cfg is not cfg
     assert seat_cfg.model == ASSOCIATE_WIRE_MODEL
     assert seat_cfg.base_url == _ASSOC.base_url
-    assert effort.effort_of(seat_cfg) == "off"  # the associate row
+    # the seat's own ASSOCIATE_SEAT_TABLE row (t2: per-sub-seat rung —
+    # scout/compact/synthesis/digest 'off', distill 'low')
+    from colleague.efforttables import ASSOCIATE_SEAT_TABLE
+
+    assert effort.effort_of(seat_cfg) == ASSOCIATE_SEAT_TABLE[seat]
 
 
 def test_fallback_seat_config_is_cortex_at_low() -> None:
@@ -357,6 +361,143 @@ def test_distill_associate_rung_never_authors_in_tae_mode() -> None:
     armed = _config(armed=True)
     armed.thought_action_evaluation = True
     assert distill.resolve_distill_author_from_config(armed) is None
+
+
+# ---------------------------------------------------------------------------
+# 5. purpose-tools-associate-seat t2 — the seat builders consume the
+#    sub-seat rung (c15/h15): ASSOCIATE_SEAT_TABLE as the table default,
+#    the "associate.<seat>" override above it, the whole-seat "associate"
+#    row override above that, and the 'default' kill switch winning.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seat", ["scout", "compact", "synthesis", "digest"])
+def test_armed_seat_config_resolves_the_sub_seat_row(seat: str) -> None:
+    """With nothing set, every associate seat resolves its OWN table row
+    (scout/compact/synthesis/digest = 'off') — not the whole-seat row."""
+    cfg = _config(armed=True)
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, seat)) == "off"
+
+
+def test_armed_distill_seat_resolves_low_with_nothing_set() -> None:
+    """The distill sub-seat's table row is 'low' — the split the spec names."""
+    cfg = _config(armed=True)
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, "distill")) == "low"
+
+
+def test_sub_seat_override_beats_the_table_row() -> None:
+    """The "associate.<seat>" override (the same dict the plain seat
+    overrides live in) ranks above the sub-seat table row."""
+    cfg = _config(armed=True)
+    cfg.reasoning_effort_seats = {"associate.scout": "medium"}
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, "scout")) == "medium"
+    # the other seats are untouched by the dotted override
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, "distill")) == "low"
+
+
+def test_whole_seat_override_beats_the_sub_seat_row() -> None:
+    """The plain "associate" row override ranks above the sub-seat table
+    (but below the dotted "associate.<seat>" override)."""
+    cfg = _config(armed=True)
+    cfg.reasoning_effort_seats = {"associate": "high"}
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, "scout")) == "high"
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, "distill")) == "high"
+    cfg.reasoning_effort_seats = {"associate": "high", "associate.distill": "low"}
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, "distill")) == "low"
+
+
+def test_kill_switch_yields_none_on_every_associate_seat() -> None:
+    """'default' anywhere in the chain drops the rung — every seat,
+    including the distill sub-seat's 'low' row."""
+    cfg = _config(armed=True)
+    cfg.reasoning_effort = "default"
+    for seat in associate_seats.ASSOCIATE_SEATS:
+        assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, seat)) is None
+
+
+def test_scout_child_config_resolves_the_scout_sub_seat_row() -> None:
+    """A scout child's rung is the 'scout' sub-seat row ('off') with nothing
+    set — and the "associate.scout" override beats it."""
+    parent = _config(armed=True)
+    child = dataclasses.replace(parent, role="scout")
+    bound = associate_seats.scout_child_config(parent, child, "scout", effort_override=None)
+    assert effort.effort_of(bound) == "off"
+    parent.reasoning_effort_seats = {"associate.scout": "high"}
+    bound = associate_seats.scout_child_config(parent, child, "scout", effort_override=None)
+    assert effort.effort_of(bound) == "high"
+    # the spawn's explicit override still wins above the sub-seat row
+    bound = associate_seats.scout_child_config(parent, child, "scout", effort_override="medium")
+    assert effort.effort_of(bound) == "medium"
+
+
+def test_make_associate_complete_resolves_the_seat_sub_row() -> None:
+    """The loop's seat factory resolves the rung per seat: compact/synthesis
+    at 'off', distill at 'low' with nothing set; the kill switch drops it."""
+    engine = _FakeEngine()
+    factory = associate_seats.make_associate_complete(
+        _config(armed=True), "fake", engine_loader=lambda name: engine
+    )
+    assert factory is not None
+    warnings: list[str] = []
+    for seat, expected in (("compact", "off"), ("synthesis", "off"), ("distill", "low")):
+        complete = factory(seat, warnings.append)
+        assert complete is not None
+        complete([{"role": "user", "content": "x"}])
+    assert engine.calls == [
+        (ASSOCIATE_WIRE_MODEL, "off"),
+        (ASSOCIATE_WIRE_MODEL, "off"),
+        (ASSOCIATE_WIRE_MODEL, "low"),
+    ]
+    assert warnings == []
+
+    kill = _config(armed=True)
+    kill.reasoning_effort = "default"
+    engine2 = _FakeEngine()
+    factory2 = associate_seats.make_associate_complete(
+        kill, "fake", engine_loader=lambda name: engine2
+    )
+    assert factory2 is not None
+    complete = factory2("distill", warnings.append)
+    assert complete is not None
+    complete([{"role": "user", "content": "x"}])
+    assert engine2.calls == [(ASSOCIATE_WIRE_MODEL, None)]
+
+
+def test_distill_author_carries_the_resolved_distill_rung() -> None:
+    """DistillAuthor gains an optional 'effort' field (default None) and the
+    associate builder stamps the resolved 'distill' sub-seat rung on it."""
+    import dataclasses as _dc
+
+    from colleague.distill import DistillAuthor
+
+    # the field exists, is optional, and defaults to None (unarmed callers
+    # and the other distill.py authors are byte-identical)
+    fields = {f.name: f for f in _dc.fields(DistillAuthor)}
+    assert "effort" in fields
+    assert fields["effort"].default is None
+    assert DistillAuthor(model="m", base_url="b", api_key="k").effort is None
+
+    author = associate_seats.distill_author(_config(armed=True))
+    assert author is not None
+    assert author.effort == "low"  # ASSOCIATE_SEAT_TABLE['distill']
+
+
+def test_distill_author_rung_honours_overrides_and_the_kill_switch() -> None:
+    author = associate_seats.distill_author(_config(armed=True))
+    assert author is not None
+    assert author.effort == "low"
+
+    cfg = _config(armed=True)
+    cfg.reasoning_effort_seats = {"associate.distill": "high"}
+    assert associate_seats.distill_author(cfg).effort == "high"
+
+    cfg = _config(armed=True)
+    cfg.reasoning_effort_seats = {"associate": "medium"}
+    assert associate_seats.distill_author(cfg).effort == "medium"
+
+    cfg = _config(armed=True)
+    cfg.reasoning_effort = "default"
+    assert associate_seats.distill_author(cfg).effort is None
 
 
 def test_setup_failure_on_the_associate_seat_warns_and_falls_back_to_cortex_low() -> None:
