@@ -34,7 +34,7 @@ kept; a CONFLICT is surfaced in the merge child's ``SubResult`` (status + the
 conflicted paths in the summary) — never force-merged and never silently dropped.
 ``batch_spawn`` returns a FLAT ``list[SubResult]``: the N child results in input
 order followed by exactly one merge child. Per-child worktrees/branches are torn
-down on EVERY exit path (success, partial, or exception) so nothing leaks.
+down on EVERY exit path (success, partial, or exception).
 
 Termination is structural for both paths via TWO caps, both checked *first, before
 any work* (no drive, no worktree). (1) The per-path **depth** cap: a child at
@@ -45,16 +45,13 @@ nesting shape — charged atomically (thread-safe) so concurrent batch children
 cannot race past it. The budget is created once by the loop wiring and threaded
 down every level; each child is handed its OWN spawn AND batch-spawn callbacks
 bound to ``depth + 1`` and the same budget, so nested batches are now PERMITTED
-(agents of agents of agents) yet the total stays bounded. When no budget is
-threaded (``counter=None``), or the child is a read-only purpose child
-(``ChildSpec.charges_budget=False``, c34), the budget is skipped — only the
-depth cap applies.
+yet the total stays bounded. ``counter=None``, or a read-only purpose child
+(``ChildSpec.charges_budget=False``, c34), skips the budget — only depth applies.
 
 The engine/model switch is pure configuration: the launcher resolves the child
 engine by name through :func:`colleague.registry.load` and inherits the parent's
 :class:`~colleague.config.EngineConfig` with only the model overridden
-(``dataclasses.replace``). No engine's own code is touched — selecting a
-different model is a config-level switch, exactly the contract Colleague promises.
+(``dataclasses.replace``) — no engine's own code is touched, a config-level switch.
 """
 
 from __future__ import annotations
@@ -65,7 +62,7 @@ import threading
 from typing import Callable, List, Optional, cast
 
 from colleague import associate_seats as _associate_seats
-from colleague import registry, worktrees
+from colleague import registry, web_schemas, worktrees
 from colleague.agents.profile import DORMANT_PURPOSES, PURPOSE_ROLE, PURPOSES
 from colleague.agents.state.context import CONTEXT_MODES
 from colleague.config import (
@@ -135,6 +132,11 @@ class ChildSpec:
     #: the purpose-tool arithmetic exemption
     #: (purpose-tools-associate-seat, c34). The DEPTH cap always applies.
     charges_budget: bool = True
+    #: The ONE work-item-wide web budget this child inherits (t7, c33/h32):
+    #: ``COLLEAGUE_WEB_MAX_CALLS - parent.web_calls`` at spawn time, or
+    #: ``None`` (the default) - today's per-executor budget, byte-identical
+    #: for every manual ``subagent``/``subagents`` call.
+    web_calls_remaining: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.context_mode not in CONTEXT_MODES:
@@ -173,38 +175,28 @@ class FrozenChildConfigLifecycle:
     :class:`~colleague.configlifecycle.EpisodeConfigLifecycle` — children
     never propose changes and never observe turns on the top-level task's
     config plane, only the top-level ``run()`` loop does that (the r2 rule,
-    extended). Instead this frozen adapter QUACKS LIKE the lifecycle's READ
-    surface, exactly as far as the two engine consumers reach into it:
-
-    - ``snapshot`` — a **property** (not a method). ``colleague/engine.py``'s
-      ``system_prompt`` (t7) reads it ONLY via
-      ``getattr(lifecycle, "snapshot", None)`` and then
-      ``.evaluator_sections`` off the result — never calling it. A
-      method-only ``snapshot()`` would silently lose the evaluator note at
-      that seam. ``colleague/engines/{mock,vllm_openai}.py`` (t3) read the
-      SAME attribute defensively via a ``callable()`` check, so a property
-      satisfies both: the attribute access already yields the (non-callable)
-      :class:`~colleague.configlifecycle.EpisodeConfigSnapshot`.
-    - ``child_snapshot()`` — a method returning the SAME frozen snapshot, so
-      a grandchild's own spawn (this child delegating further) re-derives
-      the identical snapshot again, one level deeper — grandchildren inherit
-      exactly like a depth-1 child (acceptance criterion 1).
+    extended). This frozen adapter QUACKS LIKE the lifecycle's READ surface,
+    as far as the two engine consumers reach into it: ``snapshot`` is a
+    **property** (not a method) — ``colleague/engine.py``'s ``system_prompt``
+    (t7) reads it via a bare ``getattr``, never calling it, and
+    ``colleague/engines/{mock,vllm_openai}.py`` (t3) read the SAME attribute
+    defensively via a ``callable()`` check, so a property satisfies both.
+    ``child_snapshot()`` returns the SAME frozen snapshot, so a grandchild's
+    own spawn re-derives the identical snapshot one level deeper — inheriting
+    exactly like a depth-1 child (acceptance criterion 1).
 
     Nothing else: no ``propose``/``apply_window`` (a child can never queue or
     apply a config change). ``observe_turn``/``end_episode`` no-ops ARE
-    present, out of technical necessity rather than the read surface itself:
-    ``colleague/loop.py`` calls both unconditionally on ANY attached
-    ``config.config_lifecycle`` object once per completed turn / on every
-    loop exit — a bare read-only stub without them would raise
-    ``AttributeError`` on the child's OWN first turn. Both are honest no-ops:
-    they touch no parent state (there is none held here) and never mutate
-    this frozen adapter.
+    present out of technical necessity: ``colleague/loop.py`` calls both
+    unconditionally on ANY attached ``config.config_lifecycle`` once per
+    completed turn / on every loop exit — a bare stub without them would
+    raise ``AttributeError`` on the child's own first turn. Both are honest
+    no-ops touching no parent state and never mutating this frozen adapter.
 
     A frozen dataclass over an already-frozen
     :class:`~colleague.configlifecycle.EpisodeConfigSnapshot` — immutable end
     to end, so it is safe to read from a ``ThreadPoolExecutor`` worker thread
-    (``colleague/subagents.py`` is one of the two sanctioned threading
-    modules, ``batch_spawn`` at width > 1) with no lock needed.
+    (``batch_spawn`` at width > 1) with no lock needed.
     """
 
     frozen_snapshot: EpisodeConfigSnapshot
@@ -827,6 +819,7 @@ def make_spawn(
         effort: Optional[str] = None,
         max_steps: Optional[int] = None,
         charges_budget: bool = True,
+        web_calls_remaining: Optional[int] = None,
     ) -> SubResult:
         """Run one child subagent, optionally typed by ``role`` (#t4).
 
@@ -858,9 +851,16 @@ def make_spawn(
                 effort=effort,
                 max_steps=max_steps,
                 charges_budget=charges_budget,
+                web_calls_remaining=web_calls_remaining,
             ),
         )
 
+    # No-wiring seam (mirrors editgate.continuation_id/webbudget.py's own doc):
+    # the config THIS closure spawns against, reachable from any executor built
+    # with it as ``executor._spawn.parent_config`` — t7 reads
+    # ``reasoning_effort_purposes``/``reasoning_effort`` off it for purpose
+    # children without threading a new ToolExecutor constructor kwarg.
+    spawn.parent_config = parent_config
     return spawn
 
 
@@ -880,6 +880,7 @@ def _build_child_config(
             # An explicit model override from the caller still wins (the
             # flag > env > config precedence, applied to the child seat).
             child_config.model = model
+        child_config.web_calls_remaining = spec.web_calls_remaining  # t7
         return child_config
     replace_kwargs: dict = {
         "model": (model or parent_config.model),
@@ -918,9 +919,11 @@ def _build_child_config(
             seat="cortex",
         ),
     )
-    return _associate_seats.scout_child_config(
+    scouted = _associate_seats.scout_child_config(
         parent_config, child, role, effort_override=spec.effort
     )
+    scouted.web_calls_remaining = spec.web_calls_remaining  # t7: c33/h32
+    return scouted
 
 
 def _delegate_event_data(
@@ -993,38 +996,35 @@ def run_subagent(
 
     ``depth`` is the nesting level of THIS child (top-level children = 1). Two
     structural caps are enforced *first, before any work* — a refused child does
-    zero work and starts no child work item, guaranteeing termination:
-
-    - the per-path **depth** cap (:data:`~colleague.config.MAX_SUBAGENT_DEPTH`); and
-    - the shared **global agent budget** (#t4): when a ``counter`` is threaded, it
-      is charged once here, and a child that would push the TOTAL agents spawned
-      under the top-level work item past :data:`~colleague.config.MAX_SUBAGENT_TOTAL`
-      is refused. ``counter=None`` skips the budget (byte-identical to before).
+    zero work and starts no child work item, guaranteeing termination: the
+    per-path **depth** cap (:data:`~colleague.config.MAX_SUBAGENT_DEPTH`), and
+    the shared **global agent budget** (#t4) — a threaded ``counter`` is charged
+    once here, refusing a child that would push the TOTAL agents spawned under
+    the top-level work item past :data:`~colleague.config.MAX_SUBAGENT_TOTAL`
+    (``counter=None`` skips the budget, byte-identical to before).
 
     The child engine is ``engine or parent_engine``, resolved through
     :func:`colleague.registry.load`. The child config inherits the parent's
     unchanged except the model (switched when provided) and the typed ``role``
-    (#t4) — both pure config-level switches with no engine code change. The engine
-    builds the child's curated tool schema + role-composed prompt from
-    ``config.role`` (t8). The child is given its own ``subagent_spawn`` AND
+    (#t4) — both pure config-level switches with no engine code change. The
+    engine builds the child's curated tool schema + role-composed prompt from
+    ``config.role`` (t8). The child gets its own ``subagent_spawn``/
     ``subagent_batch_spawn`` bound to ``depth + 1``, the SAME ``counter``, and
-    ``parent_task_id`` set to THIS child's own task id — so a grandchild records
-    ITS immediate parent (this child), not the top-level root — so it can
-    delegate further (nested batches now permitted), still globally bounded.
+    ``parent_task_id`` set to THIS child's own task id, so it can delegate
+    further (nested batches permitted), still globally bounded.
 
     **Cross-role dial (#411 t14).** When the parent's ``agents`` mode is armed
     AND ``spec.profile`` is set, the child's config is built by
     :func:`_child_config_for_profile` instead (the role's own dial target,
     model and advertised context; the parent's api_key ONLY toward the same
-    origin, #348; a recorded fallback to cortex / the main seat when the role
-    is absent, not ready, dormant, or the gateway is unreachable); the
-    returned ``SubResult`` then carries ``agent_id`` / ``resolved_model`` /
-    ``fallback_from_role``; a ``delegate`` event is appended to the parent's
-    task ledger BEFORE the child runs and a ``return`` event AFTER (when the
-    loop wiring attached ``agents_ledger_path``; skipped silently otherwise);
-    and ``context_mode="clear"`` hands the child the t10 handover summary as
-    its ``Task.context`` instead of nothing (``inherit`` = today). Unarmed, or
-    armed without a profile, is the EXISTING path byte-identical.
+    origin, #348; a recorded fallback to cortex/main when the role is absent,
+    not ready, dormant, or the gateway is unreachable); the returned
+    ``SubResult`` then carries ``agent_id``/``resolved_model``/
+    ``fallback_from_role``; a ``delegate``/``return`` ledger event pair
+    brackets the child run (when ``agents_ledger_path`` is attached; skipped
+    silently otherwise); ``context_mode="clear"`` hands the child the t10
+    handover summary as its ``Task.context`` (``inherit`` = today). Unarmed,
+    or armed without a profile, is the EXISTING path byte-identical.
 
     The work item runs via ``engine.work`` — the bounded loop, **no** git handoff,
     fully synchronous.
@@ -1064,25 +1064,19 @@ def run_subagent(
     # and leaves the parent object untouched. The cast is purely for the static
     # analyser (Sonar models replace()'s return as a generic DataclassInstance).
     #
-    # ``chain_episode``/``chain_prior_changed`` are reset UNCONDITIONALLY (#335,
-    # c22): ``execute_work`` sets those runtime-only fields on ``parent_config``
-    # IN PLACE (mutation, not replace) when the parent is one episode of an
-    # armed ``--until-done`` chain, so a naive ``dataclasses.replace`` would
-    # otherwise copy ``True``/the accumulated tuple onto every subagent child —
-    # a child is never itself a chain episode, so it must never see the marker.
-    # ``until_done`` is reset for the same reason (#337): the loop keys
-    # ``ContextControls.chain_armed`` on it, so an inherited flag would arm the
-    # fill-line chain consumers inside a child nobody chains.
+    # ``chain_episode``/``chain_prior_changed``/``until_done`` are reset
+    # UNCONDITIONALLY (#335/#337, c22): ``execute_work`` sets those runtime-only
+    # fields on ``parent_config`` IN PLACE for an armed ``--until-done`` chain
+    # episode, so a naive ``replace`` would otherwise copy the marker/flag onto
+    # every child — a child is never itself a chain episode and must never arm
+    # the loop's fill-line chain consumers.
     #
-    # ``config_lifecycle`` is ALSO reset UNCONDITIONALLY (plan t10, spec
-    # c35/h28): the parent's attachment — the REAL
-    # ``EpisodeConfigLifecycle`` at the top level, or an inherited
-    # ``FrozenChildConfigLifecycle`` one level down — is never handed to a
-    # child as-is; a naive ``dataclasses.replace`` would otherwise copy the
-    # mutable real object straight onto the child, letting it (or something
-    # holding its config) reach ``propose``/``apply_window``, which the r2
-    # rule (children never propose, never observe turns) forbids. Always
-    # explicitly set — even to ``None`` — so it is never an accidental copy.
+    # ``config_lifecycle`` is ALSO reset UNCONDITIONALLY (plan t10, c35/h28): the
+    # parent's attachment (the REAL ``EpisodeConfigLifecycle`` or an inherited
+    # ``FrozenChildConfigLifecycle``) is never handed to a child as-is — that
+    # would let it reach ``propose``/``apply_window``, which the r2 rule
+    # (children never propose, never observe turns) forbids. Always set
+    # explicitly, even to ``None``, so it is never an accidental copy.
     #
     # (c2) ARMED cross-role dial (#411 t14): with ``agents`` armed and a
     # ``profile`` on the spec, the child config comes from
@@ -1179,7 +1173,7 @@ def run_subagent(
     # (g) Project the child's TaskResult onto the nested-only SubResult shape.
     # The three armed-only identity fields stay ``None`` (omitted from
     # ``to_dict``) on the unarmed path — the mock/vllm parity key set holds.
-    return SubResult(
+    sub = SubResult(
         task_id=result.task_id,
         engine=child_engine,
         model=child_config.model,
@@ -1193,6 +1187,12 @@ def run_subagent(
         resolved_model=(binding.resolved_model if binding is not None else None),
         fallback_from_role=(binding.fallback_from_role if binding is not None else None),
     )
+    # t7 (c33/h32): dynamic attrs, no contract.py field — the child's web-call
+    # counters (fold onto the parent's executor) and its fetched urls (the
+    # parent's 'urls fetched:' report block), read off the child's OWN
+    # TaskResult, which SubResult otherwise never carries.
+    web_schemas.attach_web_report(sub, result)
+    return sub
 
 
 # ---------------------------------------------------------------------------
