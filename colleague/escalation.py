@@ -197,7 +197,7 @@ def build_continuation(result: TaskResult, stats: WorkStats) -> str:  # noqa: WP
         The :class:`~colleague.contract.WorkStats` attached to the same work item
         (typically ``result.stats``).  Key fields consumed: ``started_at``,
         ``duration_seconds``, ``model_turns``, ``step_count``, ``tool_counts``,
-        ``files_changed``, ``bytes_written``, ``request``.
+        ``files_changed``, ``bytes_written``, ``web_calls``, ``web_failed``, ``request``.
 
     Returns
     -------
@@ -237,6 +237,7 @@ def build_continuation(result: TaskResult, stats: WorkStats) -> str:  # noqa: WP
         f"**Steps completed:** {stats.step_count}  \n"
         f"**Files changed ({stats.files_changed}):** {files_summary}  \n"
         f"**Bytes written:** {stats.bytes_written}  \n"
+        f"**Web calls:** {stats.web_calls} (failed: {stats.web_failed})  \n"
         f"**Tool breakdown:** {tool_detail}  \n\n"
         f"**What the work item finished:**\n\n"
         f"{result.summary or '_No summary produced._'}\n"

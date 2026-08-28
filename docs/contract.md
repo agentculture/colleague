@@ -157,6 +157,8 @@ request
 started_at
 step_count
 tool_counts
+web_calls
+web_failed
 ```
 
 Optional — emitted only when at least one is non-zero, so an untouched run

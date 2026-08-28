@@ -803,6 +803,14 @@ class ToolExecutor:
         # bytes not tokens; an edit_file counts only its replacement bytes). The loop
         # snapshots it onto WorkStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
+        # t9: the web-call budget — colleague/webbudget.py owns the cap/message
+        # logic, but the counters themselves live here (mirrors bytes_written)
+        # so each subagent child, which builds its own executor, carries its
+        # own independent counter, never the parent's. ``web_cap_hit`` is the
+        # cap value the moment call N+1 was refused, or None (never hit).
+        self.web_calls: int = 0
+        self.web_failed: int = 0
+        self.web_cap_hit: int | None = None
         self._spawn = spawn
         # Batch spawn callable: ``batch_spawn(items) -> list[SubResult]``.
         # Injected by the loop (t5); None means the subagents tool is unavailable.

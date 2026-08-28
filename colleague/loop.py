@@ -65,6 +65,7 @@ from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague import toolbatch_loop as _toolbatch_loop
 from colleague import turnbudget as _turnbudget
+from colleague import webbudget
 from colleague.agents import runtime as _agents_runtime
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
@@ -940,6 +941,7 @@ def _finalize_stats(
     stats.tool_counts = dict(Counter(step.tool for step in result.steps))
     stats.files_changed = len(result.changed_files)
     stats.bytes_written = executor.bytes_written
+    webbudget.finalize(result, executor)  # t9: web-call counters + cap warning
     _runcounts.finalize(result, executor)  # t20: derived harness counters
 
 
@@ -4873,74 +4875,72 @@ def run(
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
-    ``executor`` defaults to one confined to ``task.repo_path``. ``hooks``
-    defaults to the config loaded from ``task.repo_path`` (so engines that call
-    :func:`run` unchanged still get the lifecycle); pass an explicit
-    :class:`~colleague.hooks.HookConfig` (e.g. an empty one) to override or
-    suppress repo loading. Returns a uniform :class:`TaskResult` with the
-    per-step trace, accumulated usage, and every hook firing in order. The tool
-    schemas live with each backend's ``complete`` closure, not here.
+    ``executor`` defaults to one confined to ``task.repo_path``. ``hooks`` defaults to the config
+    loaded from ``task.repo_path`` (so engines that call :func:`run` unchanged still get the
+    lifecycle); pass an explicit :class:`~colleague.hooks.HookConfig` (e.g. an empty one) to
+    override or suppress repo loading. Returns a uniform :class:`TaskResult` with the per-step
+    trace, accumulated usage, and every hook firing in order. The tool schemas live with each
+    backend's ``complete`` closure, not here.
 
     ``model`` threads into per-model hook resolution: when given,
     :func:`~colleague.hooks.load_hooks` additionally loads the per-model overlay
-    ``.colleague/<model>/hooks.json`` and prepends its entries ahead of the base
-    entries (per-model fix takes priority); ``None`` (the default) is the
-    base-only load — no behavior change for callers that do not pass a model.
+    ``.colleague/<model>/hooks.json`` and prepends its entries ahead of the base entries (per-model
+    fix takes priority); ``None`` (the default) is the base-only load — no behavior change for
+    callers that do not pass a model.
 
-    ``telemetry`` likewise defaults to :func:`~colleague.telemetry.load_telemetry`
-    (a no-op unless ``COLLEAGUE_OTEL_ENABLED`` is set). When enabled, every tool
-    call becomes a ``colleague.tool.*`` span and the loop records the per-step
-    metrics (steps, tokens, tool latency, hook denials) — lives in the loop so
-    *every* engine inherits it (the all-engines rule), like hook firing.
+    ``telemetry`` likewise defaults to :func:`~colleague.telemetry.load_telemetry` (a no-op unless
+    ``COLLEAGUE_OTEL_ENABLED`` is set). When enabled, every tool call becomes a
+    ``colleague.tool.*`` span and the loop records the per-step metrics (steps, tokens, tool
+    latency, hook denials) — lives in the loop so *every* engine inherits it (the all-engines
+    rule), like hook firing.
 
-    ``progress`` is an optional per-step sink ``(step_index, tool, target, ok)``
-    fired after each tool call (#38); ``None`` (the default) is a strict no-op.
-    Like hooks/telemetry, runtime-owned — every backend forwards ``config.progress``.
+    ``progress`` is an optional per-step sink ``(step_index, tool, target, ok)`` fired after each
+    tool call (#38); ``None`` (the default) is a strict no-op. Like hooks/telemetry, runtime-owned
+    — every backend forwards ``config.progress``.
 
-    ``spawns`` is an optional :class:`Spawns` bundle of the two delegation
-    callbacks — ``spawns.single`` backs the ``subagent`` tool, ``spawns.batch``
-    backs the parallel ``subagents`` tool (built by
-    :func:`colleague.subagents.make_spawn`/``make_batch_spawn``) — injected into
-    the :class:`~colleague.tools.ToolExecutor` when given; ``None`` (or an unset
-    field) leaves that tool unavailable. Runtime-owned: backends build their own
-    executor via ``config.subagent_spawn``/``config.subagent_batch_spawn`` (the
-    ``executor`` seam) for direct callers. Nested results snapshot onto
-    ``result.sub_results`` on every exit path (with ``changed_files``).
+    ``spawns`` is an optional :class:`Spawns` bundle of the two delegation callbacks —
+    ``spawns.single`` backs the ``subagent`` tool, ``spawns.batch`` backs the parallel
+    ``subagents`` tool (built by :func:`colleague.subagents.make_spawn`/``make_batch_spawn``) —
+    injected into the :class:`~colleague.tools.ToolExecutor` when given; ``None`` (or an unset
+    field) leaves that tool unavailable. Runtime-owned: backends build their own executor via
+    ``config.subagent_spawn``/``config.subagent_batch_spawn`` (the ``executor`` seam) for direct
+    callers. Nested results snapshot onto ``result.sub_results`` on every exit path (with
+    ``changed_files``).
 
     ``context`` is an optional :class:`ContextControls` bundle of the three
-    context-window-management knobs — ``budget`` (windows history + drives the
-    bounded overflow shrink-and-retry), ``count_tokens`` (handed to
-    :func:`window_messages`), and ``autosplit_target`` (with ``budget`` also
-    positive, arms reactive auto-split #151: an exhausted overflow recommends
-    splitting via ``subagents`` before escalating, plus a coarse up-front hint) —
-    see that class for the per-field contract. ``None``, or any field
-    ``None``/0, is a strict no-op byte-identical to the pre-feature loop;
-    runtime-owned (all-engines rule): every backend forwards its ``config``
-    budget + autosplit target here.
+    context-window-management knobs — ``budget`` (windows history + drives the bounded overflow
+    shrink-and-retry), ``count_tokens`` (handed to :func:`window_messages`), and
+    ``autosplit_target`` (with ``budget`` also positive, arms reactive auto-split #151: an
+    exhausted overflow recommends splitting via ``subagents`` before escalating, plus a coarse
+    up-front hint) — see that class for the per-field contract. ``None``, or any field ``None``/0,
+    is a strict no-op byte-identical to the pre-feature loop; runtime-owned (all-engines rule):
+    every backend forwards its ``config`` budget + autosplit target here.
 
-    If ``complete`` raises mid-loop (e.g. a per-request timeout, or a
-    context-overflow the bounded retry could not recover), the partial work is
-    *preserved*: the accumulated ``steps`` / ``usage`` / ``changed_files`` are
-    finalized onto the result with ``status=error`` and re-raised as
-    :class:`WorkAborted` carrying that result, so the work path can write a
-    non-empty artifact + trace before surfacing the error (#37).
+    If ``complete`` raises mid-loop (e.g. a per-request timeout, or a context-overflow the bounded
+    retry could not recover), the partial work is *preserved*: the accumulated ``steps`` /
+    ``usage`` / ``changed_files`` are finalized onto the result with ``status=error`` and re-raised
+    as :class:`WorkAborted` carrying that result, so the work path can write a non-empty artifact +
+    trace before surfacing the error (#37).
 
-    ``seat`` names the acting seat for the flight run-start marker (#308) —
-    forwarded verbatim to :meth:`~colleague.flight.FlightSession.append_run_start`
-    and nowhere else (t2, change-content-consumption-lane spec, covers c9/h9).
-    The default ``"cortex"`` keeps every caller that does not pass ``seat``
-    byte-identical to the pre-t2 line. Each engine's ``work()`` resolves which
-    seat actually acts (``"worker"`` under three-tier execution) and passes the
-    label here — ``run()`` never inspects ``config`` (not a parameter), so the
-    resolution decision stays at the call site; this only threads the
-    already-resolved label to the one emit call (h11: no other path branches
-    on ``seat``).
+    ``seat`` names the acting seat for the flight run-start marker (#308) — forwarded verbatim to
+    :meth:`~colleague.flight.FlightSession.append_run_start` and nowhere else (t2,
+    change-content-consumption-lane spec, covers c9/h9). The default ``"cortex"`` keeps every
+    caller that does not pass ``seat`` byte-identical to the pre-t2 line. Each engine's ``work()``
+    resolves which seat actually acts (``"worker"`` under three-tier execution) and passes the
+    label here — ``run()`` never inspects ``config`` (not a parameter), so the resolution decision
+    stays at the call site; this only threads the already-resolved label to the one emit call (h11:
+    no other path branches on ``seat``).
+
+    ``run`` resumes the web-call budget on continuation (t9) from the prior episode's
+    ``web_calls``/``web_failed``, embedded by :func:`colleague.escalation.build_continuation` and
+    parsed via :func:`colleague.webbudget.resume_counts` — the same seam as ``context_note``.
     """
     _spawns, _context, executor = _resolve_run_collaborators(spawns, context, executor, task)
     # t21: a continuation seed's own preamble names the resumed task id (all
     # engines build ``executor`` from ``task.repo_path`` alone); reading it
     # back here needs no wiring between continuation.py and the executor.
     executor.context_note = _editgate.continuation_id(task.instruction)
+    executor.web_calls, executor.web_failed = webbudget.resume_counts(task.instruction)
     # hooks/telemetry/policy each default from the repo (or the environment, for
     # telemetry) when not injected — see _resolve_runtime_defaults for the
     # per-field contract (byte-identical to the prior inline defaulting).
