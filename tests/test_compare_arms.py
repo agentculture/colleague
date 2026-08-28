@@ -479,3 +479,108 @@ def test_main_prints_the_three_new_columns(tmp_path: Path, capsys):
     # the quiet arm's row: all three counters 0
     quiet_line = next(line for line in out.splitlines() if line.startswith("other"))
     assert "0" in quiet_line
+
+
+# --- purpose steps in delegations + associate_calls (plan t9, covers c7/h7) --
+
+
+def test_purpose_tool_names_are_imported_not_duplicated():
+    """compare_arms must import the purpose names from colleague.purpose_schemas
+    (no duplicate list) and count exactly the six purpose tools."""
+    import scripts.compare_arms as compare_arms
+    from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
+
+    assert compare_arms.PURPOSE_TOOL_NAMES is PURPOSE_TOOL_NAMES
+    assert set(PURPOSE_TOOL_NAMES) == {
+        "web_survey",
+        "code_survey",
+        "review",
+        "validate",
+        "plan",
+        "handover_to_colleague",
+    }
+
+
+def test_delegations_counts_purpose_tool_steps(tmp_path: Path):
+    """delegations = subagent/subagents steps OR any of the six purpose tools."""
+    _write_full_artifact(
+        tmp_path,
+        "deleg-purpose-1",
+        [
+            _step(0, "read_file"),
+            _step(1, "subagent", {"instruction": "survey module A"}),
+            _step(2, "code_survey", {"question": "interfaces of alpha/beta/gamma"}),
+            _step(3, "web_survey", {"question": "find X", "urls": ["https://example.com/a"]}),
+            _step(4, "review", {"diff_ref": "HEAD~1"}),
+            _step(5, "validate", {"scope": "tests/"}),
+            _step(6, "plan", {"goal": "ship the widget"}),
+            _step(7, "handover_to_colleague", {"task": "t9", "acceptance": ["done"]}),
+            _step(8, "edit_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "deleg-purpose-1")
+    # 1 subagent + 6 purpose steps
+    assert stats.delegations == 7
+
+
+def test_purpose_step_served_model_counts_as_associate_call(tmp_path: Path):
+    """A purpose step records served_model in Step.arguments like a subagent
+    step; associate_calls counts it when it equals the artifact's associate
+    served_model. Fixture with one code_survey step + served_model yields
+    delegations=1, associate_calls=1."""
+    _write_full_artifact(
+        tmp_path,
+        "assoc-purpose-1",
+        [
+            _step(
+                0,
+                "code_survey",
+                {"question": "interfaces of alpha/beta/gamma", "served_model": "nemotron-3.5"},
+            ),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        associate={"served_model": "nemotron-3.5"},
+    )
+    stats = load_artifact_stats(tmp_path, "assoc-purpose-1")
+    assert stats.delegations == 1
+    assert stats.associate_calls == 1
+
+
+def test_purpose_step_not_served_by_associate_is_not_an_associate_call(tmp_path: Path):
+    """A purpose step whose served_model differs from the associate's counts as
+    a delegation but NOT as an associate call."""
+    _write_full_artifact(
+        tmp_path,
+        "assoc-purpose-2",
+        [
+            _step(
+                0,
+                "code_survey",
+                {"question": "interfaces", "served_model": "cortex-model"},
+            ),
+            _step(1, "review", {"diff_ref": "HEAD~1"}),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        associate={"served_model": "nemotron-3.5"},
+    )
+    stats = load_artifact_stats(tmp_path, "assoc-purpose-2")
+    assert stats.delegations == 2
+    assert stats.associate_calls == 0
+
+
+def test_purpose_steps_do_not_inflate_web_calls(tmp_path: Path):
+    """web calls stay the CHILD's (t7 folds them): a web_survey step is a
+    delegation, never a web_calls entry."""
+    _write_full_artifact(
+        tmp_path,
+        "web-purpose-1",
+        [
+            _step(0, "web_survey", {"question": "find X", "urls": ["https://example.com/a"]}),
+            _step(1, "web", {"verb": "search"}),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "web-purpose-1")
+    assert stats.delegations == 1
+    assert stats.web_calls == 1
