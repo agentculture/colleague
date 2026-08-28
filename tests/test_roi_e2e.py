@@ -77,4 +77,6 @@ def test_stats_block_carries_the_previously_missing_fields() -> None:
         "reasoning_bytes",
         "answer_chars",
         "answer_bytes",
+        "web_calls",  # t9: web-call budget
+        "web_failed",
     }

@@ -30,6 +30,10 @@ def _executor() -> MagicMock:
     ex = MagicMock()
     ex.root = Path("/tmp/repo")
     ex._truncate.side_effect = lambda text, _tool: text
+    # t9: real ints — the web-budget hook compares/increments these.
+    ex.web_calls = 0
+    ex.web_failed = 0
+    ex.web_cap_hit = None
     return ex
 
 

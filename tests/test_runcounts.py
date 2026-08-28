@@ -28,6 +28,8 @@ _PRE_ARC_STATS_KEYS = {
     "reasoning_bytes",
     "answer_chars",
     "answer_bytes",
+    "web_calls",  # t9: web-call budget
+    "web_failed",
 }
 
 

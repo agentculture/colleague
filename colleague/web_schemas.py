@@ -30,7 +30,7 @@ import shutil
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from colleague import web
+from colleague import web, webbudget
 
 __all__ = [
     "WEB_ENV",
@@ -249,8 +249,10 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
             raise ToolError(
                 f"web needs a 'verb' from the allow-list ({', '.join(sorted(web.ALLOWED_VERBS))})"
             )
+        webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
         output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
         envelope = _parse_envelope(output)
+        webbudget.record_result(executor, envelope)  # t9: counts a failed call
         text = render_result(envelope) if envelope is not None else output
         return ToolOutcome(result=executor._truncate(text, WEB_TOOL_NAME))
 
