@@ -38,6 +38,8 @@ __all__ = [
     "tool_call_examples",
     "interaction_guidance",
     "default_system",
+    "HANDOVER_EXAMPLE",
+    "SECTION_TABLE",
 ]
 
 ADAPTED_FROM_MARKER = (
@@ -169,6 +171,60 @@ _AGENTFRONT = (
     "advisory and your own judgement; reading a surface is read-only — it never "
     "installs, approves, or trusts the tool."
 )
+
+#: A worked hand-over -> review -> collect example (plan t8, spec c30/c31,
+#: h19/h20). Listed in :data:`SECTION_TABLE` but EXCLUDED from the default
+#: adopted join in :func:`_adopted_system` — it is spliced in only under a
+#: named variant (``qwen-handover``) or the ``COLLEAGUE_PROMPT_SECTIONS``
+#: opt-in (see :func:`default_system`), never under the default
+#: ``COLLEAGUE_PROMPT_VARIANT``. This keeps the default prompt byte-identical
+#: to v1.64.0 (pinned by ``tests/snapshots/prompttext_v1.txt``).
+HANDOVER_EXAMPLE = (
+    "# Hand-over, Review, Collect (Example)\n"
+    "A worked look at handing a piece of work to a child, reading what comes "
+    "back before acting on it, and folding it into your own result.\n\n"
+    "<example>\n"
+    "user: Check whether the export helper in colleague/report.py still matches "
+    "its docstring, and fix it if not.\n"
+    "model: This is a self-contained read-then-maybe-fix, and a fresh pair of "
+    "eyes on just the docstring question keeps my own context free for the fix. "
+    "Handing it over.\n"
+    "[tool_call: subagent with instruction 'Read colleague/report.py and its "
+    "docstring; report whether the code and docstring still agree, and where "
+    "they diverge' and context_mode 'clear']\n"
+    "(the child's digest comes back as the tool result: 'report() no longer "
+    "raises on a missing repo_path — the docstring still says it does.')\n"
+    "model: Reviewing that digest before touching anything — it names one "
+    "concrete mismatch. Collecting it into the fix.\n"
+    "[tool_call: read_file for path 'colleague/report.py']\n"
+    "[tool_call: edit_file for path 'colleague/report.py' replacing old_string "
+    "with new_string]\n"
+    "[tool_call: finish with summary \"docstring now matches report()'s actual "
+    'missing-repo_path handling"]\n'
+    "</example>"
+)
+
+#: Section table (t8): every named prompt section available for composition,
+#: keyed by its upper-snake name — the fixed colleague-owned sections above
+#: PLUS the opt-in :data:`HANDOVER_EXAMPLE`. Introspection only; which of
+#: these join a given prompt is decided by :func:`_adopted_system` /
+#: :func:`default_system`, not by this table's membership.
+SECTION_TABLE: dict[str, str] = {
+    "DESTINATION": _DESTINATION,
+    "SUBAGENTS": _SUBAGENTS,
+    "CULTURE": _CULTURE,
+    "TEST_INTEGRITY": _TEST_INTEGRITY,
+    "AGENTFRONT": _AGENTFRONT,
+    "HANDOVER_EXAMPLE": HANDOVER_EXAMPLE,
+}
+
+#: Section names offered ONLY via opt-in (a named variant or
+#: ``COLLEAGUE_PROMPT_SECTIONS``) — never part of the default adopted join.
+_OPT_IN_SECTIONS = frozenset({"HANDOVER_EXAMPLE"})
+
+#: Variant names that select the adopted text (``default_system``'s
+#: ``variant not in this set`` guard is the v1 byte-identical floor).
+_ADOPTED_VARIANTS = frozenset({"qwen", "adopted", "qwen-handover"})
 
 # ---------------------------------------------------------------------------
 # adapted-from: qwen-code core/prompts.ts:278-440 — Copyright 2025 Google LLC,
@@ -412,24 +468,33 @@ def interaction_guidance(*, headless: bool) -> str:
     return _QUESTIONS_HEADLESS if headless else _QUESTIONS_INTERACTIVE
 
 
-def _adopted_system(model: str | None, *, headless: bool, style_override: str | None) -> str:
+def _adopted_system(
+    model: str | None,
+    *,
+    headless: bool,
+    style_override: str | None,
+    extra_sections: tuple[str, ...] = (),
+) -> str:
     identity = _IDENTITY_HEADLESS if headless else _IDENTITY_INTERACTIVE
     questions = interaction_guidance(headless=headless)
-    return "\n\n".join(
-        [
-            identity,
-            _CORE_MANDATES,
-            _USING_TOOLS + "\n- " + questions,
-            _CARE,
-            _DESTINATION,
-            _SUBAGENTS,
-            _CULTURE,
-            _TEST_INTEGRITY,
-            _AGENTFRONT,
-            tool_call_examples(model, style_override=style_override),
-            _FINAL_REMINDER + "\n\nInteraction mode reminder: " + questions,
-        ]
-    )
+    sections = [
+        identity,
+        _CORE_MANDATES,
+        _USING_TOOLS + "\n- " + questions,
+        _CARE,
+        _DESTINATION,
+        _SUBAGENTS,
+        _CULTURE,
+        _TEST_INTEGRITY,
+        _AGENTFRONT,
+    ]
+    # t8 opt-in sections (never in the base list above) — appended in table order,
+    # not caller order, so a duplicate/garbled COLLEAGUE_PROMPT_SECTIONS value
+    # cannot reorder the prompt.
+    sections.extend(SECTION_TABLE[name] for name in SECTION_TABLE if name in extra_sections)
+    sections.append(tool_call_examples(model, style_override=style_override))
+    sections.append(_FINAL_REMINDER + "\n\nInteraction mode reminder: " + questions)
+    return "\n\n".join(sections)
 
 
 def default_system(
@@ -438,31 +503,52 @@ def default_system(
     headless: bool | None = None,
     variant: str | None = None,
     style_override: str | None = None,
+    sections: str | None = None,
 ) -> str:
     """Build the loop's default system prompt ONCE for a run.
 
     * ``variant`` (default ``COLLEAGUE_PROMPT_VARIANT``, unset → ``v1``): ``v1`` (or
-      anything but ``qwen``/``adopted``) → the pre-arc text byte-for-byte, ignoring
-      every other argument; ``qwen``/``adopted`` → the adopted text. The default
-      flipped to ``v1`` after the 2026-08-27 arms measured the adopted text at
-      2.3× wall-clock / 3× reasoning on Qwen3.8 (docs/live-testing.md rows 43-44).
+      anything but ``qwen``/``adopted``/``qwen-handover``) → the pre-arc text
+      byte-for-byte, ignoring every other argument; ``qwen``/``adopted`` → the
+      adopted text; ``qwen-handover`` → the adopted text PLUS
+      :data:`HANDOVER_EXAMPLE` (t8). The default flipped to ``v1`` after the
+      2026-08-27 arms measured the adopted text at 2.3× wall-clock / 3×
+      reasoning on Qwen3.8 (docs/live-testing.md rows 43-44).
     * ``headless`` (default: ``COLLEAGUE_PROMPT_INTERACTIVE`` unset → True): picks
       the identity sentence and the Questions guidance; no ask-style tool exists in
       either mode.
     * ``style_override`` (default ``COLLEAGUE_TOOL_CALL_STYLE``) → example family.
+    * ``sections`` (default ``COLLEAGUE_PROMPT_SECTIONS``, unset → none): a
+      comma-separated opt-in into :data:`_OPT_IN_SECTIONS` sections (t8) —
+      currently only ``HANDOVER_EXAMPLE``. Ignored under the ``v1`` variant
+      (the byte-identical floor); adds to whatever ``variant`` already opted
+      into on the adopted text.
 
     Pure with respect to its arguments once the env defaults are read; callers
     build it at run start and never per turn (prefix-stable).
     """
     if variant is None:
         variant = os.environ.get("COLLEAGUE_PROMPT_VARIANT", "v1")
-    if variant.strip().lower() not in ("qwen", "adopted"):
+    normalized_variant = variant.strip().lower()
+    if normalized_variant not in _ADOPTED_VARIANTS:
         return V1_DEFAULT_SYSTEM
+    if sections is None:
+        sections = os.environ.get("COLLEAGUE_PROMPT_SECTIONS", "")
+    extra_sections = {
+        s.strip().upper() for s in sections.split(",") if s.strip()
+    } & _OPT_IN_SECTIONS
+    if normalized_variant == "qwen-handover":
+        extra_sections.add("HANDOVER_EXAMPLE")
     if headless is None:
         headless = not _truthy(os.environ.get("COLLEAGUE_PROMPT_INTERACTIVE"))
     if style_override is None:
         style_override = os.environ.get("COLLEAGUE_TOOL_CALL_STYLE")
-    return _adopted_system(model, headless=headless, style_override=style_override)
+    return _adopted_system(
+        model,
+        headless=headless,
+        style_override=style_override,
+        extra_sections=tuple(extra_sections),
+    )
 
 
 def _truthy(value: str | None) -> bool:

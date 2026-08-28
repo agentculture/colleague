@@ -3548,12 +3548,11 @@ def resolve_role(config, repo_path: str):
         from colleague.roles import load_role
 
         role = load_role(name, repo_path, config.model)
-    # Model-bound agents (#411 t15): a purpose with a NARROWER surface than the
-    # registry (the dormant worker) narrows the role through the SAME value both
-    # halves consume — curate_schemas (offered) and ToolExecutor(allowlist=)
-    # (refused) — so a worker-purpose seat is never offered write_file/edit_file
-    # and is refused if it calls them anyway. thinker_coder/associate carry the
-    # full surface (no-op); unarmed is byte-identical.
+    # Model-bound agents (#411 t15): a NARROWER purpose (the dormant worker)
+    # narrows the role through the SAME value both halves consume —
+    # curate_schemas (offered) and ToolExecutor(allowlist=) (refused) — so it
+    # is never offered write_file/edit_file and is refused if it calls them
+    # anyway; thinker_coder/associate keep the full surface (no-op/byte-identical).
     if getattr(config, "agents", False):
         from colleague.agents.tools import PURPOSE_TOOLS
         from colleague.tools import TOOL_NAMES, narrow_role_by_tool_set
@@ -3561,20 +3560,31 @@ def resolve_role(config, repo_path: str):
         purpose = getattr(config, "agents_profile", None) or _agents_runtime.DEFAULT_ACTING_PURPOSE
         purpose_tools = PURPOSE_TOOLS.get(purpose)
         if purpose_tools is not None and set(purpose_tools) < set(TOOL_NAMES):
-            # An EMPTY purpose surface (the tools-off talker) means NO tools —
-            # not "no narrowing". ``narrow_role_by_tool_set`` reads an empty
-            # tool_set as the lattice's not-narrowed sentinel (c26 makes
-            # narrow-to-nothing unrepresentable THERE), so the talker would
-            # otherwise fall through to the FULL registry surface while its
-            # ledger manifest claimed the empty set. Build the tools-off role
-            # explicitly instead, so both halves — the offered schemas and the
-            # executor's refusal allow-list — see the same empty surface.
+            # An EMPTY purpose surface (the tools-off talker) means NO tools, not
+            # "no narrowing": ``narrow_role_by_tool_set`` reads an empty tool_set
+            # as the lattice's not-narrowed sentinel (c26 makes narrow-to-nothing
+            # unrepresentable THERE), so the talker would otherwise fall through
+            # to the FULL registry surface. Build the tools-off role explicitly so
+            # both halves — offered schemas and the executor's refusal — agree.
             role = (
                 _tools_off_role(purpose)
                 if not purpose_tools
                 else narrow_role_by_tool_set(role, tuple(sorted(purpose_tools)))
             )
     return role
+
+
+def curated_schemas(role, config, *, deepthink: bool = False) -> list[dict[str, Any]]:
+    """Tool schemas offered to *role* under *config*, armed-facts applied (t8).
+
+    ``curate_schemas(role)`` with :func:`colleague.delegation_text.apply_armed_facts`
+    spliced on top — unarmed (``config.associate`` is ``None``) is byte-identical
+    to the pre-t8 curated list.
+    """
+    from colleague.delegation_text import apply_armed_facts
+    from colleague.tools import curate_schemas
+
+    return apply_armed_facts(curate_schemas(role, deepthink=deepthink), config)
 
 
 def _tools_off_role(purpose: str):
@@ -4872,50 +4882,41 @@ def run(
     schemas live with each backend's ``complete`` closure, not here.
 
     ``model`` threads into per-model hook resolution: when given,
-    :func:`~colleague.hooks.load_hooks` additionally loads the per-model
-    overlay ``.colleague/<model>/hooks.json`` and prepends its entries ahead
-    of the base entries (per-model fix takes priority). When ``None`` (the
-    default) the call is identical to the base-only load — no behavior change
-    for callers that do not pass a model.
+    :func:`~colleague.hooks.load_hooks` additionally loads the per-model overlay
+    ``.colleague/<model>/hooks.json`` and prepends its entries ahead of the base
+    entries (per-model fix takes priority); ``None`` (the default) is the
+    base-only load — no behavior change for callers that do not pass a model.
 
     ``telemetry`` likewise defaults to :func:`~colleague.telemetry.load_telemetry`
-    (a no-op unless ``COLLEAGUE_OTEL_ENABLED`` is set). When enabled, every
-    tool call becomes a ``colleague.tool.*`` span and the loop records the
-    per-step metrics (steps, tokens, tool latency, hook denials). This lives in
-    the loop so *every* engine inherits it (the all-engines rule), exactly like
-    hook firing.
+    (a no-op unless ``COLLEAGUE_OTEL_ENABLED`` is set). When enabled, every tool
+    call becomes a ``colleague.tool.*`` span and the loop records the per-step
+    metrics (steps, tokens, tool latency, hook denials) — lives in the loop so
+    *every* engine inherits it (the all-engines rule), like hook firing.
 
     ``progress`` is an optional per-step sink ``(step_index, tool, target, ok)``
     fired after each tool call (#38); ``None`` (the default) is a strict no-op.
-    Like hooks/telemetry it is runtime-owned — every backend forwards
-    ``config.progress`` so the behavior is identical across backends.
+    Like hooks/telemetry, runtime-owned — every backend forwards ``config.progress``.
 
     ``spawns`` is an optional :class:`Spawns` bundle of the two delegation
-    callbacks. ``spawns.single`` ``(instruction, engine=None, model=None) ->
-    SubResult`` (built by :func:`colleague.subagents.make_spawn`) backs the
-    ``subagent`` tool; ``spawns.batch`` ``(items) -> list[SubResult]`` (built by
-    :func:`colleague.subagents.make_batch_spawn`) backs the ``subagents`` (plural)
-    parallel-batch tool. When given they are injected into the
-    :class:`~colleague.tools.ToolExecutor` so the corresponding tool can delegate
-    to nested child work items; ``None`` (the default), or a field left ``None``,
-    leaves that tool unavailable (it reports so to the model). This is runtime-owned
-    — backends build their own executor from ``config.subagent_spawn`` /
-    ``config.subagent_batch_spawn`` (the ``executor`` seam), so the ``spawns``
-    convenience path is for direct callers. Any nested results the executor
-    accumulates are snapshotted onto ``result.sub_results`` on every exit path
-    (alongside ``changed_files``).
+    callbacks — ``spawns.single`` backs the ``subagent`` tool, ``spawns.batch``
+    backs the parallel ``subagents`` tool (built by
+    :func:`colleague.subagents.make_spawn`/``make_batch_spawn``) — injected into
+    the :class:`~colleague.tools.ToolExecutor` when given; ``None`` (or an unset
+    field) leaves that tool unavailable. Runtime-owned: backends build their own
+    executor via ``config.subagent_spawn``/``config.subagent_batch_spawn`` (the
+    ``executor`` seam) for direct callers. Nested results snapshot onto
+    ``result.sub_results`` on every exit path (with ``changed_files``).
 
     ``context`` is an optional :class:`ContextControls` bundle of the three
-    context-window-management knobs (``budget`` / ``count_tokens`` /
-    ``autosplit_target``) — see that class for the per-field contract. In short:
-    ``budget`` windows the history before every turn and drives the bounded
-    overflow shrink-and-retry; ``count_tokens`` is the counter handed to
-    :func:`window_messages`; and ``autosplit_target`` (with ``budget`` also
-    positive) arms reactive auto-split (#151) — an exhausted overflow recommends
-    splitting via the ``subagents`` tool *before* escalating, plus a coarse up-front
-    hint. ``None`` (the default), or any field left ``None``/0, is a strict no-op
-    byte-identical to the pre-feature loop. Runtime-owned (the all-engines rule):
-    every backend forwards its ``config`` budget + autosplit target here.
+    context-window-management knobs — ``budget`` (windows history + drives the
+    bounded overflow shrink-and-retry), ``count_tokens`` (handed to
+    :func:`window_messages`), and ``autosplit_target`` (with ``budget`` also
+    positive, arms reactive auto-split #151: an exhausted overflow recommends
+    splitting via ``subagents`` before escalating, plus a coarse up-front hint) —
+    see that class for the per-field contract. ``None``, or any field
+    ``None``/0, is a strict no-op byte-identical to the pre-feature loop;
+    runtime-owned (all-engines rule): every backend forwards its ``config``
+    budget + autosplit target here.
 
     If ``complete`` raises mid-loop (e.g. a per-request timeout, or a
     context-overflow the bounded retry could not recover), the partial work is
@@ -4929,12 +4930,11 @@ def run(
     and nowhere else (t2, change-content-consumption-lane spec, covers c9/h9).
     The default ``"cortex"`` keeps every caller that does not pass ``seat``
     byte-identical to the pre-t2 line. Each engine's ``work()`` resolves which
-    seat actually acts (``"worker"`` when three-tier execution resolved
-    ``config.worker``) and passes the label here — ``run()`` never inspects
-    ``config`` itself (it is not a parameter), so the resolution decision
-    stays entirely at the call site; this only threads the already-resolved
-    label through to the one emit call. The turn loop itself is untouched
-    (h11): no other code path reads or branches on ``seat``.
+    seat actually acts (``"worker"`` under three-tier execution) and passes the
+    label here — ``run()`` never inspects ``config`` (not a parameter), so the
+    resolution decision stays at the call site; this only threads the
+    already-resolved label to the one emit call (h11: no other path branches
+    on ``seat``).
     """
     _spawns, _context, executor = _resolve_run_collaborators(spawns, context, executor, task)
     # t21: a continuation seed's own preamble names the resumed task id (all
