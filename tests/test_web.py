@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import time
 from pathlib import Path
@@ -14,12 +15,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import colleague.web_schemas as web_schemas
 from colleague.web import (
     ALLOWED_VERBS,
     FORBIDDEN_TOKENS,
     WebToolError,
     run_web,
 )
+
+FIXTURES = Path(__file__).parent / "fixtures" / "webglass"
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -347,3 +351,164 @@ echo '{"ok": true}'
     assert result.startswith("exit=0\n")
     assert "page open https://example.com --json" in result
     assert '{"ok": true}' in result
+
+
+# ---------------------------------------------------------------------------
+# t5 AC: run-report 'web:' line — synthetic artifact, 2 ok + 1 failed
+# ---------------------------------------------------------------------------
+
+
+def _load_envelope(name: str) -> dict:
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def _web_step(index: int, url: str, envelope_name: str):
+    from colleague.contract import Step
+
+    text = web_schemas.render_result(_load_envelope(envelope_name))
+    ok = "lifecycle_state: failed" not in text.split(web_schemas.UNTRUSTED_BEGIN, 1)[0]
+    return Step(index=index, tool="web", arguments={"url": url}, result=text, ok=ok)
+
+
+def test_summary_line_absent_without_web_steps() -> None:
+    from colleague.contract import Step
+
+    steps = [Step(index=0, tool="write_file", arguments={}, result="ok")]
+    assert web_schemas.summary_line(steps) is None
+
+
+def test_summary_line_counts_ok_and_failed() -> None:
+    steps = [
+        _web_step(0, "https://example.com/report", "page_read_ok.json"),
+        _web_step(1, "https://example.com/report2", "page_read_ok.json"),
+        _web_step(2, "https://example.com/search", "search_backend_unavailable.json"),
+    ]
+    line = web_schemas.summary_line(steps)
+    assert line is not None
+    assert line.startswith("web: 3 fetch(es), 1 failed:")
+    assert "https://example.com/search" in line
+    assert "op-2026-08-28-search-0001" in line
+    assert "backend_unavailable" in line
+    # ok fetches never appear in the failed-url tail
+    assert "https://example.com/report" not in line.split(":", 2)[-1]
+
+
+def test_summary_line_dedups_repeated_failed_url() -> None:
+    steps = [
+        _web_step(0, "https://example.com/search", "search_backend_unavailable.json"),
+        _web_step(1, "https://example.com/search", "search_backend_unavailable.json"),
+    ]
+    line = web_schemas.summary_line(steps)
+    assert line is not None
+    assert line.count("https://example.com/search") == 1
+
+
+def test_render_gains_web_line_on_synthetic_artifact(tmp_path: Path) -> None:
+    """t5 AC: the run report (colleague.cli._commands.work._render) gains one
+    'web:' line, present only when a step has tool 'web'."""
+    from colleague.cli._commands.work import _render
+    from colleague.contract import OK, Step, TaskResult
+
+    web_steps = [
+        _web_step(0, "https://example.com/a", "page_read_ok.json"),
+        _web_step(1, "https://example.com/b", "page_read_ok.json"),
+        _web_step(2, "https://example.com/c", "search_backend_unavailable.json"),
+    ]
+    result = TaskResult(task_id="t5-report", status=OK, summary="done", steps=web_steps)
+    text = _render(result, "mock", tmp_path / "artifact.json")
+    web_lines = [line for line in text.splitlines() if line.startswith("web: ")]
+    assert len(web_lines) == 1
+    assert (
+        web_lines[0] == "web: 3 fetch(es), 1 failed: https://example.com/c "
+        "(op-2026-08-28-search-0001, backend_unavailable)"
+    )
+
+    no_web_result = TaskResult(
+        task_id="t5-report-none",
+        status=OK,
+        summary="done",
+        steps=[Step(index=0, tool="read_file", arguments={}, result="ok")],
+    )
+    no_web_text = _render(no_web_result, "mock", tmp_path / "artifact2.json")
+    assert not any(line.startswith("web: ") for line in no_web_text.splitlines())
+
+
+# ---------------------------------------------------------------------------
+# t5 AC: pre_tool hook deny (matcher "web") reaches the model, no child spawned
+# ---------------------------------------------------------------------------
+
+
+def test_pre_tool_hook_deny_web_reaches_model_no_child_spawned(
+    tmp_path: Path, repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from colleague.contract import Task
+    from colleague.loop import ModelResponse, ToolCall, run
+
+    def _fail_if_spawned(*_args, **_kwargs):
+        raise AssertionError("webglass child must not be spawned when pre_tool denies")
+
+    monkeypatch.setattr("colleague.web.run_web", _fail_if_spawned)
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/webglass" if name == "webglass" else None
+    )
+
+    deny_script = _write_script(
+        repo_root,
+        "deny_web.sh",
+        "#!/bin/sh\necho 'web calls are blocked by policy' >&2\nexit 1\n",
+    )
+    dotdir = repo_root / ".colleague"
+    dotdir.mkdir(exist_ok=True)
+    (dotdir / "hooks.json").write_text(
+        json.dumps({"hooks": {"pre_tool": [{"matcher": "web", "command": f"sh {deny_script}"}]}}),
+        encoding="utf-8",
+    )
+
+    turns = iter(
+        [
+            ModelResponse(
+                tool_calls=[
+                    ToolCall("1", "web", {"verb": "page open", "url": "https://example.com"})
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            ModelResponse(
+                tool_calls=[ToolCall("2", "finish", {"summary": "done"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    def complete(_messages: list[dict]) -> ModelResponse:
+        return next(turns)
+
+    task = Task(id="t5-web-deny", repo_path=str(repo_root), instruction="try the web tool")
+    result = run(complete, task, max_steps=5)
+
+    deny_firings = [f for f in result.hook_firings if f.decision == "deny"]
+    assert len(deny_firings) >= 1, f"expected a deny firing; got {result.hook_firings}"
+    assert deny_firings[0].event == "pre_tool"
+    assert deny_firings[0].tool == "web"
+    assert "blocked" in deny_firings[0].reason
+
+    web_step = next(s for s in result.steps if s.tool == "web")
+    assert web_step.ok is False
+    assert "blocked" in web_step.result, "the deny reason must reach the model as the tool result"
+
+
+# ---------------------------------------------------------------------------
+# t5 AC: no url-allow-list identifier anywhere under colleague/ (source scan)
+# ---------------------------------------------------------------------------
+
+
+def test_no_url_allowlist_identifier_under_colleague() -> None:
+    """webglass owns the web policy; colleague must never grow its own."""
+    forbidden = re.compile(r"ALLOWED_DOMAINS|allowed_hosts|url_policy")
+    hits: list[str] = []
+    for path in Path("colleague").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if forbidden.search(text):
+            hits.append(str(path))
+    assert not hits, f"colleague must not define its own url allow-list: {hits}"
