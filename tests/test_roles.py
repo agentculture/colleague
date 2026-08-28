@@ -124,31 +124,37 @@ class TestWriterRole:
         assert BUILTIN_ROLES["writer"].read_only is False
 
     def test_writer_allowlist_equals_schemas(self) -> None:
+        from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
         from colleague.tools import DEEPTHINK, SCHEMAS
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         writer_names = set(BUILTIN_ROLES["writer"].tool_allowlist)
-        # "deepthink" (plan t4) is the one deliberate extra: a curated tool
-        # available to every built-in role (including the full-surface writer)
-        # that is NOT part of the base SCHEMAS list — it is offered only via
-        # curate_schemas(role, deepthink=True), never by default (see
-        # test_deepthink_tool.py for the byte-identical-by-default proof).
-        assert writer_names == schema_names | {DEEPTHINK}
+        # "deepthink" (plan t4) is a curated tool available to every built-in
+        # role that is NOT part of the base SCHEMAS list — offered only via
+        # curate_schemas(role, deepthink=True) (test_deepthink_tool.py). t5
+        # (q9/q10): the writer additionally loses web/subagent/subagents
+        # (replaced BY PURPOSE) and gains the six purpose tools.
+        dropped = {"web", "subagent", "subagents"}
+        assert writer_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
 
     def test_writer_allowlist_stays_in_sync(self) -> None:
-        """If SCHEMAS grows, writer's allowlist must grow too."""
+        """If SCHEMAS grows, writer's allowlist must grow too (t5 drops excepted)."""
+        from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
         from colleague.tools import DEEPTHINK, SCHEMAS
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         writer_names = set(BUILTIN_ROLES["writer"].tool_allowlist)
-        # Every schema tool must be in the writer allowlist.
-        assert schema_names.issubset(writer_names)
+        dropped = {"web", "subagent", "subagents"}
+        # Every schema tool NOT deliberately dropped (t5, q9/q10) must be in the
+        # writer allowlist.
+        assert (schema_names - dropped).issubset(writer_names)
         # And the writer allowlist must not contain tools outside SCHEMAS
         # (except "run_tests" which is a future tool the validator references,
-        # and "deepthink" (plan t4) — a curated tool deliberately kept out of
-        # SCHEMAS itself; see test_writer_allowlist_equals_schemas above).
+        # "deepthink" (plan t4), and the six purpose tools (plan t5) — all
+        # deliberately curated extras; see test_writer_allowlist_equals_schemas).
         extra = writer_names - schema_names
-        assert extra <= {"run_tests", DEEPTHINK}, f"writer allowlist has unexpected extras: {extra}"
+        allowed_extra = {"run_tests", DEEPTHINK, *PURPOSE_TOOL_NAMES}
+        assert extra <= allowed_extra, f"writer allowlist has unexpected extras: {extra}"
 
 
 # ---------------------------------------------------------------------------
@@ -286,13 +292,16 @@ class TestDefaultRole:
         assert role.read_only is False
 
     def test_default_allowlist_equals_schemas(self) -> None:
+        from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
         from colleague.tools import DEEPTHINK, SCHEMAS
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         default_names = set(default_role().tool_allowlist)
         # See TestWriterRole.test_writer_allowlist_equals_schemas: "deepthink"
-        # (plan t4) is the one deliberate curated extra outside base SCHEMAS.
-        assert default_names == schema_names | {DEEPTHINK}
+        # (plan t4) and the six purpose tools (plan t5) are deliberate curated
+        # extras outside base SCHEMAS; web/subagent/subagents are dropped (t5).
+        dropped = {"web", "subagent", "subagents"}
+        assert default_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
 
     def test_default_skill_subset_is_none(self) -> None:
         role = default_role()

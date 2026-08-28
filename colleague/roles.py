@@ -79,12 +79,10 @@ _WRITE_TOOLS = frozenset({"write_file", "edit_file", "run_command"})
 
 #: Read-only tools available to explorer / planner / reviewer. Strictly pure-read so a read-only
 #: role *provably cannot mutate the tree*: ``culture``/``devague`` are excluded because they shell
-#: out to write-capable CLIs (``devex``, ``devague converge`` writes a frame), which would quietly
-#: contradict the read-only guarantee. ``finish`` is REQUIRED — without it a curated child would
-#: always burn to budget exhaustion. ``deepthink`` (plan t4) is included too: pure computation —
-#: ONE bounded tools-off completion against a second model, no writes, no shell — a read-only role
-#: can escalate a verdict. ``memory`` is recall-only; ``grep_search``/``glob`` (t14) are pure
-#: reads; ``web`` (t4) only ever reads a page (shells to webglass, never writes).
+#: out to write-capable CLIs, which would quietly contradict the read-only guarantee. ``finish`` is
+#: REQUIRED — without it a curated child would always burn to budget exhaustion. ``deepthink``
+#: (plan t4) is pure computation (no writes, no shell); ``memory`` is recall-only; ``grep_search``/
+#: ``glob`` (t14) and ``web`` (t4, shells to webglass) are pure reads.
 _READONLY_TOOLS = (
     "read_file",
     "view_media",
@@ -133,15 +131,17 @@ _VALIDATOR_SKILL_PATTERNS: tuple[str, ...] = _INVESTIGATION_SKILL_PATTERNS + ("r
 
 
 def _writer_allowlist() -> tuple[str, ...]:
-    """The full SCHEMAS-derived surface plus ``deepthink`` (plan t4) — which is
-    deliberately not in :data:`colleague.tools.SCHEMAS` (a single-model run
-    offers today's list byte-identically) and is pure computation, so the
-    writer allows it like every other role; a no-op unless the loop offers it.
+    """The SCHEMAS-derived surface minus ``web``/``subagent``/``subagents``
+    (replaced by purpose tools, plan t5, operator decisions q9/q10) plus
+    ``deepthink`` (plan t4) and the six purpose tools — cortex delegates BY
+    PURPOSE now, never via the raw delegation/web tools it used to hold.
     """
+    from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
     from colleague.tools import DEEPTHINK, SCHEMAS
 
-    names = tuple(s["function"]["name"] for s in SCHEMAS)
-    return names + (DEEPTHINK,)
+    dropped = {"web", "subagent", "subagents"}
+    names = tuple(s["function"]["name"] for s in SCHEMAS if s["function"]["name"] not in dropped)
+    return names + (DEEPTHINK,) + PURPOSE_TOOL_NAMES
 
 
 BUILTIN_ROLES: dict[str, Role] = {

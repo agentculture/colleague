@@ -5,24 +5,22 @@ Ten tools — ``read_file``, ``write_file``, ``edit_file``, ``list_dir``,
 ``finish`` — are exposed to the model as OpenAI function/tool schemas
 (:data:`SCHEMAS`). :class:`ToolExecutor` runs a requested call against a fixed repo
 root. ``edit_file`` (#174) is the partial-edit primitive: an exact-string replace
-whose cost scales with the change, not the file size, so a scoped edit to a large
-existing file no longer needs a whole-file ``write_file`` rewrite.
+whose cost scales with the change, not the file size.
 
 Confinement (honesty condition h3): ``read_file`` / ``write_file`` / ``edit_file`` /
 ``list_dir`` resolve their path against the root and refuse anything that escapes it
 (``..`` traversal, absolute paths outside the tree); ``write_file`` and ``edit_file``
 additionally refuse writes into the read-only neighbour clone tree. ``run_command``
-runs with ``cwd`` pinned to the root. v0 trusts the command itself (decision D2);
-sandboxing is a later wheel.
+runs with ``cwd`` pinned to the root — v0 trusts the command itself (D2).
 
 ``read_file`` line-grounding (#240): :func:`_number_lines` prefixes every real
-line with its true 1-based number (``cat -n`` style) before truncation, so a cited
-line is copy-derived, never re-counted. Read-display only: numbering is never
-written to disk or round-tripped into ``edit_file`` (which matches a raw read).
+line with its true 1-based number (``cat -n`` style) before truncation — read-display
+only, never round-tripped into ``edit_file``.
 
-A curated ``deepthink`` tool (:data:`DEEPTHINK_SCHEMA`, plan t4) stays OUT of
-:data:`SCHEMAS`; :func:`curate_schemas` appends it only when a caller opts in
-(``deepthink=True``) for a dual-model config — a single-model run is unaffected.
+Two curated tools stay OUT of :data:`SCHEMAS`, appended only by
+:func:`curate_schemas`: ``deepthink`` (:data:`DEEPTHINK_SCHEMA`, plan t4, opt-in via
+``deepthink=True``) and the six purpose tools (:mod:`colleague.purpose_schemas`, plan
+t5, spliced onto a concrete role's allow-list — role=``None`` is unaffected).
 """
 
 from __future__ import annotations
@@ -39,6 +37,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
+import colleague.purpose_schemas as purpose_schemas
 import colleague.search_schemas as search_schemas
 import colleague.web_schemas as web_schemas
 from colleague import culture, devague, editgate, media, memory, readpage, testintegrity
@@ -531,12 +530,9 @@ SCHEMAS: list[dict[str, Any]] = [
 TOOL_NAMES: list[str] = [s["function"]["name"] for s in SCHEMAS]
 
 #: The ``deepthink`` loop tool (plan t4 / spec c10(a), c5, h14) — a backend-judged
-#: escalation the MAIN model MAY call mid-work to hand ONE hard judgment call to a
-#: stronger, slower reasoning model. Deliberately kept OUT of the module-level
-#: :data:`SCHEMAS` list (and therefore out of :data:`TOOL_NAMES`): a single-model
-#: run must offer today's tool list byte-identically, so this schema is only ever
-#: appended by :func:`curate_schemas` when the caller opts in (``deepthink=True``,
-#: wired by the loop only when a dual-model config is present — task t5).
+#: escalation to a stronger, slower reasoning model. Kept OUT of :data:`SCHEMAS` /
+#: :data:`TOOL_NAMES`; appended by :func:`curate_schemas` only when opted in
+#: (``deepthink=True``, wired by the loop only for a dual-model config).
 DEEPTHINK_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -624,6 +620,14 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
     ]
     if deepthink and (allow is None or DEEPTHINK in allow):
         curated = curated + [DEEPTHINK_SCHEMA]
+    # Purpose tools (t5): spliced only for a concrete role's allow-list — a
+    # bare full surface (allow is None) stays byte-identical, unaffected.
+    if allow is not None:
+        curated = curated + [
+            purpose_schemas.PURPOSE_SCHEMAS[n]
+            for n in purpose_schemas.PURPOSE_TOOL_NAMES
+            if purpose_schemas.offered(n, allow)
+        ]
     return curated
 
 
@@ -711,6 +715,16 @@ def _number_lines(text: str) -> str:
     body = text[:-1] if text.endswith("\n") else text
     lines = body.split("\n")
     return "\n".join(f"{i:{_LINE_NUMBER_WIDTH}d}\t{line}" for i, line in enumerate(lines, start=1))
+
+
+def _purpose_dispatch(executor: "ToolExecutor") -> dict[str, Callable[[dict[str, Any]], Any]]:
+    """Purpose tools' handlers (t5): ``purpose_schemas.dispatch`` once t6 wires it."""
+    if hasattr(purpose_schemas, "dispatch"):
+        return purpose_schemas.dispatch(executor)
+    return {
+        n: (lambda _a, _n=n: ToolOutcome(result=f"purpose tool '{_n}' not wired (t6)"))
+        for n in purpose_schemas.PURPOSE_TOOL_NAMES
+    }
 
 
 def _require(arguments: dict[str, Any], key: str, tool: str) -> Any:
@@ -810,11 +824,9 @@ class ToolExecutor:
         # Deepthink escalation callable (t5): the bound ``DeepthinkRun`` seam,
         # ``deepthink(question, context, *, point="tool") -> DeepthinkResult``
         # (:func:`colleague.deepthink.make_deepthink_run`). Injected by the engine
-        # only when a dual-model config is present; None means the deepthink tool
-        # is unavailable for this drive — the schema should not have been offered
-        # in that case (curate_schemas gates it), but a hallucinated call is
-        # handled defensively (see ``_deepthink_tool``). A plain str-returning
-        # callable is still honored (back-compat: answers, records nothing).
+        # only for a dual-model config; a hallucinated call with None is handled
+        # defensively (see ``_deepthink_tool``); a plain str-returning callable is
+        # still honored (back-compat: answers, records nothing).
         self._deepthink = deepthink
         # Every DeepthinkCall record the tool dispatch accumulated, in firing
         # order. The loop snapshots this onto ``TaskResult.deepthink`` (spec c14)
@@ -885,6 +897,7 @@ class ToolExecutor:
             "list_dir": self._list_dir,
             **search_schemas.dispatch(self),
             **web_schemas.dispatch(self),
+            **_purpose_dispatch(self),
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,
@@ -906,13 +919,10 @@ class ToolExecutor:
         except ToolError:
             raise
         except Exception as exc:  # noqa: BLE001 - defense-in-depth (#269)
-            # A handler crash on model-supplied input is a MODEL-visible step
-            # error, never a run abort: the per-arg `_require` guards cover the
-            # known required keys, but any future unguarded KeyError/TypeError in
-            # a handler must still bounce back to the model as a self-correcting
-            # observation naming the tool (the live 1.30.0 failure aborted a
-            # flight with a bare "'path'" — unknown-tool errors already recovered,
-            # malformed-call errors must behave the same).
+            # A handler crash on model-supplied input is a MODEL-visible step error,
+            # never a run abort: any unguarded KeyError/TypeError must bounce back
+            # as a self-correcting observation naming the tool (the live 1.30.0
+            # failure aborted a flight with a bare "'path'").
             raise ToolError(
                 f"{name} failed: {type(exc).__name__}: {exc} — check the tool's "
                 f"argument schema and retry"
@@ -1033,17 +1043,12 @@ class ToolExecutor:
             )
 
         replacements = count if replace_all else 1
-        # The guards above leave exactly two cases here: replace_all (any count) or a
-        # single unique match. The `1` cap is the explicit single-replace for the
-        # latter — not dead code, it documents that a non-replace_all edit touches one
-        # occurrence. str.replace is a single left-to-right pass, so a new_string that
-        # contains old_string is NOT re-scanned (no runaway expansion).
+        # Exactly two cases here: replace_all (any count) or the single unique
+        # match (the `1` cap). str.replace is a single left-to-right pass, so a
+        # new_string containing old_string is NOT re-scanned (no runaway expansion).
         updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
-        # newline="" keeps the on-disk bytes byte-deterministic cross-platform,
-        # exactly as _write_file does. Translate a write failure (permissions,
-        # read-only, IO error) into a ToolError so the loop records a recoverable
-        # failed step instead of aborting the work item (the loop only catches
-        # ToolError around tool execution).
+        # newline="" keeps on-disk bytes byte-deterministic cross-platform, exactly
+        # as _write_file does; a write failure becomes a recoverable ToolError.
         try:
             path.write_text(updated, encoding="utf-8", newline="")
         except OSError as exc:
@@ -1086,18 +1091,13 @@ class ToolExecutor:
         command = str(_require(arguments, "command", "run_command"))
 
         # Best-effort guard: refuse commands that EXECUTE a path inside the clone
-        # dir. Token-aware (shlex) so a benign command that merely *mentions* the
-        # path inside a quoted string (e.g. echo "see .colleague/neighbours") is no
-        # longer a false positive — only a token that resolves to the clone root,
-        # or under it, is refused. On unbalanced quotes (shlex ValueError) fall back
-        # to the stricter substring check so a malformed command never slips
-        # through. Honest limit: like the rest of this gate (D2), it is bypassable
-        # by sh -c, pipelines, and shell expansion — a guard, not a sandbox.
+        # dir. Token-aware (shlex) so a benign mention in a quoted string (e.g.
+        # echo "see .colleague/neighbours") is no longer a false positive — only a
+        # token resolving to the clone root, or under it, is refused; on unbalanced
+        # quotes (shlex ValueError) fall back to the stricter substring check.
         clone_rel = self._CLONE_SUBDIR
-        # The guard must NEVER raise — a raw exception here would escape tool
-        # execution and abort the whole drive. Resolving the clone root can fail on
-        # a pathological tree (symlink loop → RuntimeError, permissions → OSError),
-        # so compute it defensively and fall back to the unresolved substring check.
+        # Must NEVER raise (a pathological tree could fail resolve()); fall back
+        # to the unresolved substring check rather than escape tool execution.
         try:
             clone_root: Path | None = (self.root / clone_rel).resolve()
         except (OSError, RuntimeError, ValueError):

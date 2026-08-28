@@ -3541,8 +3541,8 @@ def resolve_role(config, repo_path: str):
     both bundled engines call this in ``work()`` to build the child's curated tool
     schema (``curate_schemas(role)``) and a role-aware ``ToolExecutor``
     (``allowlist=role``). ``None`` → the caller keeps its full-surface defaults,
-    byte-identical to the pre-role contract. The role's PROMPT is composed
-    separately by the role-aware :meth:`colleague.engine.Engine.system_prompt`.
+    byte-identical to the pre-role contract; the PROMPT is composed separately by
+    :meth:`colleague.engine.Engine.system_prompt`.
     """
     name = getattr(config, "role", None)
     role = None
@@ -3550,24 +3550,25 @@ def resolve_role(config, repo_path: str):
         from colleague.roles import load_role
 
         role = load_role(name, repo_path, config.model)
-    # Model-bound agents (#411 t15): a NARROWER purpose (the dormant worker)
-    # narrows the role through the SAME value both halves consume —
-    # curate_schemas (offered) and ToolExecutor(allowlist=) (refused) — so it
-    # is never offered write_file/edit_file and is refused if it calls them
-    # anyway; thinker_coder/associate keep the full surface (no-op/byte-identical).
+    # Model-bound agents (#411 t15): a NARROWER purpose narrows the role through
+    # the SAME value both halves consume — curate_schemas (offered) and
+    # ToolExecutor(allowlist=) (refused) — so e.g. the worker is never offered
+    # write_file/edit_file and is refused if it calls them anyway. A purpose
+    # equal to TOOL_NAMES is a no-op (byte-identical, pre-t5 default).
     if getattr(config, "agents", False):
         from colleague.agents.tools import PURPOSE_TOOLS
         from colleague.tools import TOOL_NAMES, narrow_role_by_tool_set
 
         purpose = getattr(config, "agents_profile", None) or _agents_runtime.DEFAULT_ACTING_PURPOSE
         purpose_tools = PURPOSE_TOOLS.get(purpose)
-        if purpose_tools is not None and set(purpose_tools) < set(TOOL_NAMES):
+        # Strict inequality, not subset (plan t5): a purpose surface may hold
+        # names outside TOOL_NAMES (the six purpose tools) while still narrowing.
+        if purpose_tools is not None and set(purpose_tools) != set(TOOL_NAMES):
             # An EMPTY purpose surface (the tools-off talker) means NO tools, not
-            # "no narrowing": ``narrow_role_by_tool_set`` reads an empty tool_set
-            # as the lattice's not-narrowed sentinel (c26 makes narrow-to-nothing
-            # unrepresentable THERE), so the talker would otherwise fall through
-            # to the FULL registry surface. Build the tools-off role explicitly so
-            # both halves — offered schemas and the executor's refusal — agree.
+            # "no narrowing": ``narrow_role_by_tool_set`` reads an empty tool_set as
+            # the lattice's not-narrowed sentinel (c26), so the talker would
+            # otherwise fall through to the FULL registry surface — build the
+            # tools-off role explicitly so both halves agree.
             role = (
                 _tools_off_role(purpose)
                 if not purpose_tools
@@ -3580,8 +3581,7 @@ def curated_schemas(role, config, *, deepthink: bool = False) -> list[dict[str, 
     """Tool schemas offered to *role* under *config*, armed-facts applied (t8).
 
     ``curate_schemas(role)`` with :func:`colleague.delegation_text.apply_armed_facts`
-    spliced on top — unarmed (``config.associate`` is ``None``) is byte-identical
-    to the pre-t8 curated list.
+    spliced on top — unarmed is byte-identical to the pre-t8 curated list.
     """
     from colleague.delegation_text import apply_armed_facts
     from colleague.tools import curate_schemas

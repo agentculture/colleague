@@ -97,18 +97,20 @@ from colleague.thought import PresenceUtterance, Thought, validate_presence, val
 #: tool named here mutates the tree or executes arbitrary operator-supplied
 #: text.
 #:
-#: Deliberately NOT here (and the reason, so the enumeration is inspectable):
-#: ``read_file`` / ``list_dir`` / ``view_media`` are read-only; ``run_tests``
-#: is a fixed, repo-confined, non-mutating gate tool; ``finish`` /
-#: ``check_test_integrity`` / ``memory`` / ``culture`` / ``devague`` /
-#: ``deepthink`` do not change the working tree. Widening this tuple is a
-#: deliberate, visible edit -- never an inference from a model's own claim.
+#: Deliberately NOT here: ``read_file``/``list_dir``/``view_media`` are read-only;
+#: ``run_tests`` is a fixed non-mutating gate tool; ``finish``/``check_test_integrity``/
+#: ``memory``/``culture``/``devague``/the five read-only purposes/``deepthink`` do not
+#: change the tree. Widening is a deliberate, visible edit, never an inference.
+#: ``handover_to_colleague`` (plan t5, q9) joins as the write purpose that replaces
+#: ``subagent`` on cortex/worker (``subagent``/``subagents`` stay here too: a manual
+#: subagent call remains consequential).
 CONSEQUENTIAL_TOOLS: tuple[str, ...] = (
     "write_file",
     "edit_file",
     "run_command",
     "subagent",
     "subagents",
+    "handover_to_colleague",
 )
 
 #: The front seat's offered tool list on EVERY completion. An explicit empty
@@ -117,12 +119,11 @@ CONSEQUENTIAL_TOOLS: tuple[str, ...] = (
 #: cannot carry a repo tool schema on the wire (the honest tools-off invariant).
 FRONT_OFFERED_TOOLS: list[dict[str, Any]] = []
 
-#: The front's two cadences (spec c36 / :mod:`colleague.thought` "Two
-#: cadences"). ``presence`` -- thinking off: ONE completion, output
-#: structurally limited to free text
-#: (:class:`~colleague.thought.PresenceUtterance`). ``commitment`` -- bounded
-#: thinking: at most :data:`COMMITMENT_MAX_ATTEMPTS` completions to produce a
-#: schema-valid :class:`~colleague.thought.Thought`.
+#: The front's two cadences (spec c36 / :mod:`colleague.thought` "Two cadences").
+#: ``presence`` -- thinking off: ONE completion, output structurally limited to
+#: free text (:class:`~colleague.thought.PresenceUtterance`). ``commitment`` --
+#: bounded thinking: at most :data:`COMMITMENT_MAX_ATTEMPTS` completions to
+#: produce a schema-valid :class:`~colleague.thought.Thought`.
 CADENCE_PRESENCE = "presence"
 CADENCE_COMMITMENT = "commitment"
 
@@ -281,13 +282,12 @@ class _ToolsOffSeat:
 
     def _complete_once(self, system_prompt: str, user_prompt: str) -> str:
         """ONE tools-off completion. Raises whatever the transport raises."""
-        # A FRESH empty list per call, and a snapshot of it in the audit trail.
-        # Sharing the module-level FRONT_OFFERED_TOOLS object meant every
-        # recorded entry aliased one list, so a single accidental mutation
-        # anywhere would retroactively rewrite the whole tools-off audit trail
-        # and could leak a schema to a tools-off seat (qodo-code-review, PR
-        # #403 comment 3746426184). The invariant is unchanged: an explicit
-        # empty list, never None, so the adapter omits tools/tool_choice.
+        # A FRESH empty list per call, and a snapshot of it in the audit trail --
+        # sharing the module-level FRONT_OFFERED_TOOLS object meant every recorded
+        # entry aliased one list, so one accidental mutation would retroactively
+        # rewrite the whole tools-off trail (qodo-code-review, PR #403 comment
+        # 3746426184). The invariant: an explicit empty list, never None, so the
+        # adapter omits tools/tool_choice.
         offered: list[dict[str, Any]] = []
         self.offered_tools.append(list(offered))
         complete = self._make_complete(self._config, tools=offered)

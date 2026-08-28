@@ -248,8 +248,11 @@ def test_talker_child_cannot_smuggle_write_tools(tmp_path: Path, capture: _Captu
 
 
 def test_worker_seat_holds_no_code_authoring_pair(tmp_path: Path) -> None:
+    # t5 (q9/q10): the worker delegates BY PURPOSE now — subagent/subagents
+    # leave its surface, replaced by the six purpose tools.
     surface = effective_surface(_armed("worker"), tmp_path)
-    assert "read_file" in surface and "subagent" in surface
+    assert "read_file" in surface and "code_survey" in surface
+    assert "subagent" not in surface and "subagents" not in surface
     assert "write_file" not in surface and "edit_file" not in surface
 
 

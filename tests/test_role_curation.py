@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 from colleague.roles import BUILTIN_ROLES, Role
 from colleague.tools import SCHEMAS, ToolError, ToolExecutor, curate_schemas
 
@@ -13,11 +14,19 @@ from colleague.tools import SCHEMAS, ToolError, ToolExecutor, curate_schemas
 
 
 class TestCurateSchemas:
-    def test_writer_returns_all_schemas_unchanged(self) -> None:
+    def test_writer_offers_purposes_and_drops_web_subagent_subagents(self) -> None:
+        # t5 (operator decisions q9/q10): cortex delegates BY PURPOSE now — the
+        # writer's curated surface loses the raw web/subagent/subagents tools
+        # (still present in SCHEMAS itself) and gains the six purpose schemas.
         writer = BUILTIN_ROLES["writer"]
-        curated = curate_schemas(writer)
-        # Same tool names, same order.
-        assert [s["function"]["name"] for s in curated] == [s["function"]["name"] for s in SCHEMAS]
+        curated_names = [s["function"]["name"] for s in curate_schemas(writer)]
+        schema_names = [s["function"]["name"] for s in SCHEMAS]
+        dropped = {"web", "subagent", "subagents"}
+        assert curated_names == [n for n in schema_names if n not in dropped] + list(
+            PURPOSE_TOOL_NAMES
+        )
+        assert set(dropped).isdisjoint(curated_names)
+        assert set(PURPOSE_TOOL_NAMES) <= set(curated_names)
 
     def test_explorer_returns_only_allowlisted(self) -> None:
         explorer = BUILTIN_ROLES["explorer"]
