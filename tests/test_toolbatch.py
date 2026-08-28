@@ -342,8 +342,9 @@ class TestRunBatch:
 
 
 # ---------------------------------------------------------------------------
-# Web-specific in-flight cap (t4) — CONCURRENCY_SAFE_TOOLS + run_batch's
-# ``COLLEAGUE_WEB_CONCURRENCY``-sized semaphore.
+# Web-specific batching (t4/t18) — CONCURRENCY_SAFE_TOOLS partitioning + the
+# ``COLLEAGUE_WEB_CONCURRENCY`` knob; the in-flight cap itself is enforced by
+# colleague/toolbatch_loop.py on the main thread (tests/test_toolbatch_loop.py).
 # ---------------------------------------------------------------------------
 
 
@@ -398,30 +399,12 @@ class TestWebConcurrencyEnvKnob:
         assert web_concurrency() == 1
 
 
-class TestWebInFlightCap:
-    def test_five_page_reads_at_most_three_in_flight(self, monkeypatch) -> None:
-        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "3")
-        lock = threading.Lock()
-        in_flight = 0
-        max_seen = 0
+class TestRunBatchIsWebAgnostic:
+    """t18 (Qodo #4/#8): the web in-flight cap moved OUT of run_batch's pool
+    onto the main thread (colleague/toolbatch_loop.py's wave partitioning) —
+    run_batch itself throttles nothing beyond ``width``, web calls included."""
 
-        def execute(call: tuple) -> str:
-            nonlocal in_flight, max_seen
-            with lock:
-                in_flight += 1
-                max_seen = max(max_seen, in_flight)
-            time.sleep(0.05)
-            with lock:
-                in_flight -= 1
-            return call[1]
-
-        calls = [_call("web", {"verb": "page open", "url": f"https://x/{i}"}) for i in range(5)]
-        results = run_batch(execute, calls, width=10)
-        assert results == ["web"] * 5
-        assert max_seen <= 3, f"saw {max_seen} concurrent web page calls, cap is 3"
-
-    def test_search_not_gated_by_web_cap(self, monkeypatch) -> None:
-        # 'search' calls are bounded only by the general width, not the web cap.
+    def test_web_page_calls_are_not_gated_by_run_batch_itself(self, monkeypatch) -> None:
         monkeypatch.setenv(ENV_WEB_CONCURRENCY, "1")
         lock = threading.Lock()
         in_flight = 0
@@ -437,18 +420,25 @@ class TestWebInFlightCap:
                 in_flight -= 1
             return call[1]
 
-        calls = [_call("web", {"verb": "search"}) for _ in range(5)]
+        calls = [_call("web", {"verb": "page open", "url": f"https://x/{i}"}) for i in range(5)]
         results = run_batch(execute, calls, width=5)
         assert results == ["web"] * 5
-        assert max_seen >= 4, f"expected search calls to run concurrently, saw {max_seen}"
+        # width=5 with a web_concurrency() of 1: run_batch alone would still
+        # run all 5 concurrently since it no longer knows about "web" calls.
+        assert max_seen >= 4, f"expected run_batch to ignore the web cap, saw {max_seen}"
 
-    def test_concurrency_1_stays_sequential_web_cap_irrelevant(self, monkeypatch) -> None:
-        monkeypatch.setenv(ENV_WEB_CONCURRENCY, "3")
 
-        def _boom(*args, **kwargs):
-            raise AssertionError("ThreadPoolExecutor must not be instantiated")
+class TestIsWebPageVerb:
+    def test_page_verb_is_true(self) -> None:
+        assert toolbatch.is_web_page_verb("web", {"verb": "page open"}) is True
+        assert toolbatch.is_web_page_verb("web", {"verb": "page read"}) is True
 
-        monkeypatch.setattr(toolbatch, "ThreadPoolExecutor", _boom)
-        calls = [_call("web", {"verb": "page open"}) for _ in range(5)]
-        results = run_batch(lambda c: c[1], calls, width=1)
-        assert results == ["web"] * 5
+    def test_search_verb_is_false(self) -> None:
+        assert toolbatch.is_web_page_verb("web", {"verb": "search"}) is False
+
+    def test_non_web_tool_is_false(self) -> None:
+        assert toolbatch.is_web_page_verb("read_file", {"verb": "page open"}) is False
+
+    def test_malformed_arguments_are_false(self) -> None:
+        assert toolbatch.is_web_page_verb("web", None) is False
+        assert toolbatch.is_web_page_verb("web", {}) is False

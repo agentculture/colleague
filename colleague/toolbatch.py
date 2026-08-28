@@ -48,11 +48,11 @@ it into ``loop.py`` is a later, separately-reviewed task). It has three parts:
   ``tests/test_boundary.py``'s ``_THREADS_ALLOWED``): ``width <= 1`` runs a
   plain sequential loop and never instantiates a ``ThreadPoolExecutor`` at
   all, so a caller that never asks for concurrency stays byte-identical to
-  today's sequential loop. A ``web`` call whose ``verb`` starts with
-  ``"page"`` is further throttled through a ``threading.Semaphore`` sized by
-  :func:`web_concurrency` (``COLLEAGUE_WEB_CONCURRENCY``, default
-  :data:`DEFAULT_WEB_CONCURRENCY`) — the SAME pool, never a second one; a
-  plain ``search`` call is bounded only by ``width`` (t4).
+  today's sequential loop. It knows nothing about ``web`` calls: the
+  ``COLLEAGUE_WEB_CONCURRENCY`` cap is enforced by the CALLER, on the main
+  thread, before submission (convention change (6) — see
+  ``colleague/toolbatch_loop.py``'s wave partitioning), never inside the pool
+  (t18 — Qodo #4/#8 on the prior worker-side ``threading.Semaphore``).
 
 **None of the above is a permission decision.** Every function here answers
 exactly one question — "can this run at the same time as other safe calls
@@ -73,7 +73,6 @@ from __future__ import annotations
 import os
 import re
 import shlex
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, List, Mapping, Optional, Sequence, TypeVar
 
@@ -421,21 +420,14 @@ def web_concurrency() -> int:
     return max(1, width)
 
 
-def _is_web_page_call(call: Any) -> bool:
-    """True for a pool item shaped like ``(executor, "web", arguments)`` whose
-    ``verb`` argument starts with ``"page"`` (``page open``/``page read``/…).
-
-    A plain ``search`` call — and anything that is not this 3-tuple shape,
-    e.g. a caller exercising :func:`run_batch` directly with its own item
-    type — is never gated: only a ``toolbatch_loop``-style ``web`` page call
-    is throttled.
+def is_web_page_verb(name: str, arguments: Any) -> bool:
+    """True for a ``web`` call whose ``verb`` argument starts with ``"page"``
+    (``page open``/``page read``/…) — the shape :mod:`colleague.toolbatch_loop`
+    partitions into ``COLLEAGUE_WEB_CONCURRENCY``-sized waves on the main
+    thread, BEFORE the pool (t18). A plain ``search`` call is never gated —
+    it is bounded only by the general batch ``width``.
     """
-    if not (isinstance(call, tuple) and len(call) == 3):
-        return False
-    _, name, arguments = call
-    if name != "web":
-        return False
-    if not isinstance(arguments, Mapping):
+    if name != "web" or not isinstance(arguments, Mapping):
         return False
     verb = arguments.get("verb")
     return isinstance(verb, str) and verb.startswith("page")
@@ -450,25 +442,11 @@ def run_batch(execute: Callable[[T], R], calls: Sequence[T], width: int) -> List
     asks for concurrency is byte-identical to a hand-written ``for`` loop.
     This function (plus the module import itself) is the ONE sanctioned NEW
     thread consumer this module adds to colleague — see
-    ``tests/test_boundary.py``'s ``_THREADS_ALLOWED``.
-
-    A ``web`` call whose ``verb`` is a ``page *`` verb is additionally
-    throttled through a :class:`threading.Semaphore` sized by
-    :func:`web_concurrency` (default :data:`DEFAULT_WEB_CONCURRENCY`) — the
-    SAME pool, not a second one: the semaphore only bounds how many such
-    calls the pool may run at once, it never changes ``width`` or spawns
-    another executor. A plain ``search`` call is unaffected — it is bounded
-    only by the general ``width``.
+    ``tests/test_boundary.py``'s ``_THREADS_ALLOWED``. It applies NO per-tool
+    throttling of its own (t18) — a caller that needs the ``web`` cap
+    partitions its own sub-batches before calling this function.
     """
     if width <= 1 or len(calls) <= 1:
         return [execute(call) for call in calls]
-    web_gate = threading.Semaphore(web_concurrency())
-
-    def _bounded_execute(call: T) -> R:
-        if _is_web_page_call(call):
-            with web_gate:
-                return execute(call)
-        return execute(call)
-
     with ThreadPoolExecutor(max_workers=width) as pool:
-        return list(pool.map(_bounded_execute, calls))
+        return list(pool.map(execute, calls))
