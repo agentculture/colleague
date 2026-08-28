@@ -472,6 +472,7 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
                     max_steps=efforttables.PURPOSE_STEPS[name],
                     charges_budget=charges_budget(name),
                     web_calls_remaining=webbudget.remaining_for_child(executor),
+                    purpose=name,
                 )
             except Exception as exc:  # refusal/launcher error -> a readable result
                 return ToolOutcome(result=executor._truncate(f"{name} refused: {exc}", name))
