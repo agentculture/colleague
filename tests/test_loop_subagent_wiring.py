@@ -111,7 +111,15 @@ def test_subagent_sub_results_surface_through_mock_engine_drive(tmp_path: Path) 
 
     This exercises the engine-forwarding wiring (``spawn=config.subagent_spawn``)
     rather than calling ``run`` directly — the mock engine must thread the callback
-    from config into the loop.
+    from config into the loop. Delegates via ``handover_to_colleague`` rather than
+    the raw ``subagent`` tool: the purpose-tools-associate-seat arc's deviation-d14
+    fix (``colleague/actingsurface.py``) retires raw ``subagent``/``subagents``
+    from the TOP-LEVEL acting seat's surface (q9/q10) — a bare ``EngineConfig``
+    now resolves the writer role's carved-out allow-list, which never includes
+    ``subagent``. ``handover_to_colleague`` runs the SAME injected spawn callback
+    (``purpose_schemas._record`` folds the child onto ``sub_results``/
+    ``changed_files`` exactly as the retired ``subagent`` tool did), so this test
+    still proves the ``config.subagent_spawn`` -> engine -> loop wiring.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -128,8 +136,8 @@ def test_subagent_sub_results_surface_through_mock_engine_drive(tmp_path: Path) 
                     tool_calls=[
                         ToolCall(
                             "m-1",
-                            "subagent",
-                            {"instruction": "do the mechanical bit", "engine": "mock"},
+                            "handover_to_colleague",
+                            {"task": "do the mechanical bit"},
                         )
                     ],
                     prompt_tokens=1,

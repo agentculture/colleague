@@ -265,11 +265,19 @@ def test_worker_seat_holds_no_code_authoring_pair(tmp_path: Path) -> None:
 
 
 def test_profileless_child_inherits_the_parent_surface(tmp_path: Path, capture: _Capture) -> None:
+    """A profileless child inherits the parent's purpose (worker), narrowed to
+    the parent's surface — EXCEPT the six purpose tools (t15/actingsurface,
+    q9): a spawned child never holds a purpose tool, no matter which purpose
+    it inherited, so its effective surface is the parent's minus those six."""
+    from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
+
     parent = _armed("worker")
     _spawn(tmp_path, parent, ChildSpec())
     _task, child_cfg = capture.calls[0]
     assert getattr(child_cfg, "agents_profile") == "worker"
-    assert effective_surface(child_cfg, tmp_path) == effective_surface(parent, tmp_path)
+    assert effective_surface(child_cfg, tmp_path) == effective_surface(parent, tmp_path) - set(
+        PURPOSE_TOOL_NAMES
+    )
 
 
 def test_profileless_grandchild_inherits_too(tmp_path: Path, capture: _Capture) -> None:

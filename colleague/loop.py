@@ -3534,15 +3534,15 @@ def _make_fanout_throttle(config) -> Callable[[str], None]:
 
 
 def resolve_role(config, repo_path: str):
-    """Resolve ``config.role`` (a role NAME) to a :class:`~colleague.roles.Role`,
-    or ``None`` when no role is set or the name is unknown (#t4).
+    """Resolve ``config.role`` to a :class:`~colleague.roles.Role` for the
+    top-level acting seat; ``None`` only for an unknown role NAME (#t4).
 
     Runtime-owned so every backend types a child identically (all-engines rule):
     both bundled engines call this in ``work()`` to build the child's curated tool
     schema (``curate_schemas(role)``) and a role-aware ``ToolExecutor``
-    (``allowlist=role``). ``None`` → the caller keeps its full-surface defaults,
-    byte-identical to the pre-role contract; the PROMPT is composed separately by
-    :meth:`colleague.engine.Engine.system_prompt`.
+    (``allowlist=role``). The final :func:`colleague.actingsurface.curate_for_depth`
+    call is the depth-aware seam (d14 bare-role fix, q9 child purpose-tool strip);
+    the PROMPT is composed separately by :meth:`colleague.engine.Engine.system_prompt`.
     """
     name = getattr(config, "role", None)
     role = None
@@ -3565,16 +3565,16 @@ def resolve_role(config, repo_path: str):
         # names outside TOOL_NAMES (the six purpose tools) while still narrowing.
         if purpose_tools is not None and set(purpose_tools) != set(TOOL_NAMES):
             # An EMPTY purpose surface (the tools-off talker) means NO tools, not
-            # "no narrowing": ``narrow_role_by_tool_set`` reads an empty tool_set as
-            # the lattice's not-narrowed sentinel (c26), so the talker would
-            # otherwise fall through to the FULL registry surface — build the
-            # tools-off role explicitly so both halves agree.
+            # "no narrowing" (narrow_role_by_tool_set's empty-tool_set sentinel,
+            # c26, would otherwise fall through to the FULL surface) — build it.
             role = (
                 _tools_off_role(purpose)
                 if not purpose_tools
                 else narrow_role_by_tool_set(role, tuple(sorted(purpose_tools)))
             )
-    return role
+    from colleague.actingsurface import curate_for_depth
+
+    return curate_for_depth(role, config)
 
 
 def curated_schemas(role, config, *, deepthink: bool = False) -> list[dict[str, Any]]:
