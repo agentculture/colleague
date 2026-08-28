@@ -232,6 +232,7 @@ _PRE_MODE_TO_DICT_KEYS = {
     "three_tier",
     "reasoning_effort",  # thinking-effort ladder, #416 t2
     "reasoning_effort_seats",  # thinking-effort ladder, #416 t2
+    "reasoning_effort_purposes",  # purpose-tools-associate-seat t1
     "too_long_min",  # thinking-effort ladder, #416 t2
 }
 

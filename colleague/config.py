@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Collection, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
-from colleague import configdir, effort
+from colleague import configdir, effort, efforttables
 from colleague.associate_config import ASSOCIATE_WIRE_MODEL  # noqa: F401 - re-export
 from colleague.associate_config import AssociateConfig, resolve_associate_seat
 from colleague.fillline import DEFAULT_COMPACTION_CAP
@@ -2015,21 +2015,23 @@ def _load_chain_overrides(repo_path: str | Path) -> tuple[str | None, str | None
     )
 
 
+def _str_dict(d: object) -> "dict[str, str]":
+    """``{k: str(v)...}`` for a ``dict``, else ``{}`` — the override-map shape."""
+    return {k: str(v) for k, v in d.items() if v is not None} if isinstance(d, dict) else {}
+
+
 def _load_reasoning_effort_overrides(
     repo_path: str | Path,
-) -> tuple[str | None, dict[str, str], str | None]:
-    """Read ``reasoning_effort``/``reasoning_effort_seats``/``too_long_min``
-    from .colleague/config.json (#416 t2); ``(None, {}, None)`` on absence."""
+) -> tuple[str | None, dict[str, str], dict[str, str], str | None]:
+    """Read ``reasoning_effort``/``_seats``/``_purposes`` (t1)/``too_long_min``
+    from .colleague/config.json (#416 t2); ``(None, {}, {}, None)`` absent."""
     data = _merged_config_json(repo_path)
     global_value = data.get("reasoning_effort")
-    seats = data.get("reasoning_effort_seats")
-    seats_dict = (
-        {k: str(v) for k, v in seats.items() if v is not None} if isinstance(seats, dict) else {}
-    )
     too_long_min = data.get("too_long_min")
     return (
         None if global_value is None else str(global_value),
-        seats_dict,
+        _str_dict(data.get("reasoning_effort_seats")),
+        _str_dict(data.get("reasoning_effort_purposes")),
         None if too_long_min is None else str(too_long_min),
     )
 
@@ -3025,57 +3027,47 @@ class EngineConfig:
     # surface the effective cap (h4/h7), not stay byte-identical.
     compaction_cap: int = DEFAULT_COMPACTION_CAP
     # Per-seat thinking-effort ladder (#416 t2, see colleague.effort):
-    # ``reasoning_effort`` is the GLOBAL override ("default" = kill-switch);
-    # ``reasoning_effort_seats`` maps a seat name to its own override. Both
-    # default unset, byte-identical to today.
+    # ``reasoning_effort`` = GLOBAL override ("default" = kill-switch);
+    # ``reasoning_effort_seats`` = per-seat override (incl. ``associate.<seat>``,
+    # t1: colleague.efforttables). All default unset, byte-identical to today.
     reasoning_effort: Optional[str] = None
     reasoning_effort_seats: dict = field(default_factory=dict)
+    reasoning_effort_purposes: dict = field(default_factory=dict)  # t1: colleague.efforttables
     # t8's "too long" advisory threshold, in minutes (#416 t2).
     too_long_min: int = _DEFAULT_TOO_LONG_MIN
-    # Dual-model deepthink escalation target (t1). ``None`` = single-model,
-    # byte-identical to today (the pre-feature default). See
-    # :class:`DeepthinkConfig` and :func:`_resolve_deepthink`.
+    # Dual-model deepthink escalation target (t1); ``None`` = single-model,
+    # byte-identical (:class:`DeepthinkConfig`, :func:`_resolve_deepthink`).
     deepthink: Optional[DeepthinkConfig] = None
-    # Senses (multimodal front-door) escalation target (cortex/senses arc,
-    # task t3). ``None`` = no senses declared, byte-identical to today. See
-    # :class:`SensesConfig` and :func:`_resolve_senses`.
+    # Senses (multimodal front-door) escalation target (task t3); ``None`` =
+    # no senses declared, byte-identical (:class:`SensesConfig`).
     senses: Optional[SensesConfig] = None
     associate: Optional[AssociateConfig] = None  # t18: colleague/associate_config.py
     lobes_context: Optional[int] = None  # t20: cortex's advertised window (closes d15)
-    # Voice (stt/tts) escalation target (senses live-presence + voice arc).
-    # ``None`` = no voice declared, byte-identical to today. See
-    # :class:`VoiceConfig` and :func:`_resolve_voice`.
+    # Voice (stt/tts) escalation target; ``None`` = no voice declared,
+    # byte-identical (:class:`VoiceConfig`, :func:`_resolve_voice`).
     voice: Optional[VoiceConfig] = None
-    # Realtime (server-VAD live speech session) dial target (realtime-speech
-    # arc, plan task t1). ``None`` = no realtime declared/discovered,
-    # byte-identical to today. See :class:`RealtimeConfig`,
-    # :func:`_resolve_realtime`, and :func:`_realtime_lobes_fallback`.
+    # Realtime (server-VAD live speech) dial target; ``None`` = not
+    # declared/discovered, byte-identical (:class:`RealtimeConfig`).
     realtime: Optional[RealtimeConfig] = None
-    # Three-tier execution arming (three-tier-execution arc, plan task t3).
-    # ``False`` (the default) = today's byte-identical behavior — a worker
-    # advert is read and discarded exactly like reranker, never resolved.
-    # See :func:`_resolve_three_tier_enabled`.
+    # Three-tier execution arming (plan task t3); ``False`` = byte-identical
+    # (a worker advert is read+discarded, never resolved) — see
+    # :func:`_resolve_three_tier_enabled`.
     three_tier: bool = False
-    # Worker (three-tier bounded-tool-loop actor) dial target. ``None`` =
-    # three-tier not armed, byte-identical to today. RESOLUTION ONLY when
-    # present: an armed run with an unresolvable worker raises a loud
-    # refusal instead of ever leaving this ``None`` with three_tier True (no
-    # silent cortex-as-actor). See :class:`WorkerConfig` and
-    # :func:`_resolve_worker`.
+    # Worker (three-tier actor) dial target; ``None`` = three-tier not armed,
+    # byte-identical. RESOLUTION ONLY when present: an armed run with an
+    # unresolvable worker raises a loud refusal (no silent cortex-as-actor).
+    # See :class:`WorkerConfig`/:func:`_resolve_worker`.
     worker: Optional[WorkerConfig] = None
-    # Thought→action→evaluation execution arming (post-#387 program, plan task
-    # t12; issue #397). ``False`` (the default) = today's byte-identical
-    # behavior — every seat advert is read and discarded, and this key is
-    # omitted from ``to_dict()`` entirely. An INDEPENDENT opt-in: distinct
-    # from ``three_tier`` in every direction (arming one never arms the other;
-    # arming both refuses). See :func:`_resolve_thought_action_evaluation_enabled`.
+    # Thought→action→evaluation execution arming (plan task t12; #397).
+    # ``False`` = byte-identical (every seat advert read+discarded, key
+    # omitted from ``to_dict()``). An INDEPENDENT opt-in: distinct from
+    # ``three_tier`` in every direction (arming both refuses). See
+    # :func:`_resolve_thought_action_evaluation_enabled`.
     thought_action_evaluation: bool = False
-    # Model-bound agents arming (#411, the eleventh sanctioned increment; plan
-    # task t7). ``False`` (the default) = today's byte-identical behavior and
-    # the key is omitted from ``to_dict()`` entirely. A THIRD independent
-    # opt-in: arming it with either sibling mode refuses. The runtime seams
-    # that read it (agents/runtime, loop wiring) land in later tasks. See
-    # :func:`_resolve_agents_enabled`.
+    # Model-bound agents arming (#411, eleventh sanctioned increment; plan
+    # task t7). ``False`` = byte-identical, key omitted from ``to_dict()``.
+    # A THIRD independent opt-in: arming it with either sibling mode refuses.
+    # See :func:`_resolve_agents_enabled`.
     agents: bool = False
     # The mode's three resolved seats (front/worker/evaluator), each resolved
     # BY ROLE NAME from the lobes /capabilities contract. ``None`` = the mode
@@ -3341,6 +3333,7 @@ class EngineConfig:
         file_seats: dict[str, dict[str, str]] = {}
         file_reasoning_effort: str | None = None
         file_reasoning_effort_seats: dict[str, str] = {}
+        file_reasoning_effort_purposes: dict[str, str] = {}  # t1
         file_too_long_min: str | None = None
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
@@ -3375,9 +3368,12 @@ class EngineConfig:
                 "worker": file_worker,
                 "evaluator": _load_seat_overrides(repo_path, "evaluator"),
             }
-            file_reasoning_effort, file_reasoning_effort_seats, file_too_long_min = (
-                _load_reasoning_effort_overrides(repo_path)
-            )
+            (
+                file_reasoning_effort,
+                file_reasoning_effort_seats,
+                file_reasoning_effort_purposes,
+                file_too_long_min,
+            ) = _load_reasoning_effort_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -3632,10 +3628,10 @@ class EngineConfig:
             ),
         )
 
-        # Per-seat thinking-effort ladder (#416 t2): validated via
-        # effort.validate_effort (c37); "default" is the kill-switch sentinel.
-        # Parsing lives in colleague.effort (SonarCloud S3776 extraction) —
-        # this classmethod just supplies the config-file/env inputs.
+        # Per-seat thinking-effort ladder (#416 t2, validated via
+        # effort.validate_effort/c37; parsing lives in colleague.effort,
+        # SonarCloud S3776 extraction) + t1's associate/purpose overrides
+        # (colleague.efforttables, a ratchet-safe sibling).
         (
             resolved_reasoning_effort,
             resolved_reasoning_effort_seats,
@@ -3646,6 +3642,12 @@ class EngineConfig:
             file_reasoning_effort_seats,
             file_too_long_min,
             _DEFAULT_TOO_LONG_MIN,
+        )
+        resolved_reasoning_effort_seats.update(
+            efforttables.resolve_associate_seat_overrides(_pick, file_reasoning_effort_seats)
+        )
+        resolved_reasoning_effort_purposes = efforttables.resolve_purpose_overrides(
+            _pick, file_reasoning_effort_purposes
         )
 
         return cls(
@@ -3928,6 +3930,7 @@ class EngineConfig:
             ),
             reasoning_effort=resolved_reasoning_effort,
             reasoning_effort_seats=resolved_reasoning_effort_seats,
+            reasoning_effort_purposes=resolved_reasoning_effort_purposes,
             too_long_min=resolved_too_long_min,
         )
 
@@ -3967,6 +3970,7 @@ class EngineConfig:
             # None/{} omitted) so the snapshot is identical on mock/vllm-openai.
             "reasoning_effort": self.reasoning_effort,
             "reasoning_effort_seats": self.reasoning_effort_seats,
+            "reasoning_effort_purposes": self.reasoning_effort_purposes,
             "too_long_min": self.too_long_min,
         }
         # Model-bound agents (#411 t7): present ONLY when armed, so an unarmed
