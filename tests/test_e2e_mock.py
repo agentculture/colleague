@@ -298,7 +298,13 @@ def test_mock_and_vllm_engines_produce_the_same_web_step_shape(
 
     monkeypatch.setattr(vllm_openai, "_post_json", fake_post)
 
+    # role="scout" (t15/actingsurface, deviation d14 fix): the top-level acting
+    # seat's BARE default now resolves to the writer role's carved-out surface,
+    # which never includes raw ``web`` (replaced by web_survey/code_survey) —
+    # this test proves dispatch-shape parity for the retired raw ``web`` tool
+    # itself, so it pins a role whose allow-list still carries it.
     cfg = EngineConfig.resolve()
+    cfg.role = "scout"
     mock_repo = tmp_path / "mock"
     vllm_repo = tmp_path / "vllm"
     mock_repo.mkdir()

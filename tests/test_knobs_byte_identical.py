@@ -153,14 +153,49 @@ def test_mock_scenario_byte_identical_to_main(
     assert captured == expected
 
 
+#: The ONE documented, deliberate exception to "byte-identical" left standing
+#: after the purpose-tools-associate-seat arc's deviation-d14 fix
+#: (colleague/actingsurface.py): resolve_role no longer returns None for the
+#: bare TOP-LEVEL acting seat, so the writer role's t5 swap (drop
+#: subagent/subagents, gain the six purpose tools) now reaches the WIRE
+#: ``tools`` payload of a bare run too, not just an explicit --role writer
+#: run. Named explicitly here rather than silently normalized away.
+_PURPOSE_TOOL_CARVEOUT_DROPPED = {"subagent", "subagents"}
+
+
+def _assert_purpose_tool_carveout(captured_tools: "list[str]", expected_tools: "list[str]") -> None:
+    from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
+
+    dropped = set(expected_tools) - set(captured_tools)
+    added = set(captured_tools) - set(expected_tools)
+    assert dropped == _PURPOSE_TOOL_CARVEOUT_DROPPED, dropped
+    # web_survey is hidden together with web under this suite's COLLEAGUE_WEB=0
+    # off-knob (the same hidden-state rule as web itself) — five of six purpose
+    # names land here, not six.
+    assert added == set(PURPOSE_TOOL_NAMES) - {"web_survey"}, added
+
+
 def test_vllm_scenario_byte_identical_to_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Byte-identical EXCEPT the one documented purpose-tools-associate-seat
+    carve-out on the wire tool surface (deviation d14 fix, see
+    ``_PURPOSE_TOOL_CARVEOUT_DROPPED`` above): every payload's ``tools`` name
+    list swaps subagent/subagents for five purpose tools; every OTHER
+    captured field — status, steps, the schemas probe, system prompt,
+    tokenize/chat counts, and every other payload key — is untouched."""
     _apply_off_knobs(monkeypatch)
     repo = scenario.make_repo(tmp_path / "vllm")
     captured = _normalize_capture(scenario.capture_vllm_scenario(repo))
     expected = _normalize_capture(_load_fixture("vllm_scenario.json"))
+
+    captured_payloads = captured.pop("payloads")
+    expected_payloads = expected.pop("payloads")
     assert captured == expected
+    assert len(captured_payloads) == len(expected_payloads)
+    for cp, ep in zip(captured_payloads, expected_payloads):
+        _assert_purpose_tool_carveout(cp.pop("tools", []), ep.pop("tools", []))
+        assert cp == ep
 
 
 # ---------------------------------------------------------------------------
