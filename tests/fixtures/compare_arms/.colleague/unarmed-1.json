@@ -1,0 +1,18 @@
+{
+  "task_id": "unarmed-1",
+  "status": "ok",
+  "summary": "fixture artifact for compare_arms tests",
+  "changed_files": [],
+  "steps": [],
+  "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+  "stats": {
+    "request": "fixture",
+    "engine": "mock",
+    "model": "fixture-model",
+    "started_at": "2026-08-27T00:00:00+00:00",
+    "duration_seconds": 65,
+    "model_turns": 7,
+    "step_count": 0,
+    "tool_counts": {}
+  }
+}

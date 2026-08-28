@@ -601,6 +601,10 @@ def test_boundary_sanctioned_lists_unchanged() -> None:
             # the integrator-correction diff (t7) — reasons in test_boundary.py.
             "colleague/strive.py",
             "colleague/correction.py",
+            # search-tools arc (task t5): grep_search's ripgrep fast path
+            # shells out to the operator-installed `rg` CLI; the stdlib
+            # walker is the fallback — reasons pinned in test_boundary.py.
+            "colleague/search_tools.py",
         }
     )
     # colleague/realtime.py joined this list under the realtime-speech arc
@@ -611,6 +615,7 @@ def test_boundary_sanctioned_lists_unchanged() -> None:
             "colleague/subagents.py",
             "colleague/cli/_commands/_input_line.py",
             "colleague/realtime.py",
+            "colleague/toolbatch.py",
         }
     )
 

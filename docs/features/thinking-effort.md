@@ -51,6 +51,7 @@ duplicate it.
 | `evaluator` | `medium` |
 | `senses` | `off` |
 | `design` | `xhigh` |
+| `associate` | `off` |
 
 ### Subagent children (`ROLE_TABLE`)
 
@@ -61,6 +62,7 @@ duplicate it.
 | `reviewer` | `low` |
 | `validator` | `low` |
 | `explorer` | `off` |
+| `scout` | `off` |
 
 ### Top-level role overrides (`TOP_LEVEL_ROLE_TABLE`)
 

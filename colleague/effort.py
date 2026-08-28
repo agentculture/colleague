@@ -64,6 +64,9 @@ SEAT_TABLE = {
     "evaluator": "medium",
     "senses": "off",
     "design": "xhigh",
+    # The associate (fast non-coding scout) seat — adopt-from-qwen-code t18:
+    # thinking OFF (Nemotron spends its first tokens thinking; a scout must not).
+    "associate": "off",
 }
 
 # Subagent-role defaults when invoked as a child (v3, c36/c40).
@@ -73,6 +76,7 @@ ROLE_TABLE = {
     "reviewer": "low",
     "validator": "low",
     "explorer": "off",
+    "scout": "off",  # t19: the unarmed scout — read-only, thinking OFF (#416)
 }
 
 # Role overrides that apply only when the role is invoked at the top level

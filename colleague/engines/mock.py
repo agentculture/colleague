@@ -13,11 +13,13 @@ import re
 from contextlib import suppress
 from typing import Callable
 
+from colleague import associate_seats
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
+from colleague.engines import mock_scenarios
 from colleague.loop import (
     CompleteFn,
     ContextControls,
@@ -78,7 +80,7 @@ def _with_synthetic_deltas(complete: CompleteFn, on_delta: "Callable[[str], None
 
 
 def _script(task: Task) -> CompleteFn:
-    """A deterministic two-turn script: write a marker file, then finish."""
+    """A deterministic script: write a marker file, then finish (or, opt-in, a batched turn)."""
     content = f"# Colleague mock engine\n\nHandled instruction:\n\n{task.instruction}\n"
     # Deterministic reasoning/answer text so WorkStats' generated-size fields are
     # non-zero and engine-agnostic (the mock is the contract reference, h5): the
@@ -90,7 +92,7 @@ def _script(task: Task) -> CompleteFn:
     # value itself — a scripted engine choosing to act/finish, never truncated
     # by a token cap — so `result.finish_states` stays populated with the same
     # shape a live backend produces (test_e2e_mock.py's shape parity).
-    turns = [
+    turns = mock_scenarios.batch_turns_or_none(task) or [
         ModelResponse(
             content="writing the marker file",
             reasoning="mock reasoning: decide to write the marker file",
@@ -150,13 +152,10 @@ class MockEngine(Engine):
         # schema: the executor's ``allowlist`` stays the ONE enforcement point
         # for the mock, so narrowing must reach it the same way it reaches the
         # live backend's offered schema. Read the attachment's snapshot
-        # DEFENSIVELY — the real EpisodeConfigLifecycle exposes ``snapshot`` as
-        # a read-only property (already-evaluated, not callable), while a
-        # future frozen child view (r2/t10) may expose a ``snapshot()`` METHOD
-        # instead — so this neither assumes nor requires either shape. No
-        # lifecycle, or a snapshot with the default/empty ``tool_set`` (c26: ()
-        # means not-narrowed), leaves ``role`` untouched: byte-identical to
-        # today.
+        # DEFENSIVELY — the real EpisodeConfigLifecycle exposes ``snapshot`` as a
+        # read-only property while a frozen child view (r2/t10) may expose a
+        # ``snapshot()`` METHOD; neither shape is assumed. No lifecycle, or the
+        # default/empty ``tool_set`` (c26), leaves ``role`` untouched: byte-identical.
         lifecycle = getattr(config, "config_lifecycle", None)
         tool_set: tuple[str, ...] = ()
         if lifecycle is not None:
@@ -224,6 +223,7 @@ class MockEngine(Engine):
                 deepthink_run=dt_run,
                 senses_run=senses_run,
                 tae_session=make_tae_session(config, self.name),
+                associate_complete=associate_seats.make_associate_complete(config, self.name),
             ),
         )
         # Model-bound agents (#411, t13): an ARMED config always returns the

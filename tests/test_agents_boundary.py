@@ -233,6 +233,10 @@ _PINNED_SUBPROCESS_ALLOWED = frozenset(
         "colleague/experiment.py",
         "colleague/strive.py",
         "colleague/correction.py",
+        # search-tools arc (task t5): grep_search's ripgrep fast path shells
+        # out to the operator-installed `rg` CLI; the stdlib walker is the
+        # fallback — reasons pinned in test_boundary.py.
+        "colleague/search_tools.py",
     }
 )
 
@@ -241,6 +245,7 @@ _PINNED_THREADS_ALLOWED = frozenset(
         "colleague/subagents.py",
         "colleague/cli/_commands/_input_line.py",
         "colleague/realtime.py",
+        "colleague/toolbatch.py",
     }
 )
 

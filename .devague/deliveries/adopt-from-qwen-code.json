@@ -1,0 +1,358 @@
+{
+  "plan_slug": "adopt-from-qwen-code",
+  "schema_version": 1,
+  "created": "2026-08-27T14:53:50Z",
+  "updated": "2026-08-27T21:48:35Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t1's antigravity guard test scopes the grep to NOTICE, colleague/ and docs/ EXCLUDING docs/specs/ and docs/plans/ \u2014 those two committed artifacts name Antigravity to explain why it is NOT credited (decision q1) and would be a false positive",
+      "task_ref": "t1",
+      "reason": "h13's literal 'docs/' would fail on the arc's own spec/plan files; the guard still covers every shipped surface",
+      "affects": [
+        "h13",
+        "c16"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t8 ships three tool-call example families (general, qwen-coder, qwen-vl) instead of the four the criterion names \u2014 no gemma4 family, a Gemma-4 id keys to general",
+      "task_ref": "t8",
+      "reason": "tests/test_gemma_staged_config.py::test_no_gemma_in_source_code (spec qwen-direct-no-gemma) forbids the 'gemma' literal in any colleague/*.py string constant",
+      "affects": [
+        "c14",
+        "h11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t8 touched colleague/engine.py (two one-line substitutions, line-count neutral) beyond its file list, so Engine.system_prompt() composes the model-keyed prompt; layer-free repos keep the model-agnostic module-level fallback",
+      "task_ref": "t8",
+      "reason": "the model id is only known at Engine.system_prompt(); keeping loop.py to one hunk was preferred over model-keying the fallback",
+      "affects": [
+        "c14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "t7 puts the guards in a NEW colleague/streamguards.py and leaves colleague/stallguard.py untouched (the brief listed it); StreamGuardTripped subclasses TurnStalled with a .guard attribute read via getattr",
+      "task_ref": "t7",
+      "reason": "tests/test_file_length_ratchet.py fails any module that grows past its baseline; vllm_openai.py and loop.py stayed at baseline-1 lines each \u2014 every later task touching loop.py/tools.py/vllm_openai.py must shrink-or-split (t9, t15, t16)",
+      "affects": [
+        "c12",
+        "h10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d5",
+      "what": "t18 lands two extra new modules (colleague/associate.py, colleague/associate_config.py, plus associate_cli.py) and touches docs/features/thinking-effort.md + the effort boundary allow-list, beyond the brief's file list; the 'then cortex@low' fallback is deliberately left to the consumer task t19 (engine retries the alias once, then propagates)",
+      "task_ref": "t18",
+      "reason": "file-length ratchet forbids growth in config.py/loop.py/vllm_openai.py; existing pinning tests require the doc row and the sanctioned-builder entry",
+      "affects": [
+        "c37",
+        "h26",
+        "c49"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d6",
+      "what": "Wave-1 colleague lane B (t3 \u2192 t5 \u2192 t11) stopped after 23 min: t3 sat inside one model turn for over 16 minutes at step 9 (exploration only, no files written); t3, t5, t11 reassigned to sonnet task agents in the same worktrees. Lane A (t2 \u2192 t4 \u2192 t6) kept running as the colleague-builds-a-module dogfood sample",
+      "task_ref": "t3",
+      "reason": "unbounded reasoning at temperature 0 on the pre-arc harness \u2014 the exact before-state pathology c26 describes; keeping the wave moving beats waiting on a 5,400s stall floor",
+      "affects": [
+        "t5",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d7",
+      "what": "t3's worked-example number in the acceptance criterion (48934) was a transcription slip in the plan; the criterion's own formula gives 49037 (margin = max(10000, round(0.05*262144)) = 13107; 262144-200000-13107 = 49037), verified bit-for-bit against qwen-code's tokenLimits.test.ts fixtures; the test encodes 49037",
+      "task_ref": "t3",
+      "reason": "plan text error, not a design change \u2014 the formula is unchanged",
+      "affects": [
+        "c4",
+        "h2"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d8",
+      "what": "Wave-1 colleague lane A (t2 \u2192 t4 \u2192 t6) stopped after 31 min: t2 sat in one model turn for over 15 minutes at step 11 (exploration only); t2, t4, t6 reassigned to sonnet task agents in the same worktrees. The colleague-builds-a-module dogfood sample moves to the UPDATED harness in waves 7-9",
+      "task_ref": "t2",
+      "reason": "same before-state pathology as d6, plus measurement validity: the t10 baseline arm must own the GPU the way the later arms will, or contention inflates main's wall-clock and biases c28's ratio toward the branch",
+      "affects": [
+        "t4",
+        "t6",
+        "c22"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d9",
+      "what": "t5's glob() has no brace-expansion ({a,b}) and grep_search uses Python's re dialect on both backends (pattern pre-validated with re.compile even on the rg path); confine() re-implements ToolExecutor._safe_path's resolve()+parents algorithm as a standalone function (the helper is instance-bound and tools.py could not be edited); two snapshot mirrors of _SUBPROCESS_ALLOWED (tests/test_agents_boundary.py, tests/test_chain_e2e.py) were updated. rg is NOT on this machine's default PATH (a copy exists at ~/.pi/agent/bin/rg)",
+      "task_ref": "t5",
+      "reason": "stdlib-only convention; tools.py frozen by the ratchet until the wiring task; parity proven with a real rg 14.1.1 binary",
+      "affects": [
+        "c7",
+        "h5"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d10",
+      "what": "t4 blanks ANY tool-role message older than the recent window rather than porting qwen-code's COMPACTABLE_TOOLS/FILE_PATH_TOOLS allow-lists (colleague's tool surface is small and fixed); media-part handling, the idle trigger and the absolute-ceiling threshold term are not ported (loop wiring is t16); keep_recent default 10 per the brief vs upstream 5",
+      "task_ref": "t4",
+      "reason": "shape and scope follow the confirmed brief; the loop task decides the trigger",
+      "affects": [
+        "c11",
+        "h9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d11",
+      "what": "t6's relaxed tier trims BOTH leading and trailing per-line whitespace (qwen-code trims trailing only) and folds qwen-code's staged normalization (exact \u2192 char-normalize \u2192 line-trim) into one relaxed pass",
+      "task_ref": "t6",
+      "reason": "the confirmed criterion requires indent-drifted old_string to land; no acceptance case distinguishes the stages",
+      "affects": [
+        "c9",
+        "h7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d12",
+      "what": "t2's thread allow-list entry (colleague/toolbatch.py) required updating the two byte-for-byte mirrors of _THREADS_ALLOWED in tests/test_agents_boundary.py and tests/test_chain_e2e.py at merge time (outside t2's file list); is_shell_command_read_only is deliberately MORE conservative than upstream (metacharacters refused even inside quotes; git subcommands allow-listed with branch/remote argument checks)",
+      "task_ref": "t2",
+      "reason": "pin tests mirror the sanctioned list; a stricter checker only costs parallelism, never safety",
+      "affects": [
+        "c6",
+        "h4",
+        "c40"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d13",
+      "what": "t9: read_file pages instead of head+tail/spill (like qwen-code's read tool) while every other _truncate caller gets head+tail at 25,000 with spill; ToolExecutor.max_output_chars and COLLEAGUE_MAX_OUTPUT_CHARS both act as CEILINGS over the per-tool defaults (decision c50 supersedes h8's 'keeps overriding both' wording); the old '... [truncated at N chars]' suffix no longer exists and its two pin tests were rewritten",
+      "task_ref": "t9",
+      "reason": "c50 was decided after h8 was written; paging is the read tool's own truncation in the source design",
+      "affects": [
+        "c8",
+        "h6",
+        "c10",
+        "h8"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d14",
+      "what": "t13: the prior-read rule gates edit_file only \u2014 write_file over an existing unread file is NOT refused (my brief asked for it; the confirmed plan does not, and gating overwrites broke the mock engine's deterministic rerun and the tool-narrowing byte-identical pins, i.e. the all-engines contract); a write_file by the same executor marks the file as fully shown; the tolerant tier is line-based",
+      "task_ref": "t13",
+      "reason": "all-engines rule (c19/h14) outranks an operator-brief extra; the plan's own criteria are met exactly",
+      "affects": [
+        "c9",
+        "h7",
+        "c19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d15",
+      "what": "t12: config.py untouched \u2014 COLLEAGUE_EXACT_TOKENS is read in tokenestimate.py and config.lobes_context is read via getattr with NO resolution rung stamping it yet (the run-start /tokenize max_model_len is the window source on this rig, 262144 = lobes' advertised context); CLAUDE.md's carve-out sentence reads 'TWO per-turn carve-outs plus ONE run-scoped probe' rather than 'two, not three' because the /tokenize call still exists once per run; the 400 reproduction uses a 32,768 window (the clamp's margin+floor cannot fit 8K)",
+      "task_ref": "t12",
+      "reason": "honest wording; the lobes_context stamp and config-show line belong to t16/t20",
+      "affects": [
+        "c5",
+        "h3",
+        "c38",
+        "c19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d16",
+      "what": "t19: with COLLEAGUE_ASSOCIATE_MODEL unset every seat is byte-identical to main (h1/c44 win over c33's 'absent = cortex@low'); cortex@low fires only when ARMED-but-unreachable (alias retry exhausted / exception / an engine without a one-shot seam such as mock), with one TaskResult.warnings entry; the plan's cortex@low-when-absent is realised only on the NEW scout role (ROLE_TABLE scout=low). The 'digest' seat is enumerated but has no consumer (lint/affected-tests make no model call). Both engines pass the seat factory (all-engines)",
+      "task_ref": "t19",
+      "reason": "two confirmed claims conflict; byte-identical-when-unarmed is the arc's standing invariant and the operator's c32 fallback intent is preserved for the armed-but-unreachable case \u2014 operator should confirm this reading or ask for cortex@low on unarmed seats",
+      "affects": [
+        "c33",
+        "h22",
+        "c32",
+        "c44"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky"
+    },
+    {
+      "id": "d17",
+      "what": "t14: COLLEAGUE_TOOLS_LEGACY hides grep_search/glob on the curated work surface and refuses at dispatch, but the raw engine complete(tools=None) path (plan-mode pin: vllm_openai.SCHEMAS is SCHEMAS) still hands the static full list \u2014 vllm_openai.py untouched (ratchet + identity pins); prompttext.py already prefers the search tools (t8), pinned by test instead of edited; #411 WORKER_TOOLS (dormant) not extended",
+      "task_ref": "t14",
+      "reason": "ratchet + two identity pins; t22's byte-identical proof runs over work payloads, which are curated",
+      "affects": [
+        "c7",
+        "h5",
+        "c44"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d18",
+      "what": "t21 recovers the continuation id by parsing the fixed preamble back out of task.instruction (editgate.continuation_id) instead of threading a Task field \u2014 contract.py and both engines sit at zero ratchet slack; ToolExecutor gained an optional context_note set by loop.run()",
+      "task_ref": "t21",
+      "reason": "all-engines for free, zero engine edits",
+      "affects": [
+        "c41",
+        "h30"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d19",
+      "what": "t15: batch orchestration lives in a NEW colleague/toolbatch_loop.py (loop.py keeps its slack, imports nothing thread-shaped); _tae_gate/_deny_by_policy became decision-only _tae_verdict/_policy_verdict with bookkeeping in _record_denial (three stale docstring mentions left in tae_loop.py/test_tae_wiring.py); in a parallel batch, later calls' pre_tool hooks fire before earlier calls' post_tool hooks; a mid-turn stop is honoured only between batches (skipped calls recorded as non-ok steps)",
+      "task_ref": "t15",
+      "reason": "inherent to the confirmed lifecycle split; ratchet",
+      "affects": [
+        "c35",
+        "h24",
+        "c36",
+        "h25"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d20",
+      "what": "t17: the payload diff-scope test asserts a SUBSET of the OpenAI-surface keys (max_tokens not emitted until t16 lands); mock.py had no prior task-text recipes \u2014 'mock-batch:' is the first; the hook is the boolean-or form to fit the ratchet's one-line budget",
+      "task_ref": "t17",
+      "reason": "forward-compatible pin; ratchet",
+      "affects": [
+        "c39",
+        "h28",
+        "c19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d21",
+      "what": "t16: the microcompaction ledger event is an 'evidence' kind (the #411 kind set is closed, pinned) with subject microcompaction; blanked counts land as 'microcompaction' warnings on the artifact rather than WorkStats fields (artifact.py/contract.py at zero slack \u2014 t20 owns counters); the length-escalation retry lives inside the adapter's complete() (one bare dispatch, no recovery ladder re-entry); design/deepthink builders stamp output_seat for the 131072 ceiling, every other seat clamps at 64k; a loop-guard trip has no dedicated incompletion reason; several pre-existing tests had identical-call fillers varied and payload-shape pins gained a COLLEAGUE_MAX_OUTPUT_TOKENS=0 fixture",
+      "task_ref": "t16",
+      "reason": "closed ledger kinds, ratchet slack, adapter-local retry keeps the loop unchanged",
+      "affects": [
+        "c4",
+        "h2",
+        "c11",
+        "h9",
+        "c20",
+        "c42",
+        "h31",
+        "c48"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d22",
+      "what": "t20: the five run counters live on an omit-when-zero WorkStats.counts dict (exact key-set pins in test_roi_e2e/test_contract_doc forbid new always-present keys); results_blanked/guard_trips are derived at finalize from the recorded warnings; config show's window is the pre-run view (lobes_context \u2192 budget; the run-start /tokenize rung is not shown); the doctor harness group reads the cached /capabilities (config-level discovery, no probe); clean reaps only *.txt under tool-output/",
+      "task_ref": "t20",
+      "reason": "contract pins; counters can never disagree with the record",
+      "affects": [
+        "c43",
+        "h32",
+        "c38"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d23",
+      "what": "t22: the byte-identical comparison is scoped to tool NAMES, not full parameter shapes \u2014 t9's read_file offset/limit schema params are unconditional (no off-knob) and differ from main even with all knobs off; COLLEAGUE_PRIOR_READ=0 pins an outcome, not a message (main never refused); loop._DEFAULT_SYSTEM is built once at import time (the PROMPT_VARIANT check resyncs the cached constant test-locally); the knob table lists 19 COLLEAGUE_* literals (11 off-switches + 8 value overrides marked n/a)",
+      "task_ref": "t22",
+      "reason": "honest scope of 'byte-identical': names + payload keys + prompt + steps; the read schema addition is additive and stated",
+      "affects": [
+        "c44",
+        "h33",
+        "c1",
+        "h1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d24",
+      "what": "t23: the feature doc's Credit section explains decision q1 without the literal product name (test_no_antigravity_references forbids it under docs/ outside the spec/plan) \u2014 'the Google agentic IDE the operator first named', pointing at c16/q1; approval-gate.md's stale _deny_by_policy mentions were renamed to the t15 names",
+      "task_ref": "t23",
+      "reason": "the guard test is the arc's own; substance delivered",
+      "affects": [
+        "c16",
+        "h13",
+        "c24"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d25",
+      "what": "t24 outcome: every arm misses the c28 bar (0.7x wall / 0.8x turns); the attribution arm shows the adopted prompt text (t8) is the cost (2.30x \u2192 1.10x on game, 1.70x \u2192 1.18x on repo when only the prompt is reverted). Per h21 revert-or-flag: the adopted prompt becomes OPT-IN (COLLEAGUE_PROMPT_VARIANT default flips to v1), every other mechanism stays on (parity + reliability), the doc states the miss. Associate arm measured 'inert' (no delegation, memory unarmed); temperature arm underpowered (gateway hangs)",
+      "task_ref": "t24",
+      "reason": "the plan's own rule; numbers in docs/live-testing.md rows 43-46 and issue #440",
+      "affects": [
+        "c28",
+        "h21",
+        "c14",
+        "c44"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky"
+    }
+  ]
+}

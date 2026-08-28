@@ -49,7 +49,8 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
-from colleague import culture, devague, media, memory, testintegrity
+import colleague.search_schemas as search_schemas
+from colleague import culture, devague, editgate, media, memory, readpage, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
@@ -115,16 +116,18 @@ SCHEMAS: list[dict[str, Any]] = [
         "function": {
             "name": "read_file",
             "description": (
-                "Read a UTF-8 text file, relative to the repo root. Each line "
-                "in the result is prefixed with its exact 1-based line number "
-                "and a tab (cat -n style, e.g. '    12\\tsome code'), so you "
-                "can cite an exact file:line location. The line-number prefix "
-                "is DISPLAY ONLY — it is never part of the file on disk, so "
-                "never include it in edit_file's old_string."
+                "Read a UTF-8 text file (relative to the repo root), cat -n style: every line is "
+                "prefixed with its exact 1-based number + a tab (DISPLAY ONLY — never put it in "
+                "edit_file's old_string). Long files are paged: pass offset (1-based first line) "
+                "and limit (line count); a cut result ends with 'Read lines X-Y of N' — page on."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": _PATH_DESC}},
+                "properties": {
+                    "path": {"type": "string", "description": _PATH_DESC},
+                    "offset": {"type": "integer", "description": readpage.OFFSET_DESC},
+                    "limit": {"type": "integer", "description": readpage.LIMIT_DESC},
+                },
                 "required": ["path"],
             },
         },
@@ -214,6 +217,7 @@ SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    *search_schemas.SEARCH_SCHEMAS,
     {
         "type": "function",
         "function": {
@@ -620,7 +624,7 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
     else:
         raise TypeError(f"curate_schemas expects a Role or role name, got {type(role).__name__}")
 
-    curated = [s for s in SCHEMAS if allow is None or s["function"]["name"] in allow]
+    curated = [s for s in SCHEMAS if search_schemas.offered(s["function"]["name"], allow)]
     if deepthink and (allow is None or DEEPTHINK in allow):
         curated = curated + [DEEPTHINK_SCHEMA]
     return curated
@@ -789,13 +793,15 @@ class ToolExecutor:
         deepthink: Callable[..., Any] | None = None,
         max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
         allowlist: "Role | tuple[str, ...] | None" = None,
+        context_note: str | None = None,
     ) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
+        self.read_set = editgate.new_read_set()  # prior-read rule (t13): what was SHOWN
+        self.context_note = context_note  # t21: continuation id folded into edit refusals
         # Total UTF-8 bytes the model authored into files via write_file/edit_file
         # across the work item — the exact "tokens written" measure (no tokenizer, so
-        # bytes not tokens). An edit_file contributes only its replacement bytes, not
-        # the whole file, so this stays the honest cost-of-output signal. The loop
+        # bytes not tokens; an edit_file counts only its replacement bytes). The loop
         # snapshots it onto WorkStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
         self._spawn = spawn
@@ -835,11 +841,8 @@ class ToolExecutor:
         if hasattr(allowlist, "read_only"):
             self._is_read_only = allowlist.read_only
 
-    def _truncate(self, text: str) -> str:
-        limit = self._max_output_chars
-        if len(text) <= limit:
-            return text
-        return text[:limit] + f"\n... [truncated at {limit} chars]"
+    def _truncate(self, text: str, tool: str = "") -> str:
+        return readpage.bound_output(text, tool, self._max_output_chars, self.root, self)
 
     def _safe_path(self, rel: str) -> Path:
         """Resolve ``rel`` under the root, refusing any path that escapes it."""
@@ -881,6 +884,7 @@ class ToolExecutor:
             "write_file": self._write_file,
             "edit_file": self._edit_file,
             "list_dir": self._list_dir,
+            **search_schemas.dispatch(self),
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,
@@ -932,11 +936,10 @@ class ToolExecutor:
             raise ToolError(f"no such file: {arguments['path']}") from exc
         except OSError as exc:
             raise ToolError(f"cannot read {arguments['path']}: {exc}") from exc
-        # Ground every line with its true 1-based number BEFORE truncating (#240)
-        # so a surviving line's prefix always matches the real file — truncation
-        # only ever drops the tail, never renumbers what remains — and the
-        # existing max_output_chars budget still bounds the final string.
-        return ToolOutcome(result=self._truncate(_number_lines(text)))
+        offset, limit = arguments.get("offset"), arguments.get("limit")  # paging (t9, #240 kept)
+        rendered = readpage.render_read(text, offset, limit, ceiling=self._max_output_chars)
+        editgate.record_read(self.read_set, str(path), text, rendered)
+        return ToolOutcome(result=rendered)
 
     def _view_media(self, arguments: dict[str, Any]) -> ToolOutcome:
         """The ``view_media`` tool (t5) — load a repo image as a content part.
@@ -978,10 +981,10 @@ class ToolExecutor:
         content = str(arguments.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
         # newline="" disables newline translation so the on-disk bytes equal
-        # len(content.encode("utf-8")) on EVERY platform (default newline=None
-        # would rewrite "\n" -> "\r\n" on Windows, inflating the file and making
-        # bytes_written wrong). Keeps file writes byte-deterministic cross-platform.
+        # len(content.encode("utf-8")) on EVERY platform (newline=None would write
+        # "\r\n" on Windows, inflating bytes_written) — byte-deterministic writes.
         path.write_text(content, encoding="utf-8", newline="")
+        editgate.record_written(self.read_set, str(path), content)  # authored == shown (t13)
         self.changed.add(rel)
         # Accumulate exact UTF-8 bytes written (== the on-disk size, given
         # newline=""), summed across every write_file — snapshotted into WorkStats.
@@ -1012,7 +1015,6 @@ class ToolExecutor:
             ) from exc
         except OSError as exc:
             raise ToolError(f"cannot read {rel}: {exc}") from exc
-
         old = str(_require(arguments, "old_string", "edit_file"))
         new = str(_require(arguments, "new_string", "edit_file"))
         replace_all = bool(arguments.get("replace_all", False))
@@ -1020,12 +1022,10 @@ class ToolExecutor:
             raise ToolError("old_string must be non-empty; use write_file to create a file")
         if old == new:
             raise ToolError("old_string and new_string are identical (no-op edit)")
-        count = text.count(old)
-        if count == 0:
-            raise ToolError(
-                f"old_string not found in {rel} (it must match the file exactly, "
-                "including whitespace and indentation)"
-            )
+        old, count = editgate.resolve_old_string(text, old, rel)  # exact, then relaxed (t13)
+        editgate.require_prior_read(
+            self.read_set, str(path), rel, text, old, context_note=self.context_note
+        )
         if count > 1 and not replace_all:
             raise ToolError(
                 f"old_string is not unique in {rel} ({count} matches); add surrounding "
@@ -1161,7 +1161,7 @@ class ToolExecutor:
             raise ToolError(f"run_command failed: {type(exc).__name__}: {exc}") from exc
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
-        return ToolOutcome(result=self._truncate(result))
+        return ToolOutcome(result=self._truncate(result, "run_command"))
 
     def _culture(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Dispatch the shared ``culture`` tool to an allow-listed AgentCulture CLI.

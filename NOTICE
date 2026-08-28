@@ -1,0 +1,47 @@
+colleague
+Copyright the colleague contributors
+
+This product includes software adapted from third-party open-source
+projects. Each adaptation is re-implemented in Python (cite-don't-import:
+no npm/TypeScript dependency, no vendored JS); provenance for every ported
+mechanism is tracked in docs/adopted-from.md, and each ported
+function/module carries an inline `adapted-from: qwen-code <path:lines>`
+docstring marker.
+
+--------------------------------------------------------------------------
+
+Qwen Code
+  Project:   QwenLM/qwen-code (https://github.com/QwenLM/qwen-code)
+  Version:   0.22.2
+  License:   Apache License, Version 2.0
+  Copyright: Copyright Qwen Team
+
+colleague ports several harness mechanisms from Qwen Code's Node/TypeScript
+implementation as small, standalone stdlib Python modules (parallel
+read-only tool batching, output-token clamping, rule-based microcompaction,
+search tools, tolerant edit matching, spill-to-disk truncation, streaming
+watchdogs, prompt structure, loop guards, and token estimation). See
+docs/adopted-from.md for the per-mechanism ledger.
+
+--------------------------------------------------------------------------
+
+Google Gemini CLI
+  Project:   google-gemini/gemini-cli (https://github.com/google-gemini/gemini-cli)
+  Version:   0.8.2
+  License:   Apache License, Version 2.0
+  Copyright: Copyright Google LLC
+
+Qwen Code's README states it "was originally based on Google Gemini CLI
+v0.8.2" and stopped syncing with upstream starting at Qwen Code v0.1; many
+Qwen Code source files still carry a "Copyright 2025 Google LLC" header
+alongside a "Copyright 2026 Qwen Team" header. colleague credits this
+lineage because portions of the mechanisms it ports (in particular the
+base system prompt structure) trace back through Qwen Code to Gemini CLI.
+
+--------------------------------------------------------------------------
+
+Both projects are licensed under the Apache License, Version 2.0. A copy
+of that license is included in this repository at LICENSE. Per section
+4(c) of the Apache License, copied prose (e.g. prompt text) retains the
+upstream copyright lines in its inline marker; ported algorithms
+re-implemented from reading the source carry a path:lines marker only.

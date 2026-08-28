@@ -35,6 +35,13 @@ from colleague.contract import INCOMPLETE, OK, SubResult, Task
 from colleague.engines import vllm_openai
 from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.tools import SCHEMAS
+from tests._batch_fixture import (
+    BATCH_TASK_INSTRUCTION,
+    EXPECTED_STEP_SHAPE,
+    make_batch_repo,
+    step_shape,
+    vllm_batch_turns,
+)
 
 # The base-six tool surface every engine inherits, plus the curated culture tool (t3).
 _BASE_TOOLS = {"read_file", "write_file", "edit_file", "list_dir", "run_command", "finish"}
@@ -185,6 +192,8 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
         "run_tests",
         "memory",
         "view_media",
+        "grep_search",
+        "glob",
     }
     # Base six remain, the chassis tools are added, and nothing else creeps in.
     assert _BASE_TOOLS <= exposed, "the six base tools must remain exposed"
@@ -743,3 +752,45 @@ def test_budget_exhausted_is_incomplete_non_zero_exit(
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == INCOMPLETE
     assert result["not_finished"] is True
+
+
+# ---------------------------------------------------------------------------
+# Batched tool execution on the reference backend (t17, spec c39/h28):
+# the mock engine's opt-in batch scenario (colleague/engines/mock_scenarios.py)
+# and the vllm-openai driver, scripted with the SAME calls via the shared
+# fixture (tests/_batch_fixture.py), must yield the identical Step sequence
+# and result shape — the mock stays the contract reference (h8).
+# ---------------------------------------------------------------------------
+
+
+def test_batch_scenario_step_sequence_and_shape_match_across_engines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    turns = vllm_batch_turns()
+    state = {"i": 0}
+
+    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
+        turn = turns[min(state["i"], len(turns) - 1)]
+        state["i"] += 1
+        return turn
+
+    monkeypatch.setattr(vllm_openai, "_post_json", fake_post)
+    cfg = EngineConfig.resolve()
+
+    mock_repo = make_batch_repo(tmp_path / "mock")
+    vllm_repo = make_batch_repo(tmp_path / "vllm")
+
+    mock_result = registry.load("mock").work(
+        Task.new(str(mock_repo), BATCH_TASK_INSTRUCTION, engine="mock"), cfg
+    )
+    vllm_result = registry.load("vllm-openai").work(
+        Task.new(str(vllm_repo), "identical batch task", engine="vllm-openai"), cfg
+    )
+
+    assert mock_result.status == OK
+    assert vllm_result.status == OK
+    assert step_shape(mock_result) == list(EXPECTED_STEP_SHAPE)
+    assert step_shape(vllm_result) == list(EXPECTED_STEP_SHAPE)
+    # Shape parity (h8): the mock is the reference the live engine is compared
+    # against — same keys, recursively, ignoring concrete values.
+    assert _key_shape(mock_result.to_dict()) == _key_shape(vllm_result.to_dict())

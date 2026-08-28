@@ -94,7 +94,9 @@ def test_plain_prose_turn_is_not_misparsed(tmp_path: Path) -> None:
 
 def _read_turns(n: int) -> list[ModelResponse]:
     return [
-        ModelResponse(tool_calls=[ToolCall(str(i), "list_dir", {"path": "."})]) for i in range(n)
+        # Alternate the path: five identical calls in a row trip the t16 loop guard.
+        ModelResponse(tool_calls=[ToolCall(str(i), "list_dir", {"path": "." if i % 2 else "./"})])
+        for i in range(n)
     ]
 
 

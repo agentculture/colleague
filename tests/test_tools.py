@@ -23,6 +23,8 @@ def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
         "write_file",
         "edit_file",
         "list_dir",
+        "grep_search",
+        "glob",
         "run_command",
         "finish",
         "culture",
@@ -394,28 +396,23 @@ def test_read_file_embedded_blank_line_is_numbered(tmp_path: Path) -> None:
 
 
 def test_read_file_line_numbers_survive_truncation(tmp_path: Path) -> None:
-    # Every real line is a fixed 20-char body (zero-padded index + filler) so the
-    # truncation cutoff can be aligned to an exact line boundary deterministically
-    # (each numbered line is exactly 6 + 1 + 20 = 27 chars).
+    # Every real line is a fixed 20-char body so the char budget lands on an exact
+    # line boundary (each numbered line is 6 + 1 + 20 = 27 chars). Since plan t9
+    # the cut is on WHOLE lines and the result ends with the paging trailer.
     real_lines = [f"L{i:04d}" + "-" * 15 for i in range(1, 201)]
     (tmp_path / "big.py").write_text("\n".join(real_lines) + "\n", encoding="utf-8")
 
-    # 3 numbered lines (27 chars each) joined by 2 "\n" separators, no trailing "\n".
-    limit = 27 * 3 + 2
+    limit = 27 * 3 + 2  # exactly three numbered lines + two separators
     ex = ToolExecutor(tmp_path, max_output_chars=limit)
     out = ex.execute("read_file", {"path": "big.py"})
 
-    assert f"truncated at {limit} chars" in out.result
-    body = out.result.split("\n... [truncated")[0]
+    body, trailer = out.result.rsplit("\n", 1)
     expected_body = "\n".join(f"{i:6d}\t{real_lines[i - 1]}" for i in range(1, 4))
     # The surviving lines are byte-identical to what the real file's first three
     # lines would produce — the numbering is not shifted/renumbered by the cut.
     assert body == expected_body
     assert len(body) == limit
-    # The final result stays bounded: max_output_chars + the fixed truncation
-    # note, never unbounded by the added numbering overhead.
-    expected_suffix = f"\n... [truncated at {limit} chars]"
-    assert out.result == expected_body + expected_suffix
+    assert trailer == "Read lines 1-3 of 200"
     assert real_lines[3] not in out.result  # line 4 never made it into the result
 
 
@@ -428,9 +425,10 @@ def test_read_file_max_output_chars_bounds_the_numbered_result(tmp_path: Path) -
     limit = 600  # bigger than the raw text, smaller than the numbered text
     ex = ToolExecutor(tmp_path, max_output_chars=limit)
     out = ex.execute("read_file", {"path": "wide.py"})
-    assert "truncated" in out.result
-    truncated_prefix = out.result.split("\n... [truncated")[0]
-    assert len(truncated_prefix) == limit
+    body, trailer = out.result.rsplit("\n", 1)
+    assert len(body) <= limit
+    assert trailer.startswith("Read lines 1-")
+    assert trailer.endswith(" of 50")
 
 
 def test_edit_file_matches_raw_content_not_the_numbered_display(tmp_path: Path) -> None:

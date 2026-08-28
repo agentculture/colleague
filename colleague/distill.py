@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from colleague import associate_seats as _associate_seats
 from colleague import background, lessons, memory
 from colleague.lobes import LobesRoles
 
@@ -193,7 +194,9 @@ def resolve_distill_author(
     # fallthrough — hence the unconditional return.
     if getattr(config, "thought_action_evaluation", False):
         return _declared_distiller_author(config)
-
+    associate_author = _associate_seats.distill_author(config)  # t19: > cortex floor
+    if associate_author is not None:
+        return associate_author
     # Rung 3: lobes cortex (armed gateway) — guarded against silently
     # authoring as a declared evaluator seat (c38/h30).
     if lobes_roles is not None:
@@ -510,23 +513,19 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
        (:func:`_refuses_evaluator_as_distiller`, spec c38/h30);
     4. ``None`` — the rung-1 floor (byte-identical record, no counters).
 
-    Why rung 2 exists (t13). Rung 3's premise is that the armed-lobes main
-    model is *cortex-resolved*. That held until the three-seat mode repointed
-    the acting dial at the **worker** (``config.py``'s TAE branch), after
-    which ``config.model`` is the actor, not the reflective seat. Falling
-    through to rung 3 would then silently make the worker author lessons
-    about its own work — which the evaluator/distiller separation (c38/h30)
-    exists to prevent and which the operator's standing role doctrine
-    assigns to the reflective seat, never the actor. In that mode both
-    implicit candidates are disqualified — cortex *is* the evaluator, and the
-    worker *is* the actor — so the author must be declared outright or the
-    run honestly falls to the rung-1 floor.
+    Why rung 2 exists (t13): in TAE mode the acting dial points at the worker
+    (``config.model`` is the actor, not the reflective seat) and cortex IS the
+    evaluator, so neither implicit candidate may author — the author must be
+    declared outright or the run honestly falls to the rung-1 floor.
     """
     deepthink_author = _deepthink_author(config)
     if deepthink_author is not None:
         return deepthink_author
     if getattr(config, "thought_action_evaluation", False):
         return _declared_distiller_author(config)
+    associate_author = _associate_seats.distill_author(config)  # t19: > cortex floor
+    if associate_author is not None:
+        return associate_author
     if getattr(config, "lobes_gateway_url", None):
         model = getattr(config, "model", "") or ""
         if model and not _refuses_evaluator_as_distiller(config, model):

@@ -60,10 +60,8 @@ def design_effort(site: str) -> str:
 def design_seat_config(config: EngineConfig, site: str) -> EngineConfig:
     """Build the design seat's ``EngineConfig`` for *site* (#416 t6, c14/h9).
 
-    Stays on the cortex/acting seat's OWN model/base_url — mirrors the other
-    seat builders' shape (:func:`colleague.deepthink.deepthink_engine_config`,
-    :func:`colleague.senses.senses_engine_config`,
-    :func:`colleague.tae_loop.build_seat`): ``dataclasses.replace`` clears
+    Stays on the cortex/acting seat's OWN model/base_url — mirrors the other seat
+    builders' shape (deepthink/senses/tae_loop.build_seat): ``dataclasses.replace`` clears
     the per-call knobs a fresh seat must not inherit
     (``on_delta``/``refresh_seat``), then ``setattr`` the plain
     ``reasoning_effort_seat`` attribute that ``vllm_openai._effort_for``
@@ -85,4 +83,5 @@ def design_seat_config(config: EngineConfig, site: str) -> EngineConfig:
             site=site,
         ),
     )
+    setattr(seat, "output_seat", "design")  # t16: the high output ceiling (c48)
     return seat

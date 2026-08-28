@@ -523,6 +523,10 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   resolves squash merge commits via `gh pr view --json` and
 #                   computes `git diff <tip>..<merge> -- <files>`; subprocess
 #                   is the transport, no daemon, no polling loop
+#   search_tools.py  — grep_search's fast-path backend (task t5, adapted from
+#                   qwen-code's ripGrep.ts): ripgrep search backend,
+#                   operator-installed CLI; subprocess is the transport, a
+#                   pure-stdlib walker is the fallback when `rg` is absent
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -542,6 +546,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/experiment.py",
         "colleague/strive.py",
         "colleague/correction.py",
+        "colleague/search_tools.py",
     }
 )
 
@@ -750,23 +755,24 @@ class TestNoEmbeddingsConsumption:
 #   cli/_commands/_input_line.py — operator-decided q1 sanction (at-home arc):
 #                   session owned input line — colour-TTY session path only,
 #                   bounded join, degrades to cooked mode
-#   realtime.py — realtime-speech arc sanction (spec c6, plan task t2),
-#                   mirroring the input-line precedent exactly: PortAudio
-#                   capture/playback callbacks + the ONE WebSocket receive pump
-#                   are daemon threads, stopped via a threading.Event with a
-#                   poll-wake read (websocket-client's settimeout gives the
-#                   same wake-and-recheck shape select gives the input line)
-#                   and reaped through a BOUNDED join — teardown never hangs
-#                   on a parked blocking read. Confined to this ONE module,
-#                   gated behind the opt-in [voice] extra; any failure
-#                   degrades to the turn-based lane, never raises past this
-#                   module's boundary.
+#   realtime.py — realtime-speech arc sanction (spec c6, plan task t2):
+#                   PortAudio capture/playback callbacks + the ONE WebSocket
+#                   receive pump are daemon threads, stopped via a
+#                   threading.Event with a poll-wake read and reaped through
+#                   a BOUNDED join — teardown never hangs on a parked read.
+#                   Gated behind the opt-in [voice] extra; failure degrades
+#                   to the turn-based lane.
+#   toolbatch.py — read-only tool-batch pool — convention change (6), plan
+#                   adopt-from-qwen-code: a standalone ThreadPoolExecutor
+#                   helper (run_batch) with no shared mutable state; width<=1
+#                   never instantiates a pool at all.
 # Every other colleague module must never import either primitive directly.
 _THREADS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/subagents.py",
         "colleague/cli/_commands/_input_line.py",
         "colleague/realtime.py",
+        "colleague/toolbatch.py",
     }
 )
 

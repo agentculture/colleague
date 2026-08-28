@@ -43,9 +43,19 @@ colleague commands approve <name> --repo .      # record a command-template chec
 ## Where it is consulted (runtime-owned, all-engines)
 
 `load_policy(task.repo_path, model=model)` is loaded once in `colleague/loop.py`
-and consulted at `_deny_by_policy` (for `run_command`) and `_fire_hooks` (for
-hook scripts before they run); `colleague/commands.py` consults it at template
-expansion. No backend module touches `policy.py`.
+and consulted at `_policy_verdict` (for `run_command`; the decision-only form
+of the former `_deny_by_policy`, bookkeeping in `_record_denial` since the
+batched tool loop) and `_fire_hooks` (for hook scripts before they run);
+`colleague/commands.py` consults it at template expansion. No backend module
+touches `policy.py`.
+
+**The batch read-only checker is a parallelism hint, not permission.** The
+adopt-from-qwen-code arc added `colleague/toolbatch.py`'s
+`is_shell_command_read_only` — a fail-closed allow-list that decides only
+whether a `run_command` may run *in parallel with other read-only calls* in
+the same model turn ([adopt-from-qwen-code.md](adopt-from-qwen-code.md)). It
+never grants anything: the policy gate above still gates every command,
+parallel or not, and the gates run on the main thread *before* the batch.
 
 ## Honest limits
 
@@ -60,7 +70,8 @@ expansion. No backend module touches `policy.py`.
 ## Key files
 
 - `colleague/policy.py` — load + the gate checks.
-- `colleague/loop.py` — `_deny_by_policy`, `_fire_hooks`.
+- `colleague/loop.py` — `_policy_verdict` / `_record_denial`, `_fire_hooks`;
+  `colleague/toolbatch.py` — `is_shell_command_read_only` (parallelism only).
 
 ## Spec + plan
 

@@ -421,7 +421,9 @@ def test_no_reoffer_while_still_over_the_line(tmp_path) -> None:
         if work["n"] <= 3:  # first crossing, then two post-compact turns STILL over
             return ModelResponse(
                 content="",
-                tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+                tool_calls=[
+                    ToolCall(str(work["n"]), "list_dir", {"path": "." if work["n"] % 2 else "./"})
+                ],
                 prompt_tokens=90,
                 completion_tokens=1,
             )
@@ -527,7 +529,9 @@ def test_compaction_cap_suppresses_further_offers_and_is_recorded(tmp_path) -> N
         work["n"] += 1
         return ModelResponse(
             content="",
-            tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+            tool_calls=[
+                ToolCall(str(work["n"]), "list_dir", {"path": "." if work["n"] % 2 else "./"})
+            ],
             prompt_tokens=tok,
             completion_tokens=1,
         )
@@ -573,7 +577,9 @@ def test_resolved_compaction_cap_suppresses_at_configured_value(tmp_path) -> Non
         work["n"] += 1
         return ModelResponse(
             content="",
-            tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+            tool_calls=[
+                ToolCall(str(work["n"]), "list_dir", {"path": "." if work["n"] % 2 else "./"})
+            ],
             prompt_tokens=tok,
             completion_tokens=1,
         )
@@ -620,7 +626,9 @@ def test_compaction_cap_zero_is_unlimited(tmp_path) -> None:
         work["n"] += 1
         return ModelResponse(
             content="",
-            tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+            tool_calls=[
+                ToolCall(str(work["n"]), "list_dir", {"path": "." if work["n"] % 2 else "./"})
+            ],
             prompt_tokens=tok,
             completion_tokens=1,
         )

@@ -25,10 +25,10 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
-from colleague import effort, stallguard
+import colleague.turnbudget as turnbudget
+from colleague import associate, associate_seats, effort, stallguard, streamguards, tokenestimate
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
-from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
 from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
@@ -161,8 +161,7 @@ def _raise_legible_connection_error(url: str, exc: urllib.error.URLError) -> Non
 # ``/v1/models`` list); this is the CALL-TIME half — the provider's model
 # roster can still rotate between resolution and the actual completion
 # request, and a live 404 is unambiguous ground truth a resolution-time
-# snapshot can't be. Both halves build the SAME
-# ``colleague.lobes.ModelRefreshWarning`` shape.
+# snapshot can't be. Both halves build the SAME ``colleague.lobes.ModelRefreshWarning`` shape.
 
 
 def _is_model_not_found_404(exc: urllib.error.HTTPError) -> bool:
@@ -180,16 +179,11 @@ def _is_model_not_found_404(exc: urllib.error.HTTPError) -> bool:
 # ── ladder-400 retry (per-seat thinking effort, #416 t3, c2/h2/c7/h6/c27/h18) ─
 #
 # vLLM/Qwen3's chat template validates ``chat_template_kwargs.reasoning_effort``
-# against its OWN ladder (observed: low/medium/xhigh, default xhigh, "high" is
-# an alias — see ``colleague/effort.py``'s module docstring) and answers an
-# unknown/unsupported rung with an HTTP 400 naming "reasoning effort" in the
-# body. That is a SERVER-SIDE ladder mismatch, not a Colleague bug: dropping
-# ``chat_template_kwargs`` and retrying once (below, in ``_make_complete``)
-# degrades to the server's own default rather than failing the whole turn —
-# exactly the same "stale config, not a reason to die" posture the call-time
-# stale-pin refresh above already takes for a 404 ``model_not_found``, and
-# disjoint from it by status code (a 404 is never a 400) so the two retries
-# never interact.
+# against its OWN ladder (low/medium/xhigh; see ``colleague/effort.py``) and
+# answers an unknown rung with an HTTP 400 naming "reasoning effort" — a
+# SERVER-SIDE mismatch, not a Colleague bug: drop the kwargs and retry once
+# (``_make_complete``), the same "stale config, not a reason to die" posture as
+# the 404 stale-pin refresh above, disjoint from it by status code.
 
 
 def _is_ladder_400(exc: urllib.error.HTTPError) -> bool:
@@ -310,6 +304,7 @@ def _parse_response(data: dict[str, Any]) -> ModelResponse:
         completion_tokens=int(usage.get("completion_tokens", 0)),
         reasoning=message.get("reasoning") or message.get("reasoning_content") or "",
         finish_reason=str(choices[0].get("finish_reason") or ""),
+        served_model=str(data.get("model") or ""),  # t18/c49: the SERVED id
     )
 
 
@@ -335,7 +330,7 @@ def _emit_delta(on_delta: Callable[[str], None], chunk: str | None) -> None:
 
 
 def _iter_sse_frames(
-    response: Any, *, terminal: list[bool] | None = None
+    response: Any, *, terminal: list[bool] | None = None, guards: Any = None
 ) -> Iterator[dict[str, Any]]:
     """Yield decoded JSON payloads from an SSE ``data: {...}`` stream.
 
@@ -359,12 +354,10 @@ def _iter_sse_frames(
     signals (e.g. ``ctx._backpressure_state``). It is the only way a caller can
     tell "the server sent the real terminator" apart from "the connection
     simply ran out of lines" (task t5's missing-terminal-frame degradation
-    trigger, see ``_post_json_stream``).
+    trigger, see ``_post_json_stream``). *guards* (c12): see :mod:`colleague.streamguards`.
     """
-    for raw_line in response:
-        # Step-stall watchdog (#400): a no-op unless the loop armed a progress
-        # deadline for this turn; raises TurnStalled past it (never a fallback
-        # error — it propagates to the loop, which ends the episode honestly).
+    for raw_line in streamguards.guarded_lines(response, guards) if guards else response:
+        # Step-stall watchdog (#400): no-op unless the loop armed a deadline.
         stallguard.check()
         line = raw_line.decode("utf-8").strip()
         if not line or line.startswith(":"):
@@ -447,6 +440,7 @@ class _StreamAccumulator:
     tool_call_fragments: dict[int, dict[str, str]] = field(default_factory=dict)
     usage: dict[str, Any] = field(default_factory=dict)
     saw_finish_reason: bool = False
+    served_model: str = ""
     # The actual raw finish_reason value (plan task t1, covers c4/h4) — kept
     # alongside ``saw_finish_reason`` (which only the stream-completeness check
     # below needs) rather than replacing it, so a legitimate "" value from a
@@ -487,6 +481,7 @@ def _capture_frame_usage(frame: dict[str, Any], acc: _StreamAccumulator) -> None
     frame_usage = frame.get("usage")
     if frame_usage:
         acc.usage = frame_usage
+    acc.served_model = acc.served_model or str(frame.get("model") or "")  # t18/c49
 
 
 def _apply_stream_frame(
@@ -575,7 +570,8 @@ def _post_json_stream(
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
-            for frame in _iter_sse_frames(response, terminal=terminal_marker):
+            guards = streamguards.StreamGuards.from_env(base_timeout=timeout)  # c12
+            for frame in _iter_sse_frames(response, terminal=terminal_marker, guards=guards):
                 _apply_stream_frame(frame, acc, on_delta)
             if not terminal_marker[0] and not acc.saw_finish_reason:
                 # The connection closed cleanly (no exception) but neither
@@ -599,6 +595,7 @@ def _post_json_stream(
         completion_tokens=int(acc.usage.get("completion_tokens", 0)),
         reasoning="".join(acc.reasoning_parts),
         finish_reason=acc.finish_reason,
+        served_model=acc.served_model,
     )
 
 
@@ -617,8 +614,7 @@ def _post_json_stream(
 # sink is present OR headless streaming is enabled (the default). The sink
 # seam itself is untouched — an unarmed ``on_delta`` still means "nobody wants
 # to see the tokens", it just no longer means "read the whole answer in one
-# blocking gulp". The delta callback the transport needs in that case is the
-# no-op below.
+# blocking gulp". The delta callback the transport needs in that case is the no-op below.
 
 #: The one env opt-out. Absent (the default) = streaming armed; any falsy
 #: spelling (``0``/``false``/``no``/``off``/empty, the repo-wide
@@ -661,8 +657,7 @@ def _noop_delta(_chunk: str) -> None:
 # A broken stream must never break a run: ``_stream_or_blocking`` is the ONLY
 # call site ``_make_complete`` uses when ``on_delta`` is armed (replacing a
 # bare ``_post_json_stream`` call) — pure machinery layered on top of the
-# single-attempt primitive above, with no opinion about when streaming itself
-# is armed.
+# single-attempt primitive above, with no opinion about when streaming itself is armed.
 
 
 def _blocking_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -807,12 +802,9 @@ def _tokenize_post(
 ) -> dict[str, Any]:
     """POST ``payload`` to the vLLM ``/tokenize`` endpoint and parse the JSON reply.
 
-    Reuses the same wire *style* as :func:`_post_json` (stdlib urllib, JSON body,
-    Bearer auth) but is a SEPARATE function on purpose: the chat-completions tests
-    monkeypatch ``_post_json`` with a stateful scripted mock, and the per-turn
-    windowing tokenize probe must NOT consume that script. Keeping tokenize on its
-    own function means a chat mock never intercepts a tokenize call (and vice
-    versa); the unit tests drive this path by patching :func:`_tokenize_count`.
+    Same wire style as :func:`_post_json` but a SEPARATE function on purpose: the
+    chat-completions tests monkeypatch ``_post_json`` with a scripted mock, and the
+    tokenize probe must never consume that script (tests patch :func:`_tokenize_count`).
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -827,27 +819,31 @@ def _tokenize_post(
         return json.loads(response.read().decode("utf-8"))
 
 
+#: ``/tokenize`` URL → the reply's ``max_model_len`` (t12 window discovery); filled
+#: by :func:`_tokenize_count`, read by the run-start probe. A plain dict, never a
+#: thread primitive: the value is per endpoint, so concurrent writers agree.
+_MAX_MODEL_LEN_BY_URL: dict[str, int] = {}
+
+
 def _tokenize_count(
     messages: list[dict[str, Any]], *, url: str, model: str, api_key: str, timeout: float
 ) -> int | None:
     """Return the server's exact token count for *messages*, or ``None`` on any error.
 
     POSTs ``{"model", "messages"}`` to the vLLM ``/tokenize`` endpoint and reads the
-    integer ``"count"`` field. Returns ``None`` for *any* failure — HTTPError
-    (incl. a 404 on a server with no ``/tokenize``), URLError, timeout, JSON decode
-    error, or a missing / non-int ``count`` — so the public counter can fall back to
-    the char estimate. Tolerating failure is what keeps retargeting a non-vLLM
-    OpenAI server a config change, not a code change.
+    integer ``"count"`` field; ``None`` for *any* failure (HTTPError incl. a 404,
+    URLError, timeout, decode error, missing/non-int count) so the caller can fall
+    back to the char estimate — retargeting a non-vLLM server stays a config
+    change. The reply's ``max_model_len`` lands in :data:`_MAX_MODEL_LEN_BY_URL`.
     """
     try:
         data = _tokenize_post(
-            url,
-            {"model": model, "messages": messages},
-            api_key=api_key,
-            timeout=timeout,
+            url, {"model": model, "messages": messages}, api_key=api_key, timeout=timeout
         )
     except Exception:  # nosec B110 - any tokenize failure falls back to the char estimate
         return None
+    if isinstance(data.get("max_model_len"), int):
+        _MAX_MODEL_LEN_BY_URL[url] = data["max_model_len"]
     count = data.get("count")
     if isinstance(count, bool) or not isinstance(count, int):
         return None
@@ -974,28 +970,29 @@ class VllmOpenAIEngine(Engine):
     name = "vllm-openai"
 
     def _make_count_tokens(self, config: EngineConfig) -> Callable[[list[dict[str, Any]]], int]:
-        """Build the exact-or-estimate token counter the loop windows history with.
+        """Build the token counter the loop windows history with (t12).
 
-        The returned callable counts tokens for a candidate message list via the
-        server's ``/tokenize`` endpoint (exact) and falls back to the zero-dep
-        :func:`count_tokens_chars` estimate on any error. It ALWAYS returns an int.
-        Exact when the served model exposes ``/tokenize``; char-approximate when it
-        does not — so the same engine works against any OpenAI-compatible server
-        with no code change (honesty condition h2).
+        ONE exact ``/tokenize`` count at run start (its ``max_model_len`` is
+        the window-discovery rung), then ``usage``-anchored estimates — never a
+        per-turn network call unless ``COLLEAGUE_EXACT_TOKENS=1``. Any probe
+        failure falls back to the char estimate, so a server without
+        ``/tokenize`` stays a config change (h2). ALWAYS returns an int.
         """
         url = _tokenize_url(config.base_url)
 
-        def counter(messages: list[dict[str, Any]]) -> int:
-            exact = _tokenize_count(
+        def exact(messages: list[dict[str, Any]], reply: dict[str, Any]) -> int | None:
+            count = _tokenize_count(
                 messages,
                 url=url,
                 model=config.model,
                 api_key=config.api_key,
                 timeout=config.timeout,
             )
-            return exact if exact is not None else count_tokens_chars(messages)
+            if url in _MAX_MODEL_LEN_BY_URL:
+                reply["max_model_len"] = _MAX_MODEL_LEN_BY_URL[url]
+            return count
 
-        return counter
+        return tokenestimate.attach(config, exact)
 
     @staticmethod
     def _build_chat_payload(
@@ -1008,16 +1005,13 @@ class VllmOpenAIEngine(Engine):
         Extracted from ``_make_complete``'s closure (SonarCloud S3776). An
         EMPTY offered-tools list omits BOTH "tools" and "tool_choice" (the
         honest tools-off invariant the deepthink seam relies on).
-
-        Streaming (#393) arms when a delta sink is armed **or** headless
-        streaming is enabled (:func:`_headless_streaming_enabled`, default on;
-        ``COLLEAGUE_STREAM=0`` opts out). This is the SINGLE arming decision
-        in the driver, so it is engine-uniform by construction: every
-        vllm-openai completion — the acting cortex/worker seat, deepthink,
-        senses, an evaluator — is built here, via ``_make_complete``, and gets
-        the identical rule. Opted out (or, before #393, unarmed) the body
-        carries NEITHER SSE key and is byte-identical to the pre-streaming
-        blocking payload.
+        Streaming (#393) arms when a delta sink is armed **or** headless streaming
+        is enabled (:func:`_headless_streaming_enabled`, default on; ``COLLEAGUE_STREAM=0``
+        opts out) — the SINGLE arming decision in the driver, engine-uniform by
+        construction (every seat's completion is built here via ``_make_complete``).
+        Opted out, the body carries NEITHER SSE key (the pre-streaming payload).
+        ``max_tokens`` (t16) is :func:`colleague.turnbudget.max_tokens_for`'s
+        window clamp; absent under ``COLLEAGUE_MAX_OUTPUT_TOKENS=0``.
         """
         payload: dict[str, Any] = {
             "model": config.model,
@@ -1027,16 +1021,17 @@ class VllmOpenAIEngine(Engine):
         if offered_tools:
             payload["tools"] = offered_tools
             payload["tool_choice"] = "auto"
-        # Per-seat thinking effort (#416 t3, c2/h2/c7/h6): the fragment is
-        # ABSENT when nothing should be sent (kill-switched, or a rung/seat
-        # that resolves to None) — a vLLM/OpenAI-only extension key
-        # (CLAUDE.md's third documented "vLLM adapter only touches the
-        # OpenAI surface" carve-out), so an operator-installed non-vLLM
-        # server that ignores unknown keys behaves exactly as today, and a
-        # config with nothing set stays byte-identical to the pre-#416 body.
+        # Per-seat thinking effort (#416 t3, c2/h2/c7/h6): the fragment is ABSENT
+        # when nothing should be sent (kill-switched, or a rung/seat resolving to
+        # None) — a vLLM/OpenAI-only extension key (CLAUDE.md's documented "vLLM
+        # adapter only touches the OpenAI surface" carve-out), so a non-vLLM server
+        # ignoring unknown keys behaves as today; nothing set = pre-#416 body.
         effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
         if effort_fragment:
             payload["chat_template_kwargs"] = effort_fragment
+        limit = turnbudget.max_tokens_for(config, messages)  # t16 clamp; None = omit
+        if limit is not None:
+            payload["max_tokens"] = limit
         streaming = config.on_delta is not None or _headless_streaming_enabled()
         if streaming:
             payload["stream"] = True
@@ -1146,6 +1141,9 @@ class VllmOpenAIEngine(Engine):
         )
         if retried is not None:
             return retried
+        aliased = associate.retry_role_alias(exc, payload, config, dispatch)  # t18/c49
+        if aliased is not None:
+            return aliased
         refreshed_id = self._maybe_refresh_on_404(exc, config, role_name)
         if refreshed_id is None:
             raise exc
@@ -1171,15 +1169,12 @@ class VllmOpenAIEngine(Engine):
         self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
     ) -> CompleteFn:
         url = f"{config.base_url.rstrip('/')}/chat/completions"
-        # The offered tool schema: the full SCHEMAS by default, or the role-curated
-        # subset (#t4) when work() resolved a role. Captured once (per-config, not
-        # per-turn). make_complete()/plan mode pass no tools → full SCHEMAS.
+        # The offered tool schema: full SCHEMAS by default, or the role-curated
+        # subset (#t4); captured once per config. plan mode passes none → SCHEMAS.
         offered_tools = tools if tools is not None else SCHEMAS
-        # The acting seat this completion drives (same-role stale-pin refresh,
-        # plan task t9): mirrors work()'s own seat computation (line ~833) —
-        # "worker" in three-tier mode, "cortex" otherwise — so a call-time
-        # refresh (below) queries the lobes gateway for the SAME role that is
-        # actually driving this loop, never a different one.
+        # The acting seat this completion drives (same-role stale-pin refresh, plan
+        # task t9): mirrors work()'s seat computation — "worker" in three-tier mode,
+        # "cortex" otherwise — so a call-time refresh queries the SAME role.
         role_name = "worker" if config.worker is not None else "cortex"
 
         def complete(messages: list[dict[str, Any]]) -> ModelResponse:
@@ -1193,11 +1188,15 @@ class VllmOpenAIEngine(Engine):
                 return self._dispatch_once(url, payload, config, streaming)
 
             try:
-                return dispatch()
+                resp = dispatch()
             except urllib.error.HTTPError as exc:
-                return self._recover_http_error(
+                resp = self._recover_http_error(
                     exc, payload, role_name, sent_effort, config, dispatch
                 )
+            if turnbudget.escalate_on_length(payload, config, resp):  # t16: once
+                resp = dispatch()
+            tokenestimate.observe(config, messages, resp.prompt_tokens)  # t12 anchor
+            return resp
 
         return complete
 
@@ -1232,10 +1231,9 @@ class VllmOpenAIEngine(Engine):
         Each model turn is completed via the server's OpenAI-compatible
         ``/v1/chat/completions`` endpoint. Returns a :class:`TaskResult`.
         """
-        # Typed-subagent role (#t4): resolve config.role once and build the child's
-        # curated tool schema + role-aware executor from it. None → full-surface
-        # SCHEMAS + an unrestricted executor (byte-identical to the pre-role path).
-        # The role PROMPT is composed by the role-aware self.system_prompt below.
+        # Typed-subagent role (#t4): resolve config.role once → curated schema +
+        # role-aware executor (None → full surface, byte-identical to pre-role);
+        # the role PROMPT is composed by the role-aware self.system_prompt below.
         role = resolve_role(config, task.repo_path)
         # Dual-model deepthink (t5): ONE binding per work item, injected into BOTH
         # the executor (the model-facing tool) and the ContextControls (the
@@ -1314,6 +1312,7 @@ class VllmOpenAIEngine(Engine):
                 deepthink_run=dt_run,
                 senses_run=senses_run,
                 tae_session=make_tae_session(config, self.name),
+                associate_complete=associate_seats.make_associate_complete(config, self.name),
             ),
         )
         # Model-bound agents (#411, t13): an ARMED config always returns the

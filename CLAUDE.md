@@ -7,6 +7,11 @@ under [`docs/specs/`](docs/specs/) / [`docs/plans/`](docs/plans/). A bare `Doc:`
 name is a file under `docs/features/`. Trim discipline (decision c17 / honesty h4):
 no fact was dropped — everything moved to its pointer target.
 
+Some harness mechanisms are ported (as small stdlib Python, never a vendored
+dependency) from Qwen Code and its Google Gemini CLI lineage; provenance is
+tracked in [`docs/adopted-from.md`](docs/adopted-from.md) (see also
+[`NOTICE`](NOTICE)).
+
 ## What colleague is
 
 **Colleague CLI is a swappable coder-agent harness that turns different model
@@ -67,6 +72,16 @@ minds. The architecture, part by part:
   / bare `--model` + `--effort` (CLI) list the served options + per-seat effort
   defaults — an **explicit operator choice, never automatic routing**. The
   instance spawns ITSELF as subagents (same model). Doc: `qwen-direct.md`.
+- **Adopted harness mechanics (adopt-from-qwen-code)** — harness mechanics
+  ported from Qwen Code (and its Google Gemini CLI lineage) as small stdlib
+  modules, never a dependency: a window-clamped `max_tokens` on every
+  completion, ONE `/tokenize` per run, parallel batches of read-only tool
+  calls (convention change (6)), `grep_search`/`glob`, paged `read_file`, a
+  tolerant `edit_file` + prior-read rule, spill-to-disk truncation, rule-based
+  microcompaction, stream + loop guards, adopted prompt text, and the opt-in
+  `associate` seat (`COLLEAGUE_ASSOCIATE_MODEL=lobes`, addressed by role name)
+  — each with one off-knob that is byte-identical to main; credit in `NOTICE`
+  and `docs/adopted-from.md`. Doc: `adopt-from-qwen-code.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
@@ -242,7 +257,7 @@ minds. The architecture, part by part:
 
 ## v1 scope (hold this line)
 
-**v0 → v1 graduation.** Five deliberate, **recorded** convention changes since v0
+**v0 → v1 graduation.** Six deliberate, **recorded** convention changes since v0
 — never silent breaches: (1) *"no LLM-generated summary"* superseded by the
 fill-line `compact` move (lossy windowing retained as the floor, #156); (2) *"zero
 base dependencies"* superseded by **one** sanctioned base dep, `agentfront` (base
@@ -258,7 +273,13 @@ are opt-in (the `lobes` sentinel / an explicit model id), a bare run dials exact
 one model, the front door + senses loop live behind the opt-in, and switching a
 seat via `/model` is an explicit per-session operator choice — NOT a routing
 policy; lobes-cli keeps advertising senses/muse, colleague ignores them by
-default and says so. Everything else holds.
+default and says so; (6) *"threads confined to subagents + the input line"*
+extended once more to ONE bounded read-only tool-batch pool —
+`colleague/toolbatch.py`'s `run_batch` (cap `COLLEAGUE_TOOL_CONCURRENCY`, default
+10; `1` = the sequential loop, byte-identical), the batch orchestration in
+`colleague/toolbatch_loop.py` (gates on the main thread before the pool, only
+`executor.execute` inside it, bookkeeping in request order after the join),
+plan `adopt-from-qwen-code`. Everything else holds.
 
 **In scope:** the runtime + every architecture part listed above (each added via an
 explicit re-spec under `docs/specs/` / `docs/plans/`), within the zero-deps /
@@ -369,15 +390,18 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   stay colleague-owned via the legacy-parser shim in `main()`. Doc: `cli-on-agentfront.md`.
 - **The vLLM adapter only touches the OpenAI surface** — retargeting any
   OpenAI-compatible server must stay a config change, never a code change.
-  THREE carve-outs, all graceful-degrade so a server without them stays a
-  config change: the `/tokenize` endpoint for exact token counting (`None` on
-  error); — only when lobes is ARMED — the call-time stale-pin refresh's one
-  same-role lookup against the gateway (c11/h8; lobes unarmed = the original
-  error surfaces unchanged, zero non-OpenAI calls); and the per-seat
-  `chat_template_kwargs` body key on the existing `/chat/completions` call
-  (the thinking-effort ladder, #416 — a vLLM extension a server may ignore;
-  unset = byte-identical, a ladder-400 retries once without the key). Doc:
-  `thinking-effort.md`.
+  TWO per-turn carve-outs, both graceful-degrade so a server without them stays
+  a config change: — only when lobes is ARMED — the call-time stale-pin
+  refresh's one same-role lookup against the gateway (c11/h8; lobes unarmed =
+  the original error surfaces unchanged, zero non-OpenAI calls); and the
+  per-seat `chat_template_kwargs` body key on the existing `/chat/completions`
+  call (the thinking-effort ladder, #416 — a vLLM extension a server may
+  ignore; unset = byte-identical, a ladder-400 retries once without the key).
+  Plus ONE run-scoped probe, never per turn: a single `/tokenize` POST at run
+  start (exact turn-1 count + `max_model_len` window discovery, `None` on
+  error; `COLLEAGUE_EXACT_TOKENS=1` restores the per-turn call — the
+  adopt-from-qwen-code arc, t12). Docs: `thinking-effort.md`,
+  `graceful-degradation.md`.
 - **Hook commands run as subprocesses, never imported.** `colleague/hooks.py` uses
   `subprocess.run` (shell=True) in the repo working dir; command templates are
   Markdown text, never executed. No code path opens a socket or forks a daemon.
@@ -392,8 +416,10 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   `strive.py` (the operator-supplied measure command, approval-gated like
   `run_command`), and `correction.py` (git/gh for the integrator-correction
   diff). Threads (`concurrent.futures`) stay confined to
-  `colleague/subagents.py` and `colleague/cli/_commands/_input_line.py` (the
-  session's colour-TTY reader thread; any failure degrades to cooked-mode). Every
+  `colleague/subagents.py`, `colleague/cli/_commands/_input_line.py` (the
+  session's colour-TTY reader thread; any failure degrades to cooked-mode),
+  `colleague/realtime.py`, and `colleague/toolbatch.py` (the read-only tool-batch
+  pool behind `run_batch`, convention change (6)). Every
   shell-out targets an operator-installed CLI via explicit allow-listing; none opens
   a socket or forks a daemon. `worktrees.py`'s admin mutations are serialized by an
   advisory `fcntl` lock (#239).

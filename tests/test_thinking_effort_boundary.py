@@ -55,6 +55,10 @@ _SANCTIONED_ASSIGN_FILES = frozenset(
         "colleague/subagents.py",
         "colleague/cli/_commands/config.py",
         "colleague/design.py",
+        # adopt-from-qwen-code t18: the associate seat builder.
+        "colleague/associate.py",
+        # adopt-from-qwen-code t19: the associate seat consumers (fallback + scout).
+        "colleague/associate_seats.py",
     }
 )
 

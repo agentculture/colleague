@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 
-from colleague import effort
+from colleague import associate_cli, effort, harness_cli
 from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
@@ -75,9 +75,8 @@ def _config_show(repo: str = ".") -> object:
         f"timeout:                {cfg.timeout}",
         f"context_budget_tokens:  {cfg.context_budget_tokens}",
     ]
-    # Per-seat thinking-effort ladder (#416 t2): one resolved line per seat.
-    # "default" (the kill-switch sentinel) sends nothing to every seat, so
-    # the winning layer is named there instead of a per-seat rung.
+    # Per-seat thinking-effort ladder (#416 t2): one line per seat; the "default"
+    # kill-switch sends nothing, so the winning layer is named instead of a rung.
     kill_switch = cfg.reasoning_effort == effort.DEFAULT_SENTINEL
     lines.append("reasoning_effort:" + (" (kill-switch)" if kill_switch else ""))
     for seat in effort.SEAT_TABLE:
@@ -95,16 +94,19 @@ def _config_show(repo: str = ".") -> object:
     else:
         lines.append("config_file: (none — using env vars + built-in defaults)")
 
-    # Lobes rung (t4): show the ARMED state; cfg.model already reflects the rung.
-    # to_dict() stays byte-identical; the lobes key is added only when armed.
+    # Lobes rung (t4): ARMED state; to_dict() byte-identical, lobes key only when armed.
     data = cfg.to_dict()
     data["config_files"] = provenance
+    data.update(harness_cli.config_show_lines(lines, cfg))  # t20/c43: clamp + window
     gateway = resolve_lobes_gateway_url(repo)
     if gateway is not None:
         lines.append(f"lobes: armed (gateway={gateway!r}) — resolved model={cfg.model}")
         data = {**data, "lobes": {"armed": True, "gateway": gateway, "resolved_model": cfg.model}}
         # qwen-direct (c7/h7): advertised-but-not-consumed roles (senses/muse opt-in).
         data["lobes"]["not_consumed"] = append_not_consumed(lines, gateway, cfg, indent="")
+        data["lobes"].update(associate_cli.config_show_lines(lines, cfg))  # t18/c49
+    else:  # Qodo #441-8: an explicit-model associate needs no gateway to show
+        data.update(associate_cli.config_show_lines(lines, cfg))
     # Model-bound agents (#411 t7): show the mode; payload key only when armed.
     lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
     return rendered(data, "\n".join(lines))

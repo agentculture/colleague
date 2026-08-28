@@ -62,10 +62,10 @@ class TestRoleDataclass:
             role.name = "other"  # type: ignore[misc]
 
     def test_builtin_roles_count(self) -> None:
-        assert len(BUILTIN_ROLES) == 5
+        assert len(BUILTIN_ROLES) == 6
 
     def test_builtin_role_names(self) -> None:
-        expected = {"explorer", "planner", "reviewer", "validator", "writer"}
+        expected = {"explorer", "planner", "reviewer", "validator", "writer", "scout"}
         assert set(BUILTIN_ROLES.keys()) == expected
 
     def test_builtin_roles_are_role_instances(self) -> None:

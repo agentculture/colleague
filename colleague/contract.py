@@ -224,28 +224,22 @@ class WorkStats:
     how much it produced. Populated runtime-side by :func:`colleague.loop.run`
     (the all-engines rule), so every backend fills it identically.
 
-    Token honesty (decision c11/c17): tokens live on :class:`Usage` and are taken
-    *verbatim* from the model response ``usage`` — never estimated. This model
-    reports no reasoning-token breakdown, so "thought vs written" is measured here
-    as exact **chars/bytes**, not tokens: ``reasoning_*`` is the model's
-    chain-of-thought (the separate ``message.reasoning`` field, generated but not
-    saved to a file), ``answer_*`` is ``message.content`` (the final answer), and
-    ``bytes_written`` is the exact UTF-8 byte count written to files via
-    ``write_file``. There is no tokenizer (zero runtime deps), so a reasoning /
-    written *token* count is deliberately not synthesised.
+    Token honesty (c11/c17): tokens live on :class:`Usage`, verbatim from the
+    response ``usage`` — never estimated. "Thought vs written" is exact
+    **chars/bytes**, not tokens: ``reasoning_*`` = ``message.reasoning``,
+    ``answer_*`` = ``message.content``, ``bytes_written`` = UTF-8 bytes written
+    via ``write_file``; no tokenizer, so no synthesised token counts.
 
     Fields
     ------
-    request:
-        The originating task instruction (the request the work item answered).
-    engine:
-        The backend that ran the work item (e.g. ``mock`` / ``vllm-openai``) —
-        ``task.engine``. With ``model`` it makes the ROI block self-describing:
-        a caller comparing two artifacts knows which mind produced each.
-    model:
-        The model id the engine was configured to call. This is the configured
-        id even for the no-op ``mock`` backend (which calls no model); read it
-        alongside ``engine`` to disambiguate. Empty when no model was threaded.
+    request / engine / model:
+        The originating task instruction; the backend that ran it
+        (``task.engine``); the model id the engine was configured to call
+        (the configured id even for ``mock``, empty when none was threaded) —
+        together the self-describing ROI block.
+    counts:
+        Exact harness counters (plan t20, :mod:`colleague.runcounts`) —
+        emitted only when non-empty, so an untouched run keeps its shape.
     started_at:
         ISO-8601 UTC timestamp of when the loop began.
     duration_seconds:
@@ -282,6 +276,7 @@ class WorkStats:
     reasoning_bytes: int = 0
     answer_chars: int = 0
     answer_bytes: int = 0
+    counts: dict[str, int] = field(default_factory=dict)
 
     def add_generated(self, *, reasoning: str = "", answer: str = "") -> None:
         """Accumulate one turn's generated text into the char/byte counters.
@@ -296,7 +291,7 @@ class WorkStats:
         self.answer_bytes += len(answer.encode("utf-8"))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "request": self.request,
             "engine": self.engine,
             "model": self.model,
@@ -312,6 +307,9 @@ class WorkStats:
             "answer_chars": self.answer_chars,
             "answer_bytes": self.answer_bytes,
         }
+        if self.counts:  # t20: omit-when-zero keeps the pre-arc 14-key shape
+            data["counts"] = {k: int(v) for k, v in self.counts.items()}
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WorkStats":
@@ -330,6 +328,7 @@ class WorkStats:
             reasoning_bytes=int(data.get("reasoning_bytes", 0)),
             answer_chars=int(data.get("answer_chars", 0)),
             answer_bytes=int(data.get("answer_bytes", 0)),
+            counts={str(k): int(v) for k, v in (data.get("counts") or {}).items()},
         )
 
 

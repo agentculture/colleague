@@ -65,6 +65,7 @@ import dataclasses
 import threading
 from typing import Callable, List, Optional, cast
 
+from colleague import associate_seats as _associate_seats
 from colleague import registry, worktrees
 from colleague.agents.profile import DORMANT_PURPOSES, PURPOSE_ROLE, PURPOSES
 from colleague.agents.state.context import CONTEXT_MODES
@@ -887,20 +888,15 @@ def _build_child_config(
     child = cast(EngineConfig, dataclasses.replace(parent_config, **replace_kwargs))
     if getattr(parent_config, "agents", False):
         # ARMED, no binding (no profile named): the child inherits the PARENT's
-        # purpose. ``agents_profile`` is a dynamic attribute, so
-        # ``dataclasses.replace`` drops it and the child's own ``resolve_role``
-        # would fall back to the full ``thinker_coder`` surface — a narrow
-        # parent silently widening its child (the hole the bounds check would
-        # never see, because no profile was named).
+        # purpose — ``agents_profile`` is dynamic, ``dataclasses.replace`` drops
+        # it, and ``resolve_role`` would widen a narrow parent's child to the
+        # full ``thinker_coder`` surface (a hole the bounds check never sees).
         setattr(child, "agents_profile", _seat_purpose(parent_config))
     # Per-seat thinking effort (#416 t5, c13/h8/c28): the bare-role build has
-    # no lobes binding, so the child's seat is always the cortex floor — the
-    # SAME structural rule as the armed-profile builder above, just with a
-    # fixed seat name instead of ``binding.model_role``. The child's rung is
-    # resolved fresh (never inherited — ``dataclasses.replace`` already
-    # dropped the parent's own ``reasoning_effort_seat``), keyed on the
-    # CHILD's typed role, with the spec's explicit override winning above the
-    # tables.
+    # no lobes binding, so the child's seat is the cortex floor (the armed-
+    # profile builder's rule with a fixed seat name); the rung is resolved
+    # fresh (``dataclasses.replace`` dropped the parent's), keyed on the
+    # CHILD's typed role, the spec's explicit override winning above the tables.
     from colleague import effort as _effort
 
     setattr(
@@ -914,7 +910,9 @@ def _build_child_config(
             seat="cortex",
         ),
     )
-    return child
+    return _associate_seats.scout_child_config(
+        parent_config, child, role, effort_override=spec.effort
+    )
 
 
 def _delegate_event_data(

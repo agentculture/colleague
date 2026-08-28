@@ -45,20 +45,26 @@ from pathlib import Path
 from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
+from colleague import associate
 from colleague import autosplit as _autosplit
 from colleague import backpressure
 from colleague import coherence as _coherencemod
 from colleague import configlifecycle as _configlifecycle
+from colleague import editgate as _editgate
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
+from colleague import loopguards as _loopguards
 from colleague import media
 from colleague import memory as _memorymod
-from colleague import salvage, stallguard
+from colleague import runcounts as _runcounts
+from colleague import salvage, stallguard, streamguards
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
+from colleague import toolbatch_loop as _toolbatch_loop
+from colleague import turnbudget as _turnbudget
 from colleague.agents import runtime as _agents_runtime
 from colleague.capacity import assess_capacity
 from colleague.chain import declared_capacity_handoff
@@ -96,71 +102,18 @@ from colleague.hooks import HookConfig, HookDecision, hook_approval_verdict, loa
 from colleague.incompletion import classify_incompletion
 from colleague.neighbours import NeighbourManager
 from colleague.policy import Policy, load_policy
+from colleague.prompttext import default_system as _default_system_text
 from colleague.roles import is_read_only
 from colleague.selfknowledge import build_guide_index, build_self_facts, classify_selfknowledge
 from colleague.telemetry import Telemetry, load_telemetry
 from colleague.tools import ToolError, ToolExecutor, ToolOutcome, UnknownToolError
 from colleague.tui.from_work import progress_target as _progress_target
 
-_DEFAULT_SYSTEM = (
-    "You are a coding agent working inside a repository. Use the provided tools "
-    "to inspect and edit files, then call finish with a short summary. Make the "
-    "smallest change that satisfies the task. "
-    "To change part of an existing file, prefer the edit_file tool (an exact-string "
-    "replace that only needs the changed text) over write_file; reach for write_file "
-    "only to create a new file or do a wholesale rewrite. Rewriting a large file with "
-    "write_file is slow and may time out, so edit_file is the right tool for a scoped edit."
-    "\n\n"
-    "Destination (optional). When a task is vague or new enough to benefit from a "
-    "clear goal-frame, you MAY use the devague tool to open or update one — this is "
-    "advisory and entirely your own judgement. A clear, well-scoped task needs no "
-    "destination; never set one just to set one. Convergence is advisory: you can "
-    "call converge or status to see gaps, but you CANNOT confirm or reject your own "
-    "claims (those are user-only moves the tool does not offer). Authoritative "
-    "convergence belongs to the operator, not to you. When the work reaches the "
-    "goal, declare arrival by passing destination (the frame slug) and announcement "
-    "(the goal-frame's arrival announcement) to the finish tool."
-    "\n\n"
-    "Subagents (optional). When a task naturally splits into independent, well-scoped "
-    "pieces, you MAY delegate them to nested child work items. Use the subagent tool to hand "
-    "ONE scoped piece to a child (optionally on a different engine/model — for example a "
-    "mechanical chunk a cheaper model can do). Use the subagents tool to fan out a BATCH "
-    "of independent pieces that run in PARALLEL, each isolated in its own git worktree, "
-    "with a final merge child that integrates their branches and surfaces any conflict "
-    "(never force-merging). A good fit: a task that asks for two or more changes in "
-    "separate files that do not depend on each other — fan them out with subagents. Each "
-    "child runs the same bounded tool-loop (no git handoff); its result summary returns "
-    "to you and any files it writes are merged into your changed set. This is advisory and "
-    "entirely your own judgement: a simple, single-file task needs none, so never delegate "
-    "just to delegate. Delegation is bounded (a capped depth and per-work-item fan-out), so it "
-    "always terminates."
-    "\n\n"
-    "Culture tools (optional). Two operator-installed AgentCulture CLIs are reachable "
-    "through the culture tool, with your agent identity auto-injected and the working "
-    "directory pinned at the repo root. Use cli='agtag' to READ the mesh issue tracker "
-    "(e.g. fetch issues from a sibling repo) and cli='devex' to inspect a repo's "
-    "agent-first surface (e.g. explain/overview/learn). Reach for them only when the task "
-    "explicitly calls for the mesh or another repo's surface; a MUTATING action (e.g. "
-    "posting an issue) needs the operator's explicit instruction, never your own "
-    "initiative. Only agtag and devex are permitted, and identity is injected for you, so "
-    "you never pass it yourself. This is advisory and entirely your own judgement: a "
-    "self-contained in-repo task needs neither."
-    "\n\n"
-    "Test integrity (advisory). When you write code test-first, derive the test's "
-    "fixtures and assertions from the REAL external API shape, not from your own "
-    "implementation — a test that merely mirrors the code's own assumption passes even "
-    "when both are wrong. You MAY call check_test_integrity to self-check for that "
-    "mirror signature. (This is only a hint: a code-locked harness gate runs the same "
-    "check after you finish regardless, so ignoring this line changes nothing.)"
-    "\n\n"
-    "AgentFront surface (reflex). Before the FIRST real use of a CLI or tool you "
-    "have not used before in this run, check its agent-facing surface first — run "
-    "its learn / explain / --help / --json affordance (or an overview / usage verb) "
-    "and read what it reports, THEN act on what you found instead of guessing its "
-    "flags or output shape. A tool you have already used needs no re-probe. This is "
-    "advisory and your own judgement; reading a surface is read-only — it never "
-    "installs, approves, or trusts the tool."
-)
+# The default system prompt lives in colleague/prompttext.py (adopted qwen-code
+# structure + the COLLEAGUE_PROMPT_VARIANT=v1 floor). Built ONCE at import for the
+# model-agnostic default family; Engine.system_prompt() builds the model-keyed
+# variant once per run. Kept under this name so nothing else in the loop changes.
+_DEFAULT_SYSTEM = _default_system_text()
 
 
 # Bounded reactive degradation: how many times the loop may shrink the budget and
@@ -188,6 +141,7 @@ _EXIT_BUDGET = "budget"  # ran out of model turns (max_steps) without finishing
 _EXIT_PILOT_STOP = "pilot_stop"  # a pilot wrote a cooperative `stop` to the flight control file
 _EXIT_TOOL_PROTOCOL = "tool_protocol"  # consecutive unknown-tool calls -> channel is broken (#321)
 _EXIT_STALLED = "stalled"  # no completed step within the step-stall bound (#400)
+_EXIT_LOOP_GUARD = "loop_guard"  # an always-on loop guard tripped; pending calls dropped (t16)
 
 # Step-stall watchdog (#400): the operator knob (seconds; 0 or negative disables) and
 # the default policy — the bound never drops below the floor and scales to 6x the
@@ -196,8 +150,6 @@ _EXIT_STALLED = "stalled"  # no completed step within the step-stall bound (#400
 # duration one: the clock restarts whenever a step completes.
 _STALL_ENV = "COLLEAGUE_MAX_STEP_STALL"
 _STALL_FLOOR_SECONDS = 5400.0
-_STALL_LATENCY_MULTIPLIER = 6.0
-_STALL_MIN_SAMPLES = 3
 
 # Consecutive UnknownToolError steps tolerated before the loop stops the run as
 # ``_EXIT_TOOL_PROTOCOL`` (#321). Three failed self-corrections (each fed back the
@@ -403,13 +355,10 @@ class ModelResponse:
     ``finish_reason`` is the raw backend-reported reason THIS turn's completion
     ended (OpenAI-compatible ``choices[0].finish_reason``, e.g. ``"stop"`` /
     ``"tool_calls"`` / ``"length"`` / ``"content_filter"``), carried out of the
-    vLLM adapter's blocking AND streaming SSE paths unchanged (plan task t1,
-    covers c4/h4) — previously read only to detect SSE stream termination and
-    then dropped. ``""`` for a backend/engine that never reports the field (the
-    mock engine still sets a representative deliberate value). The loop's own
-    per-work-item classification onto the five ``FINISH_*`` states
-    (:mod:`colleague.finishstate`) reads the LAST turn's value via a private
-    tracking cell, never re-derives it from ``content``/``tool_calls``.
+    vLLM adapter's blocking AND streaming paths unchanged (t1, c4/h4); ``""``
+    for an engine that never reports it. :mod:`colleague.finishstate` reads the
+    LAST turn's value via a private tracking cell, never re-derived from content.
+    ``served_model`` is the id the reply itself named (t18/c49; ``""`` when absent).
     """
 
     content: str = ""
@@ -418,6 +367,7 @@ class ModelResponse:
     completion_tokens: int = 0
     reasoning: str = ""
     finish_reason: str = ""
+    served_model: str = ""
 
 
 # A ``complete`` performs one model turn given the running message list.
@@ -609,6 +559,7 @@ class _Work:
     # Dual-model deepthink escalation seam (t5): the bound ``DeepthinkRun`` from
     # ContextControls, ``None`` for a single-model run (escalation points dormant).
     deepthink_run: Callable[..., Any] | None = None
+    associate_complete: Any = None  # t19 seat-completion factory, None = unarmed
     # Media-comprehension bridge (t8, c24): armed only when the operator declared
     # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
     media_bridge: bool = False
@@ -657,6 +608,7 @@ class _Work:
     # through the binding. Read by ``_finalize_finish_states`` at every exit
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
+    _served_model: list[str] = field(default_factory=list)  # first served id (t18)
     # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
     # step completed (the loop start until one does); ``_stalled`` holds the elapsed
     # seconds once the bound was crossed — a single-element cell the frozen ``_Work``
@@ -905,24 +857,18 @@ def _tae_drain(ctx: _Work) -> None:
         ctx.messages.append({"role": "user", "content": line})
 
 
-def _tae_gate(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
-    """Host classification + the evaluator boundary; True when the call is denied.
+def _tae_verdict(ctx: _Work, call: ToolCall) -> str | None:
+    """Host classification + the evaluator boundary (t13): the deny reason, or ``None``.
 
-    Mirrors :func:`_deny_by_policy`'s recorded shape (span, non-ok Step, tool
-    message, progress) so a TAE denial reads like every other refusal in the
-    trace. A strict no-op returning ``False`` when the mode is unarmed.
+    Decision only — the caller records the refusal (:func:`_record_denial`) so a TAE
+    denial reads like every other refusal in the trace. A strict no-op returning
+    ``None`` when the mode is unarmed.
     """
     if ctx.tae is None:
-        return False
+        return None
     decision = ctx.tae.before_tool_call(call.name, call.arguments, policy=ctx.policy)
     _tae_drain(ctx)
-    if decision.allowed:
-        return False
-    span.set(ok=False, denied=True, reason=decision.reason)
-    ctx.result.steps.append(Step(step_index, call.name, call.arguments, decision.reason, ok=False))
-    ctx.messages.append(_tool_message(call.id, decision.reason))
-    _emit_progress(ctx, step_index, call.name, call.arguments, ok=False)
-    return True
+    return None if decision.allowed else decision.reason
 
 
 def _tae_close(ctx: _Work, tool: str, ok: bool) -> None:
@@ -977,28 +923,24 @@ def _finalize_stats(
     started_at: str,
     duration_seconds: float,
     model: str = "",
+    served_model: str = "",
 ) -> None:
-    """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
+    """Fill the :class:`WorkStats` fields known only at loop exit (every exit path).
 
-    The per-turn fields (``model_turns`` and the generated reasoning/answer sizes)
-    are accumulated in :func:`_work_loop`; this fills the rest from the finished
-    result + executor. Called on EVERY exit path (model finish / empty turn /
-    budget / mid-loop abort) so a partial drive still gets populated stats.
-
-    ``engine``/``model`` make the ROI block self-describing (which mind ran it):
-    ``engine`` is ``task.engine``; ``model`` is the id the engine was configured
-    to call (threaded from :func:`run`'s ``model`` param, ``""`` when not given).
+    Per-turn fields accumulate in :func:`_work_loop`; ``engine``/``model`` make
+    the ROI block self-describing, ``served_model`` (t18) is what the reply named.
     """
     stats = result.stats
     stats.request = task.instruction
     stats.engine = task.engine
-    stats.model = model
+    stats.model = associate.recorded_model(model, served_model)  # t18/c49
     stats.started_at = started_at
     stats.duration_seconds = duration_seconds
     stats.step_count = len(result.steps)
     stats.tool_counts = dict(Counter(step.tool for step in result.steps))
     stats.files_changed = len(result.changed_files)
     stats.bytes_written = executor.bytes_written
+    _runcounts.finalize(result, executor)  # t20: derived harness counters
 
 
 def _emit_progress(ctx: _Work, step_index: int, tool: str, arguments: Any, ok: bool) -> None:
@@ -1048,161 +990,153 @@ def _emit_phase(ctx: _Work, detail: str) -> None:
         ctx.progress(step_index, "", detail, True)
 
 
-def _deny_by_policy(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
-    """Check the approval policy for ``run_command``; record and return True on deny.
+def _policy_verdict(ctx: _Work, call: ToolCall) -> str | None:
+    """The approval policy on ``run_command`` (decision only): the deny reason, or ``None``.
 
-    Returns ``True`` when the call is denied (the caller must return False from
-    the tool-call helper). Returns ``False`` when the policy allows the call.
-    Only ``run_command`` is gated — all other tools pass through unchanged.
+    Only ``run_command`` is gated — every other tool passes through unchanged.
     """
     if call.name != "run_command":
-        return False
+        return None
     verdict = ctx.policy.check_run_command(str(call.arguments.get("command", "")))
-    if verdict.allowed:
+    return None if verdict.allowed else verdict.reason
+
+
+_EXECUTE_ERRORS = (ToolError, KeyError, TypeError, ValueError)
+
+
+def _execute_tool(executor: ToolExecutor, name: str, arguments: Any) -> tuple[Any, Any]:
+    """Execute ONE tool call: ``(outcome, None)``, or ``(None, exc)`` for the model's own mistake.
+
+    ToolError is the tools' own contract. KeyError/TypeError/ValueError are the
+    argument-shaped residue of a malformed MODEL tool call that slipped past
+    per-tool validation (live: work item 4c6a96107269 died mid-run on a bare
+    KeyError('path') the old ToolError-only catch let escape as an engine failure).
+    Either way it costs ONE non-ok step — never the run. Anything else
+    (AttributeError, OSError, …) is a genuine harness bug and still aborts loudly.
+    This is the ONLY function the read-only batch pool runs (c35/h24): it holds no
+    ``_Work`` state, so a worker thread never touches ``ctx``.
+    """
+    try:
+        return executor.execute(name, arguments), None
+    except _EXECUTE_ERRORS as exc:
+        return None, exc
+
+
+def _gate_tool_call(ctx: _Work, call: ToolCall) -> tuple[Any, str | None, bool]:
+    """The three gates, decision only: ``(arguments, deny_reason, hook_denied)``.
+
+    ``pre_tool`` hook (the only control-bearing event — first deny/rewrite wins, a
+    rewrite swaps the arguments) → the thought→action→evaluation boundary (t13:
+    the HOST classifies a consequential action; alignment is never permission) →
+    the operator's approval policy AFTER hooks so a rewrite is still gated. Every
+    gate runs on the MAIN thread in request order BEFORE any execution — the
+    batch path (:mod:`colleague.toolbatch_loop`) relies on that.
+    """
+    arguments = call.arguments
+    decision = _fire_hooks(
+        ctx.hooks,
+        ctx.result,
+        event="pre_tool",
+        task=ctx.task,
+        tool=call.name,
+        arguments=arguments,
+        policy=ctx.policy,
+    )
+    kind = decision.decision if decision is not None else None
+    if kind == DECISION_DENY:
+        return arguments, (decision and decision.reason) or "denied by a pre_tool hook", True
+    if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
+        arguments = decision.arguments
+    gated = ToolCall(call.id, call.name, arguments)
+    reason = _tae_verdict(ctx, gated)
+    if reason is None:
+        reason = _policy_verdict(ctx, gated)
+    return arguments, reason, False
+
+
+def _record_denial(
+    ctx: _Work, call: ToolCall, arguments: Any, span: Any, step_index: int, reason: str, hook: bool
+) -> None:
+    """Record a refused call — span, (hook-denial metric,) non-ok Step, tool message, progress."""
+    span.set(ok=False, denied=True, reason=reason)
+    if hook:
+        ctx.telemetry.on_hook_denial()
+    ctx.result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
+    ctx.messages.append(_tool_message(call.id, reason))
+    _emit_progress(ctx, step_index, call.name, arguments, ok=False)
+
+
+def _fire_post_tool(ctx: _Work, tool: str, arguments: Any) -> None:
+    """``post_tool`` fires after every tool *attempt*; observe-only this increment."""
+    _fire_hooks(
+        ctx.hooks,
+        ctx.result,
+        event="post_tool",
+        task=ctx.task,
+        tool=tool,
+        arguments=arguments,
+        policy=ctx.policy,
+    )
+
+
+def _record_execution(
+    ctx: _Work, call: ToolCall, arguments: Any, span: Any, step_index: int, outcome: Any, exc: Any
+) -> bool:
+    """Bookkeeping after ONE execute attempt (sequential AND batch paths); True on finish."""
+    if exc is not None:
+        msg = (
+            str(exc)
+            if isinstance(exc, ToolError)
+            else f"bad tool arguments: {type(exc).__name__}: {exc}"
+        )
+        _track_unknown_tool(ctx, call.name, exc)
+        _tae_close(ctx, call.name, False)
+        span.set(ok=False, error=msg)
+        ctx.result.steps.append(Step(step_index, call.name, arguments, f"error: {msg}", ok=False))
+        ctx.messages.append(_tool_message(call.id, f"error: {msg}"))
+        _emit_progress(ctx, step_index, call.name, arguments, ok=False)
+        _fire_post_tool(ctx, call.name, arguments)
         return False
-    # Denied — mirror the pre_tool DENY shape (span, Step, tool message, progress).
-    span.set(ok=False, denied=True, reason=verdict.reason)
-    ctx.result.steps.append(Step(step_index, call.name, call.arguments, verdict.reason, ok=False))
-    ctx.messages.append(_tool_message(call.id, verdict.reason))
-    _emit_progress(ctx, step_index, call.name, call.arguments, ok=False)
+    _track_unknown_tool(ctx, call.name, None)
+    _tae_close(ctx, call.name, True)
+    span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
+    ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
+    ctx.messages.append(_tool_message(call.id, outcome.result))
+    if outcome.media_part is not None:
+        # view_media fold (t5): the tool message stays a plain string (wire-safe);
+        # the image rides a follow-up user parts message the next turn sees.
+        ctx.messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"[{call.name}] {outcome.result}"},
+                    outcome.media_part,
+                ],
+            }
+        )
+    _emit_progress(ctx, step_index, call.name, arguments, ok=True)
+    _fire_post_tool(ctx, call.name, arguments)
+    if not outcome.finished:
+        return False
+    span.set(finished=True)
+    _apply_finish(ctx.result, outcome)
     return True
 
 
 def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
     """Run one tool call inside its own telemetry span; return whether it finished.
 
-    Owns the per-call lifecycle: the ``pre_tool`` hook (first deny/rewrite wins),
-    execution, the ``post_tool`` hook, and finish detection. Kept as a single
-    ``with tool_span`` block so exactly one step/tool-call metric is recorded per
-    call — including the deny and error paths, which still close the span on the
-    way out (they ``return False``, replacing the loop's old ``continue``).
+    gate → execute → record, inside ONE ``with tool_span`` block so exactly one
+    step/tool-call metric is recorded per call — deny and error paths included.
     """
     step_index = len(ctx.result.steps)
-
-    # One span per tool-call iteration, auto-nesting under the work item span. A
-    # ``return False`` still runs the span's exit (so its metrics — one step +
-    # one tool call — are recorded for deny/error paths too).
     with ctx.telemetry.tool_span(tool=call.name, step_index=step_index) as span:
-        # pre_tool — the only control-bearing event. The first deny/rewrite
-        # wins; allow/observe pass through. arguments may be swapped here.
-        arguments = call.arguments
-        decision = _fire_hooks(
-            ctx.hooks,
-            ctx.result,
-            event="pre_tool",
-            task=ctx.task,
-            tool=call.name,
-            arguments=arguments,
-            policy=ctx.policy,
-        )
-        kind = decision.decision if decision is not None else None
-        if kind == DECISION_DENY:
-            # Skip execution entirely; feed the reason back so the model can
-            # adapt. Recorded as a non-ok Step (the firing is already recorded
-            # by _fire_hooks).
-            reason = (decision and decision.reason) or "denied by a pre_tool hook"
-            span.set(ok=False, denied=True, reason=reason)
-            ctx.telemetry.on_hook_denial()
-            ctx.result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
-            ctx.messages.append(_tool_message(call.id, reason))
-            _emit_progress(ctx, step_index, call.name, arguments, ok=False)
+        arguments, reason, hook_denied = _gate_tool_call(ctx, call)
+        if reason is not None:
+            _record_denial(ctx, call, arguments, span, step_index, reason, hook_denied)
             return False
-        if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
-            # Execute with the hook-supplied arguments instead.
-            arguments = decision.arguments
-
-        # Thought->action->evaluation gate (t13): the HOST classifies whether
-        # this call is a consequential action and, only then, invokes the
-        # evaluator at the enumerated ``consequential_action`` (or
-        # ``drift_threshold``) boundary and applies its route. Placed AFTER
-        # hooks and BEFORE the policy gate so the operator's approval gate
-        # below still runs on every route — alignment is never permission. An
-        # ordinary tool call returns allowed without touching the evaluator; an
-        # unarmed run is a strict no-op.
-        if _tae_gate(ctx, ToolCall(call.id, call.name, arguments), span, step_index):
-            return False
-
-        # Policy gate: check run_command against the operator-declared allow/deny
-        # policy AFTER hooks (so a hook rewrite is still gated), BEFORE execution.
-        # All other tools pass through unchanged. When denied, mirrors the hook-deny
-        # shape — non-ok Step + tool message — but does NOT increment the hook-denial
-        # telemetry counter (this is a policy denial, not a hook denial).
-        if _deny_by_policy(ctx, ToolCall(call.id, call.name, arguments), span, step_index):
-            return False
-
-        try:
-            outcome = ctx.executor.execute(call.name, arguments)
-        except (ToolError, KeyError, TypeError, ValueError) as exc:
-            # ToolError is the tools' own contract. KeyError/TypeError/ValueError
-            # are the argument-shaped residue of a malformed MODEL tool call that
-            # slipped past per-tool validation (live: work item 4c6a96107269 died
-            # mid-run on a bare KeyError('path') the old ToolError-only catch let
-            # escape as an engine failure). Either way it costs ONE non-ok step
-            # with a self-correcting message — never the run. Anything else
-            # (AttributeError, OSError, …) is a genuine harness bug and still
-            # aborts loudly.
-            msg = (
-                str(exc)
-                if isinstance(exc, ToolError)
-                else f"bad tool arguments: {type(exc).__name__}: {exc}"
-            )
-            _track_unknown_tool(ctx, call.name, exc)
-            _tae_close(ctx, call.name, False)
-            span.set(ok=False, error=msg)
-            ctx.result.steps.append(
-                Step(step_index, call.name, arguments, f"error: {msg}", ok=False)
-            )
-            ctx.messages.append(_tool_message(call.id, f"error: {msg}"))
-            _emit_progress(ctx, step_index, call.name, arguments, ok=False)
-            # post_tool still fires after a tool *attempt*; observe-only.
-            _fire_hooks(
-                ctx.hooks,
-                ctx.result,
-                event="post_tool",
-                task=ctx.task,
-                tool=call.name,
-                arguments=arguments,
-                policy=ctx.policy,
-            )
-            return False
-
-        _track_unknown_tool(ctx, call.name, None)
-        _tae_close(ctx, call.name, True)
-        span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
-        ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
-        ctx.messages.append(_tool_message(call.id, outcome.result))
-        if outcome.media_part is not None:
-            # view_media fold (t5): the tool message above stays a plain string
-            # (the wire-safe convention); the image itself rides a follow-up
-            # user parts message the next turn sees.
-            ctx.messages.append(
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"[{call.name}] {outcome.result}"},
-                        outcome.media_part,
-                    ],
-                }
-            )
-        _emit_progress(ctx, step_index, call.name, arguments, ok=True)
-
-        # post_tool — after the tool executed. Observe-only: the decision does
-        # not alter the already-executed result this increment.
-        _fire_hooks(
-            ctx.hooks,
-            ctx.result,
-            event="post_tool",
-            task=ctx.task,
-            tool=call.name,
-            arguments=arguments,
-            policy=ctx.policy,
-        )
-
-        if not outcome.finished:
-            return False
-        span.set(finished=True)
-        _apply_finish(ctx.result, outcome)
-        return True
+        outcome, exc = _execute_tool(ctx.executor, call.name, arguments)
+        return _record_execution(ctx, call, arguments, span, step_index, outcome, exc)
 
 
 def _track_unknown_tool(ctx: _Work, name: str, exc: Exception | None) -> None:
@@ -1246,15 +1180,18 @@ def _tool_protocol_broken(ctx: _Work) -> bool:
 def _run_tool_calls(ctx: _Work, calls: list[ToolCall]) -> bool:
     """Run every tool call in one model turn; return whether any finished.
 
-    A finish does *not* stop the turn — the remaining calls in the same response
-    still run (matching the original loop, where ``finished`` was set but the
-    inner ``for`` kept iterating; only the outer step loop broke afterwards).
+    Calls are partitioned into ordered batches (:mod:`colleague.toolbatch_loop`,
+    c6/c35): consecutive read-only calls run in parallel under
+    ``COLLEAGUE_TOOL_CONCURRENCY`` (default 10; 1 = the sequential path,
+    byte-identical to the pre-batch loop), every mutating call runs alone, and
+    results land in request order. A finish does *not* stop the turn — the
+    remaining calls still run (the original inner ``for`` kept iterating; only the
+    outer step loop broke afterwards). A flight stop is honoured at the BATCH
+    boundary: in-flight tools finish or hit their own timeout first (threads
+    cannot be killed), so stop latency is up to the slowest in-flight tool's own
+    timeout — never "immediate" (c36/h25).
     """
-    finished = False
-    for call in calls:
-        if _run_tool_call(ctx, call):
-            finished = True
-    return finished
+    return _toolbatch_loop.run_turn_calls(ctx, calls, _run_tool_call)
 
 
 def _window_in_place(ctx: _Work, budget: int) -> None:
@@ -1356,6 +1293,22 @@ def _record_fillline_decision(ctx: _Work, kind: str) -> None:
     ctx._fillline_resolved.append(True)
 
 
+def _seat_complete(ctx: _Work, seat: str, complete: CompleteFn) -> CompleteFn:
+    """*complete* on the associate seat when armed (t19, c33), else *complete* itself.
+
+    Unarmed (no factory) the acting completion is returned unchanged — byte-
+    identical to main. Armed, the factory's completion runs the seat on the
+    associate model and falls to cortex@low with a warning on
+    ``TaskResult.warnings``; a backend without one-shot completions hands the
+    acting completion back (also warned). See :mod:`colleague.associate_seats`.
+    """
+    factory = ctx.associate_complete
+    if factory is None:
+        return complete
+    seat_complete = factory(seat, ctx.result.warnings.append)
+    return seat_complete if seat_complete is not None else complete
+
+
 def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
     """Compact the working history into a validated model-authored summary (#156, t2/c4).
 
@@ -1377,6 +1330,7 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
       is gone from this path, h4) → :func:`_reject_compaction` (armed:
       finish-with-handoff, decision c23; unarmed: the lossy-windowing floor).
     """
+    complete = _seat_complete(ctx, "compact", complete)  # t19: the associate compact author
     budget = int(ctx.context_budget)
     request = _fillline.build_compaction_request(ctx.messages, budget, ctx.count_tokens)
     # Phase notice (#206): a compaction is a no-tools model turn that emits no step
@@ -1475,6 +1429,20 @@ def _record_fillline_cap(ctx: _Work) -> None:
     existing = ctx.result.capacity_warning
     ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
     _emit_phase(ctx, note)
+
+
+def _maybe_microcompact(ctx: _Work, last_prompt_tokens: int) -> int:
+    """Rule-based floor (t16, c11/h9): blank OLD tool results at 0.85 of the budget
+    BEFORE the fill-line offer; returns the re-estimated prompt size so the offer
+    fires only if still over the line (:func:`colleague.turnbudget.microcompact_turn`)."""
+    return _turnbudget.microcompact_turn(
+        ctx.messages,
+        last_prompt_tokens,
+        ctx.context_budget,
+        ctx.result,
+        ctx.agents,
+        ctx.count_tokens,
+    )
 
 
 def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
@@ -1827,9 +1795,9 @@ def _stall_bound(ctx: _Work) -> float | None:
     """The step-stall bound in seconds, or ``None`` when disabled (#400).
 
     ``COLLEAGUE_MAX_STEP_STALL`` (seconds) wins when set — ``0``/negative/unparsable
-    disables the watchdog. Otherwise the bound is ``max(floor, 6 x mean turn
-    latency)`` once three turns have been measured, else the floor alone: it
-    adapts to rig speed rather than hardcoding, and never drops below the floor.
+    disables the watchdog. Otherwise the bound is the fixed floor: the former
+    ``6 x mean turn latency`` scaling was retired (adopt-from-qwen-code c12) —
+    an alive-but-slow stream is bounded by :mod:`colleague.streamguards` instead.
     """
     raw = os.environ.get(_STALL_ENV)
     if raw is not None and raw.strip():
@@ -1838,11 +1806,7 @@ def _stall_bound(ctx: _Work) -> float | None:
         except ValueError:
             return None
         return value if value > 0 else None
-    latencies = ctx._turn_latencies
-    if len(latencies) >= _STALL_MIN_SAMPLES:
-        return max(
-            _STALL_FLOOR_SECONDS, _STALL_LATENCY_MULTIPLIER * (sum(latencies) / len(latencies))
-        )
+    del ctx  # the bound no longer depends on measured latencies
     return _STALL_FLOOR_SECONDS
 
 
@@ -1851,17 +1815,22 @@ def _mark_progress(ctx: _Work) -> None:
     ctx._last_progress[:] = [time.monotonic()]
 
 
-def _record_stall(ctx: _Work, seconds: float, bound: float) -> None:
-    """Record a crossed step-stall bound honestly: warning + phase notice + exit cell."""
+def _record_stall(ctx: _Work, seconds: float, bound: float, guard: str = "step-stall") -> None:
+    """Record a crossed stall bound honestly: warning (naming WHICH guard — the #400
+    progress bound or a c12 stream guard) + phase notice + the ``step-stall`` exit cell."""
     ctx._stalled[:] = [seconds]
     ctx.result.warnings.append(
         {
             "kind": "step-stall",
+            "guard": guard,
             "seconds": round(seconds, 1),
             "bound_seconds": round(bound, 1),
             "step_index": len(ctx.result.steps),
         }
     )
+    if guard != "step-stall":
+        _emit_phase(ctx, streamguards.stall_notice(guard, seconds, bound))
+        return
     _emit_phase(
         ctx,
         f"step-stall: no completed step for {seconds:.0f}s (bound {bound:.0f}s) — "
@@ -2207,6 +2176,8 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     # (even a "" value overwrites), matching the wire's own semantics of "the
     # last completion's own reason", not merely the last non-empty one.
     ctx._last_finish_reason[:] = [resp.finish_reason]
+    if resp.served_model and not ctx._served_model:
+        ctx._served_model[:] = [resp.served_model]
 
 
 def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
@@ -2263,6 +2234,10 @@ def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, st
     """
     if not resp.tool_calls:
         return _handle_no_tool_turn(ctx, resp, nudges)
+    trip = _loopguards.check(ctx.result.steps, resp.tool_calls)  # t16: always-on guards
+    if trip is not None:
+        ctx.result.warnings.append(trip)
+        return nudges, _EXIT_LOOP_GUARD
     ctx.messages.append(_assistant_message(resp))
     # Run the turn's tool calls; a finish on any of them ends the work item once the
     # turn completes (the remaining calls in the turn still run).
@@ -2416,6 +2391,7 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         _EXIT_STOPPED,
         _EXIT_PILOT_STOP,
         _EXIT_TOOL_PROTOCOL,
+        _EXIT_LOOP_GUARD,
     )
     if outcome != _EXIT_FINISHED:
         result.status = INCOMPLETE
@@ -2441,6 +2417,10 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
                     "is preserved on the artifact"
                 ),
             )
+    if outcome == _EXIT_LOOP_GUARD:
+        trip = next((w for w in result.warnings if w.get("kind") == _loopguards.WARNING_KIND), {})
+        note = _loopguards.summary_note(trip, len(result.steps))
+        result.summary = f"{note} {last_sub}".strip() if last_sub else note
     if outcome == _EXIT_TOOL_PROTOCOL:
         note = (
             f"Stopped after {len(result.steps)} step(s): the tool-call channel is "
@@ -2835,6 +2815,7 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     else:
         prompt = _SYNTHESIS_PROMPT
     ctx.messages.append({"role": "user", "content": prompt})
+    complete = _seat_complete(ctx, "synthesis", complete)  # t19: the associate synthesis seat
     try:
         # The synthesis turn is the worst case for #206: a single no-tools completion
         # that emits no step line, so a slow backend looks wedged. Announce it loudly.
@@ -2986,7 +2967,7 @@ def _complete_turn_or_retry(ctx: _Work, complete: CompleteFn) -> ModelResponse |
     except stallguard.TurnStalled as exc:
         # Step-stall (#400): the turn was alive but no step completed within the
         # bound — record it and let _work_loop end the episode with a partial.
-        _record_stall(ctx, exc.seconds, exc.bound)
+        _record_stall(ctx, exc.seconds, exc.bound, getattr(exc, "guard", "step-stall"))
         return None
     except Exception as exc:  # noqa: BLE001
         # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
@@ -3041,6 +3022,7 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # provably broken rather than re-burning the remaining budget on it.
         if _tool_protocol_broken(ctx):
             return _EXIT_TOOL_PROTOCOL
+        last_prompt_tokens = _maybe_microcompact(ctx, last_prompt_tokens)  # t16: floor first
         # Proactive fill-line decision (#156): when the last turn's context crossed the
         # threshold, offer the one capacity decision (compact | split | handoff) BEFORE
         # this turn completes, so the model declares it by its next action. No-op when
@@ -3371,10 +3353,21 @@ class ContextControls:
     # — byte-identical. compare=False: it holds live seats, i.e. behavior, not
     # comparable config (the ``deepthink_run``/``senses_run`` precedent).
     tae_session: "_tae.TaeSession | None" = field(default=None, compare=False, repr=False)
+    #: The associate seat-completion factory (adopt-from-qwen-code t19) — every
+    #: backend passes ``associate_seats.make_associate_complete(config, name)``;
+    #: ``None`` (unarmed) keeps the acting completion for every seat.
+    associate_complete: Any = field(default=None, compare=False, repr=False)
 
     @classmethod
     def from_config(
-        cls, config, *, count_tokens=None, deepthink_run=None, senses_run=None, tae_session=None
+        cls,
+        config,
+        *,
+        count_tokens=None,
+        deepthink_run=None,
+        senses_run=None,
+        tae_session=None,
+        associate_complete=None,
     ) -> "ContextControls":
         """Build the controls a backend forwards from its :class:`EngineConfig`.
 
@@ -3423,6 +3416,7 @@ class ContextControls:
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
+            associate_complete=associate_complete,
             # Continuation chaining armed (decision c23): an armed invocation's
             # episodes prefer finish-with-handoff over the lossy-windowing floor
             # when a compaction note is unrepairable — the chain driver restarts
@@ -4943,6 +4937,10 @@ def run(
     (h11): no other code path reads or branches on ``seat``.
     """
     _spawns, _context, executor = _resolve_run_collaborators(spawns, context, executor, task)
+    # t21: a continuation seed's own preamble names the resumed task id (all
+    # engines build ``executor`` from ``task.repo_path`` alone); reading it
+    # back here needs no wiring between continuation.py and the executor.
+    executor.context_note = _editgate.continuation_id(task.instruction)
     # hooks/telemetry/policy each default from the repo (or the environment, for
     # telemetry) when not injected — see _resolve_runtime_defaults for the
     # per-field contract (byte-identical to the prior inline defaulting).
@@ -4997,6 +4995,7 @@ def run(
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
+        associate_complete=_context.associate_complete,
         media_bridge=_context.media_bridge,
         senses_run=_context.senses_run,
         senses_media_bridge=_context.senses_media_bridge,
@@ -5189,6 +5188,7 @@ def run(
         started_at=started_at,
         duration_seconds=round(time.monotonic() - start_monotonic, 6),
         model=model or "",
+        served_model=(ctx._served_model[0] if ctx._served_model else ""),
     )
     telemetry.on_bytes_written(result.stats.bytes_written)
 

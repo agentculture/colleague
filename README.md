@@ -181,6 +181,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Feature | Doc |
 |---------|-----|
 | Work & the tool-loop | [work-and-loop.md](docs/features/work-and-loop.md) |
+| Adopted harness mechanics (from Qwen Code) | [adopt-from-qwen-code.md](docs/features/adopt-from-qwen-code.md) · [`NOTICE`](NOTICE) |
 | Context budget / graceful degradation | [graceful-degradation.md](docs/features/graceful-degradation.md) |
 | Capacity standard / fill-line decision (v1) | [spec](docs/specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md) |
 | Backends & plugins | [engines.md](docs/features/engines.md) |
@@ -947,4 +948,7 @@ layer for free.
 
 ## License
 
-Apache 2.0 — see [`LICENSE`](LICENSE).
+Apache 2.0 — see [`LICENSE`](LICENSE). Some harness mechanisms are ported
+(cite-don't-import: small stdlib Python, never a vendored dependency) from
+Qwen Code and its Google Gemini CLI lineage — see [`NOTICE`](NOTICE) and the
+provenance ledger at [`docs/adopted-from.md`](docs/adopted-from.md).
