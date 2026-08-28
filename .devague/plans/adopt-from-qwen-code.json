@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-27T14:39:37Z",
-  "updated": "2026-08-27T20:47:44Z",
+  "updated": "2026-08-27T23:05:48Z",
   "targets": [
     {
       "id": "c1",
@@ -1093,6 +1093,14 @@
       "text": "Stream-lifetime guard gap: temp-default game-1 sat 1413 s in one turn with vLLM idle and was NOT cut at 900 s (v1prompt game-2 was) \u2014 likely the blocking-fallback / raised-timeout (600 s) path after backpressure, where only the request timeout applies; the guard needs to cover every path a turn can wait on (follow-up to t7)",
       "kind": "follow_up",
       "task_id": "t7",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r12",
+      "text": "Resume gap: an  run's isolation worktree is torn down with its uncommitted edits, so  restores the transcript but not the files (review lane qodo-a, 2026-08-28) \u2014 the loop should commit WIP to the colleague/<id> branch before teardown; sibling of the #222 interrupt-safety line",
+      "kind": "follow_up",
+      "task_id": "t24",
       "resolved": false,
       "resolution": ""
     }

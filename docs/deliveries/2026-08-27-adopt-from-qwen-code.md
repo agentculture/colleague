@@ -151,7 +151,7 @@ Remaining Work.
 - commits: `83606d1..01971d4` on `spec/adopt-from-qwen-code` (79 commits; base `main @ ff7331e`)
 - measurement: `docs/live-testing.md` rows 41–46 (artifact ids per arm); `scripts/compare_arms.py` output pasted in the feature doc § Results and in PR #441's evidence comment
 - PRs / issues: PR #441; follow-ups #435, #436, #437, #438, #439, anchor #440, evidence comment on #421; agentculture/lobes-cli#220
-- review: 15 Qodo threads resolved (13 fixed, 2 pushbacks replied); SonarCloud PR-scoped issues 72 → 1 (the last, `toolbatch.py:160` S7632, fixed in `01971d4`, rescan pending at the time of writing)
+- review: 15 Qodo threads resolved (13 fixed, 2 pushbacks replied); SonarCloud PR-scoped issues 72 → **0** (analysis of `01971d4`, 2026-08-28T00:06Z; quality gate passed)
 
 ## Delivery Claims
 
@@ -169,12 +169,12 @@ Remaining Work.
 | Batches / search tools cut turns on read-heavy work (13-file survey in 3 turns) | medium | dogfood runs `41bb8b0a9cf5`, `5e097e2aabf7`, review sweeps 6–14 turns (PR evidence comment) |
 | Associate improves a real work item's wall-clock | unverified | the armed arm never called it (no delegation, memory unarmed) — not claimed |
 | Temperature 0.6 helps | unverified | arm underpowered (2 of 3 game runs hung) — not claimed |
-| SonarCloud PR-scoped issues are at 0 | unverified | 1 open at the time of writing (`01971d4` rescan pending) |
+| SonarCloud PR-scoped issues are at 0 and the quality gate passes | high | Sonar analysis of `01971d4` (2026-08-28T00:06Z) · PR #441 checks |
 
 ## Remaining Work / Follow-up
 
 - Operator: confirm or reject the 25 deviation records (`devague deviate --list`; d16 and d25 are marked risky) — the records are the ground truth this summary quotes
-- Operator: merge PR #441 (human gate 3); verify SonarCloud reaches 0 open after the `01971d4` rescan
+- Operator: merge PR #441 (human gate 3) — checks green, 0 unresolved threads, Sonar 0 open
 - #437 — re-adopt the prompt sections one at a time under measurement (`COLLEAGUE_PROMPT_VARIANT=qwen` is opt-in today)
 - #421 — the acting-seat thinking-effort arm: the other lever that moves wall-clock on this model
 - #438 — stall recovery: guard gap on the blocking-fallback path (r11), retry-or-resume on a guard trip, disable backpressure's timeout self-raise when guards are armed, ignore SSE keepalives as activity
