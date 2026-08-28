@@ -11,9 +11,13 @@ consecutive concurrency-safe calls (``read_file``, ``list_dir``,
 ``grep_search``, ``glob``, ``view_media``, ``web``, a ``memory`` recall, a
 ``run_command`` the fail-closed read-only checker approves) form one batch;
 every other call is a batch of its own and runs exactly as before. A ``web``
-``page *`` call is additionally throttled inside :func:`colleague.toolbatch.run_batch`
-by its own ``COLLEAGUE_WEB_CONCURRENCY``-sized semaphore (default 3) — the
-general batch ``width`` still bounds the batch as a whole.
+``page *`` call is additionally throttled by :func:`_run_web_capped`
+(``COLLEAGUE_WEB_CONCURRENCY``, default 3) — a MAIN-thread partition of the
+batch into sequential waves of at most that many ``page *`` calls each
+(t18 — Qodo #4/#8: the prior worker-side ``threading.Semaphore`` is gone; no
+new thread primitive is added). The web-call budget (``colleague/webbudget.py``)
+is likewise checked-and-incremented on the main thread, in request order,
+BEFORE a ``web`` item is submitted — never inside the pool.
 
 The lifecycle split (spec c35 / honesty h24) — for a parallel batch:
 
@@ -56,7 +60,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
 from colleague import flight as _flightmod
-from colleague import runcounts, toolbatch
+from colleague import runcounts, toolbatch, webbudget
 
 #: Default width of the read-only batch pool (qwen-code's
 #: ``QWEN_CODE_MAX_TOOL_CONCURRENCY`` default).
@@ -149,7 +153,8 @@ def run_turn_calls(ctx: Any, calls: Sequence[Any], run_one: Callable[[Any, Any],
 
 
 def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
-    """Gate (main) → execute (pool) → record (main, request order) one safe batch."""
+    """Gate (main) → web budget (main) → execute (pool, web-capped waves) →
+    record (main, request order) one safe batch."""
     from colleague import loop as _loop  # lazy: loop imports this module
 
     prepared: list[_Prepared] = []
@@ -164,17 +169,21 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
         p for p in allowed if toolbatch.is_tool_call_concurrency_safe(p.call.name, p.arguments)
     ]
     demoted = [p for p in allowed if p not in runnable]
-    results = toolbatch.run_batch(  # phase 2 — only execute() in the pool
-        _execute_item, [(ctx.executor, p.call.name, p.arguments) for p in runnable], width
+    submitted = _apply_web_budget(ctx.executor, runnable)  # phase 1.5 — main thread, request order
+    results = (
+        _run_web_capped(  # phase 2 — only execute() in the pool, web waves ≤ web_concurrency()
+            [(ctx.executor, p.call.name, p.arguments) for p in submitted], width
+        )
     )
-    for item, (outcome, exc, seconds) in zip(runnable, results):
+    for item, (outcome, exc, seconds) in zip(submitted, results):
         item.outcome, item.exc, item.seconds = outcome, exc, seconds
     for item in demoted:  # sequential, request order, never in the pool
         item.outcome, item.exc, item.seconds = _execute_item(
             (ctx.executor, item.call.name, item.arguments)
         )
+    _record_web_failures(ctx.executor, submitted)  # main thread, after the join
     runcounts.bump(ctx.result, "batches_run")  # t20: exact scoreboard
-    runcounts.bump(ctx.result, "calls_parallelised", len(runnable))
+    runcounts.bump(ctx.result, "calls_parallelised", len(submitted))
     finished = False
     for item in prepared:  # phase 3 — bookkeeping on the main thread, request order
         step_index = len(ctx.result.steps)
@@ -190,6 +199,79 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
             ):
                 finished = True
     return finished
+
+
+def _apply_web_budget(executor: Any, runnable: list[_Prepared]) -> list[_Prepared]:
+    """Check-and-increment the web budget for every ``web`` item in *runnable*,
+    on the MAIN thread, in request order, BEFORE anything is submitted to the
+    pool (t18 — Qodo #4/#8: the prior worker-side check-then-increment raced).
+    A refused item (cap already hit) is never submitted — its outcome becomes
+    the cap :class:`~colleague.tools.ToolError`, exactly as if ``execute()``
+    itself had raised it. Every item that IS submitted has its arguments
+    stamped with the private ``_budget_counted: True`` key so
+    ``web_schemas.dispatch`` skips its own (worker-thread) counting.
+
+    Returns the items that are still to be submitted, in the same order.
+    """
+    from colleague.tools import ToolError  # local: avoids the import cycle
+
+    submitted: list[_Prepared] = []
+    for item in runnable:
+        if item.call.name != "web":
+            submitted.append(item)
+            continue
+        try:
+            webbudget.check_and_increment(executor)
+        except ToolError as exc:
+            item.outcome, item.exc, item.seconds = None, exc, 0.0
+            continue
+        item.arguments = {**item.arguments, "_budget_counted": True}
+        submitted.append(item)
+    return submitted
+
+
+def _web_capped_waves(items: Sequence[tuple[Any, str, Any]], cap: int) -> list[list[tuple]]:
+    """Partition ``(executor, name, arguments)`` items into consecutive waves
+    holding at most ``cap`` ``web`` ``page *`` items each; a non-page item
+    (including ``search``) rides along in whichever wave it lands in, never
+    forcing a split and never itself counted against ``cap``."""
+    waves: list[list[tuple]] = []
+    page_count = 0
+    for item in items:
+        _, name, arguments = item
+        is_page = toolbatch.is_web_page_verb(name, arguments)
+        if not waves or (is_page and page_count >= cap):
+            waves.append([])
+            page_count = 0
+        waves[-1].append(item)
+        if is_page:
+            page_count += 1
+    return waves
+
+
+def _run_web_capped(items: Sequence[tuple[Any, str, Any]], width: int) -> list[tuple]:
+    """Run *items* through :func:`colleague.toolbatch.run_batch`, but split
+    into SEQUENTIAL waves so no more than ``web_concurrency()`` ``web``
+    ``page *`` calls are ever in flight at once (t18 — the cap moved off a
+    worker-side semaphore onto this main-thread partition). Each wave still
+    runs its own members concurrently up to ``width``; only the ``page *``
+    population per wave is capped."""
+    results: list[tuple] = []
+    for wave in _web_capped_waves(items, toolbatch.web_concurrency()):
+        results.extend(toolbatch.run_batch(_execute_item, wave, width))
+    return results
+
+
+def _record_web_failures(executor: Any, submitted: list[_Prepared]) -> None:
+    """After the join, on the main thread: count a submitted ``web`` item as
+    failed when its rendered result does not carry ``lifecycle_state:
+    succeeded`` — parsed from the already-rendered text, never re-fetched."""
+    for item in submitted:
+        if item.call.name != "web":
+            continue
+        text = item.outcome.result if item.outcome is not None else ""
+        if "lifecycle_state: succeeded" not in (text or ""):
+            webbudget.record_result(executor, None)
 
 
 def _skip_remaining(ctx: Any, calls: Sequence[Any]) -> None:
