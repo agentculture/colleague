@@ -2,8 +2,8 @@
 
 **Status:** built on the web-scout-associate arc (spec
 `docs/specs/2026-08-28-web-scout-associate.md`, plan
-`docs/plans/2026-08-28-web-scout-associate.md`, 2026-08-28; issues #435 and
-#436). The live proof is pre-registered in `docs/live-testing.md` rows 47–48
+`docs/plans/2026-08-28-web-scout-associate.md`, 2026-08-28; issues #435
+and #436). The live proof is pre-registered in `docs/live-testing.md` rows 47–48
 (main baseline `4e814c8`); the motivating direct-seat numbers are quoted from
 row 45. No qwen-code code is ported — this is a new tool surface over an
 operator CLI, so `NOTICE` and `docs/adopted-from.md` are unchanged.
