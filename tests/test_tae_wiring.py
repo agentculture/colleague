@@ -601,6 +601,9 @@ def test_the_worker_flag_cannot_upgrade_a_read_into_a_consequential_action() -> 
 
 
 def test_the_consequential_tool_list_is_an_enumerated_constant() -> None:
+    # t5 (q9): handover_to_colleague joins as the write purpose replacing
+    # subagent on cortex/worker; subagent/subagents stay too (a manual call
+    # via those raw tools remains consequential).
     assert isinstance(tae_loop.CONSEQUENTIAL_TOOLS, tuple)
     assert set(tae_loop.CONSEQUENTIAL_TOOLS) == {
         "write_file",
@@ -608,6 +611,7 @@ def test_the_consequential_tool_list_is_an_enumerated_constant() -> None:
         "run_command",
         "subagent",
         "subagents",
+        "handover_to_colleague",
     }
     for read_only in ("read_file", "list_dir", "view_media", "run_tests", "finish"):
         assert not tae_loop.host_classifies_consequential(read_only)

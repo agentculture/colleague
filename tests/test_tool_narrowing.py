@@ -168,8 +168,10 @@ class TestNarrowRoleByToolSet:
         explorer = BUILTIN_ROLES["explorer"]
         narrowed = narrow_role_by_tool_set(explorer, tuple(BUILTIN_ROLES["writer"].tool_allowlist))
         # tool_set names the whole writer surface, but explorer's own ceiling
-        # still bounds the result — never adds a tool explorer withheld.
-        assert set(narrowed.tool_allowlist) == set(explorer.tool_allowlist)
+        # still bounds the result — never adds a tool explorer withheld. t5
+        # (q9/q10): the writer surface no longer includes "web", so that one
+        # explorer-held name is the sole exclusion from the intersection.
+        assert set(narrowed.tool_allowlist) == set(explorer.tool_allowlist) - {"web"}
 
     def test_role_none_narrows_full_surface_straight_to_tool_set(self) -> None:
         narrowed = narrow_role_by_tool_set(None, ("read_file", "list_dir"))

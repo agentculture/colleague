@@ -31,6 +31,7 @@ from colleague.contract import Task
 from colleague.engines.mock import MockEngine
 from colleague.layers import compose_role_prompt
 from colleague.loop import resolve_role
+from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 from colleague.roles import BUILTIN_ROLES
 from colleague.subagents import _AgentBudget
 from colleague.tools import SCHEMAS, ToolError, ToolExecutor, curate_schemas
@@ -135,6 +136,10 @@ def test_no_role_offers_full_surface(git_repo):
     # SCHEMAS and an unrestricted executor (byte-identical to the pre-role path).
     assert resolve_role(EngineConfig(), str(git_repo)) is None
     full = {s["function"]["name"] for s in SCHEMAS}
-    # The writer (default) role's curated schema equals the full surface.
+    assert {s["function"]["name"] for s in curate_schemas(None)} == full
+    # t5 (operator decisions q9/q10): an EXPLICIT "writer" role now differs from
+    # the raw full surface — cortex delegates BY PURPOSE, so the writer's curated
+    # schema drops web/subagent/subagents and gains the six purpose tools.
     writer_offered = {s["function"]["name"] for s in curate_schemas("writer")}
-    assert writer_offered == full
+    dropped = {"web", "subagent", "subagents"}
+    assert writer_offered == (full - dropped) | set(PURPOSE_TOOL_NAMES)

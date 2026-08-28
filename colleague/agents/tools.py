@@ -5,28 +5,26 @@ module resolves that id to a concrete, validated surface. Three facts are
 enumerated in ONE place here so nothing else re-derives them:
 
 1. :data:`TOOL_PROFILES` — one :class:`ToolProfile` record per canonical tool
-   (every name in :data:`colleague.tools.TOOL_NAMES` plus the opt-in
-   ``deepthink``): its ``tool_class`` (``read`` / ``write`` / ``external`` /
-   ``destructive``), whether it needs a separate approval, and whether a
-   delegated child may inherit it. The class field RECONCILES the two
-   pre-existing write classifications — ``roles._WRITE_TOOLS``
+   (:data:`colleague.tools.TOOL_NAMES` plus the opt-in ``deepthink`` and the six
+   purpose tools, plan t5): its ``tool_class`` (``read`` / ``write`` / ``external``
+   / ``destructive``), whether it needs a separate approval, and whether a
+   delegated child may inherit it. The class field RECONCILES ``roles._WRITE_TOOLS``
    (``write_file`` / ``edit_file`` / ``run_command``) and
-   ``tae_loop.CONSEQUENTIAL_TOOLS`` (those three plus ``subagent`` /
-   ``subagents``) — into a single answer: all five are class ``write``;
-   ``culture`` / ``devague`` are ``external`` (they shell out to write-capable
-   operator CLIs); everything else is ``read``. No tool is ``destructive``
-   today — the class exists so a future primitive cannot hide in ``write``.
-2. The purpose profiles — :data:`TALKER_TOOLS` (empty: the talker is the
-   structurally tools-off senses), :data:`WORKER_TOOLS` (inspect / run / recall
-   / delegate — NO ``write_file`` / ``edit_file``; dormant per deviation d3),
-   :data:`THINKER_CODER_TOOLS` (the full base + chassis surface) and
+   ``tae_loop.CONSEQUENTIAL_TOOLS`` (those three plus ``subagent`` / ``subagents`` /
+   ``handover_to_colleague``) into one answer: all six are class ``write``;
+   ``culture`` / ``devague`` are ``external`` (write-capable operator CLIs);
+   everything else is ``read``. No tool is ``destructive`` today — the class
+   exists so a future primitive cannot hide in ``write``.
+2. The purpose profiles — :data:`TALKER_TOOLS` (empty: tools-off senses),
+   :data:`WORKER_TOOLS` (inspect/run/recall/delegate BY PURPOSE, no write_file/
+   edit_file; dormant per deviation d3), :data:`THINKER_CODER_TOOLS` (base +
+   chassis minus web/subagent/subagents, plus the six purposes) and
    :data:`ASSOCIATE_TOOLS` (the reserved fast coder: the coder-class surface).
 3. :func:`effective_tools` — the six-way intersection
    (available ∩ model-supported ∩ purpose ∩ policy ∩ environment ∩ approvals)
    and :func:`tool_surface_digest`, the sha256 over the SORTED names that the
    per-invocation record carries. An empty intersection REFUSES WHOLE
-   (:class:`EmptyToolSurface`, the ``lattice.py`` empty-narrowing precedent);
-   narrowing can only ever shrink a surface — never add a name.
+   (:class:`EmptyToolSurface`); narrowing can only ever shrink, never add.
 
 Pure module: stdlib + ``colleague.tools`` (names only) + ``colleague.roles`` /
 ``colleague.tae_loop`` (read for the reconciliation test) — no engine, no
@@ -40,6 +38,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Iterable
 
+from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 from colleague.tools import DEEPTHINK_SCHEMA, TOOL_NAMES
 
 __all__ = [
@@ -64,28 +63,29 @@ __all__ = [
 #: when deepthink is armed) — named here from its own schema, never retyped.
 DEEPTHINK_TOOL = DEEPTHINK_SCHEMA["function"]["name"]
 
-#: Every canonical tool id this module profiles: the registry + deepthink.
-CANONICAL_TOOLS: tuple[str, ...] = tuple(TOOL_NAMES) + (DEEPTHINK_TOOL,)
+#: Every canonical tool id this module profiles: registry + deepthink + purposes (t5).
+CANONICAL_TOOLS: tuple[str, ...] = tuple(TOOL_NAMES) + (DEEPTHINK_TOOL,) + PURPOSE_TOOL_NAMES
 
 #: The closed tool-class vocabulary.
 TOOL_CLASSES: frozenset[str] = frozenset({"read", "write", "external", "destructive"})
 
-#: Every class that can change the world: ``write`` (the repo / a spawn),
-#: ``external`` (a shell-out to a write-capable operator CLI) and
-#: ``destructive`` (reserved). The talker purpose may hold NONE of these —
-#: :func:`assert_purpose_surface` refuses (t16, spec c19/h25).
+#: Every class that can change the world: ``write`` (the repo / a spawn), ``external``
+#: (a shell-out to a write-capable operator CLI) and ``destructive`` (reserved). The
+#: talker purpose may hold NONE of these — :func:`assert_purpose_surface` refuses.
 WRITE_CAPABLE_CLASSES: frozenset[str] = frozenset({"write", "external", "destructive"})
 
-# The reconciled write set: roles._WRITE_TOOLS ∪ tae_loop.CONSEQUENTIAL_TOOLS.
-_WRITE_CLASS = frozenset({"write_file", "edit_file", "run_command", "subagent", "subagents"})
+# roles._WRITE_TOOLS ∪ tae_loop.CONSEQUENTIAL_TOOLS + handover_to_colleague (t5, q9).
+_WRITE_CLASS = frozenset(
+    {"write_file", "edit_file", "run_command", "subagent", "subagents", "handover_to_colleague"}
+)
 # Shell-outs to write-capable operator CLIs (excluded from read-only roles today).
 _EXTERNAL_CLASS = frozenset({"culture", "devague"})
 # Needs a SEPARATE approval beyond the profile: run_command is token-gated by
 # colleague/policy.py when approvals.json is present.
 _APPROVAL_REQUIRED = frozenset({"run_command"})
-# A delegated child may never inherit these from its parent (they spawn or
-# escalate — authority stays with the parent's explicit delegation).
-_NOT_INHERITABLE = frozenset({"subagent", "subagents", DEEPTHINK_TOOL})
+# A delegated child may never inherit these (authority stays with the parent);
+# the six purpose tools (t5, q9) join too: cortex/worker only, never a child.
+_NOT_INHERITABLE = frozenset({"subagent", "subagents", DEEPTHINK_TOOL, *PURPOSE_TOOL_NAMES})
 
 
 class EmptyToolSurface(ValueError):
@@ -137,8 +137,8 @@ def profile_for(name: str) -> ToolProfile:
 #: The talker is the tools-off senses: NO tools, by construction.
 TALKER_TOOLS: frozenset[str] = frozenset()
 
-#: The (dormant, deviation d3) worker: inspect, run, recall, delegate — and
-#: NEVER the generic code-authoring pair.
+#: The (dormant, d3) worker: inspect/run/recall/delegate BY PURPOSE (t5, replacing
+#: raw subagent/subagents) — NEVER the code-authoring pair.
 WORKER_TOOLS: frozenset[str] = frozenset(
     {
         "read_file",
@@ -147,14 +147,16 @@ WORKER_TOOLS: frozenset[str] = frozenset(
         "run_tests",
         "run_command",
         "memory",
-        "subagent",
-        "subagents",
+        *PURPOSE_TOOL_NAMES,
         "finish",
     }
 )
 
-#: The thinker/coder: the full base + chassis surface (every registry tool).
-THINKER_CODER_TOOLS: frozenset[str] = frozenset(TOOL_NAMES)
+#: The thinker/coder: the registry surface minus web/subagent/subagents plus the
+#: six purpose tools (plan t5, q9/q10) — cortex delegates BY PURPOSE, never raw.
+THINKER_CODER_TOOLS: frozenset[str] = (
+    frozenset(TOOL_NAMES) - {"web", "subagent", "subagents"}
+) | frozenset(PURPOSE_TOOL_NAMES)
 
 #: The reserved fast coder (deviation d3): the coder-class surface.
 ASSOCIATE_TOOLS: frozenset[str] = THINKER_CODER_TOOLS
@@ -213,14 +215,12 @@ def tool_surface_digest(tools: Iterable[str]) -> str:
 def assert_purpose_surface(purpose: str, tool_names: Iterable[str]) -> None:
     """Refuse a *purpose* + tool surface pairing that breaks a structural invariant.
 
-    Today ONE rule, for the ``talker`` purpose (t16, spec c19/h25): the talker
-    is the tools-off senses, so its surface may never hold a write-capable
-    tool — any name whose :class:`ToolProfile` class is in
-    :data:`WRITE_CAPABLE_CLASSES` (``write`` / ``external`` / ``destructive``)
-    raises ``ValueError``. An UNKNOWN name (no profile → no class to check)
-    also refuses for the talker: fail closed, never guess. Every other
-    purpose passes unchanged (their surfaces are narrowed by
-    :func:`effective_tools`, not refused here). Pure; never touches a tool.
+    Today ONE rule, for the ``talker`` purpose (t16, spec c19/h25): the talker is
+    the tools-off senses, so its surface may never hold a write-capable tool
+    (:data:`WRITE_CAPABLE_CLASSES`) — including ``handover_to_colleague`` (plan
+    t5). An UNKNOWN name (no profile) also refuses: fail closed, never guess.
+    Every other purpose passes unchanged (narrowed by :func:`effective_tools`,
+    not refused here). Pure; never touches a tool.
     """
     if purpose != "talker":
         return
