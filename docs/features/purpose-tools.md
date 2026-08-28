@@ -125,7 +125,7 @@ with `web_survey` (cortex holds NO raw `web`): pass is the scout child's served
 model = the associate's, evidence ids cited in the answer, and zero
 `run_command` steps outside the repo. Both rows name a throwaway repo WITH an
 `.eidetic` store (eidetic CLI 0.13.0) and record the memory distill counters.
-**result: pending** (rows 49 and 50, `docs/live-testing.md:113-114`).
+**Results (2026-08-28, rows 49–50 in `docs/live-testing.md`):** row 49 **MISS** — branch n=3 `78b0f0f90855`/`480b6d6ea857`/`59fb72435645` 88.6 s / 6.67 turns vs main @ `e589451` 327 s / 5.67 (wall 0.27×, turns 1.18×), **0/3 purpose calls** — on a three-small-file brief cortex reads the files itself. Row 50 `0780c75e2519` **MISS on the bar, mechanism proven** — with raw `web` absent, cortex fired `web_survey` ×3 in its first turn, all three scout children ran on the associate seat, digests cite WebGlass operation ids, **zero `run_command`** (the row-47 host-recon path is closed), the one work-item web budget was consumed across the children; cortex then step-stalled (#438) before writing the final answer, so the evidence-ids-in-answer clause missed. The delegation doctrine (#435) stands: a purpose form is chosen where the raw tool is absent, not where reading is cheaper.
 
 ## Honest limits
 
