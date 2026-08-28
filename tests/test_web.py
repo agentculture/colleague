@@ -94,6 +94,21 @@ def test_refused_verb_error_lists_allowed(repo_root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# AC: COLLEAGUE_WEB=0 hides the tool — run_web refuses before spawning
+# ---------------------------------------------------------------------------
+
+
+def test_colleague_web_zero_raises_no_spawn(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COLLEAGUE_WEB", "0")
+    with patch("subprocess.Popen") as mock_popen:
+        with pytest.raises(WebToolError, match="COLLEAGUE_WEB=0"):
+            run_web("search", ["x"], root=repo_root)
+    assert mock_popen.call_count == 0
+
+
+# ---------------------------------------------------------------------------
 # AC: forbidden argv tokens never spawn a child
 # ---------------------------------------------------------------------------
 

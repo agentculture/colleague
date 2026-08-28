@@ -187,3 +187,136 @@ def test_render_navigation_history_entries() -> None:
     ):
         assert url in text
     assert "code=navigation_failed" in text
+
+
+# ---------------------------------------------------------------------------
+# AC: render_raw — non-JSON fallback carries provenance + the same delimiters
+# ---------------------------------------------------------------------------
+
+
+def test_render_raw_header_and_delimiters() -> None:
+    text = web_schemas.render_raw("not json at all")
+    assert "lifecycle_state: unparsed" in text
+    assert "operation_id: (none)" in text
+    assert "code=unparsed_output" in text
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+    # the raw text is INSIDE the delimiters
+    begin = text.index(web_schemas.UNTRUSTED_BEGIN)
+    end = text.index(web_schemas.UNTRUSTED_END)
+    assert begin < text.index("not json at all") < end
+
+
+def test_render_raw_empty_output() -> None:
+    text = web_schemas.render_raw("")
+    assert "lifecycle_state: unparsed" in text
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+
+
+def test_dispatch_non_json_fallback_is_delimited(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    monkeypatch.setattr(
+        web_schemas.web, "run_web", lambda verb, args, root: "exit=0\nnot json at all"
+    )
+    handler = web_schemas.dispatch(_executor())["web"]
+    outcome = handler({"verb": "search", "query": "x"})
+    assert web_schemas.UNTRUSTED_BEGIN in outcome.result
+    assert web_schemas.UNTRUSTED_END in outcome.result
+    assert "lifecycle_state: unparsed" in outcome.result
+    assert "code=unparsed_output" in outcome.result
+    # the raw text is inside the delimiters
+    begin = outcome.result.index(web_schemas.UNTRUSTED_BEGIN)
+    end = outcome.result.index(web_schemas.UNTRUSTED_END)
+    assert begin < outcome.result.index("not json at all") < end
+
+
+def test_dispatch_top_level_list_fallback_is_delimited(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    monkeypatch.setattr(web_schemas.web, "run_web", lambda verb, args, root: "exit=0\n[1,2]")
+    handler = web_schemas.dispatch(_executor())["web"]
+    outcome = handler({"verb": "search", "query": "x"})
+    assert web_schemas.UNTRUSTED_BEGIN in outcome.result
+    assert web_schemas.UNTRUSTED_END in outcome.result
+    assert "lifecycle_state: unparsed" in outcome.result
+    assert "code=unparsed_output" in outcome.result
+    # the list is rendered as JSON inside the delimiters
+    begin = outcome.result.index(web_schemas.UNTRUSTED_BEGIN)
+    end = outcome.result.index(web_schemas.UNTRUSTED_END)
+    assert begin < outcome.result.index("[1, 2]") < end
+
+
+# ---------------------------------------------------------------------------
+# AC: render_result never raises on odd shapes; sensitive never rendered
+# ---------------------------------------------------------------------------
+
+
+def test_render_result_list_envelope_routes_to_raw() -> None:
+    text = web_schemas.render_result([1, 2])
+    assert "lifecycle_state: unparsed" in text
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+    assert "[1, 2]" in text
+
+
+def test_render_result_scalar_envelope_routes_to_raw() -> None:
+    text = web_schemas.render_result("just a string")
+    assert "lifecycle_state: unparsed" in text
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+
+
+def test_render_result_content_is_list() -> None:
+    envelope = {"operation_id": "op-x", "content": ["a", "b"]}
+    text = web_schemas.render_result(envelope)
+    assert "operation_id: op-x" in text
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+    # a non-dict content contributes no untrusted body
+    assert "(no untrusted content)" in text
+
+
+def test_render_result_untrusted_is_dict() -> None:
+    envelope = {"operation_id": "op-x", "content": {"untrusted": {"k": "v"}}}
+    text = web_schemas.render_result(envelope)
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+    # a non-list untrusted body is rendered via json.dumps inside the delimiters
+    begin = text.index(web_schemas.UNTRUSTED_BEGIN)
+    end = text.index(web_schemas.UNTRUSTED_END)
+    assert begin < text.index('{"k": "v"}') < end
+
+
+def test_render_result_derived_is_scalar() -> None:
+    envelope = {"operation_id": "op-x", "content": {"derived": "a scalar"}}
+    text = web_schemas.render_result(envelope)
+    begin = text.index(web_schemas.UNTRUSTED_BEGIN)
+    end = text.index(web_schemas.UNTRUSTED_END)
+    assert begin < text.index('"a scalar"') < end
+
+
+def test_render_result_missing_keys() -> None:
+    text = web_schemas.render_result({})
+    assert web_schemas.UNTRUSTED_BEGIN in text
+    assert web_schemas.UNTRUSTED_END in text
+    assert "(no untrusted content)" in text
+
+
+def test_render_result_sensitive_never_rendered_content_is_list() -> None:
+    # a dict envelope whose content is a list containing the secret
+    envelope = {"operation_id": "op-x", "content": ["SECRET-DO-NOT-RENDER"]}
+    text = web_schemas.render_result(envelope)
+    assert "SECRET-DO-NOT-RENDER" not in text
+
+
+def test_render_result_sensitive_never_rendered_nested_in_list() -> None:
+    # a dict envelope whose content.sensitive is nested in a list
+    envelope = {
+        "operation_id": "op-x",
+        "content": {"untrusted": ["visible"], "sensitive": ["SECRET-DO-NOT-RENDER"]},
+    }
+    text = web_schemas.render_result(envelope)
+    assert "visible" in text
+    assert "SECRET-DO-NOT-RENDER" not in text

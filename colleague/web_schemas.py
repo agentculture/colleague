@@ -41,6 +41,7 @@ __all__ = [
     "dispatch",
     "hidden_names",
     "offered",
+    "render_raw",
     "render_result",
     "summary_line",
     "web_hidden",
@@ -147,15 +148,61 @@ def _provenance_lines(envelope: dict[str, Any]) -> list[str]:
     return lines
 
 
-def render_result(envelope: dict[str, Any]) -> str:
+def render_raw(output: str) -> str:
+    """Render a non-envelope (unparsed) CLI output with provenance + delimiters.
+
+    Used when :func:`_parse_envelope` yields ``None`` — non-JSON, banner-
+    prefixed, truncated, or top-level-list stdout. The provenance header states
+    ``lifecycle_state: unparsed`` and ``operation_id: (none)`` plus an
+    ``error`` line with ``code=unparsed_output``; the raw text is then wrapped
+    in the SAME :data:`UNTRUSTED_BEGIN` / :data:`UNTRUSTED_END` delimiters
+    :func:`render_result` uses, so the untrusted body is never emitted bare.
+    """
+    lines = [
+        "operation_id: (none)",
+        "lifecycle_state: unparsed",
+        "error: code=unparsed_output message=webglass output was not a JSON envelope "
+        "remediation=inspect the raw output below",
+        UNTRUSTED_BEGIN,
+    ]
+    lines.extend(output.splitlines() if output else ["(no untrusted content)"])
+    lines.append(UNTRUSTED_END)
+    return "\n".join(lines)
+
+
+def _untrusted_items(value: Any) -> list[str]:
+    """The untrusted/derived body items for one field, never raising.
+
+    A list of items is rendered one per line (``str`` of each); any other
+    non-None shape (a dict, a scalar, ...) is rendered via ``json.dumps`` so a
+    malformed envelope can never crash the renderer.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [json.dumps(value)]
+
+
+def render_result(envelope: Any) -> str:
     """Render one webglass envelope: provenance FIRST, then the untrusted body.
 
     ``content.sensitive`` is never emitted — the delimiters mark everything
     after the header as data, not instructions.
+
+    Never raises on odd shapes: a non-dict envelope (a top-level list, a
+    scalar, ...) is routed through :func:`render_raw` as JSON; a non-dict
+    ``content`` contributes no untrusted body; and a non-dict/non-list
+    ``content.untrusted`` / ``content.derived`` is rendered via ``json.dumps``
+    inside the delimiters.
     """
+    if not isinstance(envelope, dict):
+        return render_raw(json.dumps(envelope))
     lines = _provenance_lines(envelope)
-    content = envelope.get("content") or {}
-    body = [str(item) for item in (content.get("untrusted") or []) + (content.get("derived") or [])]
+    content = envelope.get("content")
+    body: list[str] = []
+    if isinstance(content, dict):
+        body = _untrusted_items(content.get("untrusted")) + _untrusted_items(content.get("derived"))
     lines.append(UNTRUSTED_BEGIN)
     lines.extend(body if body else ["(no untrusted content)"])
     lines.append(UNTRUSTED_END)
@@ -211,14 +258,19 @@ def _build_args(verb: str, arguments: dict[str, Any]) -> list[str]:
     return args
 
 
-def _parse_envelope(output: str) -> dict[str, Any] | None:
-    """Extract the JSON envelope from ``run_web``'s ``exit=<code>\\n<body>`` output."""
+def _parse_envelope(output: str) -> Any:
+    """Extract the JSON envelope from ``run_web``'s ``exit=<code>\\n<body>`` output.
+
+    Returns the parsed JSON value — a dict envelope, a top-level list, or a
+    scalar — or ``None`` when the body is not JSON at all (non-JSON, banner-
+    prefixed, or truncated). :func:`render_result` routes non-dict values
+    through :func:`render_raw` as JSON.
+    """
     body = output.split("\n", 1)[1] if "\n" in output else output
     try:
-        parsed = json.loads(body)
+        return json.loads(body)
     except (json.JSONDecodeError, ValueError):
         return None
-    return parsed if isinstance(parsed, dict) else None
 
 
 def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
@@ -235,6 +287,14 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
     from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
 
     def handler(arguments: dict[str, Any]) -> Any:
+        verb = arguments.get("verb")
+        if not isinstance(verb, str) or verb not in web.ALLOWED_VERBS:
+            raise ToolError(
+                f"web needs a 'verb' from the allow-list ({', '.join(sorted(web.ALLOWED_VERBS))})"
+            )
+        # Re-check the hidden state immediately before the spawn (TOCTOU): the
+        # knob/PATH may have changed since the schema was curated, so the check
+        # that gates the child lives here, not at entry.
         if shutil.which("webglass") is None:
             raise ToolError(
                 f"tool '{WEB_TOOL_NAME}' is hidden: the webglass CLI is not on PATH — "
@@ -244,16 +304,11 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
             raise ToolError(
                 f"tool '{WEB_TOOL_NAME}' is hidden by {WEB_ENV}=0 — unset it to use the web tool"
             )
-        verb = arguments.get("verb")
-        if not isinstance(verb, str) or verb not in web.ALLOWED_VERBS:
-            raise ToolError(
-                f"web needs a 'verb' from the allow-list ({', '.join(sorted(web.ALLOWED_VERBS))})"
-            )
         webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
         output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
         envelope = _parse_envelope(output)
         webbudget.record_result(executor, envelope)  # t9: counts a failed call
-        text = render_result(envelope) if envelope is not None else output
+        text = render_result(envelope) if envelope is not None else render_raw(output)
         return ToolOutcome(result=executor._truncate(text, WEB_TOOL_NAME))
 
     return {WEB_TOOL_NAME: handler}
