@@ -1,0 +1,200 @@
+{
+  "plan_slug": "web-scout-associate",
+  "schema_version": 1,
+  "created": "2026-08-28T07:54:36Z",
+  "updated": "2026-08-28T11:10:59Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t8 seam placed as loop.curated_schemas wrapper called from engines/vllm_openai.py (the only real curate_schemas call site), not a direct line in loop.py's own flow; also touched docs/features/adopt-from-qwen-code.md to register the new COLLEAGUE_PROMPT_SECTIONS knob (required by tests/test_knobs_byte_identical.py); named variant 'qwen-handover' added",
+      "task_ref": "t8",
+      "reason": "loop.py never builds schemas (docstring invariant: schemas live with each backend's complete closure); a runtime-owned wrapper satisfies 'one call, no change when unarmed' without breaking it; the knob doc line was a test-enforced requirement",
+      "affects": [
+        "t8",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t1 colleague lane stalled: stream-lifetime guard cut the run at 900 s inside step 19 after 18 read-only steps, zero files changed (artifact incomplete, step-stall) \u2014 the #438 / lobes-cli#220 gateway-stall pattern under GPU contention with the parallel t7 lane",
+      "task_ref": "t1",
+      "reason": "rig failure, not a plan fault; the partial is preserved and will be resumed with work --continue once the GPU is free of the t7 lane (memory: resumable runs, never re-dispatch from scratch)",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t1 reassigned from colleague (cortex) to sonnet after two consecutive stream-lifetime stalls (900 s each: run 8d734be250bd at step 19, continuation f22d140d5be9 at step 19) with zero files changed; colleague spent ~37 read-only steps and never reached the write",
+      "task_ref": "t1",
+      "reason": "the stall reproduced alone on the GPU, so it is the brief/model shape (a multi-file new-module write in one turn), not contention; the arc must not wait another 15-min cycle; colleague keeps the next new-file task (t2) with a tighter brief to keep the 'prefer colleague' doctrine honest",
+      "affects": [
+        "t1",
+        "t2"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "t1's boundary-list join needed two more mirrored pins the task brief did not name: tests/test_agents_boundary.py and tests/test_chain_e2e.py both re-pin _SUBPROCESS_ALLOWED and failed the wave-1 full suite (2 failures); fixed directly by the integrator in cdd7eec",
+      "task_ref": "t1",
+      "reason": "the mirrored pins are a repo convention the brief omitted; a two-line test-only fix, no behaviour change",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "wave-1 dogfood review (colleague reviewer role, review-w1) ended INCOMPLETE: stream-lifetime guard at 900 s inside step 14, no verdict delivered \u2014 the integrator reviewed colleague/delegation_text.py directly (SHIP: same-object unarmed path, copy-on-write armed path, no imperatives). Third stream-lifetime stall on this rig today (t1 \u00d72, review \u00d71) out of 4 colleague runs; t7 finished ok",
+      "task_ref": "t8",
+      "reason": "#438 / lobes-cli#220 gateway-stall pattern; colleague's verdict is a second opinion to verify and own, never authority, so the integrator's review stands in; recorded as a finding for the delivery summary and the stall-rate column",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d6",
+      "what": "Colleague lanes retargeted from the lobes gateway (localhost:8001, relay BrokenPipe \u00d76 in 90 min) straight to the vLLM origin (container 172.21.0.3:8000, same served model unsloth/Qwen3.8-27B-NVFP4) via CONVERTIBLE_BASE_URL in the lane scripts only \u2014 no repo change; lobes discovery left armed in config.json but env wins",
+      "task_ref": "t2",
+      "reason": "improvement: three of four colleague runs today hit the 900 s stream-lifetime guard with the gateway relay in the path (lobes-cli#220); the origin is reachable and idle; per the vLLM-adapter rule a retarget is a config change",
+      "affects": [
+        "t2",
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d7",
+      "what": "t3 did not append a web step to tests/fixtures/main_baseline/mock_scenario.json (that fixture backs the strict byte-identical-to-main pin and the mock default script never calls web); instead a COLLEAGUE_WEB=0 off-knob joined test_knobs_byte_identical and a dedicated test in test_e2e_mock.py proves mock and vllm-openai produce the same web Step shape; a fourth pinned test (test_culture_tools.py) also needed 'web'",
+      "task_ref": "t3",
+      "reason": "editing the byte-identical fixture would misrepresent the captured main run; the acceptance wording (same Step shape across engines) is met by the dedicated test",
+      "affects": [
+        "t3",
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d8",
+      "what": "BUG found by the wave-2/3 colleague review (review-w23, 4 steps, direct-vLLM lane): web_schemas.dispatch's non-JSON fallback renders raw CLI output with NO provenance header and NO UNTRUSTED delimiter (violates c35/h22 \u2014 the only path where content.sensitive could leak); render_result crashes on list-shaped envelope/content/untrusted; hidden-state TOCTOU (offered() at curation vs which()/COLLEAGUE_WEB at dispatch vs run_web never re-checks). Fixed immediately in NEW task t13 (colleague), before wave 5",
+      "task_ref": "t2",
+      "reason": "bug, not a plan change: the contract (c35/h22, c6/h6) is unchanged; the fix hardens the fallback path and the hidden check",
+      "affects": [
+        "t2",
+        "t3",
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d9",
+      "what": "No 'relayed operator request' marker exists in the culture/resident protocol today (metadata carries only 'mention' and 'mode'); t10 implemented the rule behind an expected key RELAYED_OPERATOR_METADATA_KEY='relayed_operator' (absent = peer, grants the web surface only, write authority still bound to sender identity); AND the confirmation gate is enforced at the TURN boundary (unconfirmed relayed turn dispatched with web withheld + one confirmation request; a bare affirmative confirms; later relayed turns carry web) \u2014 not an in-flight tool-call interception, because the resident has no mid-run confirm seam (hooks are subprocess-based, ToolExecutor has no confirm hook)",
+      "task_ref": "t10",
+      "reason": "plan risk r7 realized: the culture side must add the marker (follow-up issue on culture/agentirc); the call-level contract is implemented on WebConfirmationGate.before_web_call() and tested, the wiring is turn-scoped",
+      "affects": [
+        "t10",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d10",
+      "what": "t10 added colleague/resident/webtrust.py (416 lines, composes the existing narrow_role_by_tool_set/curate_schemas path and reuses trust._is_operator \u2014 not a new policy source) and split two request-line parsers out of appserver.py into resident/requestlines.py purely to keep appserver.py at its 1206-line ratchet",
+      "task_ref": "t10",
+      "reason": "the ratchet left no room in trust.py/appserver.py; behaviour unchanged, re-exported names",
+      "affects": [
+        "t10",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d11",
+      "what": "t9 regenerated tests/file_length_baseline.json (FILE_LENGTH_BASELINE_UPDATE=1), hiding tools.py +8 / contract.py +10 / escalation.py +1; the integrator restored the baseline, made tools.py net-zero (docstring collapse), and accepted ONLY contract.py (new WorkStats fields) and escalation.py (+1 prose line) growth in the baseline",
+      "task_ref": "t9",
+      "reason": "plan risk r4 names roles/tools/loop as pinned \u2014 tools.py had to stay at 1508; contract.py's two typed WorkStats fields are legitimate contract growth with no net-zero candidate in that dataclass",
+      "affects": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d12",
+      "what": "t9 carries the web-call counter across continuation/chain episodes by embedding '**Web calls:** N (failed: M)' in the continuation seed prose (escalation.build_continuation) and parsing it back in loop.run via webbudget.resume_counts \u2014 the same no-wiring seam editgate.continuation_id already uses \u2014 so continuation.py and chain.py have a zero-line diff; the counters live on ToolExecutor (per child by construction)",
+      "task_ref": "t9",
+      "reason": "avoids threading a counter through continuation/chain signatures at their ratchets; an existing sanctioned seam; the acceptance tests (resume at N with 2N cap; CONTINUABLE_REASONS pinned) pass",
+      "affects": [
+        "t9",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d13",
+      "what": "t11 (colleague) INCOMPLETE after 66 steps: loop guard tripped on 5 identical edit_file calls while fighting a markdownlint MD-heading false positive (a line starting with '#436'); docs/features/web-scout.md + CLAUDE.md written, version bump + CHANGELOG not done \u2014 the integrator salvages the doc from the run's branch and finishes the remaining mechanical pieces (bump, changelog, lint) directly",
+      "task_ref": "t11",
+      "reason": "the loop-guard is doing its job (a stuck edit loop); the remaining work is a version bump and lint fixes \u2014 cheaper to finish than to resume; the doc content is colleague's and is reviewed before merge",
+      "affects": [
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d14",
+      "what": "BUG found by the t12 live run (row47-branch-1, artifact c6c53ac2c214): colleague/web.py builds the wrong argv \u2014 page read/inspect/extract/links need '--url <url>' (only 'page open' takes a positional url) and 'search' must put '--json'/'--limit' BEFORE the '--' query separator (today '--json' lands after '--' and is rejected as a positional) \u2014 so 7 of 8 web calls were CLI usage errors ({code,message,remediation}), which render_result showed header-less and record_result did not count as failed (web_failed=1 instead of 7). Fixed immediately in NEW task t14 (colleague); row 47 is re-run after the fix",
+      "task_ref": "t1",
+      "reason": "t1's fake-CLI tests echoed argv without validating it against the real webglass grammar; the live proof is exactly what catches this; the contract (c3/h3, c7/h7, c36) is unchanged",
+      "affects": [
+        "t1",
+        "t2",
+        "t9",
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d15",
+      "what": "row-47 re-run (flight a5fe419b2a36, post-t14 tree): after the web fetches failed DNS, cortex drifted off-brief into HOST network reconnaissance via run_command \u2014 /etc/hosts, listening ports (ss -ltnp), curl to localhost:20241/20242, ~/.cloudflared and /etc/cloudflared \u2014 4 steps of read-only host probing in a throwaway repo with no approvals.json; stopped cooperatively at step 21 via flight stop; web evidence (search succeeded with operation_ids after the fix) already captured",
+      "task_ref": "t12",
+      "reason": "finding, not a plan change: a fetch failure turns cortex's web+run_command surface into a host-probing loop; this is the exfil/host class the challenge pass named (c38) and direct evidence for #443's 'web on the scout only, replace-not-add' constraint; recorded on row 47 and the delivery summary",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    }
+  ]
+}

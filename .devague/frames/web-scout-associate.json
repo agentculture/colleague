@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-28T05:42:27Z",
-  "updated": "2026-08-28T07:25:38Z",
+  "updated": "2026-08-28T10:43:04Z",
   "claims": [
     {
       "id": "c1",
@@ -781,6 +781,15 @@
       "id": "v6",
       "text": "Whether the DNS failure is the harness sandbox or the rig: getent/urllib/Playwright all fail to resolve example.com from this shell (resolv.conf \u2192 127.0.0.53); the operator's login shell may differ \u2014 q4 stays the gate for t10",
       "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v7",
+      "text": "Purpose tools (issue #443): expose web_survey/code_survey/review as typed tools that run the scout/reviewer child on a fixed seat \u2014 replace the raw web tool on cortex's surface (revisits q3); measured 2026-08-28: 0 delegations in 13 runs but eager tool use; next arc after this PR",
+      "kind": "follow_up",
       "claim_id": null,
       "resolved": false,
       "resolution": "",
