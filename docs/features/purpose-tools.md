@@ -1,8 +1,8 @@
 # purpose-tools — the six typed delegation tools (purpose → role → seat)
 
 **Status:** built on the purpose-tools-associate-seat arc (spec
-`docs/specs/2026-08-28-purpose-tools-associate-seat.md`, 2026-08-28; issues
-#435/#436 lineage, #443 evidence). The live proof is pre-registered in
+`docs/specs/2026-08-28-purpose-tools-associate-seat.md`, 2026-08-28; issues #435/#436
+lineage, #443 evidence). The live proof is pre-registered in
 `docs/live-testing.md` rows 49–50 (main baseline `e589451`, v1.65.1); the
 motivating numbers are quoted from rows 45/47/48. No qwen-code code is ported
 — this is a new tool surface over the existing spawn path, so `NOTICE` and
