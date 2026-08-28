@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 #: The knob; default 20 (also the fallback for an unset/invalid value).
 ENV_MAX_CALLS = "COLLEAGUE_WEB_MAX_CALLS"
@@ -90,10 +90,11 @@ def check_and_increment(executor: Any) -> None:
     executor.web_calls += 1
 
 
-def record_result(executor: Any, envelope: Optional[dict]) -> None:
-    """Count one completed call as failed when its envelope is unparseable or
-    carries ``lifecycle_state: failed``. Called ONCE, after ``web.run_web``."""
-    if envelope is None or envelope.get("lifecycle_state") == "failed":
+def record_result(executor: Any, envelope: Any) -> None:
+    """Count one completed call as failed when its envelope is unparseable (None
+    or not a dict — t13's fallback shapes) or carries ``lifecycle_state: failed``.
+    Called ONCE, after ``web.run_web``."""
+    if not isinstance(envelope, dict) or envelope.get("lifecycle_state") == "failed":
         executor.web_failed += 1
 
 
