@@ -90,11 +90,17 @@ def check_and_increment(executor: Any) -> None:
     executor.web_calls += 1
 
 
-def record_result(executor: Any, envelope: Any) -> None:
-    """Count one completed call as failed when its envelope is unparseable (None
-    or not a dict — t13's fallback shapes) or carries ``lifecycle_state: failed``.
-    Called ONCE, after ``web.run_web``."""
-    if not isinstance(envelope, dict) or envelope.get("lifecycle_state") == "failed":
+def record_result(executor: Any, envelope: Any, *, exit_code: int = 0) -> None:
+    """Count one completed call as failed when the envelope is not a dict,
+    lacks ``lifecycle_state`` (e.g. the CLI's usage-error JSON), carries
+    ``lifecycle_state: failed``, or the ``run_web`` output's ``exit=`` code is
+    non-zero. Called ONCE, after ``web.run_web``."""
+    if (
+        not isinstance(envelope, dict)
+        or "lifecycle_state" not in envelope
+        or envelope.get("lifecycle_state") == "failed"
+        or exit_code != 0
+    ):
         executor.web_failed += 1
 
 

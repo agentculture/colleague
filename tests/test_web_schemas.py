@@ -190,6 +190,57 @@ def test_render_navigation_history_entries() -> None:
 
 
 # ---------------------------------------------------------------------------
+# AC: a parsed dict that is NOT a WebGlass envelope (no operation_id and no
+# lifecycle_state — e.g. the CLI's usage-error JSON) still renders a
+# provenance header FIRST
+# ---------------------------------------------------------------------------
+
+
+USAGE_ERROR_DICT = {
+    "code": 1,
+    "message": "unrecognized arguments: --json",
+    "remediation": "run 'webglass-cli --help' to see valid arguments",
+}
+
+
+def test_render_usage_error_dict_header_first() -> None:
+    text = web_schemas.render_result(USAGE_ERROR_DICT)
+    begin = text.index(web_schemas.UNTRUSTED_BEGIN)
+    end = text.index(web_schemas.UNTRUSTED_END)
+    # the provenance header precedes the untrusted block
+    assert text.index("operation_id: (none)") < begin
+    assert text.index("lifecycle_state: failed") < begin
+    assert (
+        text.index(
+            "error: code=1 message=unrecognized arguments: --json "
+            "remediation=run 'webglass-cli --help' to see valid arguments"
+        )
+        < begin
+    )
+    # the empty untrusted block keeps its delimiters
+    assert begin < text.index("(no untrusted content)") < end
+
+
+def test_dispatch_usage_error_dict_counts_failed_and_renders_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/webglass")
+    monkeypatch.delenv(web_schemas.WEB_ENV, raising=False)
+    monkeypatch.setattr(
+        web_schemas.web,
+        "run_web",
+        lambda verb, args, root: "exit=0\n" + json.dumps(USAGE_ERROR_DICT),
+    )
+    executor = _executor()
+    handler = web_schemas.dispatch(executor)["web"]
+    outcome = handler({"verb": "search", "query": "x"})
+    assert executor.web_failed == 1
+    assert "operation_id: (none)" in outcome.result
+    assert "lifecycle_state: failed" in outcome.result
+    assert "code=1" in outcome.result
+
+
+# ---------------------------------------------------------------------------
 # AC: render_raw — non-JSON fallback carries provenance + the same delimiters
 # ---------------------------------------------------------------------------
 

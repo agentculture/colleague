@@ -92,16 +92,49 @@ def _check_forbidden_tokens(verb: str, args: Sequence[str]) -> None:
 
 
 def _build_argv(verb: str, args: list[str]) -> list[str]:
+    """Build the webglass argv for *verb* (grammar verified 2026-08-28 against
+    ``webglass <verb> --help``).
+
+    * ``search``: options FIRST, then a literal ``--``, then the free-text
+      query — so a query that starts with ``-`` can never be mistaken for a
+      flag.
+    * ``page open``: the url is a positional argument.
+    * ``page read|inspect|extract|links``: the url goes as ``--url <url>``,
+      never positional; ``page extract`` may add the free-text query after
+      ``--``.
+    """
     if verb == "search":
-        # Free-text query goes after a literal "--" so a query that starts
-        # with "-" can never be mistaken for a flag.
-        return ["webglass", "search", "--", *args, "--json"]
+        # args[0] is the free-text query (see web_schemas._build_args); the
+        # remaining args are options (e.g. --limit N).
+        if not args:
+            raise WebToolError("webglass verb 'search' requires a query argument")
+        argv = ["webglass", "search", "--json", *args[1:]]
+        argv.extend(["--", args[0]])
+        return argv
 
     if verb in _URL_VERBS:
         if not args or not _URL_RE.match(str(args[0])):
             raise WebToolError(
                 f"webglass verb '{verb}' requires a url argument matching ^https?://"
             )
+        url = args[0]
+        rest = args[1:]
+        if verb == "page open":
+            # page open takes the url positionally.
+            return ["webglass", "page", "open", "--json", url, *rest]
+        # page read|inspect|extract|links take the url as --url, never
+        # positional.
+        argv = ["webglass", "page", verb.split()[1], "--json", "--url", url]
+        if verb == "page extract":
+            # extract may carry a free-text query after a literal "--".
+            options = [a for a in rest if a.startswith("--")]
+            query = [a for a in rest if not a.startswith("--")]
+            argv.extend(options)
+            if query:
+                argv.extend(["--", *query])
+        else:
+            argv.extend(rest)
+        return argv
 
     return ["webglass", *verb.split(), *args, "--json"]
 
