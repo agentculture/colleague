@@ -31,7 +31,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "webglass"
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def repo_root(tmp_path: Path) -> Path:
     """A minimal repo root with an identity.json so identity resolves."""
     identity_dir = tmp_path / ".colleague"
@@ -40,7 +40,7 @@ def repo_root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_proc() -> MagicMock:
     """A fake Popen instance returned by a monkeypatched subprocess.Popen."""
     proc = MagicMock()

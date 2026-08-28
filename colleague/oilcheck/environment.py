@@ -51,7 +51,8 @@ def _check_config_dir(repo: Path) -> dict:
                 msg = "no .colleague/ config dir (repo-level or user-level) — config is optional"
         _ = roots  # used to confirm the resolver does not raise
         return make_check("config_dir", True, "info", msg)
-    except Exception as exc:  # noqa: BLE001 - probe error surfaces as a check, not a crash
+    # Probe error surfaces as a check, not a crash.
+    except Exception as exc:  # noqa: BLE001
         return make_check(
             "config_dir",
             False,

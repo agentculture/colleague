@@ -41,7 +41,7 @@ from colleague.roles import Role
 WEB = web_schemas.WEB_TOOL_NAME
 
 
-@pytest.fixture()
+@pytest.fixture
 def webglass_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``web`` offerable regardless of the machine running the suite."""
     monkeypatch.setattr(web_schemas.shutil, "which", lambda name: f"/usr/bin/{name}")
@@ -127,12 +127,14 @@ def test_turn_lifecycle_carries_the_narrowing(webglass_on_path: None) -> None:
 
 def test_operator_message_is_operator_initiated_not_relayed() -> None:
     origin = classify_origin(sender="ori", metadata=None, operator_identity="ori")
-    assert origin.operator_initiated and not origin.relayed
+    assert origin.operator_initiated
+    assert not origin.relayed
 
 
 def test_plain_peer_message_is_not_operator_initiated() -> None:
     origin = classify_origin(sender="peer", metadata={}, operator_identity="ori")
-    assert not origin.operator_initiated and not origin.relayed
+    assert not origin.operator_initiated
+    assert not origin.relayed
     assert WEB in origin.reason
 
 
@@ -145,7 +147,8 @@ def test_relayed_operator_request_is_operator_initiated() -> None:
             metadata={RELAYED_OPERATOR_METADATA_KEY: marker},
             operator_identity="ori",
         )
-        assert origin.operator_initiated and origin.relayed
+        assert origin.operator_initiated
+        assert origin.relayed
 
 
 def test_relay_marker_for_a_different_identity_is_not_operator_initiated() -> None:
@@ -177,7 +180,8 @@ def test_first_web_call_requests_confirmation_second_proceeds_after_affirmative(
     first = gate.before_web_call()
     assert not first.allowed
     assert first.confirmation_request is not None
-    assert WEB in first.confirmation_request and "node" in first.confirmation_request
+    assert WEB in first.confirmation_request
+    assert "node" in first.confirmation_request
     assert gate.awaiting()
 
     assert gate.affirm("yes") is True
@@ -193,7 +197,8 @@ def test_only_one_confirmation_request_per_turn() -> None:
     gate = WebConfirmationGate("node", operator_identity="ori")
     assert gate.before_web_call().confirmation_request is not None
     again = gate.before_web_call()
-    assert not again.allowed and again.confirmation_request is None
+    assert not again.allowed
+    assert again.confirmation_request is None
 
 
 def test_non_affirmative_answer_leaves_the_gate_closed() -> None:
@@ -211,9 +216,11 @@ def test_confirmed_gate_resets_after_one_grant() -> None:
     gate.affirm("yes")
     assert gate.confirmed
     gate.reset()
-    assert not gate.confirmed and not gate.awaiting()
+    assert not gate.confirmed
+    assert not gate.awaiting()
     again = gate.before_web_call()
-    assert not again.allowed and again.confirmation_request is not None
+    assert not again.allowed
+    assert again.confirmation_request is not None
 
 
 def test_resolve_web_access_scopes_confirmation_to_one_relayed_turn(
@@ -229,21 +236,30 @@ def test_resolve_web_access_scopes_confirmation_to_one_relayed_turn(
     kwargs = dict(gates=gates, sender="node", origin=origin, operator_identity="ori")
 
     turn1 = resolve_web_access(body="check the docs online", **kwargs)
-    assert not turn1.allow_web and turn1.reply is not None and not turn1.handled
+    assert not turn1.allow_web
+    assert turn1.reply is not None
+    assert not turn1.handled
 
     affirm = resolve_web_access(body="yes", **kwargs)
-    assert affirm.allow_web and affirm.handled
+    assert affirm.allow_web
+    assert affirm.handled
 
     turn2 = resolve_web_access(body="check another page", **kwargs)
-    assert turn2.allow_web and turn2.reply is None
+    assert turn2.allow_web
+    assert turn2.reply is None
 
     turn3 = resolve_web_access(body="check yet another page", **kwargs)
-    assert not turn3.allow_web and turn3.reply is not None and not turn3.handled
+    assert not turn3.allow_web
+    assert turn3.reply is not None
+    assert not turn3.handled
 
 
 def test_is_affirmative_matches_whole_answers_only() -> None:
-    assert is_affirmative("yes") and is_affirmative(" OK. ") and is_affirmative("go ahead")
-    assert not is_affirmative("no") and not is_affirmative("yes if you must fetch nothing else")
+    assert is_affirmative("yes")
+    assert is_affirmative(" OK. ")
+    assert is_affirmative("go ahead")
+    assert not is_affirmative("no")
+    assert not is_affirmative("yes if you must fetch nothing else")
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +339,9 @@ def test_resident_withholds_web_from_a_peer_turn(tmp_path: Path, webglass_on_pat
     # Withheld by an explicit narrowing — not merely by what the c19 read-only
     # role happens to carry today: the tool_set names the rest of the surface.
     peer_tools = _narrowing(peer_configs[0])
-    assert peer_tools and WEB not in peer_tools and "read_file" in peer_tools
+    assert peer_tools
+    assert WEB not in peer_tools
+    assert "read_file" in peer_tools
 
     operator_configs, _ = _feed(harness, "ori", "read the readme")
     assert WEB in _offered_names(operator_configs[0], harness._repo_path)
@@ -344,7 +362,8 @@ def test_resident_relayed_turn_confirms_once_then_proceeds(
 
     configs, replies = _feed(harness, "node", "check the docs online", meta)
     first_tools = _narrowing(configs[0])
-    assert first_tools and WEB not in first_tools
+    assert first_tools
+    assert WEB not in first_tools
     assert WEB not in _offered_names(configs[0], harness._repo_path)
     confirmations = [r for r in replies if r.metadata.get("phase") == "web_confirmation"]
     assert len(confirmations) == 1
@@ -354,7 +373,8 @@ def test_resident_relayed_turn_confirms_once_then_proceeds(
     # never dispatched as a work item of its own.
     affirm_configs, affirm_replies = _feed(harness, "node", "yes", meta)
     assert affirm_configs == []
-    assert affirm_replies and affirm_replies[0].metadata.get("phase") == "web_confirmation"
+    assert affirm_replies
+    assert affirm_replies[0].metadata.get("phase") == "web_confirmation"
 
     # c43 is scoped to ONE turn: the next relayed turn carries `web` with no
     # second prompt...
