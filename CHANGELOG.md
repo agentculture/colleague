@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.65.0] - 2026-08-28
+
+### Added
+
+- **web-scout** — a curated read-only ``web`` loop tool over the operator-installed WebGlass CLI (``colleague/web.py`` backend, ``web_schemas.py`` schema + dispatch splice, ``webbudget.py`` per-work-item call budget, ``delegation_text.py`` armed-facts sentence): hidden when ``webglass`` is absent from PATH or ``COLLEAGUE_WEB=0`` (byte-identical off-state), a structural verb allow-list (``search`` / ``page open|read|inspect|extract|links``), process-group containment on timeout, WebGlass evidence ids rendered verbatim FIRST on the step trace, and the scout seat gains the tool (never a router). Doc: ``docs/features/web-scout.md``.
+
+### Changed
+
+- CLAUDE.md: one architecture bullet (Web scout) + a v1-scope clause that the web tool is a new surface over an operator CLI, not a router.
+
 ## [1.64.0] - 2026-08-27
 
 ### Added
