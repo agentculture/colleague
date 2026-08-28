@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from colleague import effort, registry
+from colleague.cli._commands import _effort_groups
 from colleague.cli._commands._listing import acting_seat
 from colleague.config import resolve_lobes_gateway_url
 from colleague.lobes import fetch_served_model_ids, resolve_roles
@@ -85,12 +86,7 @@ def _act_effort(s: "_Session", rest: list[str]) -> str:
     rung = rest[0]
     seat = rest[1] if len(rest) > 1 else acting_seat(s.config)
     try:
-        effort.validate_effort(rung)
-        if seat not in ("all", *effort.SEAT_TABLE):
-            raise ValueError(
-                f"unknown seat '{seat}'; available: all, {', '.join(effort.SEAT_TABLE)}"
-            )
-        effort.apply_operator_effort(s.config, rung, seat)
+        _effort_groups.apply_group_effort(s.config, rung, seat)
     except ValueError:
         raise
     except Exception as exc:  # noqa: BLE001 - CliError -> the dispatcher's ValueError
@@ -99,7 +95,8 @@ def _act_effort(s: "_Session", rest: list[str]) -> str:
 
 
 def _effort_listing(s: "_Session") -> str:
-    """The no-arg ``/effort`` per-seat table (see :func:`_act_effort`)."""
+    """The no-arg ``/effort`` table — 3 groups (seats, associate.<seat>,
+    purposes — t10), one line per name, plus the acting role."""
     lines = []
     for seat in effort.SEAT_TABLE:
         rung = effort.resolve_effort(
@@ -108,6 +105,10 @@ def _effort_listing(s: "_Session") -> str:
             seat=seat,
         )
         lines.append(f"  {seat} {rung or 'unset'}")
+    groups = _effort_groups.resolved_groups(s.config)
+    for group in ("associate", "purposes"):
+        for name, rung in groups[group].items():
+            lines.append(f"  {name} {rung or 'unset'}")
     acting = s.config.reasoning_effort_effective
     acting_seat = "worker" if s.config.worker is not None else "cortex"
     lines.append(f"  acting role ({acting_seat}) {acting or 'unset'}")

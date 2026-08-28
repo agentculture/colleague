@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import argparse
 
-from colleague import associate_cli, effort, harness_cli
+from colleague import associate_cli, harness_cli
+from colleague.cli._commands import _effort_groups
 from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
@@ -21,6 +22,7 @@ from colleague.config import (
     config_provenance,
     resolve_lobes_gateway_url,
 )
+from colleague.effort import DEFAULT_SENTINEL
 
 
 def _config_sections() -> list[dict[str, object]]:
@@ -75,16 +77,10 @@ def _config_show(repo: str = ".") -> object:
         f"timeout:                {cfg.timeout}",
         f"context_budget_tokens:  {cfg.context_budget_tokens}",
     ]
-    # Per-seat thinking-effort ladder (#416 t2): one line per seat; the "default"
-    # kill-switch sends nothing, so the winning layer is named instead of a rung.
-    kill_switch = cfg.reasoning_effort == effort.DEFAULT_SENTINEL
+    # Thinking-effort ladder (#416 t2, t10): 3 groups via the shared renderer.
+    kill_switch = cfg.reasoning_effort == DEFAULT_SENTINEL
     lines.append("reasoning_effort:" + (" (kill-switch)" if kill_switch else ""))
-    for seat in effort.SEAT_TABLE:
-        override = cfg.reasoning_effort_seats.get(seat) or (
-            cfg.reasoning_effort if not kill_switch else None
-        )
-        value = effort.resolve_effort(kill_switch=kill_switch, seat_override=override, seat=seat)
-        lines.append(f"  {seat}: {value}")
+    lines.extend(_effort_groups.render_lines(cfg))
     provenance = config_provenance(repo)
     if provenance:
         for entry in provenance:
@@ -97,6 +93,8 @@ def _config_show(repo: str = ".") -> object:
     # Lobes rung (t4): ARMED state; to_dict() byte-identical, lobes key only when armed.
     data = cfg.to_dict()
     data["config_files"] = provenance
+    # t10: the 3 resolved effort groups (additive key; what is actually sent).
+    data["reasoning_effort_resolved"] = _effort_groups.resolved_groups(cfg)
     data.update(harness_cli.config_show_lines(lines, cfg))  # t20/c43: clamp + window
     gateway = resolve_lobes_gateway_url(repo)
     if gateway is not None:
