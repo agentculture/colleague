@@ -82,6 +82,10 @@ minds. The architecture, part by part:
   `associate` seat (`COLLEAGUE_ASSOCIATE_MODEL=lobes`, addressed by role name)
   — each with one off-knob that is byte-identical to main; credit in `NOTICE`
   and `docs/adopted-from.md`. Doc: `adopt-from-qwen-code.md`.
+- **Web scout (#436/#435)** — a curated read-only `web` tool over the
+  operator-installed WebGlass CLI (hidden when absent / `COLLEAGUE_WEB=0`,
+  byte-identical off-state); the scout seat gains the tool, never a router.
+  Doc: `web-scout.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
@@ -285,8 +289,9 @@ plan `adopt-from-qwen-code`. Everything else holds.
 explicit re-spec under `docs/specs/` / `docs/plans/`), within the zero-deps /
 no-socket / no-daemon conventions — the daemonless line now reads: colleague ships
 no socket/daemon code of its own (supervision is imported from agent-lifecycle
-behind an opt-in extra; background execution is a one-shot detached child). Exactly
-two backends: `mock` (the contract reference) and `vllm-openai`.
+behind an opt-in extra; background execution is a one-shot detached child). The
+`web` tool is a new surface over an operator CLI (WebGlass), never a router.
+Exactly two backends: `mock` (the contract reference) and `vllm-openai`.
 
 **Out of scope for v0** — do not add without re-speccing: **a multi-backend
 router / routing policy** (equally the multi-model router: any automatic
