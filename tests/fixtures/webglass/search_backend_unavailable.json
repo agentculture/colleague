@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "operation_id": "op-2026-08-28-search-0001",
+  "kind": "search",
+  "lifecycle_state": "failed",
+  "content": {
+    "trusted": [],
+    "untrusted": [],
+    "sensitive": [],
+    "derived": []
+  },
+  "policy_verdict": {
+    "decision": "denied",
+    "matched_rule_ids": ["web.search.backend_unavailable"]
+  },
+  "known_effects": [],
+  "evidence_refs": ["ev-search-0001"],
+  "navigation_history": [],
+  "completeness": "none",
+  "warnings": ["search backend was unavailable at request time"],
+  "timings": {"started_at": "2026-08-28T09:14:02Z", "finished_at": "2026-08-28T09:14:03Z"},
+  "backend": "webglass-search",
+  "error": {
+    "code": "backend_unavailable",
+    "message": "search backend was unavailable",
+    "remediation": "retry the search later or use a page verb against a known url"
+  }
+}

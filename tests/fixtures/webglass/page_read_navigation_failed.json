@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "operation_id": "op-2026-08-28-pageread-0002",
+  "kind": "page read",
+  "lifecycle_state": "failed",
+  "content": {
+    "trusted": [],
+    "untrusted": [],
+    "sensitive": [],
+    "derived": []
+  },
+  "policy_verdict": {
+    "decision": "denied",
+    "matched_rule_ids": ["web.page.navigation_failed"]
+  },
+  "known_effects": [],
+  "evidence_refs": ["ev-pageread-0002", "ev-pageread-0003"],
+  "navigation_history": [
+    {"url": "https://example.com/landing", "status": "ok"},
+    {"url": "https://example.com/landing?next=report", "status": "redirect"},
+    {"url": "https://example.com/report", "status": "timeout"}
+  ],
+  "completeness": "none",
+  "warnings": ["navigation did not settle within the budget"],
+  "timings": {"started_at": "2026-08-28T09:21:40Z", "finished_at": "2026-08-28T09:22:10Z"},
+  "backend": "webglass-page",
+  "error": {
+    "code": "navigation_failed",
+    "message": "navigation to https://example.com/report timed out",
+    "remediation": "retry with a longer budget or read the last settled url"
+  }
+}
