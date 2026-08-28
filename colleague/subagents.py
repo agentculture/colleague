@@ -1170,9 +1170,7 @@ def run_subagent(
             },
         )
 
-    # (g) Project the child's TaskResult onto the nested-only SubResult shape.
-    # The three armed-only identity fields stay ``None`` (omitted from
-    # ``to_dict``) on the unarmed path — the mock/vllm parity key set holds.
+    # (g) Project the child's TaskResult onto SubResult (armed-only fields omit-when-None).
     sub = SubResult(
         task_id=result.task_id,
         engine=child_engine,
@@ -1187,6 +1185,8 @@ def run_subagent(
         resolved_model=(binding.resolved_model if binding is not None else None),
         fallback_from_role=(binding.fallback_from_role if binding is not None else None),
     )
+    # t13: raw incompletion reason (dynamic attr) — purpose_schemas keys its marker on it.
+    sub.incompletion_reason = getattr(getattr(result, "incompletion", None), "reason", None)
     # t7 (c33/h32): dynamic attrs, no contract.py field — the child's web-call
     # counters (fold onto the parent's executor) and its fetched urls (the
     # parent's 'urls fetched:' report block), read off the child's OWN

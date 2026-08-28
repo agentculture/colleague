@@ -38,6 +38,7 @@ from colleague import purpose_schemas, subagents
 from colleague.config import MAX_SUBAGENT_DEPTH, EngineConfig
 from colleague.contract import INCOMPLETE, OK, SubResult, Task, TaskResult
 from colleague.efforttables import PURPOSE_STEPS, PURPOSE_TABLE
+from colleague.incompletion import REASON_BUDGET_EXHAUSTED
 from colleague.purpose_schemas import PURPOSE_ROLE, PURPOSE_TOOL_NAMES
 from colleague.subagents import ChildSpec, make_spawn, new_agent_budget
 from colleague.tools import ToolExecutor
@@ -257,26 +258,47 @@ def test_manual_subagent_still_charges_the_budget(tmp_path, capturing_engine) ->
 
 
 def test_budget_exhausted_marker_carries_the_partial(tmp_path) -> None:
-    rec = _Recorder(
-        SubResult(
-            task_id="c9",
-            engine="mock",
-            model="m",
-            status=INCOMPLETE,
-            summary="found three call sites so far",
-        )
+    """t13 note 1: ONLY a budget/step exhaustion (``incompletion_reason ==
+    REASON_BUDGET_EXHAUSTED``) gets the '[purpose budget exhausted: N steps]'
+    marker — keyed on the reason, not merely on ``status != OK``."""
+    sub = SubResult(
+        task_id="c9",
+        engine="mock",
+        model="m",
+        status=INCOMPLETE,
+        summary="found three call sites so far",
     )
+    sub.incompletion_reason = REASON_BUDGET_EXHAUSTED
+    rec = _Recorder(sub)
     outcome = _executor(tmp_path, rec).execute("code_survey", {"question": "where?"})
 
     assert outcome.result.startswith(f"[purpose budget exhausted: {PURPOSE_STEPS['code_survey']}")
     assert "found three call sites so far" in outcome.result
 
 
+def test_non_budget_incompletion_gets_the_generic_marker(tmp_path) -> None:
+    """t13 note 1: a non-budget incompletion reason (e.g. a step-stall) gets
+    '[purpose child incomplete: <reason>]', never the budget-exhausted text."""
+    sub = SubResult(
+        task_id="c9", engine="mock", model="m", status=INCOMPLETE, summary="partial found"
+    )
+    sub.incompletion_reason = "step-stall"
+    rec = _Recorder(sub)
+    outcome = _executor(tmp_path, rec).execute("code_survey", {"question": "where?"})
+
+    assert outcome.result.startswith("[purpose child incomplete: step-stall]")
+    assert "budget exhausted" not in outcome.result
+    assert "partial found" in outcome.result
+
+
 def test_budget_exhausted_marker_is_never_empty(tmp_path) -> None:
+    """A child with no incompletion record at all (a raw ``error`` status,
+    e.g. an exception) still gets a non-empty, honest marker — the generic
+    one, naming the status since no reason was ever classified."""
     rec = _Recorder(SubResult(task_id="c9", engine="mock", model="m", status="error", summary=""))
     outcome = _executor(tmp_path, rec).execute("review", {"diff_ref": "HEAD"})
     assert outcome.result.strip()
-    assert outcome.result.startswith("[purpose budget exhausted:")
+    assert outcome.result.startswith("[purpose child incomplete: error]")
 
 
 def test_ok_child_has_no_marker(tmp_path) -> None:
@@ -466,3 +488,67 @@ def test_all_engines_same_sub_results_shape(tmp_path, capturing_engine) -> None:
 
     assert set(shapes[0]) == set(shapes[1])
     assert shapes[0]["engine"] == "mock" and shapes[1]["engine"] == "vllm-openai"
+
+
+def _key_shape(value: Any) -> Any:
+    """Recursive key signature, ignoring concrete values (t13, mirrors
+    ``tests/test_e2e_mock.py``'s ``_key_shape`` — the SAME helper, not
+    re-implemented differently, so a divergence in shape between the two
+    engines is caught the identical way the rest of the suite catches it)."""
+    if isinstance(value, dict):
+        return {k: _key_shape(v) for k, v in sorted(value.items())}
+    if isinstance(value, list):
+        return _key_shape(value[0]) if value else None
+    return None
+
+
+def test_all_engines_same_full_task_result_shape_for_a_purpose_step(
+    tmp_path, capturing_engine
+) -> None:
+    """t13 (deliverable 3): a ``tests/test_e2e_mock.py``-style all-engines
+    check, one level up from :func:`test_all_engines_same_sub_results_shape`
+    above — that test compares the CHILD's serialized ``SubResult`` shape;
+    this one compares the PARENT's full ``TaskResult.to_dict()`` recursive
+    key shape (the same ``_key_shape`` technique
+    ``tests/test_all_engines_batch.py::test_mock_and_vllm_produce_identical_
+    batch_step_sequence`` uses) after running a purpose step (``code_survey``
+    then ``finish``) through the REAL bounded loop
+    (:func:`colleague.loop.run`) with each engine name bound into the
+    child spawn — proving the WHOLE result envelope (steps, sub_results,
+    usage, warnings, ...), not just the one sub-result, is engine-independent
+    for a purpose step. References rather than duplicates the sub-result-level
+    test above (same fixture-building helpers: ``_CapturingEngine``,
+    ``capturing_engine``, ``make_spawn``)."""
+    from colleague.loop import ModelResponse, Spawns, ToolCall, run
+
+    shapes = []
+    for engine in ("mock", "vllm-openai"):
+        capturing_engine(_CapturingEngine())
+        parent_config = EngineConfig.resolve()
+        spawn = make_spawn(str(tmp_path), parent_config, engine)
+        task = Task.new(str(tmp_path), "parent task", engine=engine)
+
+        state = {"i": 0}
+        turns = [
+            ModelResponse(
+                tool_calls=[ToolCall("p-1", "code_survey", {"question": "where is the loop?"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            ModelResponse(
+                tool_calls=[ToolCall("p-2", "finish", {"summary": "surveyed and done"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+
+        def complete(_messages, _turns=turns, _state=state):
+            turn = _turns[min(_state["i"], len(_turns) - 1)]
+            _state["i"] += 1
+            return turn
+
+        result = run(complete, task, max_steps=10, spawns=Spawns(single=spawn))
+        assert result.status == OK
+        shapes.append(_key_shape(result.to_dict()))
+
+    assert shapes[0] == shapes[1]
