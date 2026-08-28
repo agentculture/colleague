@@ -5,6 +5,8 @@ Covers:
 - unreachable endpoint short-circuits (no pytest run)
 - fake pytest runner maps exit codes to statuses
 - CLI renders both text and --json shapes
+- webglass_status (t6): doctor healthy/unhealthy/timeout, session count
+  parsing (real nested shape + fallbacks)
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from colleague import livecheck as livecheck_mod
 from colleague.livecheck import (
     ProofResult,
     probe_endpoint,
@@ -555,3 +558,76 @@ class TestRunRunnerChecksAggregation:
         assert results[0].status == "skipped"
         assert "kaboom" in results[0].detail
         assert results[1].status == "passed"
+
+
+class TestWebglassSessionCount:
+    """_webglass_session_count parses the real nested shape + fallbacks."""
+
+    def test_real_nested_shape(self) -> None:
+        """Probed 2026-08-28 shape: content.trusted.sessions."""
+        data = {"content": {"trusted": {"sessions": [{}, {}, {}]}}}
+        assert livecheck_mod._webglass_session_count(data) == 3
+
+    def test_bare_list(self) -> None:
+        assert livecheck_mod._webglass_session_count([{}, {}]) == 2
+
+    def test_top_level_sessions_key(self) -> None:
+        assert livecheck_mod._webglass_session_count({"sessions": [{}]}) == 1
+
+    def test_unrecognized_shape_returns_none(self) -> None:
+        assert livecheck_mod._webglass_session_count({"nope": True}) is None
+        assert livecheck_mod._webglass_session_count(None) is None
+        assert livecheck_mod._webglass_session_count("not json") is None
+
+
+class TestWebglassStatus:
+    """webglass_status shells out via subprocess; never raises."""
+
+    def test_absent_binary(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck_mod.shutil, "which", lambda name: None)
+        result = livecheck_mod.webglass_status()
+        assert result == {
+            "present": False,
+            "healthy": False,
+            "detail": "not on PATH",
+            "sessions": None,
+        }
+
+    def test_healthy_with_session_count(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck_mod.shutil, "which", lambda name: "/usr/bin/webglass")
+
+        def _fake_run(argv, **kwargs):
+            if argv[1:] == ["doctor"]:
+                return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+            payload = json.dumps({"content": {"trusted": {"sessions": [{}] * 12}}})
+            return subprocess.CompletedProcess(argv, 0, stdout=payload, stderr="")
+
+        monkeypatch.setattr(livecheck_mod.subprocess, "run", _fake_run)
+        result = livecheck_mod.webglass_status()
+        assert result["present"] is True
+        assert result["healthy"] is True
+        assert result["sessions"] == 12
+
+    def test_unhealthy_doctor_exit(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck_mod.shutil, "which", lambda name: "/usr/bin/webglass")
+
+        def _fake_run(argv, **kwargs):
+            if argv[1:] == ["doctor"]:
+                return subprocess.CompletedProcess(argv, 1, stdout="", stderr="rig unreachable\n")
+            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
+
+        monkeypatch.setattr(livecheck_mod.subprocess, "run", _fake_run)
+        result = livecheck_mod.webglass_status()
+        assert result["healthy"] is False
+        assert "rig unreachable" in result["detail"]
+
+    def test_doctor_timeout_reported_honestly(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck_mod.shutil, "which", lambda name: "/usr/bin/webglass")
+
+        def _fake_run(argv, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs.get("timeout", 10.0))
+
+        monkeypatch.setattr(livecheck_mod.subprocess, "run", _fake_run)
+        result = livecheck_mod.webglass_status(timeout=10.0)
+        assert result["healthy"] is False
+        assert "timed out" in result["detail"]

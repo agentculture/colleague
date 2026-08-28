@@ -7,15 +7,24 @@ Test contract:
   remediation, and ``diagnose()`` is unhealthy.
 * ``git`` absent (monkeypatched) → ``git_present`` error.
 * ``gh`` absent (monkeypatched) → ``gh_present`` warning (does NOT flip health).
+* ``webglass`` (t6) — absent/unhealthy → warning; healthy → ok; >10 sessions
+  → warning naming the count. Always WARN-only: never flips ``diagnose()``
+  health, and ``colleague doctor``'s exit code is unaffected either way.
+* ``web_search_provider`` (t6) — ``WEBGLASS_BRAVE_API_KEY`` set → ok; unset →
+  warning "unset in this process". Always WARN-only, and the key value is
+  never present in any check's message/remediation.
 """
 
 from __future__ import annotations
 
+import argparse
 import shutil
 from pathlib import Path
 
 import pytest
 
+from colleague import livecheck
+from colleague.cli._commands.doctor import cmd_doctor
 from colleague.oilcheck import diagnose
 from colleague.oilcheck import environment as env_mod
 
@@ -28,6 +37,8 @@ _EXPECTED_IDS = {
     "git_present",
     "gh_present",
     "cli_integrity",
+    "webglass",
+    "web_search_provider",
 }
 
 _VALID_SEVERITIES = {"error", "warning", "info"}
@@ -348,3 +359,126 @@ def test_config_dir_probe_failure_surfaces_as_failed_warning(
     assert c["passed"] is False
     assert c["severity"] == "warning"  # config is optional → warning, not error
     assert c["remediation"] != ""
+
+
+# ---------------------------------------------------------------------------
+# webglass check (t6) — always WARN-only
+# ---------------------------------------------------------------------------
+
+
+def _status(*, present, healthy, detail="", sessions=None) -> dict:
+    return {"present": present, "healthy": healthy, "detail": detail, "sessions": sessions}
+
+
+def test_webglass_absent_warns_and_stays_exit_0(monkeypatch: pytest.MonkeyPatch) -> None:
+    """webglass not on PATH → warning row; a bare doctor run still exits 0."""
+    monkeypatch.setattr(
+        livecheck,
+        "webglass_status",
+        lambda: _status(present=False, healthy=False, detail="webglass not on PATH"),
+    )
+    c = _check_by_id(env_mod.checks(), "webglass")
+    assert c["passed"] is False
+    assert c["severity"] == "warning"
+    assert c["remediation"] != ""
+
+    report = diagnose()
+    assert report["healthy"] is True, "webglass warning must never flip health"
+    args = argparse.Namespace(json=True, probe=False, repo=".")
+    assert cmd_doctor(args) == 0
+
+
+def test_webglass_unhealthy_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """webglass present but 'webglass doctor' unhealthy → warning row."""
+    monkeypatch.setattr(
+        livecheck,
+        "webglass_status",
+        lambda: _status(present=True, healthy=False, detail="exit 1"),
+    )
+    c = _check_by_id(env_mod.checks(), "webglass")
+    assert c["passed"] is False
+    assert c["severity"] == "warning"
+
+
+def test_webglass_healthy_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """webglass healthy with <= threshold sessions → ok."""
+    monkeypatch.setattr(
+        livecheck,
+        "webglass_status",
+        lambda: _status(present=True, healthy=True, detail="webglass doctor exited 0", sessions=3),
+    )
+    c = _check_by_id(env_mod.checks(), "webglass")
+    assert c["passed"] is True
+    assert c["remediation"] == ""
+
+
+def test_webglass_over_threshold_sessions_warns_with_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    """12 sessions (> 10) → warning row naming the count; exit code unaffected."""
+    monkeypatch.setattr(
+        livecheck,
+        "webglass_status",
+        lambda: _status(present=True, healthy=True, detail="webglass doctor exited 0", sessions=12),
+    )
+    c = _check_by_id(env_mod.checks(), "webglass")
+    assert c["passed"] is False
+    assert c["severity"] == "warning"
+    assert "12" in c["message"]
+    assert c["remediation"] != ""
+
+    report = diagnose()
+    assert report["healthy"] is True
+    args = argparse.Namespace(json=True, probe=False, repo=".")
+    assert cmd_doctor(args) == 0
+
+
+def test_webglass_status_shells_out_via_livecheck() -> None:
+    """The real (unmocked) resolver is :func:`colleague.livecheck.webglass_status`."""
+    result = livecheck.webglass_status()
+    assert set(result) == {"present", "healthy", "detail", "sessions"}
+
+
+# ---------------------------------------------------------------------------
+# web_search_provider check (t6) — always WARN-only; never prints the key
+# ---------------------------------------------------------------------------
+
+
+def test_web_search_provider_ok_when_key_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WEBGLASS_BRAVE_API_KEY", "sekrit-value-do-not-print")
+    c = _check_by_id(env_mod.checks(), "web_search_provider")
+    assert c["passed"] is True
+    assert c["remediation"] == ""
+    assert "sekrit-value-do-not-print" not in c["message"]
+    assert "sekrit-value-do-not-print" not in c["remediation"]
+
+
+def test_web_search_provider_warns_when_key_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("WEBGLASS_BRAVE_API_KEY", raising=False)
+    c = _check_by_id(env_mod.checks(), "web_search_provider")
+    assert c["passed"] is False
+    assert c["severity"] == "warning"
+    assert "unset in this process" in c["message"]
+    assert c["remediation"] != ""
+
+
+def test_web_search_provider_never_flips_health_or_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WEBGLASS_BRAVE_API_KEY", raising=False)
+    report = diagnose()
+    assert report["healthy"] is True
+    args = argparse.Namespace(json=True, probe=False, repo=".")
+    assert cmd_doctor(args) == 0
+
+
+def test_webglass_key_never_printed_across_all_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No check message/remediation ever contains the raw key value (either row)."""
+    secret = "super-secret-brave-key-xyz"
+    monkeypatch.setenv("WEBGLASS_BRAVE_API_KEY", secret)
+    monkeypatch.setattr(
+        livecheck,
+        "webglass_status",
+        lambda: _status(present=True, healthy=True, detail="webglass doctor exited 0", sessions=1),
+    )
+    for c in env_mod.checks():
+        assert secret not in c["message"]
+        assert secret not in c["remediation"]
