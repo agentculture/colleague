@@ -167,40 +167,70 @@ def test_valid_http_url_is_accepted(repo_root: Path, fake_proc: MagicMock) -> No
 
 
 # ---------------------------------------------------------------------------
-# AC: --json always appended; free-text query after literal '--' for search
+# AC: exact argv grammar (verified 2026-08-28 against `webglass <verb> --help`)
 # ---------------------------------------------------------------------------
 
 
-def test_json_flag_always_appended_for_url_verb(repo_root: Path, fake_proc: MagicMock) -> None:
+def _argv_for(verb: str, args: list[str], repo_root: Path, fake_proc: MagicMock) -> list[str]:
     with patch("subprocess.Popen", return_value=fake_proc) as mock_popen:
-        run_web("page open", ["https://example.com"], root=repo_root)
-    argv = mock_popen.call_args[0][0]
-    assert argv[-1] == "--json"
-    assert argv[0] == "webglass"
-    assert argv[1:3] == ["page", "open"]
-    assert "https://example.com" in argv
+        run_web(verb, args, root=repo_root)
+    mock_popen.assert_called_once()
+    return list(mock_popen.call_args[0][0])
 
 
-def test_json_flag_always_appended_for_search(repo_root: Path, fake_proc: MagicMock) -> None:
-    with patch("subprocess.Popen", return_value=fake_proc) as mock_popen:
-        run_web("search", ["colleague web scout"], root=repo_root)
-    argv = mock_popen.call_args[0][0]
-    assert argv[-1] == "--json"
-    assert argv[0] == "webglass"
-    assert argv[1] == "search"
-
-
-def test_search_query_passed_after_literal_double_dash(
+def test_search_argv_exact_options_first_then_dash_then_query(
     repo_root: Path, fake_proc: MagicMock
 ) -> None:
-    with patch("subprocess.Popen", return_value=fake_proc) as mock_popen:
-        run_web("search", ["colleague web scout"], root=repo_root)
-    argv = mock_popen.call_args[0][0]
-    assert "--" in argv
-    dash_index = argv.index("--")
-    assert argv[dash_index + 1] == "colleague web scout"
-    # "--" must come before the query and before the trailing --json
-    assert dash_index < argv.index("--json")
+    argv = _argv_for("search", ["colleague web scout"], repo_root, fake_proc)
+    assert argv == ["webglass", "search", "--json", "--", "colleague web scout"]
+
+
+def test_search_argv_exact_with_limit(repo_root: Path, fake_proc: MagicMock) -> None:
+    argv = _argv_for("search", ["colleague web scout", "--limit", "5"], repo_root, fake_proc)
+    assert argv == ["webglass", "search", "--json", "--limit", "5", "--", "colleague web scout"]
+
+
+def test_page_open_argv_exact_url_as_positional(repo_root: Path, fake_proc: MagicMock) -> None:
+    argv = _argv_for("page open", ["https://example.com"], repo_root, fake_proc)
+    assert argv == ["webglass", "page", "open", "--json", "https://example.com"]
+
+
+def test_page_read_argv_exact_url_as_flag(repo_root: Path, fake_proc: MagicMock) -> None:
+    argv = _argv_for("page read", ["https://example.com"], repo_root, fake_proc)
+    assert argv == ["webglass", "page", "read", "--json", "--url", "https://example.com"]
+
+
+def test_page_inspect_argv_exact_url_as_flag(repo_root: Path, fake_proc: MagicMock) -> None:
+    argv = _argv_for("page inspect", ["https://example.com"], repo_root, fake_proc)
+    assert argv == ["webglass", "page", "inspect", "--json", "--url", "https://example.com"]
+
+
+def test_page_links_argv_exact_url_as_flag(repo_root: Path, fake_proc: MagicMock) -> None:
+    argv = _argv_for("page links", ["https://example.com"], repo_root, fake_proc)
+    assert argv == ["webglass", "page", "links", "--json", "--url", "https://example.com"]
+
+
+def test_page_extract_argv_exact_url_as_flag(repo_root: Path, fake_proc: MagicMock) -> None:
+    argv = _argv_for("page extract", ["https://example.com"], repo_root, fake_proc)
+    assert argv == ["webglass", "page", "extract", "--json", "--url", "https://example.com"]
+
+
+def test_page_extract_argv_exact_with_query_after_dash(
+    repo_root: Path, fake_proc: MagicMock
+) -> None:
+    argv = _argv_for(
+        "page extract", ["https://example.com", "what is the title"], repo_root, fake_proc
+    )
+    assert argv == [
+        "webglass",
+        "page",
+        "extract",
+        "--json",
+        "--url",
+        "https://example.com",
+        "--",
+        "what is the title",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +394,7 @@ echo '{"ok": true}'
 
     result = run_web("page open", ["https://example.com"], root=repo_root)
     assert result.startswith("exit=0\n")
-    assert "page open https://example.com --json" in result
+    assert "page open --json https://example.com" in result
     assert '{"ok": true}' in result
 
 

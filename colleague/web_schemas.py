@@ -198,7 +198,23 @@ def render_result(envelope: Any) -> str:
     """
     if not isinstance(envelope, dict):
         return render_raw(json.dumps(envelope))
-    lines = _provenance_lines(envelope)
+    if "operation_id" not in envelope and "lifecycle_state" not in envelope:
+        # A parsed dict that is NOT a WebGlass envelope — e.g. the CLI's
+        # usage-error JSON ``{"code": 1, "message": ..., "remediation": ...}``.
+        # Render a provenance header FIRST (operation_id: (none),
+        # lifecycle_state: failed, the error line) so the failure is visible
+        # even when the body is empty; the untrusted block keeps its
+        # delimiters.
+        code = envelope.get("code")
+        message = envelope.get("message")
+        remediation = envelope.get("remediation")
+        lines = [
+            "operation_id: (none)",
+            "lifecycle_state: failed",
+            f"error: code={code} message={message} remediation={remediation}",
+        ]
+    else:
+        lines = _provenance_lines(envelope)
     content = envelope.get("content")
     body: list[str] = []
     if isinstance(content, dict):
@@ -258,6 +274,17 @@ def _build_args(verb: str, arguments: dict[str, Any]) -> list[str]:
     return args
 
 
+def _exit_code(output: str) -> int:
+    """The ``exit=<code>`` code from ``run_web``'s output (0 when absent)."""
+    first = output.split("\n", 1)[0]
+    if first.startswith("exit="):
+        try:
+            return int(first[len("exit=") :])
+        except ValueError:
+            return 0
+    return 0
+
+
 def _parse_envelope(output: str) -> Any:
     """Extract the JSON envelope from ``run_web``'s ``exit=<code>\\n<body>`` output.
 
@@ -307,7 +334,9 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
         webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
         output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
         envelope = _parse_envelope(output)
-        webbudget.record_result(executor, envelope)  # t9: counts a failed call
+        webbudget.record_result(
+            executor, envelope, exit_code=_exit_code(output)
+        )  # t9: counts a failed call
         text = render_result(envelope) if envelope is not None else render_raw(output)
         return ToolOutcome(result=executor._truncate(text, WEB_TOOL_NAME))
 

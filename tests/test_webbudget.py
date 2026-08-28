@@ -91,6 +91,41 @@ def test_record_result_counts_failed_lifecycle_state(tmp_path: Path) -> None:
     assert executor.web_failed == 2
 
 
+def test_record_result_counts_dict_without_lifecycle_state(tmp_path: Path) -> None:
+    executor = ToolExecutor(tmp_path)
+    webbudget.record_result(
+        executor,
+        {
+            "code": 1,
+            "message": "unrecognized arguments: --json",
+            "remediation": "run 'webglass-cli --help' to see valid arguments",
+        },
+    )
+    assert executor.web_failed == 1
+
+
+def test_record_result_counts_non_dict_envelope(tmp_path: Path) -> None:
+    executor = ToolExecutor(tmp_path)
+    webbudget.record_result(executor, [1, 2])
+    assert executor.web_failed == 1
+
+
+def test_record_result_counts_nonzero_exit_code(tmp_path: Path) -> None:
+    executor = ToolExecutor(tmp_path)
+    webbudget.record_result(
+        executor, {"operation_id": "op-1", "lifecycle_state": "succeeded"}, exit_code=2
+    )
+    assert executor.web_failed == 1
+
+
+def test_record_result_zero_exit_with_succeeded_envelope_not_counted(tmp_path: Path) -> None:
+    executor = ToolExecutor(tmp_path)
+    webbudget.record_result(
+        executor, {"operation_id": "op-1", "lifecycle_state": "succeeded"}, exit_code=0
+    )
+    assert executor.web_failed == 0
+
+
 # ---------------------------------------------------------------------------
 # AC: the warning line names both continuation commands and the knob
 # ---------------------------------------------------------------------------
