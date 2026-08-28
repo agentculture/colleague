@@ -25,13 +25,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from colleague import web_schemas
+from colleague import efforttables, web_schemas
+from colleague.contract import OK
 
 __all__ = [
     "PURPOSE_ROLE",
     "PURPOSE_SCHEMAS",
     "PURPOSE_TOOL_NAMES",
     "brief_for",
+    "charges_budget",
+    "dispatch",
     "hidden_names",
     "offered",
 ]
@@ -289,3 +292,138 @@ def brief_for(name: str, arguments: dict[str, Any]) -> str:
     names raise ``KeyError`` (a purpose tool is one of the six, nothing else).
     """
     return _BRIEF_BUILDERS[name](arguments)
+
+
+# ---------------------------------------------------------------------------
+# Executor wiring (t6) — the six handlers ``tools._purpose_dispatch`` binds.
+# ---------------------------------------------------------------------------
+
+#: The marker a non-``ok`` purpose child is reported with (c40/h33): the tool
+#: result is NEVER empty — the child's partial always rides behind it.
+_EXHAUSTED = "[purpose budget exhausted: {steps} steps] "
+
+#: Each purpose's required arguments, read straight off its own schema so the
+#: two can never drift.
+_REQUIRED: dict[str, tuple[str, ...]] = {
+    name: tuple(schema["function"]["parameters"]["required"])
+    for name, schema in PURPOSE_SCHEMAS.items()
+}
+
+
+def charges_budget(name: str) -> bool:
+    """Whether purpose *name*'s child charges the delegation budget (c34).
+
+    The arithmetic exemption: a READ-ONLY purpose (every builtin role in
+    :data:`PURPOSE_ROLE` except ``writer``) provably cannot mutate the tree, so
+    its child does not consume a ``MAX_SUBAGENT_FANOUT`` / ``MAX_SUBAGENT_TOTAL``
+    slot — a survey/review reflex must never cost the caller its remaining
+    write delegations. ``handover_to_colleague`` (the writer purpose) charges
+    exactly like a manual ``subagent``. The depth cap still applies to both.
+    """
+    from colleague import roles  # local: colleague.roles imports this module
+
+    return not roles.is_read_only(PURPOSE_ROLE[name])
+
+
+def _purpose_effort(executor: Any, name: str) -> "str | None":
+    """The rung purpose *name*'s spawn passes as its explicit override (c28).
+
+    :data:`~colleague.efforttables.PURPOSE_TABLE`'s row, unless an operator
+    override is present. The overrides are read from OPTIONAL executor
+    attributes (``purpose_effort_overrides`` / ``effort_kill_switch``) —
+    absent today on every construction path, so the table row is what ships;
+    the seam exists so a later config thread has one place to land.
+    """
+    overrides = getattr(executor, "purpose_effort_overrides", None) or {}
+    return efforttables.resolve_purpose_effort(
+        kill_switch=bool(getattr(executor, "effort_kill_switch", False)),
+        purpose_override=overrides.get(name),
+        purpose=name,
+    )
+
+
+def _steps_for(executor: Any, name: str) -> int:
+    """The step budget the child ran under — for the exhausted marker's ``N``.
+
+    ``PURPOSE_STEPS[name]`` when the purpose has its own cap; otherwise the
+    caller's own budget (``handover_to_colleague`` rides it), ``0`` when the
+    executor carries none.
+    """
+    steps = efforttables.PURPOSE_STEPS[name]
+    if steps is not None:
+        return steps
+    return int(getattr(executor, "max_steps", 0) or 0)
+
+
+def _render(name: str, sub: Any, steps: int) -> str:
+    """The tool result for one finished purpose child — mirrors ``_subagent``."""
+    text = (
+        f"{name}[{sub.engine}/{sub.model}] {sub.status}: {sub.summary or '(no partial returned)'}\n"
+        f"changed files: " + (", ".join(sub.changed_files) or "(none)")
+    )
+    if sub.status != OK:
+        text = _EXHAUSTED.format(steps=steps) + text
+    return text
+
+
+def _record(executor: Any, arguments: dict[str, Any], sub: Any) -> None:
+    """Fold the child onto the parent exactly as the ``subagent`` tool does.
+
+    ``sub_results`` + the changed-file set (so a ``handover_to_colleague``
+    child's edits reach the single top-level handoff), plus the child's served
+    model and id onto the CALLER's arguments dict — the same object the loop
+    records as ``Step.arguments``, which is where ``scripts/compare_arms.py``
+    reads a purpose step's ``served_model`` from (t9).
+    """
+    executor.sub_results.append(sub)
+    executor.changed.update(sub.changed_files)
+    served = getattr(sub, "resolved_model", None) or sub.model
+    if served:
+        arguments["served_model"] = served
+    arguments["purpose_child_id"] = sub.task_id
+
+
+def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
+    """The six ``ToolExecutor.execute`` handlers, bound to *executor* (t6).
+
+    Each handler renders the FIXED brief (:func:`brief_for`) and spawns ONE
+    child through the executor's injected spawn callable
+    (:func:`colleague.subagents.make_spawn` → ``run_subagent``, unchanged) with
+    the purpose's FIXED role, rung and step budget — never a model-chosen one
+    (c24/h27). A refused launch (the depth cap, the global agent budget, an
+    engine error) comes back as the tool RESULT text: a purpose call costs the
+    caller one step and a readable line, never a crashed drive (h30).
+    """
+    from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
+
+    def _validate(name: str, arguments: dict[str, Any]) -> None:
+        for key in _REQUIRED[name]:
+            value = arguments.get(key)
+            if not isinstance(value, str) or not value.strip():
+                raise ToolError(f"{name} requires a non-empty '{key}' string")
+
+    def _bind(name: str) -> Callable[[dict[str, Any]], Any]:
+        def handler(arguments: dict[str, Any]) -> Any:
+            _validate(name, arguments)
+            spawn = getattr(executor, "_spawn", None)
+            if spawn is None:
+                raise ToolError(f"purpose tool '{name}' is not available in this drive")
+            steps = _steps_for(executor, name)
+            try:
+                sub = spawn(
+                    brief_for(name, arguments),
+                    engine=None,
+                    model=None,
+                    role=PURPOSE_ROLE[name],
+                    effort=_purpose_effort(executor, name),
+                    max_steps=efforttables.PURPOSE_STEPS[name],
+                    charges_budget=charges_budget(name),
+                )
+            except Exception as exc:  # refusal/launcher error -> a readable result
+                return ToolOutcome(result=executor._truncate(f"{name} refused: {exc}", name))
+            _record(executor, arguments, sub)
+            return ToolOutcome(result=executor._truncate(_render(name, sub, steps), name))
+
+        return handler
+
+    return {name: _bind(name) for name in PURPOSE_TOOL_NAMES}
