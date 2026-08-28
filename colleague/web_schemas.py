@@ -357,6 +357,57 @@ def _parse_envelope(output: str) -> Any:
         return None
 
 
+def _check_hidden() -> None:
+    """Refuse while hidden — re-checked immediately before the spawn (TOCTOU).
+
+    The knob/PATH may have changed since the schema was curated, so the check
+    that gates the child lives here, not at curation time.
+    """
+    from colleague.tools import ToolError  # local: avoids the import cycle
+
+    if shutil.which("webglass") is None:
+        raise ToolError(
+            f"tool '{WEB_TOOL_NAME}' is hidden: the webglass CLI is not on PATH — "
+            f"install it (or set {WEB_ENV}=0 to hide the tool explicitly)"
+        )
+    if os.environ.get(WEB_ENV) == "0":
+        raise ToolError(
+            f"tool '{WEB_TOOL_NAME}' is hidden by {WEB_ENV}=0 — unset it to use the web tool"
+        )
+
+
+def _validated_verb(arguments: dict[str, Any]) -> str:
+    """The allow-listed verb from *arguments*, or a clean ``ToolError``."""
+    from colleague.tools import ToolError  # local: avoids the import cycle
+
+    verb = arguments.get("verb")
+    if not isinstance(verb, str) or verb not in web.ALLOWED_VERBS:
+        raise ToolError(
+            f"web needs a 'verb' from the allow-list ({', '.join(sorted(web.ALLOWED_VERBS))})"
+        )
+    return verb
+
+
+def _run_and_render(executor: Any, verb: str, arguments: dict[str, Any], pre_counted: bool) -> Any:
+    """Spawn the verb, account for it (unless pre-counted), render, truncate."""
+    from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
+
+    try:
+        output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
+    except web.WebToolError as exc:
+        # A raised call (timeout, launch failure) counts as FAILED (Qodo #9)
+        # — record_result(None) bumps web_failed — then re-raise as a clean
+        # ToolError so the loop feeds a string back to the model.
+        if not pre_counted:
+            webbudget.record_result(executor, None)
+        raise ToolError(str(exc)) from exc
+    envelope = _parse_envelope(output)
+    if not pre_counted:
+        webbudget.record_result(executor, envelope, exit_code=_exit_code(output))
+    text = render_result(envelope) if envelope is not None else render_raw(output)
+    return ToolOutcome(result=executor._truncate(text, WEB_TOOL_NAME))
+
+
 def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
     """The ``ToolExecutor.execute`` handler for ``web``, bound to *executor*.
 
@@ -365,7 +416,7 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
     :func:`render_result`, and passes the text through
     ``executor._truncate(text, tool)`` like every other tool. While hidden
     (no ``webglass`` on PATH, or ``COLLEAGUE_WEB=0``) it refuses with a
-    :class:`ToolError` naming the knob/PATH — the schema is hidden too, so a
+    ``ToolError`` naming the knob/PATH — the schema is hidden too, so a
     model only reaches this by guessing the name.
 
     Budget (t9): the handler calls ``webbudget.check_and_increment`` before
@@ -375,57 +426,14 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
     thread before submission and records after the join); the key is stripped
     before the argv is built. A raised ``web.WebToolError`` (timeout, launch
     failure) is recorded as a failed call and re-raised as a clean
-    :class:`ToolError` (Qodo #9).
+    ``ToolError`` (Qodo #9).
     """
-    from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
-
-    def _check_hidden() -> None:
-        # Re-check the hidden state immediately before the spawn (TOCTOU): the
-        # knob/PATH may have changed since the schema was curated, so the check
-        # that gates the child lives here, not at entry.
-        if shutil.which("webglass") is None:
-            raise ToolError(
-                f"tool '{WEB_TOOL_NAME}' is hidden: the webglass CLI is not on PATH — "
-                f"install it (or set {WEB_ENV}=0 to hide the tool explicitly)"
-            )
-        if os.environ.get(WEB_ENV) == "0":
-            raise ToolError(
-                f"tool '{WEB_TOOL_NAME}' is hidden by {WEB_ENV}=0 — unset it to use the web tool"
-            )
-
-    def _run_and_render(
-        executor: Any, verb: str, arguments: dict[str, Any], pre_counted: bool
-    ) -> Any:
-        try:
-            output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
-        except web.WebToolError as exc:
-            # A raised call (timeout, launch failure) counts as FAILED (Qodo #9)
-            # — record_result(None) bumps web_failed — then re-raise as a clean
-            # ToolError so the loop feeds a string back to the model.
-            if not pre_counted:
-                webbudget.record_result(executor, None)
-            raise ToolError(str(exc)) from exc
-        envelope = _parse_envelope(output)
-        if not pre_counted:
-            webbudget.record_result(
-                executor, envelope, exit_code=_exit_code(output)
-            )  # t9: counts a failed call
-        text = render_result(envelope) if envelope is not None else render_raw(output)
-        return ToolOutcome(result=executor._truncate(text, WEB_TOOL_NAME))
 
     def handler(arguments: dict[str, Any]) -> Any:
-        # Pre-counted batch item (Qodo #8, contract with t18): the batch loop
-        # counts on the main thread before submission and records after the
-        # join, so this call must skip BOTH the check/increment and the
-        # record_result. Strip the private key before building argv.
         pre_counted = arguments.get("_budget_counted") is True
         if pre_counted:
             arguments = {k: v for k, v in arguments.items() if k != "_budget_counted"}
-        verb = arguments.get("verb")
-        if not isinstance(verb, str) or verb not in web.ALLOWED_VERBS:
-            raise ToolError(
-                f"web needs a 'verb' from the allow-list ({', '.join(sorted(web.ALLOWED_VERBS))})"
-            )
+        verb = _validated_verb(arguments)
         _check_hidden()
         if not pre_counted:
             webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
