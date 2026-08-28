@@ -313,7 +313,8 @@ def test_mock_and_vllm_engines_produce_the_same_web_step_shape(
     vllm_web_step = next(s for s in vllm_result.steps if s.tool == "web")
     assert _key_shape(mock_web_step.to_dict()) == _key_shape(vllm_web_step.to_dict())
     assert mock_web_step.arguments == vllm_web_step.arguments == web_args
-    assert mock_web_step.ok is True and vllm_web_step.ok is True
+    assert mock_web_step.ok is True
+    assert vllm_web_step.ok is True
     assert mock_web_step.result == vllm_web_step.result  # same handler, same rendered text
 
 

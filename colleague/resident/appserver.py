@@ -479,8 +479,7 @@ class AppserverHarness:
         An expected work-item failure (:class:`~colleague.cli._errors.CliError`
         — e.g. an unreachable engine) is caught and turned into an error reply.
         Any OTHER exception propagates: the Supervisor's pump catches it and
-        records it via ``failure()`` — a genuine infrastructure failure is
-        never silently swallowed.
+        records it via ``failure()`` — never silently swallowed.
         """
         sender = getattr(message, "sender", "") or ""
         target = getattr(message, "target", "") or self._default_target
@@ -518,74 +517,24 @@ class AppserverHarness:
             body=raw_body,
             operator_identity=self._operator_identity,
         )
-        if web.reply is not None:
-            await self._reply_queue.put(
-                Message(
-                    sender=self._agent_nick,
-                    target=target,
-                    body=web.reply,
-                    kind="message",
-                    metadata={"phase": "web_confirmation"},
-                )
-            )
-            if web.handled:
-                return
-
-        relay = _extract_relay_line(raw_body)
-        if relay is not None:
-            relay_task_id, relay_text = relay
-            await self._handle_relay(
-                sender=sender,
-                target=target,
-                decision=decision,
-                task_id=relay_task_id,
-                relay_text=relay_text,
-            )
+        if await self._maybe_short_circuit(sender, target, raw_body, decision, web):
             return
 
         body, attachments, attachment_notes = self._resolve_attachments(sender, raw_body)
 
         # Front door (t7, talking-to-one-teammate arc, all-fronts): a confidently
-        # non-repo message ("what are you?", a greeting, ...) gets a direct senses
-        # answer with NO cortex work item at all -- no Task, no execute_work, no
-        # artifact, no intake/ack. Skipped entirely (byte-identical to before this
-        # feature) when senses is unarmed OR the message carries attachments (media
-        # is always cortex work) -- the SAME guard shape the other senses beats in
-        # this method use. Safe for BOTH an operator and a non-operator: the answer
-        # is grounded ONLY in architecture facts + the message text (tools-off,
-        # facts-only, see colleague.frontdoor.run_frontdoor / colleague.senses.
-        # run_senses_frontdoor), so it exposes no repo state and performs no write.
-        if self._config.senses is not None and not attachments:
-            if await self._maybe_answer_at_front_door(body, target):
-                return
+        # non-repo message gets a direct senses answer with NO cortex work item
+        # at all; see :meth:`_maybe_front_door` for the exact guard/skip shape.
+        if await self._maybe_front_door(body, target, attachments):
+            return
 
-        # Cortex/senses (t9): with a senses model resolved, perceive the inbound
-        # message through senses INTAKE first (→ a ContextPacket on the task, so the
-        # loop records mode=split), then shape the reply via SPEAK-BACK below. The
-        # c19 trust model is UNCHANGED — intake runs regardless of the request's
-        # trust tier (senses is tools-off; write authorization is decision.role's
-        # job, untouched here). A degraded intake attaches nothing and the raw
-        # message proceeds — the run never fails (senses unresolved = byte-identical).
+        # Cortex/senses (t9) intake + t11/c10/c19 middle-manager presence beats;
+        # see :meth:`_run_senses_beats` — both strict no-ops when senses is
+        # unresolved, and the presence beats stay operator-only (c19 boundary).
         senses_active = self._config.senses is not None
-        packet, intake_record = None, None
-        if senses_active:
-            loop = asyncio.get_running_loop()
-            packet, intake_record = await loop.run_in_executor(None, self._senses_intake, body)
-
-        # Middle-manager presence (t11 / c10 / c19): the OPERATOR lane gains the
-        # beats — an ack replied-to-origin BEFORE cortex's first step (+ a
-        # clarify question on a low-confidence intake) and cadence-gated proactive
-        # updates pushed reply-to-origin WHILE the work item runs. Gated on the
-        # confirmed operator (``ALLOW_WRITE``): a non-operator NEVER gets these
-        # beats (the c19 boundary — its request stays the read-only reactive lane
-        # and can never reach ``append_guidance``, unchanged). A strict no-op when
-        # senses is unresolved (byte-identical).
-        is_operator = decision.outcome == ALLOW_WRITE
-        presence_sink: Optional[_ResidentPresenceSink] = None
-        ack_chat: list[dict[str, Any]] = []
-        if senses_active and is_operator:
-            ack_chat = await self._send_operator_ack(packet, target)
-            presence_sink = self._build_presence_sink(packet, target)
+        packet, intake_record, presence_sink, ack_chat = await self._run_senses_beats(
+            body, target, decision, senses_active
+        )
 
         task = Task.new(
             self._repo_path,
@@ -622,27 +571,78 @@ class AppserverHarness:
             ack_chat=ack_chat,
         )
 
+    async def _maybe_short_circuit(
+        self, sender: str, target: str, raw_body: str, decision, web
+    ) -> bool:
+        """Emit the c43 web-confirmation reply and/or handle a ``relay`` line;
+        return ``True`` when :meth:`feed_message` should stop here."""
+        if web.reply is not None:
+            await self._reply_queue.put(
+                Message(
+                    sender=self._agent_nick,
+                    target=target,
+                    body=web.reply,
+                    kind="message",
+                    metadata={"phase": "web_confirmation"},
+                )
+            )
+            if web.handled:
+                return True
+
+        relay = _extract_relay_line(raw_body)
+        if relay is not None:
+            relay_task_id, relay_text = relay
+            await self._handle_relay(
+                sender=sender,
+                target=target,
+                decision=decision,
+                task_id=relay_task_id,
+                relay_text=relay_text,
+            )
+            return True
+        return False
+
+    async def _maybe_front_door(self, body: str, target: str, attachments) -> bool:
+        """Skip (``False``) unless senses is armed and the turn carries no
+        attachments (media is always cortex work); otherwise defer to
+        :meth:`_maybe_answer_at_front_door` for the actual attempt."""
+        if self._config.senses is None or attachments:
+            return False
+        return await self._maybe_answer_at_front_door(body, target)
+
+    async def _run_senses_beats(
+        self, body: str, target: str, decision, senses_active: bool
+    ) -> tuple[Any, Any, "Optional[_ResidentPresenceSink]", list[dict[str, Any]]]:
+        """Cortex/senses intake (t9) then t11/c10/c19 middle-manager presence
+        beats — both strict no-ops when senses is unresolved (byte-identical),
+        and the presence beats stay operator-only (the c19 boundary)."""
+        packet, intake_record = None, None
+        if senses_active:
+            loop = asyncio.get_running_loop()
+            packet, intake_record = await loop.run_in_executor(None, self._senses_intake, body)
+
+        presence_sink: Optional[_ResidentPresenceSink] = None
+        ack_chat: list[dict[str, Any]] = []
+        if senses_active and decision.outcome == ALLOW_WRITE:
+            ack_chat = await self._send_operator_ack(packet, target)
+            presence_sink = self._build_presence_sink(packet, target)
+
+        return packet, intake_record, presence_sink, ack_chat
+
     async def _maybe_answer_at_front_door(self, body: str, target: str) -> bool:
         """Try the shared front door (t7); reply + return ``True`` on a direct
-        senses answer, or return ``False`` to fall through to the normal
-        cortex dispatch (intake -> ack -> Task -> execute_work, unchanged).
+        senses answer, or ``False`` to fall through to the normal cortex
+        dispatch (intake -> ack -> Task -> execute_work, unchanged).
 
         Resolves the senses engine via the SAME :meth:`_senses_engine` seam
-        every other senses beat in this class uses; when it cannot resolve
-        one (unarmed or unloadable engine) this returns ``False`` WITHOUT
-        calling :func:`~colleague.frontdoor.run_frontdoor` at all -- the
-        caller's guard already checked ``config.senses is not None``, but a
-        registry load failure is still handled the same way every other
-        senses call site here handles it: proceed as if senses were absent.
-
-        :func:`~colleague.frontdoor.run_frontdoor` runs in the executor (it
-        may issue one tools-off senses completion, mirroring
-        :meth:`_senses_intake`). It never raises. Only a CLEAN
-        ``answered_directly`` outcome replies here and returns ``True``; a
-        cortex-routed or degraded-senses-direct outcome returns ``False`` so
-        the caller proceeds to the existing pipeline unchanged (no reply is
-        sent here in that case -- the normal dispatch path produces the
-        eventual reply).
+        every other senses beat in this class uses; a registry load failure
+        returns ``False`` (proceed as if senses were absent), same as every
+        other senses call site here. :func:`~colleague.frontdoor.run_frontdoor`
+        runs in the executor (may issue one tools-off senses completion,
+        mirroring :meth:`_senses_intake`) and never raises; only a CLEAN
+        ``answered_directly`` outcome replies here and returns ``True`` — a
+        cortex-routed or degraded outcome returns ``False`` with no reply
+        sent (the normal dispatch path produces the eventual reply).
         """
         pair = self._senses_engine()
         if pair is None:
