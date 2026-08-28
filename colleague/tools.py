@@ -15,15 +15,10 @@ additionally refuse writes into the read-only neighbour clone tree. ``run_comman
 runs with ``cwd`` pinned to the root. v0 trusts the command itself (decision D2);
 sandboxing is a later wheel.
 
-``read_file`` line-grounding (#240): the raw text fed back to the model now
-carries no bare line-number guesswork — :func:`_number_lines` prefixes every
-real line with its true 1-based line number, ``cat -n`` style
-(``"   12\t<content>"``), before the result runs through
-:meth:`ToolExecutor._truncate`, so a cited line is copy-derived, never
-re-counted, and any surviving prefix after truncation still names the real
-file line. Read-display only: numbering is never written to disk or
-round-tripped into ``edit_file`` (``_edit_file`` matches ``old_string`` against
-a separate raw read).
+``read_file`` line-grounding (#240): :func:`_number_lines` prefixes every real
+line with its true 1-based number (``cat -n`` style) before truncation, so a cited
+line is copy-derived, never re-counted. Read-display only: numbering is never
+written to disk or round-tripped into ``edit_file`` (which matches a raw read).
 
 A curated ``deepthink`` tool (:data:`DEEPTHINK_SCHEMA`, plan t4) stays OUT of
 :data:`SCHEMAS`; :func:`curate_schemas` appends it only when a caller opts in
@@ -803,11 +798,8 @@ class ToolExecutor:
         # bytes not tokens; an edit_file counts only its replacement bytes). The loop
         # snapshots it onto WorkStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
-        # t9: the web-call budget — colleague/webbudget.py owns the cap/message
-        # logic, but the counters themselves live here (mirrors bytes_written)
-        # so each subagent child, which builds its own executor, carries its
-        # own independent counter, never the parent's. ``web_cap_hit`` is the
-        # cap value the moment call N+1 was refused, or None (never hit).
+        # t9 web-call budget counters (cap logic in colleague/webbudget.py); per
+        # executor so every subagent child has its own; web_cap_hit = cap at refusal.
         self.web_calls: int = 0
         self.web_failed: int = 0
         self.web_cap_hit: int | None = None
