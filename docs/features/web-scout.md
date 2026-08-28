@@ -138,6 +138,13 @@ wall ≤ 1.2× vs main). The motivating direct-seat numbers are quoted from row 
   `example.com` from this shell, `resolv.conf → 127.0.0.53`) — the operator's
   interactive shell is the live-proof gate (q4).
 - **The associate seat is untouched** (c20) — see § The scout seat.
+- **SUPERSEDED (t8, q3):** the honesty condition "a child bound to the scout
+  profile receives 'web' only when the parent's surface contains it (⊆ test)"
+  (`docs/specs/2026-08-28-web-scout-associate.md:33`) no longer holds for a
+  **purpose-tool** delegation (`web_survey`/`code_survey`) — see
+  `docs/specs/2026-08-28-purpose-tools-associate-seat.md` (q3): its child
+  surface is FIXED BY THE TOOL, exempt from the parent ⊆ check; a MANUAL
+  `subagent`/`subagents` delegation still refuses on the same superset.
 - **Open parks (v1/v2/v4):** (v1) whether the associate model drives the web
   tool's JSON-heavy results well — its tool use is proven only on
   `grep_search`/`read_file` (17 s survey); a WebGlass page-read envelope is

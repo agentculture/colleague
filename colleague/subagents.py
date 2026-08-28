@@ -94,9 +94,8 @@ class ChildSpec:
     Bundles the switches that accreted beyond the original engine/model/role
     trio — the explicit t12 budget, the t16 goal contract, and t16 lineage —
     so the launcher signatures stay under the S107 parameter ceiling (the
-    ``ContextControls`` precedent). Every field defaults to ``None``: an empty
-    spec is byte-identical to the pre-t12/t16 behavior.
-    """
+    ``ContextControls`` precedent). Every field defaults to ``None``: an
+    empty spec is byte-identical to the pre-t12/t16 behavior."""
 
     max_steps: Optional[int] = None
     context_budget_tokens: Optional[int] = None
@@ -137,6 +136,10 @@ class ChildSpec:
     #: ``None`` (the default) - today's per-executor budget, byte-identical
     #: for every manual ``subagent``/``subagents`` call.
     web_calls_remaining: Optional[int] = None
+    #: The purpose-tool name (t8, q3) when spawned BY a purpose tool — exempts
+    #: the armed ``⊆``-parent check for its FIXED child surface; ``None`` for
+    #: a manual ``subagent``/``subagents`` delegation, which stays subject to it.
+    purpose: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.context_mode not in CONTEXT_MODES:
@@ -175,28 +178,22 @@ class FrozenChildConfigLifecycle:
     :class:`~colleague.configlifecycle.EpisodeConfigLifecycle` — children
     never propose changes and never observe turns on the top-level task's
     config plane, only the top-level ``run()`` loop does that (the r2 rule,
-    extended). This frozen adapter QUACKS LIKE the lifecycle's READ surface,
-    as far as the two engine consumers reach into it: ``snapshot`` is a
-    **property** (not a method) — ``colleague/engine.py``'s ``system_prompt``
-    (t7) reads it via a bare ``getattr``, never calling it, and
-    ``colleague/engines/{mock,vllm_openai}.py`` (t3) read the SAME attribute
-    defensively via a ``callable()`` check, so a property satisfies both.
-    ``child_snapshot()`` returns the SAME frozen snapshot, so a grandchild's
-    own spawn re-derives the identical snapshot one level deeper — inheriting
-    exactly like a depth-1 child (acceptance criterion 1).
+    extended). This frozen adapter QUACKS LIKE the lifecycle's READ surface:
+    ``snapshot`` is a **property** so both ``colleague/engine.py``'s bare
+    ``getattr`` (t7) and the engines' ``callable()`` check (t3) resolve it;
+    ``child_snapshot()`` returns the SAME frozen snapshot one level deeper, so
+    a grandchild inherits exactly like a depth-1 child (acceptance criterion 1).
 
-    Nothing else: no ``propose``/``apply_window`` (a child can never queue or
-    apply a config change). ``observe_turn``/``end_episode`` no-ops ARE
-    present out of technical necessity: ``colleague/loop.py`` calls both
-    unconditionally on ANY attached ``config.config_lifecycle`` once per
-    completed turn / on every loop exit — a bare stub without them would
-    raise ``AttributeError`` on the child's own first turn. Both are honest
-    no-ops touching no parent state and never mutating this frozen adapter.
+    Nothing else: no ``propose``/``apply_window``. ``observe_turn``/
+    ``end_episode`` no-ops exist only because ``colleague/loop.py`` calls both
+    unconditionally on ANY attached ``config_lifecycle`` — a bare stub without
+    them would raise ``AttributeError`` on the child's first turn; both touch
+    no parent state.
 
     A frozen dataclass over an already-frozen
-    :class:`~colleague.configlifecycle.EpisodeConfigSnapshot` — immutable end
-    to end, so it is safe to read from a ``ThreadPoolExecutor`` worker thread
-    (``batch_spawn`` at width > 1) with no lock needed.
+    :class:`~colleague.configlifecycle.EpisodeConfigSnapshot` — safe to read
+    from a ``ThreadPoolExecutor`` worker thread (``batch_spawn`` width > 1),
+    no lock needed.
     """
 
     frozen_snapshot: EpisodeConfigSnapshot
@@ -212,24 +209,13 @@ class FrozenChildConfigLifecycle:
         return self.frozen_snapshot
 
     def observe_turn(self) -> str:
-        """No-op: a child never records turn digests on the parent's plane.
-
-        ``colleague/loop.py`` calls this once per completed model turn on ANY
-        attached ``config_lifecycle``, unconditionally — this answers it
-        without raising, and without touching any parent state (there is
-        none reachable from here). Returns the frozen snapshot's own digest
-        (an honest, read-only answer) though nothing records it.
-        """
+        """No-op: answers ``loop.py``'s per-turn call without recording
+        anything or touching parent state; returns the snapshot's own digest."""
         return self.frozen_snapshot.digest()
 
     def end_episode(self) -> int:
-        """No-op: a child's own episode boundary is not the parent's.
-
-        ``colleague/loop.py`` calls this once on every loop exit, on ANY
-        attached ``config_lifecycle`` — this answers it without raising and
-        without advancing any parent boundary count (there is none reachable
-        from here). Always returns 0.
-        """
+        """No-op: answers ``loop.py``'s per-exit call without advancing any
+        parent boundary count (there is none reachable from here). Always 0."""
         return 0
 
 
@@ -239,20 +225,15 @@ def _child_config_lifecycle(
     """Derive the frozen adapter a spawned child inherits — never the real thing.
 
     ``parent_config.config_lifecycle`` may be the REAL
-    :class:`~colleague.configlifecycle.EpisodeConfigLifecycle` (a top-level
-    task's own attachment) or already a :class:`FrozenChildConfigLifecycle`
-    (this parent is itself a child — a grandchild spawn). Both expose
-    ``child_snapshot()``, preferred here over the ``snapshot`` property: it
-    is the lifecycle's OWN "what does a spawned child inherit" answer — the
-    r2 rule ("never a queued-but-unapplied proposal") lives there, so reading
-    it (rather than reimplementing the rule against ``snapshot`` here) keeps
-    a future third attachment shape honest by construction. ``snapshot`` is
-    the fallback for an attachment that has it but not ``child_snapshot``.
+    :class:`~colleague.configlifecycle.EpisodeConfigLifecycle` or already a
+    :class:`FrozenChildConfigLifecycle` (a grandchild spawn). Both expose
+    ``child_snapshot()``, preferred over ``snapshot``: it is the lifecycle's
+    OWN "what does a spawned child inherit" answer (the r2 rule lives there,
+    keeping a future third attachment shape honest by construction);
+    ``snapshot`` is the fallback for an attachment lacking ``child_snapshot``.
 
-    Returns ``None`` when nothing is attached (three-tier unarmed, or armed
-    with no lifecycle constructed) — the caller leaves the child's own
-    ``config_lifecycle`` at ``None``, byte-identical to today.
-    """
+    Returns ``None`` when nothing is attached — the caller leaves the
+    child's own ``config_lifecycle`` at ``None``, byte-identical to today."""
     lifecycle = getattr(parent_config, "config_lifecycle", None)
     if lifecycle is None:
         return None
@@ -418,6 +399,21 @@ def _child_purpose(parent_config: EngineConfig, spec: ChildSpec) -> str:
     return _seat_purpose(parent_config)
 
 
+def _child_requested_tools(
+    spec: ChildSpec, child_purpose: str, role: Optional[str]
+) -> tuple[str, ...]:
+    """Requested tools for the ``⊆`` check (t8, q3): a purpose spawn's FIXED
+    role-allowlist-∩-environment surface (via ``curate_schemas``, the same
+    filter ``web``'s presence check applies) — else today's profile tools."""
+    if spec.purpose:
+        from colleague.tools import curate_schemas
+
+        return tuple(sorted(s["function"]["name"] for s in curate_schemas(role)))
+    from colleague.agents.tools import tools_for_purpose
+
+    return tuple(sorted(tools_for_purpose(child_purpose)))
+
+
 def _delegation_bounds(
     parent_config: EngineConfig,
     spec: ChildSpec,
@@ -425,8 +421,8 @@ def _delegation_bounds(
     instruction: str,
     depth: int,
     role: Optional[str],
-) -> tuple[str, str, "object"]:
-    """``(child_purpose, child_ceiling, verdict)`` for one proposed delegation."""
+) -> tuple[str, str, tuple[str, ...], "object"]:
+    """``(child_purpose, child_ceiling, requested_tools, verdict)`` for one delegation."""
     from colleague.agents.delegation import DelegationRequest, validate_delegation
     from colleague.agents.runtime import seat_ceiling
     from colleague.agents.tools import tools_for_purpose
@@ -437,23 +433,25 @@ def _delegation_bounds(
     # the ceiling further, so the child's ceiling is ranked off the parent's
     # config with the CHILD's role applied.
     child_ceiling = seat_ceiling(parent_config, role)
+    requested_tools = _child_requested_tools(spec, child_purpose, role)
     request = DelegationRequest(
         delegation_id="",  # validation only — nothing is recorded from here
         from_agent=spec.parent_profile or parent_purpose,
         requested_agent_profile=spec.profile or child_purpose,
         objective=instruction,
         acceptance="",
-        requested_tools=tuple(sorted(tools_for_purpose(child_purpose))),
+        requested_tools=requested_tools,
         authority_ceiling=child_ceiling,
         context_mode=spec.context_mode,
         depth=depth,
+        purpose=spec.purpose,
     )
     verdict = validate_delegation(
         request,
         parent_effective_tools=tools_for_purpose(parent_purpose),
         parent_ceiling=seat_ceiling(parent_config, getattr(parent_config, "role", None)),
     )
-    return child_purpose, child_ceiling, verdict
+    return child_purpose, child_ceiling, requested_tools, verdict
 
 
 def _enforce_delegation_bounds(
@@ -497,7 +495,7 @@ def _enforce_delegation_bounds(
     """
     if not getattr(parent_config, "agents", False):
         return (), ""  # unarmed: no purposes, no bounds — byte-identical today
-    child_purpose, ceiling, verdict = _delegation_bounds(
+    child_purpose, ceiling, requested_tools, verdict = _delegation_bounds(
         parent_config, spec, instruction=instruction, depth=depth, role=role
     )
     if not verdict.allowed:
@@ -505,9 +503,7 @@ def _enforce_delegation_bounds(
             f"delegation refused: {child_purpose!r} under "
             f"{_seat_purpose(parent_config)!r} — {verdict.reason}"
         )
-    from colleague.agents.tools import tools_for_purpose
-
-    return tuple(sorted(tools_for_purpose(child_purpose))), ceiling
+    return requested_tools, ceiling
 
 
 @dataclasses.dataclass(frozen=True)
@@ -820,6 +816,7 @@ def make_spawn(
         max_steps: Optional[int] = None,
         charges_budget: bool = True,
         web_calls_remaining: Optional[int] = None,
+        purpose: Optional[str] = None,
     ) -> SubResult:
         """Run one child subagent, optionally typed by ``role`` (#t4).
 
@@ -832,6 +829,8 @@ def make_spawn(
         default) lets the child resolve its rung from the role/seat tables.
         ``max_steps``/``charges_budget`` are the purpose-tool seam (c34) — an
         explicit child budget and the read-only exemption; both default to today.
+        ``purpose`` (t8, q3) names the purpose tool this spawn came from,
+        exempting the delegation-bounds ``⊆`` rule for its FIXED surface.
         """
         return run_subagent(
             instruction,
@@ -850,6 +849,7 @@ def make_spawn(
                 parent_profile=parent_profile,
                 effort=effort,
                 max_steps=max_steps,
+                purpose=purpose,
                 charges_budget=charges_budget,
                 web_calls_remaining=web_calls_remaining,
             ),
