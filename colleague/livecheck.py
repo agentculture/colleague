@@ -19,6 +19,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import wave
@@ -105,10 +106,9 @@ def select_proofs(repo: str | Path) -> list[dict[str, str]]:
     return results
 
 
-# Per-proof timeout default (seconds). A full live drive routinely exceeds two
-# minutes per turn-sequence on the reference 27B (one slow model turn alone can
-# take the work loop's whole 120s COLLEAGUE_TIMEOUT window), so the cap must be
-# rig-realistic; override with COLLEAGUE_LIVECHECK_TIMEOUT (#266).
+# Per-proof timeout default (seconds): a live drive routinely exceeds two
+# minutes/turn-sequence on the reference 27B, so the cap must be rig-realistic;
+# override with COLLEAGUE_LIVECHECK_TIMEOUT (#266).
 _DEFAULT_PROOF_TIMEOUT = 600.0
 _PROOF_TIMEOUT_ENV = "COLLEAGUE_LIVECHECK_TIMEOUT"
 
@@ -186,6 +186,7 @@ def run_proofs(
 
 
 _WEBGLASS_TIMEOUT = 10.0  # t6 acceptance: "within 10 s"
+_DEADLINE_SKIP = "skipped: probe deadline"  # Qodo #11: the shared-deadline sessions marker
 
 
 def _webglass_session_count(data: object) -> int | None:
@@ -209,12 +210,16 @@ def _webglass_session_count(data: object) -> int | None:
 def webglass_status(timeout: float = _WEBGLASS_TIMEOUT) -> dict:
     """``webglass doctor`` + ``session list --json``; never raises.
 
-    Lives here (not ``oilcheck``, absent from ``_SUBPROCESS_ALLOWED``) since
-    it shells out. Returns ``{present, healthy, detail, sessions}``.
+    Lives here (not ``oilcheck``) since it shells out. Returns ``{present,
+    healthy, detail, sessions}``. Qodo #11: the two probes share ONE
+    *timeout*-second deadline rather than each getting the full budget; the
+    session probe is skipped (``sessions`` = :data:`_DEADLINE_SKIP`) once
+    that shared clock is spent.
     """
     binary = shutil.which("webglass")
     if not binary:
         return {"present": False, "healthy": False, "detail": "not on PATH", "sessions": None}
+    deadline = time.monotonic() + timeout
     try:
         proc = subprocess.run(  # noqa: S603 - operator-installed webglass CLI
             [binary, "doctor"], capture_output=True, text=True, timeout=timeout
@@ -227,10 +232,13 @@ def webglass_status(timeout: float = _WEBGLASS_TIMEOUT) -> dict:
         healthy, detail = False, f"webglass doctor timed out after {timeout:g}s"
     except Exception as exc:  # noqa: BLE001 - a probe must never take doctor down
         healthy, detail = False, str(exc)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return {"present": True, "healthy": healthy, "detail": detail, "sessions": _DEADLINE_SKIP}
     sessions = None
     try:
         proc = subprocess.run(  # noqa: S603 - operator-installed webglass CLI
-            [binary, "session", "list", "--json"], capture_output=True, text=True, timeout=timeout
+            [binary, "session", "list", "--json"], capture_output=True, text=True, timeout=remaining
         )
         data = json.loads(proc.stdout) if proc.returncode == 0 else None
         sessions = _webglass_session_count(data)
@@ -239,19 +247,15 @@ def webglass_status(timeout: float = _WEBGLASS_TIMEOUT) -> dict:
     return {"present": True, "healthy": healthy, "detail": detail, "sessions": sessions}
 
 
-# ---------------------------------------------------------------------------
 # Media live proofs (plan task t13): image end-to-end + audio honest-skip.
 # Unlike the pytest-file proofs above, these drive one real ``engine.work()``
-# call directly (the ``tests/test_vllm_live.py`` seam) since each needs a
-# runtime-generated fixture attachment. Classification is pure (no I/O, unit-
-# testable on simulated ``TaskResult`` payloads); only the two run_* callers
-# touch the network and degrade to "skipped" — never a traceback.
-# ---------------------------------------------------------------------------
+# call directly (the ``tests/test_vllm_live.py`` seam, runtime-generated
+# fixture attachment); classification is pure/unit-testable, only the two
+# run_* callers touch the network and degrade to "skipped", never a traceback.
 
 # Live rig fact (probed 2026-07-02, docs/live-testing.md): the reference
-# endpoint accepts ``input_audio`` with a 200 OK but contributes ~0 prompt
-# tokens — a SILENT DROP, not a rejection. Named here so the classifier and
-# the CLI/docs procedure state the same reason.
+# endpoint accepts ``input_audio`` with a 200 OK but ~0 prompt tokens — a
+# SILENT DROP, not a rejection. Named here so the classifier + CLI/docs agree.
 _AUDIO_DROP_REASON = (
     "rig silently drops input_audio (200 OK, ~0 prompt tokens contributed "
     "— see docs/live-testing.md)"
@@ -366,10 +370,9 @@ def classify_media_audio_check(media_record: dict[str, Any] | None, answer: str)
 
 
 # lobes-cli#89 (0.38.0 — colleague#292/291 S1): stt/tts readiness is now
-# LIVE-PROBED via the gateway's realtime bridge (see colleague/lobes.py's
-# ready_kind + colleague/voice.py's bounded 503+Retry-After warming retry).
-# The round-trip proof checks readiness FIRST: a genuinely down/unready role
-# SKIPs honestly, naming the rig state — never the old bare-"502" workaround.
+# LIVE-PROBED via the gateway's realtime bridge (lobes.py ready_kind +
+# voice.py's bounded 503+Retry-After retry); the round-trip proof checks
+# readiness FIRST, SKIPping honestly, never the old bare-"502" workaround.
 _VOICE_LANE_NOT_READY_REASON = (
     "gateway reports the role not ready (live-probed via the realtime bridge, "
     "lobes-cli#89) — graded from evidence, never a fabricated pass"
@@ -792,10 +795,8 @@ def _run_media_check(
     return ProofResult(file=name, status=status, detail=detail)
 
 
-# Gating condition (see docs/live-testing.md's media-proof ledger entry): the
-# image proof needs a live, media-capable serving path — pass model= (or set
-# COLLEAGUE_MODEL) to target whichever configured model actually accepts
-# image input; no colleague code special-cases a specific model (t14 rule).
+# Gating (docs/live-testing.md media-proof ledger): pass model= (or set
+# COLLEAGUE_MODEL) to target a media-capable model; no special-casing (t14).
 def run_media_image_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
     """Live proof (t13): a real solid-red PNG through the ``--attach`` engine seam.
 

@@ -32,6 +32,7 @@ from colleague.resident.webtrust import (
     curate_turn_role,
     curate_turn_schemas,
     is_affirmative,
+    resolve_web_access,
     turn_lifecycle,
     turn_tool_set,
 )
@@ -202,6 +203,44 @@ def test_non_affirmative_answer_leaves_the_gate_closed() -> None:
     assert not gate.before_web_call().allowed
 
 
+def test_confirmed_gate_resets_after_one_grant() -> None:
+    """The gate is spent by the grant it makes — a second call after ``reset``
+    is unconfirmed again, exactly like a fresh gate."""
+    gate = WebConfirmationGate("node", operator_identity="ori")
+    gate.before_web_call()
+    gate.affirm("yes")
+    assert gate.confirmed
+    gate.reset()
+    assert not gate.confirmed and not gate.awaiting()
+    again = gate.before_web_call()
+    assert not again.allowed and again.confirmation_request is not None
+
+
+def test_resolve_web_access_scopes_confirmation_to_one_relayed_turn(
+    webglass_on_path: None,
+) -> None:
+    """The c43 acceptance shape at the ``resolve_web_access`` seam: turn 1 asks,
+    the affirmative is answered (not dispatched), turn 2 carries ``web``, and
+    turn 3 — the relayed turn AFTER the one that spent the grant — asks again."""
+    gates: dict = {}
+    origin = classify_origin(
+        sender="node", metadata={RELAYED_OPERATOR_METADATA_KEY: "ori"}, operator_identity="ori"
+    )
+    kwargs = dict(gates=gates, sender="node", origin=origin, operator_identity="ori")
+
+    turn1 = resolve_web_access(body="check the docs online", **kwargs)
+    assert not turn1.allow_web and turn1.reply is not None and not turn1.handled
+
+    affirm = resolve_web_access(body="yes", **kwargs)
+    assert affirm.allow_web and affirm.handled
+
+    turn2 = resolve_web_access(body="check another page", **kwargs)
+    assert turn2.allow_web and turn2.reply is None
+
+    turn3 = resolve_web_access(body="check yet another page", **kwargs)
+    assert not turn3.allow_web and turn3.reply is not None and not turn3.handled
+
+
 def test_is_affirmative_matches_whole_answers_only() -> None:
     assert is_affirmative("yes") and is_affirmative(" OK. ") and is_affirmative("go ahead")
     assert not is_affirmative("no") and not is_affirmative("yes if you must fetch nothing else")
@@ -317,7 +356,17 @@ def test_resident_relayed_turn_confirms_once_then_proceeds(
     assert affirm_configs == []
     assert affirm_replies and affirm_replies[0].metadata.get("phase") == "web_confirmation"
 
-    # The next relayed turn withholds nothing, and asks nothing a second time.
-    configs, replies = _feed(harness, "node", "now check the changelog online", meta)
-    assert _narrowing(configs[0]) == ()
-    assert not [r for r in replies if r.metadata.get("phase") == "web_confirmation"]
+    # c43 is scoped to ONE turn: the next relayed turn carries `web` with no
+    # second prompt...
+    second_configs, second_replies = _feed(harness, "node", "check another page", meta)
+    assert WEB in _offered_names(second_configs[0], harness._repo_path)
+    assert not [r for r in second_replies if r.metadata.get("phase") == "web_confirmation"]
+
+    # ...and the turn AFTER that one — the grant already spent — asks again
+    # (c43, never once-per-sender-forever): exactly one fresh confirmation.
+    third_configs, third_replies = _feed(harness, "node", "check yet another page", meta)
+    assert WEB not in _offered_names(third_configs[0], harness._repo_path)
+    third_confirmations = [
+        r for r in third_replies if r.metadata.get("phase") == "web_confirmation"
+    ]
+    assert len(third_confirmations) == 1
