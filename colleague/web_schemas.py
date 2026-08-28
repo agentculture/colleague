@@ -108,43 +108,74 @@ def offered(name: str, allow: "set[str] | None") -> bool:
     return (allow is None or name in allow) and name not in hidden_names()
 
 
+def _scalar_lines(envelope: dict[str, Any]) -> list[str]:
+    """The scalar id-bearing fields (``operation_id``, ``kind``, ``lifecycle_state``)."""
+    return [
+        f"{key}: {envelope[key]}"
+        for key in ("operation_id", "kind", "lifecycle_state")
+        if envelope.get(key) is not None
+    ]
+
+
+def _evidence_lines(refs: Sequence[Any]) -> list[str]:
+    """The ``evidence_refs`` block — one line per ref, verbatim."""
+    if not refs:
+        return []
+    return ["evidence_refs:", *(f"  - {ref}" for ref in refs)]
+
+
+def _policy_lines(verdict: dict[str, Any]) -> list[str]:
+    """The single ``policy_verdict:`` line (decision + matched rule ids)."""
+    if not verdict:
+        return []
+    parts = [f"decision={verdict.get('decision')}"]
+    rule_ids = verdict.get("matched_rule_ids") or []
+    if rule_ids:
+        parts.append(f"matched_rule_ids={json.dumps(list(rule_ids))}")
+    return [f"policy_verdict: {' '.join(parts)}"]
+
+
+def _history_lines(history: Sequence[Any]) -> list[str]:
+    """The ``navigation_history`` block — one line per step."""
+    if not history:
+        return []
+    lines = ["navigation_history:"]
+    for step in history:
+        if isinstance(step, dict):
+            lines.append(f"  - {step.get('url')} ({step.get('status')})")
+        else:
+            lines.append(f"  - {step}")
+    return lines
+
+
+def _effects_lines(effects: Sequence[Any]) -> list[str]:
+    """The ``known_effects`` block — one line per effect."""
+    if not effects:
+        return []
+    return ["known_effects:", *(f"  - {effect}" for effect in effects)]
+
+
+def _error_lines(error: Any) -> list[str]:
+    """The single ``error:`` line (code + message + remediation)."""
+    if not error:
+        return []
+    return [
+        "error: "
+        f"code={error.get('code')} "
+        f"message={error.get('message')} "
+        f"remediation={error.get('remediation')}"
+    ]
+
+
 def _provenance_lines(envelope: dict[str, Any]) -> list[str]:
     """The provenance header — every id-bearing field, verbatim, BEFORE content."""
     lines: list[str] = []
-    for key in ("operation_id", "kind", "lifecycle_state"):
-        if envelope.get(key) is not None:
-            lines.append(f"{key}: {envelope[key]}")
-    refs: Sequence[Any] = envelope.get("evidence_refs") or []
-    if refs:
-        lines.append("evidence_refs:")
-        lines.extend(f"  - {ref}" for ref in refs)
-    verdict = envelope.get("policy_verdict") or {}
-    if verdict:
-        parts = [f"decision={verdict.get('decision')}"]
-        rule_ids = verdict.get("matched_rule_ids") or []
-        if rule_ids:
-            parts.append(f"matched_rule_ids={json.dumps(list(rule_ids))}")
-        lines.append(f"policy_verdict: {' '.join(parts)}")
-    history = envelope.get("navigation_history") or []
-    if history:
-        lines.append("navigation_history:")
-        for step in history:
-            if isinstance(step, dict):
-                lines.append(f"  - {step.get('url')} ({step.get('status')})")
-            else:
-                lines.append(f"  - {step}")
-    effects = envelope.get("known_effects") or []
-    if effects:
-        lines.append("known_effects:")
-        lines.extend(f"  - {effect}" for effect in effects)
-    error = envelope.get("error")
-    if error:
-        lines.append(
-            "error: "
-            f"code={error.get('code')} "
-            f"message={error.get('message')} "
-            f"remediation={error.get('remediation')}"
-        )
+    lines.extend(_scalar_lines(envelope))
+    lines.extend(_evidence_lines(envelope.get("evidence_refs") or []))
+    lines.extend(_policy_lines(envelope.get("policy_verdict") or {}))
+    lines.extend(_history_lines(envelope.get("navigation_history") or []))
+    lines.extend(_effects_lines(envelope.get("known_effects") or []))
+    lines.extend(_error_lines(envelope.get("error")))
     return lines
 
 
@@ -322,7 +353,7 @@ def _parse_envelope(output: str) -> Any:
     body = output.split("\n", 1)[1] if "\n" in output else output
     try:
         return json.loads(body)
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:  # json.JSONDecodeError is a ValueError subclass
         return None
 
 
