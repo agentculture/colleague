@@ -120,7 +120,11 @@ def test_armed_seat_config_is_the_associate_seat(seat: str) -> None:
     assert seat_cfg is not cfg
     assert seat_cfg.model == ASSOCIATE_WIRE_MODEL
     assert seat_cfg.base_url == _ASSOC.base_url
-    assert effort.effort_of(seat_cfg) == "off"  # the associate row
+    # the seat's own ASSOCIATE_SEAT_TABLE row (t2: per-sub-seat rung —
+    # scout/compact/synthesis/digest 'off', distill 'low')
+    from colleague.efforttables import ASSOCIATE_SEAT_TABLE
+
+    assert effort.effort_of(seat_cfg) == ASSOCIATE_SEAT_TABLE[seat]
 
 
 def test_fallback_seat_config_is_cortex_at_low() -> None:

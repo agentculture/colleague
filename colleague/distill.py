@@ -30,7 +30,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from colleague import associate_seats as _associate_seats
 from colleague import background, lessons, memory
@@ -48,6 +48,7 @@ class DistillAuthor:
     model: str
     base_url: str
     api_key: str
+    effort: "Optional[str]" = None  # the resolved 'distill' sub-seat rung (t2); None = send nothing
 
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,7 @@ from typing import Any, Callable, Optional, cast
 
 from colleague import effort
 from colleague.config import ASSOCIATE_WIRE_MODEL, EngineConfig
+from colleague.efforttables import resolve_associate_sub_seat_effort
 
 __all__ = [
     "ASSOCIATE_WIRE_MODEL",
@@ -55,7 +56,9 @@ _SERVED_MODEL_ATTR = "associate_served_model"
 _WIRE_FALLBACK_ATTR = "associate_wire_fallback_model"
 
 
-def associate_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
+def associate_engine_config(
+    config: EngineConfig, sub_seat: Optional[str] = None
+) -> Optional[EngineConfig]:
     """Build the :class:`EngineConfig` an associate-seat call runs against.
 
     ``None`` when *config* carries no associate declaration (the model IS the
@@ -64,9 +67,11 @@ def associate_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
     seat, the id for an explicit one), ``base_url``/``api_key`` = the seat's
     own, ``context_budget_tokens`` = the seat's own budget, per-call knobs
     (``on_delta``/``refresh_seat``) cleared exactly like the other seat
-    builders, and the ``associate`` effort rung set (c32 precedence: an
-    explicit ``reasoning_effort_seats["associate"]`` or the ``default`` kill
-    switch wins over the table's ``off``).
+    builders, and the effort rung set (c32 precedence: the ``default`` kill
+    switch wins, then the ``"associate.<sub_seat>"`` sub-seat override, then
+    the whole-seat ``reasoning_effort_seats["associate"]`` row, then the
+    ``ASSOCIATE_SEAT_TABLE`` row for *sub_seat* — the plain ``associate``
+    table row when *sub_seat* is ``None``).
     """
     assoc = config.associate
     if assoc is None:
@@ -83,15 +88,21 @@ def associate_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
             context_budget_tokens=assoc.context_budget,
         ),
     )
-    setattr(
-        seat,
-        "reasoning_effort_seat",
-        effort.resolve_effort(
+    seats = config.reasoning_effort_seats
+    if sub_seat is None:
+        rung = effort.resolve_effort(
             kill_switch=(config.reasoning_effort == "default"),
-            seat_override=config.reasoning_effort_seats.get("associate"),
+            seat_override=seats.get("associate"),
             seat="associate",
-        ),
-    )
+        )
+    else:
+        rung = resolve_associate_sub_seat_effort(
+            kill_switch=(config.reasoning_effort == "default"),
+            seat_override=seats.get(f"associate.{sub_seat}"),
+            row_override=seats.get("associate"),
+            seat=sub_seat,
+        )
+    setattr(seat, "reasoning_effort_seat", rung)
     setattr(seat, _SERVED_MODEL_ATTR, assoc.model)
     # The one-shot wire fallback exists only for a role-name-addressed seat.
     setattr(seat, _WIRE_FALLBACK_ATTR, assoc.model if assoc.addressed_as_role else None)
