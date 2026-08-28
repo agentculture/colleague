@@ -131,6 +131,11 @@ def run_web(verb: str, args: Sequence[str], *, root: str | Path) -> str:
         allowed = ", ".join(sorted(ALLOWED_VERBS))
         raise WebToolError(f"webglass verb '{verb}' is not in the allow-list ({allowed})")
 
+    # Hidden-state guard (TOCTOU): the knob may have been set after the schema
+    # was curated, so refuse here — before the child is ever spawned.
+    if os.environ.get("COLLEAGUE_WEB") == "0":
+        raise WebToolError("web tool hidden by COLLEAGUE_WEB=0")
+
     str_args = [str(a) for a in args]
     _check_forbidden_tokens(verb, str_args)
     argv = _build_argv(verb, str_args)
