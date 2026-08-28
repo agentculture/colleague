@@ -251,10 +251,51 @@ def test_brief_for_handover_to_colleague():
         "Acceptance criteria:\n"
         "  - tests pass\n"
         "  - docs updated\n"
-        "Work test-first and commit everything you changed."
+        "Work test-first and commit everything you changed.\n"
+        "Stay within this delegated task; do not widen scope, touch unrelated "
+        "files, or run commands the task does not need."
     )
 
 
 def test_brief_for_unknown_name_raises():
     with pytest.raises(KeyError):
         purpose_schemas.brief_for("not_a_purpose", {})
+
+
+# ---------------------------------------------------------------------------
+# t13 integrator note 2 (dogfood review 0e9fdacaba63): brief_for('handover_to_
+# colleague', ...) interpolates the model's own 'task' text verbatim with no
+# guard — the brief ends with a FIXED scope-containment sentence so an
+# unbounded model-authored task string can never widen the delegated scope.
+# ---------------------------------------------------------------------------
+
+
+def test_handover_brief_ends_with_the_scope_containment_sentence():
+    brief = purpose_schemas.brief_for(
+        "handover_to_colleague", {"task": "do something clever with the whole repo"}
+    )
+    assert brief.endswith(
+        "Stay within this delegated task; do not widen scope, touch unrelated "
+        "files, or run commands the task does not need."
+    )
+    # The model's own task text lands verbatim earlier in the brief — the
+    # sentence CONTAINS it, never replaces it.
+    assert "do something clever with the whole repo" in brief
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("web_survey", {"question": "find X"}),
+        ("code_survey", {"question": "where is the loop?"}),
+        ("review", {"diff_ref": "HEAD~1"}),
+        ("validate", {"scope": "tests/test_foo.py"}),
+        ("plan", {"goal": "ship it"}),
+    ],
+)
+def test_other_briefs_never_carry_the_scope_containment_sentence(name, args):
+    """Only the handover brief needed the guard — the other five purposes'
+    task-shaped arguments (question/diff_ref/scope/goal) are the SURVEY
+    TARGET, not an open-ended task string, so their briefs stay unchanged."""
+    brief = purpose_schemas.brief_for(name, args)
+    assert "do not widen scope" not in brief

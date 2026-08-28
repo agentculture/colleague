@@ -1,0 +1,1449 @@
+{
+  "chat_calls": 3,
+  "payloads": [
+    {
+      "chat_template_kwargs": {
+        "reasoning_effort": "medium"
+      },
+      "messages": [
+        {
+          "content": "You are a coding agent working inside a repository. Use the provided tools to inspect and edit files, then call finish with a short summary. Make the smallest change that satisfies the task. To change part of an existing file, prefer the edit_file tool (an exact-string replace that only needs the changed text) over write_file; reach for write_file only to create a new file or do a wholesale rewrite. Rewriting a large file with write_file is slow and may time out, so edit_file is the right tool for a scoped edit.\n\nDestination (optional). When a task is vague or new enough to benefit from a clear goal-frame, you MAY use the devague tool to open or update one \u2014 this is advisory and entirely your own judgement. A clear, well-scoped task needs no destination; never set one just to set one. Convergence is advisory: you can call converge or status to see gaps, but you CANNOT confirm or reject your own claims (those are user-only moves the tool does not offer). Authoritative convergence belongs to the operator, not to you. When the work reaches the goal, declare arrival by passing destination (the frame slug) and announcement (the goal-frame's arrival announcement) to the finish tool.\n\nSubagents (optional). When a task naturally splits into independent, well-scoped pieces, you MAY delegate them to nested child work items. Use the subagent tool to hand ONE scoped piece to a child (optionally on a different engine/model \u2014 for example a mechanical chunk a cheaper model can do). Use the subagents tool to fan out a BATCH of independent pieces that run in PARALLEL, each isolated in its own git worktree, with a final merge child that integrates their branches and surfaces any conflict (never force-merging). A good fit: a task that asks for two or more changes in separate files that do not depend on each other \u2014 fan them out with subagents. Each child runs the same bounded tool-loop (no git handoff); its result summary returns to you and any files it writes are merged into your changed set. This is advisory and entirely your own judgement: a simple, single-file task needs none, so never delegate just to delegate. Delegation is bounded (a capped depth and per-work-item fan-out), so it always terminates.\n\nCulture tools (optional). Two operator-installed AgentCulture CLIs are reachable through the culture tool, with your agent identity auto-injected and the working directory pinned at the repo root. Use cli='agtag' to READ the mesh issue tracker (e.g. fetch issues from a sibling repo) and cli='devex' to inspect a repo's agent-first surface (e.g. explain/overview/learn). Reach for them only when the task explicitly calls for the mesh or another repo's surface; a MUTATING action (e.g. posting an issue) needs the operator's explicit instruction, never your own initiative. Only agtag and devex are permitted, and identity is injected for you, so you never pass it yourself. This is advisory and entirely your own judgement: a self-contained in-repo task needs neither.\n\nTest integrity (advisory). When you write code test-first, derive the test's fixtures and assertions from the REAL external API shape, not from your own implementation \u2014 a test that merely mirrors the code's own assumption passes even when both are wrong. You MAY call check_test_integrity to self-check for that mirror signature. (This is only a hint: a code-locked harness gate runs the same check after you finish regardless, so ignoring this line changes nothing.)\n\nAgentFront surface (reflex). Before the FIRST real use of a CLI or tool you have not used before in this run, check its agent-facing surface first \u2014 run its learn / explain / --help / --json affordance (or an overview / usage verb) and read what it reports, THEN act on what you found instead of guessing its flags or output shape. A tool you have already used needs no re-probe. This is advisory and your own judgement; reading a surface is read-only \u2014 it never installs, approves, or trusts the tool.",
+          "role": "system"
+        },
+        {
+          "content": "three turns: list, read, finish",
+          "role": "user"
+        }
+      ],
+      "model": "fake-served",
+      "temperature": 0.0,
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "function": {
+            "description": "Read a UTF-8 text file (relative to the repo root), cat -n style: every line is prefixed with its exact 1-based number + a tab (DISPLAY ONLY \u2014 never put it in edit_file's old_string). Long files are paged: pass offset (1-based first line) and limit (line count); a cut result ends with 'Read lines X-Y of N' \u2014 page on.",
+            "name": "read_file",
+            "parameters": {
+              "properties": {
+                "limit": {
+                  "description": "Optional max number of lines to return (default 1000).",
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Optional 1-based line to start from (page a long file).",
+                  "type": "integer"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Load an image file from the repo into the conversation so you can see it (the media sibling of read_file \u2014 read-only, repo-confined, images only). The image arrives as a content part on the next turn. Only useful when the serving model accepts image input; a text-only model will see a placeholder.",
+            "name": "view_media",
+            "parameters": {
+              "properties": {
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Create or overwrite a UTF-8 text file, relative to the repo root.",
+            "name": "write_file",
+            "parameters": {
+              "properties": {
+                "content": {
+                  "description": "Full file contents to write.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Replace an exact string in an existing UTF-8 text file. Prefer this over write_file for ANY change to an existing file: it only needs the changed text, not the whole file, so it is far faster and cheaper on large files. 'old_string' must match the file exactly, including whitespace and indentation, and must be unique unless 'replace_all' is true. Use write_file only to create a new file or do a wholesale rewrite.",
+            "name": "edit_file",
+            "parameters": {
+              "properties": {
+                "new_string": {
+                  "description": "Text to replace it with.",
+                  "type": "string"
+                },
+                "old_string": {
+                  "description": "Exact text to replace (must match the file verbatim).",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                },
+                "replace_all": {
+                  "description": "Replace every occurrence instead of requiring a unique match (default false).",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "List the entries of a directory, relative to the repo root.",
+            "name": "list_dir",
+            "parameters": {
+              "properties": {
+                "path": {
+                  "description": "Directory relative to the repo root (default: root).",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run a shell command. Each call runs in a FRESH shell with the working directory already at the repo root, so `cd` and environment changes do NOT persist to later calls \u2014 never `cd` to reach a path; use repo-relative paths directly.",
+            "name": "run_command",
+            "parameters": {
+              "properties": {
+                "command": {
+                  "description": "The command line to run.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run an operator-installed AgentCulture CLI, with the agent's identity injected and the working directory at the repo root. 'agtag' works the mesh issue tracker (e.g. issue post/fetch/reply); 'devex' inspects a repo's agent-first surface (e.g. explain/overview/learn). Only these two CLIs are permitted.",
+            "name": "culture",
+            "parameters": {
+              "properties": {
+                "args": {
+                  "description": "Argument vector passed to the CLI (after its name).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "cli": {
+                  "description": "Which AgentCulture CLI to run.",
+                  "enum": [
+                    "agtag",
+                    "devex"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cli"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run a curated devague move against the operator-installed devague CLI. Use this to set or check a goal-frame (destination) for the current task \u2014 e.g. 'new' to open a fresh frame, 'capture' to record a claim, 'interrogate' to probe a claim, 'park' to defer a thread, 'converge' to signal the frame is ready to converge, 'status' to inspect the current frame, or 'show' to display it. Convergence is *advisory* \u2014 the final confirm/reject decision belongs to the user, and export is operator-only. confirm, reject, and export are intentionally NOT available through this tool.",
+            "name": "devague",
+            "parameters": {
+              "properties": {
+                "args": {
+                  "description": "Argument vector passed to the CLI (after the move name).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "move": {
+                  "description": "The devague move to execute.",
+                  "enum": [
+                    "capture",
+                    "converge",
+                    "interrogate",
+                    "new",
+                    "park",
+                    "show",
+                    "status"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "move"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Delegate a scoped sub-task to a nested in-process child work item, optionally on a different engine or model. The child work item runs the full bounded tool-loop (no git handoff) and returns a result summary; any files the child writes are merged into the parent's changed-file set so they reach the single top-level handoff. Use this to break a large task into independently executable pieces or to run part of the work on a specialised model.",
+            "name": "subagent",
+            "parameters": {
+              "properties": {
+                "context_mode": {
+                  "description": "'inherit' (default) carries the parent context; 'clear' gives the child a fresh mind with only a handover summary (use for reviewers).",
+                  "enum": [
+                    "inherit",
+                    "clear"
+                  ],
+                  "type": "string"
+                },
+                "effort": {
+                  "description": "Optional thinking-effort override for the subagent (#416). Omit to let the child resolve its own rung from its role/seat; 'default' sends no effort hint at all.",
+                  "enum": [
+                    "off",
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                "engine": {
+                  "description": "Engine wheel for the subagent (omit to inherit parent).",
+                  "type": "string"
+                },
+                "instruction": {
+                  "description": "A scoped sub-task for a nested child work item.",
+                  "type": "string"
+                },
+                "model": {
+                  "description": "Model override for the subagent (omit to inherit parent).",
+                  "type": "string"
+                },
+                "profile": {
+                  "description": "Agent purpose for the child (agents mode, #411): one of 'thinker_coder', 'associate', 'worker', 'talker' \u2014 binds the child to that purpose's lobes role when served (a recorded cortex fallback otherwise); omit to inherit the parent's seat.",
+                  "type": "string"
+                },
+                "role": {
+                  "description": "Role name for the subagent (e.g. 'explorer', 'writer').",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "instruction"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Fan out a batch of scoped sub-tasks to nested in-process child work items that run in parallel, each optionally on a different engine or model. Each child work item runs the full bounded tool-loop (no git handoff) and returns a result summary; a final merge child integrates each child's branch back into the working tree. All sub-results (children + merge) are recorded on the parent drive. Use this to parallelise independent work across multiple children. Capped at 3 instructions per batch (one slot is reserved for the merge child within the MAX_SUBAGENT_FANOUT=4 limit).",
+            "name": "subagents",
+            "parameters": {
+              "properties": {
+                "instructions": {
+                  "description": "A list of scoped sub-tasks to fan out in parallel (1\u20133 items).",
+                  "items": {
+                    "properties": {
+                      "effort": {
+                        "description": "Optional per-child thinking-effort override (#416). Omit to let the child resolve its own rung from its role/seat; 'default' sends no effort hint at all.",
+                        "enum": [
+                          "off",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "default"
+                        ],
+                        "type": "string"
+                      },
+                      "engine": {
+                        "description": "Engine wheel for this child (omit to inherit parent).",
+                        "type": "string"
+                      },
+                      "instruction": {
+                        "description": "A scoped sub-task for a nested child work item.",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Model override for this child (omit to inherit parent).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "instruction"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "role": {
+                  "description": "Role name for the subagents (e.g. 'explorer', 'writer').",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "instructions"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Check your changed test+impl files for the mirror signature (a novel symbol co-introduced in both a test and the module under test, found nowhere else) \u2014 a self-check against self-confirming tests.",
+            "name": "check_test_integrity",
+            "parameters": {
+              "properties": {},
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run the repository's test suite via pytest. Optionally supply specific test paths to narrow the run. Read-only: this tool never writes files.",
+            "name": "run_tests",
+            "parameters": {
+              "properties": {
+                "paths": {
+                  "description": "Optional list of test file/module paths to pass to pytest (e.g. ['tests/test_foo.py']). Omit to run the full suite.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Search or store memory records via the eidetic CLI. Use 'recall' to search for past context, 'remember' to store a new record.",
+            "name": "memory",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "Search query for recall (required when verb=recall).",
+                  "type": "string"
+                },
+                "record": {
+                  "description": "Record dict to store (required when verb=remember).",
+                  "type": "object"
+                },
+                "top_k": {
+                  "description": "Max results for recall (default 5).",
+                  "type": "integer"
+                },
+                "verb": {
+                  "description": "The memory operation: 'recall' to search, 'remember' to store.",
+                  "enum": [
+                    "recall",
+                    "remember"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "verb"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Signal the task is complete. Provide a short summary of what changed.",
+            "name": "finish",
+            "parameters": {
+              "properties": {
+                "announcement": {
+                  "description": "Optional. The announcement text declared on arrival at the destination. Omit when not applicable.",
+                  "type": "string"
+                },
+                "destination": {
+                  "description": "Optional. The devague goal-frame slug the work item aimed at (e.g. 'ship-core-widget', 'improve-test-suite') \u2014 match the frame slug created/used during the work item. Omit when no destination was set.",
+                  "type": "string"
+                },
+                "summary": {
+                  "description": "Summary of the work done.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "chat_template_kwargs": {
+        "reasoning_effort": "medium"
+      },
+      "messages": [
+        {
+          "content": "You are a coding agent working inside a repository. Use the provided tools to inspect and edit files, then call finish with a short summary. Make the smallest change that satisfies the task. To change part of an existing file, prefer the edit_file tool (an exact-string replace that only needs the changed text) over write_file; reach for write_file only to create a new file or do a wholesale rewrite. Rewriting a large file with write_file is slow and may time out, so edit_file is the right tool for a scoped edit.\n\nDestination (optional). When a task is vague or new enough to benefit from a clear goal-frame, you MAY use the devague tool to open or update one \u2014 this is advisory and entirely your own judgement. A clear, well-scoped task needs no destination; never set one just to set one. Convergence is advisory: you can call converge or status to see gaps, but you CANNOT confirm or reject your own claims (those are user-only moves the tool does not offer). Authoritative convergence belongs to the operator, not to you. When the work reaches the goal, declare arrival by passing destination (the frame slug) and announcement (the goal-frame's arrival announcement) to the finish tool.\n\nSubagents (optional). When a task naturally splits into independent, well-scoped pieces, you MAY delegate them to nested child work items. Use the subagent tool to hand ONE scoped piece to a child (optionally on a different engine/model \u2014 for example a mechanical chunk a cheaper model can do). Use the subagents tool to fan out a BATCH of independent pieces that run in PARALLEL, each isolated in its own git worktree, with a final merge child that integrates their branches and surfaces any conflict (never force-merging). A good fit: a task that asks for two or more changes in separate files that do not depend on each other \u2014 fan them out with subagents. Each child runs the same bounded tool-loop (no git handoff); its result summary returns to you and any files it writes are merged into your changed set. This is advisory and entirely your own judgement: a simple, single-file task needs none, so never delegate just to delegate. Delegation is bounded (a capped depth and per-work-item fan-out), so it always terminates.\n\nCulture tools (optional). Two operator-installed AgentCulture CLIs are reachable through the culture tool, with your agent identity auto-injected and the working directory pinned at the repo root. Use cli='agtag' to READ the mesh issue tracker (e.g. fetch issues from a sibling repo) and cli='devex' to inspect a repo's agent-first surface (e.g. explain/overview/learn). Reach for them only when the task explicitly calls for the mesh or another repo's surface; a MUTATING action (e.g. posting an issue) needs the operator's explicit instruction, never your own initiative. Only agtag and devex are permitted, and identity is injected for you, so you never pass it yourself. This is advisory and entirely your own judgement: a self-contained in-repo task needs neither.\n\nTest integrity (advisory). When you write code test-first, derive the test's fixtures and assertions from the REAL external API shape, not from your own implementation \u2014 a test that merely mirrors the code's own assumption passes even when both are wrong. You MAY call check_test_integrity to self-check for that mirror signature. (This is only a hint: a code-locked harness gate runs the same check after you finish regardless, so ignoring this line changes nothing.)\n\nAgentFront surface (reflex). Before the FIRST real use of a CLI or tool you have not used before in this run, check its agent-facing surface first \u2014 run its learn / explain / --help / --json affordance (or an overview / usage verb) and read what it reports, THEN act on what you found instead of guessing its flags or output shape. A tool you have already used needs no re-probe. This is advisory and your own judgement; reading a surface is read-only \u2014 it never installs, approves, or trusts the tool.",
+          "role": "system"
+        },
+        {
+          "content": "three turns: list, read, finish",
+          "role": "user"
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\": \".\"}",
+                "name": "list_dir"
+              },
+              "id": "call-list_dir",
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "content": "README.md",
+          "role": "tool",
+          "tool_call_id": "call-list_dir"
+        }
+      ],
+      "model": "fake-served",
+      "temperature": 0.0,
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "function": {
+            "description": "Read a UTF-8 text file (relative to the repo root), cat -n style: every line is prefixed with its exact 1-based number + a tab (DISPLAY ONLY \u2014 never put it in edit_file's old_string). Long files are paged: pass offset (1-based first line) and limit (line count); a cut result ends with 'Read lines X-Y of N' \u2014 page on.",
+            "name": "read_file",
+            "parameters": {
+              "properties": {
+                "limit": {
+                  "description": "Optional max number of lines to return (default 1000).",
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Optional 1-based line to start from (page a long file).",
+                  "type": "integer"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Load an image file from the repo into the conversation so you can see it (the media sibling of read_file \u2014 read-only, repo-confined, images only). The image arrives as a content part on the next turn. Only useful when the serving model accepts image input; a text-only model will see a placeholder.",
+            "name": "view_media",
+            "parameters": {
+              "properties": {
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Create or overwrite a UTF-8 text file, relative to the repo root.",
+            "name": "write_file",
+            "parameters": {
+              "properties": {
+                "content": {
+                  "description": "Full file contents to write.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Replace an exact string in an existing UTF-8 text file. Prefer this over write_file for ANY change to an existing file: it only needs the changed text, not the whole file, so it is far faster and cheaper on large files. 'old_string' must match the file exactly, including whitespace and indentation, and must be unique unless 'replace_all' is true. Use write_file only to create a new file or do a wholesale rewrite.",
+            "name": "edit_file",
+            "parameters": {
+              "properties": {
+                "new_string": {
+                  "description": "Text to replace it with.",
+                  "type": "string"
+                },
+                "old_string": {
+                  "description": "Exact text to replace (must match the file verbatim).",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                },
+                "replace_all": {
+                  "description": "Replace every occurrence instead of requiring a unique match (default false).",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "List the entries of a directory, relative to the repo root.",
+            "name": "list_dir",
+            "parameters": {
+              "properties": {
+                "path": {
+                  "description": "Directory relative to the repo root (default: root).",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run a shell command. Each call runs in a FRESH shell with the working directory already at the repo root, so `cd` and environment changes do NOT persist to later calls \u2014 never `cd` to reach a path; use repo-relative paths directly.",
+            "name": "run_command",
+            "parameters": {
+              "properties": {
+                "command": {
+                  "description": "The command line to run.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run an operator-installed AgentCulture CLI, with the agent's identity injected and the working directory at the repo root. 'agtag' works the mesh issue tracker (e.g. issue post/fetch/reply); 'devex' inspects a repo's agent-first surface (e.g. explain/overview/learn). Only these two CLIs are permitted.",
+            "name": "culture",
+            "parameters": {
+              "properties": {
+                "args": {
+                  "description": "Argument vector passed to the CLI (after its name).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "cli": {
+                  "description": "Which AgentCulture CLI to run.",
+                  "enum": [
+                    "agtag",
+                    "devex"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cli"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run a curated devague move against the operator-installed devague CLI. Use this to set or check a goal-frame (destination) for the current task \u2014 e.g. 'new' to open a fresh frame, 'capture' to record a claim, 'interrogate' to probe a claim, 'park' to defer a thread, 'converge' to signal the frame is ready to converge, 'status' to inspect the current frame, or 'show' to display it. Convergence is *advisory* \u2014 the final confirm/reject decision belongs to the user, and export is operator-only. confirm, reject, and export are intentionally NOT available through this tool.",
+            "name": "devague",
+            "parameters": {
+              "properties": {
+                "args": {
+                  "description": "Argument vector passed to the CLI (after the move name).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "move": {
+                  "description": "The devague move to execute.",
+                  "enum": [
+                    "capture",
+                    "converge",
+                    "interrogate",
+                    "new",
+                    "park",
+                    "show",
+                    "status"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "move"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Delegate a scoped sub-task to a nested in-process child work item, optionally on a different engine or model. The child work item runs the full bounded tool-loop (no git handoff) and returns a result summary; any files the child writes are merged into the parent's changed-file set so they reach the single top-level handoff. Use this to break a large task into independently executable pieces or to run part of the work on a specialised model.",
+            "name": "subagent",
+            "parameters": {
+              "properties": {
+                "context_mode": {
+                  "description": "'inherit' (default) carries the parent context; 'clear' gives the child a fresh mind with only a handover summary (use for reviewers).",
+                  "enum": [
+                    "inherit",
+                    "clear"
+                  ],
+                  "type": "string"
+                },
+                "effort": {
+                  "description": "Optional thinking-effort override for the subagent (#416). Omit to let the child resolve its own rung from its role/seat; 'default' sends no effort hint at all.",
+                  "enum": [
+                    "off",
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                "engine": {
+                  "description": "Engine wheel for the subagent (omit to inherit parent).",
+                  "type": "string"
+                },
+                "instruction": {
+                  "description": "A scoped sub-task for a nested child work item.",
+                  "type": "string"
+                },
+                "model": {
+                  "description": "Model override for the subagent (omit to inherit parent).",
+                  "type": "string"
+                },
+                "profile": {
+                  "description": "Agent purpose for the child (agents mode, #411): one of 'thinker_coder', 'associate', 'worker', 'talker' \u2014 binds the child to that purpose's lobes role when served (a recorded cortex fallback otherwise); omit to inherit the parent's seat.",
+                  "type": "string"
+                },
+                "role": {
+                  "description": "Role name for the subagent (e.g. 'explorer', 'writer').",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "instruction"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Fan out a batch of scoped sub-tasks to nested in-process child work items that run in parallel, each optionally on a different engine or model. Each child work item runs the full bounded tool-loop (no git handoff) and returns a result summary; a final merge child integrates each child's branch back into the working tree. All sub-results (children + merge) are recorded on the parent drive. Use this to parallelise independent work across multiple children. Capped at 3 instructions per batch (one slot is reserved for the merge child within the MAX_SUBAGENT_FANOUT=4 limit).",
+            "name": "subagents",
+            "parameters": {
+              "properties": {
+                "instructions": {
+                  "description": "A list of scoped sub-tasks to fan out in parallel (1\u20133 items).",
+                  "items": {
+                    "properties": {
+                      "effort": {
+                        "description": "Optional per-child thinking-effort override (#416). Omit to let the child resolve its own rung from its role/seat; 'default' sends no effort hint at all.",
+                        "enum": [
+                          "off",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "default"
+                        ],
+                        "type": "string"
+                      },
+                      "engine": {
+                        "description": "Engine wheel for this child (omit to inherit parent).",
+                        "type": "string"
+                      },
+                      "instruction": {
+                        "description": "A scoped sub-task for a nested child work item.",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Model override for this child (omit to inherit parent).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "instruction"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "role": {
+                  "description": "Role name for the subagents (e.g. 'explorer', 'writer').",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "instructions"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Check your changed test+impl files for the mirror signature (a novel symbol co-introduced in both a test and the module under test, found nowhere else) \u2014 a self-check against self-confirming tests.",
+            "name": "check_test_integrity",
+            "parameters": {
+              "properties": {},
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run the repository's test suite via pytest. Optionally supply specific test paths to narrow the run. Read-only: this tool never writes files.",
+            "name": "run_tests",
+            "parameters": {
+              "properties": {
+                "paths": {
+                  "description": "Optional list of test file/module paths to pass to pytest (e.g. ['tests/test_foo.py']). Omit to run the full suite.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Search or store memory records via the eidetic CLI. Use 'recall' to search for past context, 'remember' to store a new record.",
+            "name": "memory",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "Search query for recall (required when verb=recall).",
+                  "type": "string"
+                },
+                "record": {
+                  "description": "Record dict to store (required when verb=remember).",
+                  "type": "object"
+                },
+                "top_k": {
+                  "description": "Max results for recall (default 5).",
+                  "type": "integer"
+                },
+                "verb": {
+                  "description": "The memory operation: 'recall' to search, 'remember' to store.",
+                  "enum": [
+                    "recall",
+                    "remember"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "verb"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Signal the task is complete. Provide a short summary of what changed.",
+            "name": "finish",
+            "parameters": {
+              "properties": {
+                "announcement": {
+                  "description": "Optional. The announcement text declared on arrival at the destination. Omit when not applicable.",
+                  "type": "string"
+                },
+                "destination": {
+                  "description": "Optional. The devague goal-frame slug the work item aimed at (e.g. 'ship-core-widget', 'improve-test-suite') \u2014 match the frame slug created/used during the work item. Omit when no destination was set.",
+                  "type": "string"
+                },
+                "summary": {
+                  "description": "Summary of the work done.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "chat_template_kwargs": {
+        "reasoning_effort": "medium"
+      },
+      "messages": [
+        {
+          "content": "You are a coding agent working inside a repository. Use the provided tools to inspect and edit files, then call finish with a short summary. Make the smallest change that satisfies the task. To change part of an existing file, prefer the edit_file tool (an exact-string replace that only needs the changed text) over write_file; reach for write_file only to create a new file or do a wholesale rewrite. Rewriting a large file with write_file is slow and may time out, so edit_file is the right tool for a scoped edit.\n\nDestination (optional). When a task is vague or new enough to benefit from a clear goal-frame, you MAY use the devague tool to open or update one \u2014 this is advisory and entirely your own judgement. A clear, well-scoped task needs no destination; never set one just to set one. Convergence is advisory: you can call converge or status to see gaps, but you CANNOT confirm or reject your own claims (those are user-only moves the tool does not offer). Authoritative convergence belongs to the operator, not to you. When the work reaches the goal, declare arrival by passing destination (the frame slug) and announcement (the goal-frame's arrival announcement) to the finish tool.\n\nSubagents (optional). When a task naturally splits into independent, well-scoped pieces, you MAY delegate them to nested child work items. Use the subagent tool to hand ONE scoped piece to a child (optionally on a different engine/model \u2014 for example a mechanical chunk a cheaper model can do). Use the subagents tool to fan out a BATCH of independent pieces that run in PARALLEL, each isolated in its own git worktree, with a final merge child that integrates their branches and surfaces any conflict (never force-merging). A good fit: a task that asks for two or more changes in separate files that do not depend on each other \u2014 fan them out with subagents. Each child runs the same bounded tool-loop (no git handoff); its result summary returns to you and any files it writes are merged into your changed set. This is advisory and entirely your own judgement: a simple, single-file task needs none, so never delegate just to delegate. Delegation is bounded (a capped depth and per-work-item fan-out), so it always terminates.\n\nCulture tools (optional). Two operator-installed AgentCulture CLIs are reachable through the culture tool, with your agent identity auto-injected and the working directory pinned at the repo root. Use cli='agtag' to READ the mesh issue tracker (e.g. fetch issues from a sibling repo) and cli='devex' to inspect a repo's agent-first surface (e.g. explain/overview/learn). Reach for them only when the task explicitly calls for the mesh or another repo's surface; a MUTATING action (e.g. posting an issue) needs the operator's explicit instruction, never your own initiative. Only agtag and devex are permitted, and identity is injected for you, so you never pass it yourself. This is advisory and entirely your own judgement: a self-contained in-repo task needs neither.\n\nTest integrity (advisory). When you write code test-first, derive the test's fixtures and assertions from the REAL external API shape, not from your own implementation \u2014 a test that merely mirrors the code's own assumption passes even when both are wrong. You MAY call check_test_integrity to self-check for that mirror signature. (This is only a hint: a code-locked harness gate runs the same check after you finish regardless, so ignoring this line changes nothing.)\n\nAgentFront surface (reflex). Before the FIRST real use of a CLI or tool you have not used before in this run, check its agent-facing surface first \u2014 run its learn / explain / --help / --json affordance (or an overview / usage verb) and read what it reports, THEN act on what you found instead of guessing its flags or output shape. A tool you have already used needs no re-probe. This is advisory and your own judgement; reading a surface is read-only \u2014 it never installs, approves, or trusts the tool.",
+          "role": "system"
+        },
+        {
+          "content": "three turns: list, read, finish",
+          "role": "user"
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\": \".\"}",
+                "name": "list_dir"
+              },
+              "id": "call-list_dir",
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "content": "README.md",
+          "role": "tool",
+          "tool_call_id": "call-list_dir"
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\": \"README.md\"}",
+                "name": "read_file"
+              },
+              "id": "call-read_file",
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "content": "     1\t# fixture\n     2\t\n     3\tOne runtime, many minds.",
+          "role": "tool",
+          "tool_call_id": "call-read_file"
+        }
+      ],
+      "model": "fake-served",
+      "temperature": 0.0,
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "function": {
+            "description": "Read a UTF-8 text file (relative to the repo root), cat -n style: every line is prefixed with its exact 1-based number + a tab (DISPLAY ONLY \u2014 never put it in edit_file's old_string). Long files are paged: pass offset (1-based first line) and limit (line count); a cut result ends with 'Read lines X-Y of N' \u2014 page on.",
+            "name": "read_file",
+            "parameters": {
+              "properties": {
+                "limit": {
+                  "description": "Optional max number of lines to return (default 1000).",
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Optional 1-based line to start from (page a long file).",
+                  "type": "integer"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Load an image file from the repo into the conversation so you can see it (the media sibling of read_file \u2014 read-only, repo-confined, images only). The image arrives as a content part on the next turn. Only useful when the serving model accepts image input; a text-only model will see a placeholder.",
+            "name": "view_media",
+            "parameters": {
+              "properties": {
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Create or overwrite a UTF-8 text file, relative to the repo root.",
+            "name": "write_file",
+            "parameters": {
+              "properties": {
+                "content": {
+                  "description": "Full file contents to write.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Replace an exact string in an existing UTF-8 text file. Prefer this over write_file for ANY change to an existing file: it only needs the changed text, not the whole file, so it is far faster and cheaper on large files. 'old_string' must match the file exactly, including whitespace and indentation, and must be unique unless 'replace_all' is true. Use write_file only to create a new file or do a wholesale rewrite.",
+            "name": "edit_file",
+            "parameters": {
+              "properties": {
+                "new_string": {
+                  "description": "Text to replace it with.",
+                  "type": "string"
+                },
+                "old_string": {
+                  "description": "Exact text to replace (must match the file verbatim).",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Path relative to the repo root.",
+                  "type": "string"
+                },
+                "replace_all": {
+                  "description": "Replace every occurrence instead of requiring a unique match (default false).",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "List the entries of a directory, relative to the repo root.",
+            "name": "list_dir",
+            "parameters": {
+              "properties": {
+                "path": {
+                  "description": "Directory relative to the repo root (default: root).",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run a shell command. Each call runs in a FRESH shell with the working directory already at the repo root, so `cd` and environment changes do NOT persist to later calls \u2014 never `cd` to reach a path; use repo-relative paths directly.",
+            "name": "run_command",
+            "parameters": {
+              "properties": {
+                "command": {
+                  "description": "The command line to run.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run an operator-installed AgentCulture CLI, with the agent's identity injected and the working directory at the repo root. 'agtag' works the mesh issue tracker (e.g. issue post/fetch/reply); 'devex' inspects a repo's agent-first surface (e.g. explain/overview/learn). Only these two CLIs are permitted.",
+            "name": "culture",
+            "parameters": {
+              "properties": {
+                "args": {
+                  "description": "Argument vector passed to the CLI (after its name).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "cli": {
+                  "description": "Which AgentCulture CLI to run.",
+                  "enum": [
+                    "agtag",
+                    "devex"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cli"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run a curated devague move against the operator-installed devague CLI. Use this to set or check a goal-frame (destination) for the current task \u2014 e.g. 'new' to open a fresh frame, 'capture' to record a claim, 'interrogate' to probe a claim, 'park' to defer a thread, 'converge' to signal the frame is ready to converge, 'status' to inspect the current frame, or 'show' to display it. Convergence is *advisory* \u2014 the final confirm/reject decision belongs to the user, and export is operator-only. confirm, reject, and export are intentionally NOT available through this tool.",
+            "name": "devague",
+            "parameters": {
+              "properties": {
+                "args": {
+                  "description": "Argument vector passed to the CLI (after the move name).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "move": {
+                  "description": "The devague move to execute.",
+                  "enum": [
+                    "capture",
+                    "converge",
+                    "interrogate",
+                    "new",
+                    "park",
+                    "show",
+                    "status"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "move"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Delegate a scoped sub-task to a nested in-process child work item, optionally on a different engine or model. The child work item runs the full bounded tool-loop (no git handoff) and returns a result summary; any files the child writes are merged into the parent's changed-file set so they reach the single top-level handoff. Use this to break a large task into independently executable pieces or to run part of the work on a specialised model.",
+            "name": "subagent",
+            "parameters": {
+              "properties": {
+                "context_mode": {
+                  "description": "'inherit' (default) carries the parent context; 'clear' gives the child a fresh mind with only a handover summary (use for reviewers).",
+                  "enum": [
+                    "inherit",
+                    "clear"
+                  ],
+                  "type": "string"
+                },
+                "effort": {
+                  "description": "Optional thinking-effort override for the subagent (#416). Omit to let the child resolve its own rung from its role/seat; 'default' sends no effort hint at all.",
+                  "enum": [
+                    "off",
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "default"
+                  ],
+                  "type": "string"
+                },
+                "engine": {
+                  "description": "Engine wheel for the subagent (omit to inherit parent).",
+                  "type": "string"
+                },
+                "instruction": {
+                  "description": "A scoped sub-task for a nested child work item.",
+                  "type": "string"
+                },
+                "model": {
+                  "description": "Model override for the subagent (omit to inherit parent).",
+                  "type": "string"
+                },
+                "profile": {
+                  "description": "Agent purpose for the child (agents mode, #411): one of 'thinker_coder', 'associate', 'worker', 'talker' \u2014 binds the child to that purpose's lobes role when served (a recorded cortex fallback otherwise); omit to inherit the parent's seat.",
+                  "type": "string"
+                },
+                "role": {
+                  "description": "Role name for the subagent (e.g. 'explorer', 'writer').",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "instruction"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Fan out a batch of scoped sub-tasks to nested in-process child work items that run in parallel, each optionally on a different engine or model. Each child work item runs the full bounded tool-loop (no git handoff) and returns a result summary; a final merge child integrates each child's branch back into the working tree. All sub-results (children + merge) are recorded on the parent drive. Use this to parallelise independent work across multiple children. Capped at 3 instructions per batch (one slot is reserved for the merge child within the MAX_SUBAGENT_FANOUT=4 limit).",
+            "name": "subagents",
+            "parameters": {
+              "properties": {
+                "instructions": {
+                  "description": "A list of scoped sub-tasks to fan out in parallel (1\u20133 items).",
+                  "items": {
+                    "properties": {
+                      "effort": {
+                        "description": "Optional per-child thinking-effort override (#416). Omit to let the child resolve its own rung from its role/seat; 'default' sends no effort hint at all.",
+                        "enum": [
+                          "off",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "default"
+                        ],
+                        "type": "string"
+                      },
+                      "engine": {
+                        "description": "Engine wheel for this child (omit to inherit parent).",
+                        "type": "string"
+                      },
+                      "instruction": {
+                        "description": "A scoped sub-task for a nested child work item.",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Model override for this child (omit to inherit parent).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "instruction"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "role": {
+                  "description": "Role name for the subagents (e.g. 'explorer', 'writer').",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "instructions"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Check your changed test+impl files for the mirror signature (a novel symbol co-introduced in both a test and the module under test, found nowhere else) \u2014 a self-check against self-confirming tests.",
+            "name": "check_test_integrity",
+            "parameters": {
+              "properties": {},
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Run the repository's test suite via pytest. Optionally supply specific test paths to narrow the run. Read-only: this tool never writes files.",
+            "name": "run_tests",
+            "parameters": {
+              "properties": {
+                "paths": {
+                  "description": "Optional list of test file/module paths to pass to pytest (e.g. ['tests/test_foo.py']). Omit to run the full suite.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Search or store memory records via the eidetic CLI. Use 'recall' to search for past context, 'remember' to store a new record.",
+            "name": "memory",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "Search query for recall (required when verb=recall).",
+                  "type": "string"
+                },
+                "record": {
+                  "description": "Record dict to store (required when verb=remember).",
+                  "type": "object"
+                },
+                "top_k": {
+                  "description": "Max results for recall (default 5).",
+                  "type": "integer"
+                },
+                "verb": {
+                  "description": "The memory operation: 'recall' to search, 'remember' to store.",
+                  "enum": [
+                    "recall",
+                    "remember"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "verb"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "description": "Signal the task is complete. Provide a short summary of what changed.",
+            "name": "finish",
+            "parameters": {
+              "properties": {
+                "announcement": {
+                  "description": "Optional. The announcement text declared on arrival at the destination. Omit when not applicable.",
+                  "type": "string"
+                },
+                "destination": {
+                  "description": "Optional. The devague goal-frame slug the work item aimed at (e.g. 'ship-core-widget', 'improve-test-suite') \u2014 match the frame slug created/used during the work item. Omit when no destination was set.",
+                  "type": "string"
+                },
+                "summary": {
+                  "description": "Summary of the work done.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "function"
+        }
+      ]
+    }
+  ],
+  "schemas": [
+    {
+      "name": "check_test_integrity",
+      "params": []
+    },
+    {
+      "name": "culture",
+      "params": [
+        "args",
+        "cli"
+      ]
+    },
+    {
+      "name": "devague",
+      "params": [
+        "args",
+        "move"
+      ]
+    },
+    {
+      "name": "edit_file",
+      "params": [
+        "new_string",
+        "old_string",
+        "path",
+        "replace_all"
+      ]
+    },
+    {
+      "name": "finish",
+      "params": [
+        "announcement",
+        "destination",
+        "summary"
+      ]
+    },
+    {
+      "name": "list_dir",
+      "params": [
+        "path"
+      ]
+    },
+    {
+      "name": "memory",
+      "params": [
+        "query",
+        "record",
+        "top_k",
+        "verb"
+      ]
+    },
+    {
+      "name": "read_file",
+      "params": [
+        "limit",
+        "offset",
+        "path"
+      ]
+    },
+    {
+      "name": "run_command",
+      "params": [
+        "command"
+      ]
+    },
+    {
+      "name": "run_tests",
+      "params": [
+        "paths"
+      ]
+    },
+    {
+      "name": "subagent",
+      "params": [
+        "context_mode",
+        "effort",
+        "engine",
+        "instruction",
+        "model",
+        "profile",
+        "role"
+      ]
+    },
+    {
+      "name": "subagents",
+      "params": [
+        "instructions",
+        "role"
+      ]
+    },
+    {
+      "name": "view_media",
+      "params": [
+        "path"
+      ]
+    },
+    {
+      "name": "write_file",
+      "params": [
+        "content",
+        "path"
+      ]
+    }
+  ],
+  "status": "ok",
+  "steps": [
+    [
+      "list_dir",
+      true
+    ],
+    [
+      "read_file",
+      true
+    ],
+    [
+      "finish",
+      true
+    ]
+  ],
+  "system_prompt": "You are a coding agent working inside a repository. Use the provided tools to inspect and edit files, then call finish with a short summary. Make the smallest change that satisfies the task. To change part of an existing file, prefer the edit_file tool (an exact-string replace that only needs the changed text) over write_file; reach for write_file only to create a new file or do a wholesale rewrite. Rewriting a large file with write_file is slow and may time out, so edit_file is the right tool for a scoped edit.\n\nDestination (optional). When a task is vague or new enough to benefit from a clear goal-frame, you MAY use the devague tool to open or update one \u2014 this is advisory and entirely your own judgement. A clear, well-scoped task needs no destination; never set one just to set one. Convergence is advisory: you can call converge or status to see gaps, but you CANNOT confirm or reject your own claims (those are user-only moves the tool does not offer). Authoritative convergence belongs to the operator, not to you. When the work reaches the goal, declare arrival by passing destination (the frame slug) and announcement (the goal-frame's arrival announcement) to the finish tool.\n\nSubagents (optional). When a task naturally splits into independent, well-scoped pieces, you MAY delegate them to nested child work items. Use the subagent tool to hand ONE scoped piece to a child (optionally on a different engine/model \u2014 for example a mechanical chunk a cheaper model can do). Use the subagents tool to fan out a BATCH of independent pieces that run in PARALLEL, each isolated in its own git worktree, with a final merge child that integrates their branches and surfaces any conflict (never force-merging). A good fit: a task that asks for two or more changes in separate files that do not depend on each other \u2014 fan them out with subagents. Each child runs the same bounded tool-loop (no git handoff); its result summary returns to you and any files it writes are merged into your changed set. This is advisory and entirely your own judgement: a simple, single-file task needs none, so never delegate just to delegate. Delegation is bounded (a capped depth and per-work-item fan-out), so it always terminates.\n\nCulture tools (optional). Two operator-installed AgentCulture CLIs are reachable through the culture tool, with your agent identity auto-injected and the working directory pinned at the repo root. Use cli='agtag' to READ the mesh issue tracker (e.g. fetch issues from a sibling repo) and cli='devex' to inspect a repo's agent-first surface (e.g. explain/overview/learn). Reach for them only when the task explicitly calls for the mesh or another repo's surface; a MUTATING action (e.g. posting an issue) needs the operator's explicit instruction, never your own initiative. Only agtag and devex are permitted, and identity is injected for you, so you never pass it yourself. This is advisory and entirely your own judgement: a self-contained in-repo task needs neither.\n\nTest integrity (advisory). When you write code test-first, derive the test's fixtures and assertions from the REAL external API shape, not from your own implementation \u2014 a test that merely mirrors the code's own assumption passes even when both are wrong. You MAY call check_test_integrity to self-check for that mirror signature. (This is only a hint: a code-locked harness gate runs the same check after you finish regardless, so ignoring this line changes nothing.)\n\nAgentFront surface (reflex). Before the FIRST real use of a CLI or tool you have not used before in this run, check its agent-facing surface first \u2014 run its learn / explain / --help / --json affordance (or an overview / usage verb) and read what it reports, THEN act on what you found instead of guessing its flags or output shape. A tool you have already used needs no re-probe. This is advisory and your own judgement; reading a surface is read-only \u2014 it never installs, approves, or trusts the tool.",
+  "tokenize_calls": 5
+}

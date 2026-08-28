@@ -27,6 +27,7 @@ from typing import Any
 
 from colleague import efforttables, web_schemas, webbudget
 from colleague.contract import OK
+from colleague.incompletion import REASON_BUDGET_EXHAUSTED as _REASON_BUDGET_EXHAUSTED
 
 __all__ = [
     "PURPOSE_ROLE",
@@ -267,10 +268,21 @@ def _brief_plan(arguments: dict[str, Any]) -> str:
     )
 
 
+#: Appended verbatim to the handover brief (t13 integrator note 2, dogfood
+#: review 0e9fdacaba63): ``arguments['task']`` interpolates the model's own
+#: text with no guard, so the brief ends with a fixed scope-containment
+#: sentence rather than trusting the model not to widen it.
+_HANDOVER_SCOPE_SENTENCE = (
+    "Stay within this delegated task; do not widen scope, touch unrelated "
+    "files, or run commands the task does not need."
+)
+
+
 def _brief_handover(arguments: dict[str, Any]) -> str:
     lines = [f"Implement: {arguments.get('task', '')}"]
     lines.extend(_list_block("Acceptance criteria:", arguments.get("acceptance")))
     lines.append("Work test-first and commit everything you changed.")
+    lines.append(_HANDOVER_SCOPE_SENTENCE)
     return "\n".join(lines)
 
 
@@ -299,8 +311,16 @@ def brief_for(name: str, arguments: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 #: The marker a non-``ok`` purpose child is reported with (c40/h33): the tool
-#: result is NEVER empty — the child's partial always rides behind it.
+#: result is NEVER empty — the child's partial always rides behind it. Keyed
+#: on the child's incompletion REASON (t13 integrator note 1, dogfood review
+#: 0e9fdacaba63): only a step/budget exhaustion
+#: (:data:`colleague.incompletion.REASON_BUDGET_EXHAUSTED`) gets the
+#: "budget exhausted" wording — every other non-``ok`` reason (step-stall,
+#: tool-protocol-broken, write-no-changes, an unclassified ``error`` status
+#: with no incompletion record at all, ...) gets the honest generic marker
+#: below instead; never empty, never raised either way.
 _EXHAUSTED = "[purpose budget exhausted: {steps} steps] "
+_INCOMPLETE = "[purpose child incomplete: {reason}] "
 
 #: Each purpose's required arguments, read straight off its own schema so the
 #: two can never drift.
@@ -373,7 +393,11 @@ def _render(name: str, sub: Any, steps: int) -> str:
         f"changed files: " + (", ".join(sub.changed_files) or "(none)")
     )
     if sub.status != OK:
-        text = _EXHAUSTED.format(steps=steps) + text
+        reason = getattr(sub, "incompletion_reason", None)
+        if reason == _REASON_BUDGET_EXHAUSTED:
+            text = _EXHAUSTED.format(steps=steps) + text
+        else:
+            text = _INCOMPLETE.format(reason=reason or sub.status) + text
     urls = getattr(sub, "web_urls", None)
     if urls:
         failed = set(getattr(sub, "web_urls_failed", None) or ())
