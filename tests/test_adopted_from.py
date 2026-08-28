@@ -139,16 +139,17 @@ def test_no_antigravity_references():
     attribution unless the operator has a separate basis"). This mirrors the
     honesty condition via `grep -ri antigravity NOTICE docs colleague`.
 
-    Scope note: docs/specs/ and docs/plans/ are devague's own frame/plan
-    artifacts (this arc's confirmed spec + plan) — they legitimately name
-    "Antigravity" by word to explain, and reject, the very attribution this
-    guard exists to prevent (q1: "Antigravity is not credited (no basis in
-    the qwen-code repo)"). Flagging that discussion as a violation would be
-    a false positive, and excluding it is the only way this guard can ever
-    pass once the spec/plan are committed (they are, from arc setup, and are
-    out of this task's file list). The check instead covers every path a
-    real (shipped) attribution could land: NOTICE, colleague/, and docs/
-    minus docs/specs/ and docs/plans/.
+    Scope note: docs/specs/, docs/plans/ and docs/deliveries/ are devague's
+    own frame/plan/summary artifacts (this arc's confirmed spec + plan, and
+    the delivery record that quotes the plan's task titles verbatim) — they
+    legitimately name "Antigravity" by word to explain, and reject, the very
+    attribution this guard exists to prevent (q1: "Antigravity is not
+    credited (no basis in the qwen-code repo)"). Flagging that discussion as
+    a violation would be a false positive, and excluding it is the only way
+    this guard can ever pass once the spec/plan are committed (they are,
+    from arc setup, and are out of this task's file list). The check instead
+    covers every path a real (shipped) attribution could land: NOTICE,
+    colleague/, and docs/ minus those three record directories.
     """
     docs_dir = REPO_ROOT / "docs"
     doc_files = [
@@ -157,6 +158,7 @@ def test_no_antigravity_references():
         if p.is_file()
         and "specs" not in p.relative_to(docs_dir).parts
         and "plans" not in p.relative_to(docs_dir).parts
+        and "deliveries" not in p.relative_to(docs_dir).parts
     ]
     targets = ["NOTICE", "colleague"] + [str(p.relative_to(REPO_ROOT)) for p in doc_files]
 
