@@ -163,8 +163,9 @@ def turn_tool_set(
     :func:`colleague.tools.narrow_role_by_tool_set` already understands —
     whenever *allow_web* is ``True`` (an operator turn: byte-identical to a
     resident without this feature). Otherwise the role's own surface minus
-    ``web``: narrowing only ever REMOVES, so a role that never had ``web``
-    is unaffected and a role that gains it later is still covered.
+    ``web`` AND ``web_survey`` (the purpose tool that reaches the web through a
+    scout child — park v6 of the purpose-tools spec, gated at the purpose call):
+    narrowing only ever REMOVES, so a role that never had them is unaffected.
     """
     if allow_web:
         return ()
@@ -172,7 +173,7 @@ def turn_tool_set(
 
     resolved = _resolved_role(role, repo_path, model)
     allowlist = getattr(resolved, "tool_allowlist", None) or tuple(TOOL_NAMES)
-    return tuple(name for name in allowlist if name != WEB_TOOL_NAME)
+    return tuple(name for name in allowlist if name not in (WEB_TOOL_NAME, "web_survey"))
 
 
 def curate_turn_role(

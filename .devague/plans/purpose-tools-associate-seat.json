@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-28T14:00:39Z",
-  "updated": "2026-08-28T14:04:59Z",
+  "updated": "2026-08-28T17:03:28Z",
   "targets": [
     {
       "id": "c1",
@@ -747,7 +747,8 @@
       "deps": [
         "t11",
         "t12",
-        "t13"
+        "t13",
+        "t15"
       ],
       "covers": [
         "c13",
@@ -756,6 +757,26 @@
         "h21"
       ],
       "instruction": "Run from the operator's login shell (Brave key; DNS). Detach via setsid, never run_in_background. GPU serializes: baseline first, then branch. Record wall vs turns per column (c35)."
+    },
+    {
+      "id": "t15",
+      "summary": "t15 (d14): the bare top-level acting seat + TAE worker get the purpose-tool swap; children never hold purpose tools; handover writer child loses web/subagent too",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "a bare unarmed 'colleague work' on mock offers the six purpose schemas and none of web/subagent/subagents; the bare seat's executor refuses 'web'; a scout child is offered web and no purposes; a handover child is offered neither; the TAE worker surface has purposes; the byte-identical suite pins the bare run vs e589451 with exactly the named carve-out"
+      ],
+      "deps": [
+        "t13"
+      ],
+      "covers": [
+        "c4",
+        "h4",
+        "c23",
+        "h21",
+        "h1"
+      ],
+      "instruction": "depth signal = a dynamic child_depth attr stamped in subagents._build_child_config/_child_config_for_profile; net-zero hunks in loop.py/tools.py/subagents.py; new logic in purpose_schemas.py or colleague/actingsurface.py"
     }
   ],
   "risks": [
