@@ -178,6 +178,19 @@ only the two file-based flight-plane primitives (:func:`is_safe_task_id`,
 :func:`append_guidance`) and the senses talk lane are touched, exactly the
 primitives :mod:`colleague.flight` and :mod:`colleague.senses` already
 expose (no duplication).
+
+**The c43 web boundary (task t10).** Trust decision c19 says a non-operator
+turn is read-only or refused; c43 extends that to the ``web`` tool: a turn
+that did NOT originate from the operator never sees ``web`` on its curated
+surface, and a turn a Culture node marks as relaying the operator's OWN
+request counts as operator-initiated but owes ONE explicit confirmation
+before its first web fetch. :mod:`colleague.resident.webtrust` owns both
+rules (and documents the honest gap: no such relay marker exists in the
+protocol today); this module only calls it — once, in :meth:`feed_message` —
+and threads its answer into the dispatched config through the SAME
+``config_lifecycle`` ``tool_set`` seam both engines already narrow the offered
+schemas AND the executor allow-list with: no new policy module, no second
+refusal path, and an operator turn narrows nothing at all.
 """
 
 from __future__ import annotations
@@ -185,7 +198,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import replace as _dc_replace
@@ -205,7 +217,17 @@ from colleague.flight import append_guidance, feed_path, is_safe_task_id
 from colleague.frontdoor import run_frontdoor
 from colleague.media import validate_attachment
 from colleague.presence import cadence_from_env, clarify_from_env, should_clarify, should_update
+
+# Re-exported: the two request-line conventions' grammar lives in that module.
+from colleague.resident.requestlines import _MAX_ATTACHMENTS  # noqa: F401
+from colleague.resident.requestlines import _extract_attach_lines, _extract_relay_line
 from colleague.resident.trust import ALLOW_WRITE, check_attachment_path, classify_request
+from colleague.resident.webtrust import (
+    WebConfirmationGate,
+    classify_origin,
+    resolve_web_access,
+    turn_lifecycle,
+)
 from colleague.senses import (
     UPDATE_POINT,
     run_senses_intake,
@@ -223,13 +245,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
 
 # Sentinel placed on the reply queue by stop() to end the replies() stream.
 _STOP: object = object()
-
-# t12: the mesh media-reference convention -- a line-anchored `attach: <path>`
-# token, one per line. Capped so a request can't smuggle an unbounded number
-# of filesystem probes through one message; extras beyond the cap are counted
-# and reported, never silently dropped.
-_MAX_ATTACHMENTS = 4
-_ATTACH_LINE_RE = re.compile(r"^attach:\s*(\S.*)$")
 
 # Presence-default-everywhere (t11): the fixed acknowledgment when senses'
 # intake carried no ack line (a degraded intake) — an honest plain fact, never a
@@ -359,62 +374,6 @@ class _ResidentPresenceSink:
         return None
 
 
-def _extract_attach_lines(text: str) -> tuple[str, list[str], int]:
-    """Split *text* into ``(cleaned_text, candidate_paths, dropped_count)``.
-
-    Recognises the ``attach: <path>`` convention (see the module docstring).
-    A matched line is REMOVED from the returned text entirely. At most
-    :data:`_MAX_ATTACHMENTS` candidates are kept, in order; any further
-    matches are counted in *dropped_count* (never silently truncated without
-    a trace -- the caller turns that count into a recorded note).
-
-    A *text* with no ``attach:`` lines is returned completely unchanged
-    (same object, even) -- a request with no media reference behaves
-    byte-identically to before this feature existed.
-    """
-    lines = text.splitlines()
-    if not any(_ATTACH_LINE_RE.match(line) for line in lines):
-        return text, [], 0
-
-    kept_lines: list[str] = []
-    candidates: list[str] = []
-    dropped = 0
-    for line in lines:
-        match = _ATTACH_LINE_RE.match(line)
-        if not match:
-            kept_lines.append(line)
-            continue
-        path = match.group(1).rstrip()
-        if len(candidates) < _MAX_ATTACHMENTS:
-            candidates.append(path)
-        else:
-            dropped += 1
-    return "\n".join(kept_lines), candidates, dropped
-
-
-# t8: the mesh relay-addressing convention -- a line-anchored `relay <task-id>:
-# <text>` token (case-insensitive keyword; the task id is a single non-whitespace,
-# non-colon token). See the module docstring's "Trust-gated relay" section.
-_RELAY_LINE_RE = re.compile(r"^relay\s+([^\s:]+):\s*(\S.*)$", re.IGNORECASE)
-
-
-def _extract_relay_line(text: str) -> Optional[tuple[str, str]]:
-    """Return ``(task_id, relay_text)`` for the FIRST ``relay <task-id>: <text>``
-    line found in *text*, or ``None`` when no line matches the convention.
-
-    Unlike :func:`_extract_attach_lines` (which strips matched lines and lets
-    the REST of the message proceed as a normal work request), a matched relay
-    line takes the message down an entirely different path (see
-    :meth:`AppserverHarness._handle_relay`) — no work item is ever dispatched
-    for it, so there is nothing to "clean" and return alongside it.
-    """
-    for line in text.splitlines():
-        match = _RELAY_LINE_RE.match(line.strip())
-        if match:
-            return match.group(1), match.group(2).rstrip()
-    return None
-
-
 class AppserverHarness:
     """agent-lifecycle ``Harness`` adapter dispatching mesh requests as work items.
 
@@ -486,6 +445,9 @@ class AppserverHarness:
         # generator, mirroring ColleagueHarness's pattern exactly.
         self._reply_queue: "asyncio.Queue[Any]" = asyncio.Queue()
         self._replies_iter: Optional[AsyncIterator[Message]] = None
+        # c43 (t10): one WebConfirmationGate per relaying sender — the ONE
+        # confirmation a relayed operator request owes before web access.
+        self._web_gates: "dict[str, WebConfirmationGate]" = {}
 
     # `async` with no `await` is required here: the upstream agent_lifecycle
     # Harness Protocol declares `async def start()`, and the supervisor awaits
@@ -543,6 +505,31 @@ class AppserverHarness:
             return
 
         raw_body = getattr(message, "body", "") or ""
+
+        # c43 web boundary (t10): this turn's web posture — withheld unless the
+        # turn is operator-initiated, and for a RELAYED operator request only
+        # after its one explicit confirmation. See colleague/resident/webtrust.py.
+        web = resolve_web_access(
+            self._web_gates,
+            sender=sender,
+            origin=classify_origin(
+                sender=sender, metadata=metadata, operator_identity=self._operator_identity
+            ),
+            body=raw_body,
+            operator_identity=self._operator_identity,
+        )
+        if web.reply is not None:
+            await self._reply_queue.put(
+                Message(
+                    sender=self._agent_nick,
+                    target=target,
+                    body=web.reply,
+                    kind="message",
+                    metadata={"phase": "web_confirmation"},
+                )
+            )
+            if web.handled:
+                return
 
         relay = _extract_relay_line(raw_body)
         if relay is not None:
@@ -608,7 +595,20 @@ class AppserverHarness:
         )
         if packet is not None:
             task.context_packet = packet
-        req_config = _dc_replace(self._config, role=decision.role)
+        req_config = _dc_replace(
+            self._config,
+            role=decision.role,
+            # The narrowing rides the config-lifecycle snapshot seam BOTH
+            # engines already read (offered schemas + executor allow-list) —
+            # never a second gate; ``None``/no narrowing when web is allowed.
+            config_lifecycle=turn_lifecycle(
+                decision.role,
+                allow_web=web.allow_web,
+                repo_path=self._repo_path,
+                model=getattr(self._config, "model", None),
+                existing=getattr(self._config, "config_lifecycle", None),
+            ),
+        )
 
         await self._dispatch_and_reply(
             task,
