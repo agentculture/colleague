@@ -1,0 +1,811 @@
+{
+  "slug": "purpose-tools-associate-seat",
+  "title": "purpose-tools-associate-seat",
+  "frame_slug": "purpose-tools-associate-seat",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-28T14:00:39Z",
+  "updated": "2026-08-28T14:04:59Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague's cortex delegates BY PURPOSE: web_survey / code_survey (and review) are typed loop tools that run a scout (or reviewer) child on a FIXED seat \u2014 the associate when armed \u2014 and return a digest with evidence ids; cortex no longer holds the raw web tool (replace, not add); on the associate side effort is split per seat (scout off, distill low), the multi-turn scout keeps its thinking history, and measurement arms run in a memory-armed repo \u2014 the same enumerated seats addressed by purpose instead of by mechanism, never a per-turn model choice",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "On the armed rig (COLLEAGUE_ASSOCIATE_MODEL=lobes, webglass on PATH) the offered tool list of a bare 'colleague work' contains web_survey/code_survey/review/validate/plan and NOT web; a code_survey step's child artifact records the associate's served model; with the knobs unset (no associate, COLLEAGUE_WEB=0 / no webglass, no ASSOCIATE_SEAT_TABLE overrides) the byte-identical suite vs main @ e589451 passes unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "Purpose tools land exactly like the deepthink tool: a schema OUTSIDE tools.SCHEMAS appended by curate_schemas (tools.py:533-626 DEEPTHINK_SCHEMA / line 625) with an INJECTED executor callable (tools.py:1236-1261 _deepthink_tool degrades to a plain string when nothing is injected); web_survey is hidden whenever web is hidden (web_schemas.offered/hidden_names, web_schemas.py:96-108 \u2014 COLLEAGUE_WEB=0 or no webglass on PATH), code_survey is always offered; both live in a NEW module (purpose_schemas.py, the search_schemas/web_schemas shape) \u2014 tools.py (1508), loop.py (5281), vllm_openai.py (1324), subagents.py (1692) are pinned by tests/test_file_length_ratchet.py so the hunks there are net-zero",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "tools.SCHEMAS is unchanged (no purpose schema inside it); curate_schemas(role) appends the purpose schemas only for roles whose allow-list names them; web_survey disappears together with web under COLLEAGUE_WEB=0 / no webglass; a purpose call with nothing injected returns the plain 'not configured' string, never raises; tests/file_length_baseline.json entries for tools.py/loop.py/vllm_openai.py/subagents.py are unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Each purpose tool runs the EXISTING spawn path with a fixed role: the injected callable is the loop's subagent_spawn (subagents.make_spawn \u2192 run_subagent, subagents.py:822-856) called with role='scout' (web_survey/code_survey) or role='reviewer' (review) and a fixed brief template ('find X, cite operation_id/evidence_refs'); associate_seats.scout_child_config (associate_seats.py:191-229) already swaps a scout child onto the associate seat when armed \u2014 ASSOCIATE_SEATS stays the five-tuple (test_associate_seats.py:57) and no new seat builder exists: fixed purpose \u2192 fixed role \u2192 fixed seat",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "the purpose executor calls the loop's existing subagent_spawn with role fixed per tool (scout/reviewer/validator/planner) and a fixed brief; associate_seats.ASSOCIATE_SEATS is still the five-tuple and scout_child_config is untouched (git diff main -- colleague/associate_seats.py has only the effort-table hunk); the child's SubResult lands on sub_results exactly like a manual subagent",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "REPLACE, not add (revisits web-scout spec decision q3, recorded here): the raw web tool leaves the top-level acting surface \u2014 web stays in roles._READONLY_TOOLS/_SCOUT_TOOLS (roles.py:88-105) for children, but curate_schemas withholds it from the writer role / thinker_coder purpose (agents/tools.py THINKER_CODER_TOOLS = every registry tool, line ~160) so cortex holds web_survey and never web; a failed fetch then comes back as a digest saying 'unreachable' \u2014 the row-47 re-run evidence (#443 comment: cortex with web + run_command drifted into host recon, /etc/hosts, ss -ltnp, ~/.cloudflared; stopped by pilot, d15)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "curate_schemas('writer') and the thinker_coder purpose surface no longer contain 'web' while curate_schemas('scout'/'explorer'/'reviewer'/...) still do; the web-scout frame decision q3 is superseded by a recorded decision in this spec; the run report's web line appears on the CHILD artifact and is summarised on the parent's tool result",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Tool classification: agents/tools.py classifies subagent/subagents as class 'write' (_WRITE_CLASS line 80) and non-inheritable (_NOT_INHERITABLE line 88); tae_loop.CONSEQUENTIAL_TOOLS (tae_loop.py:106-112) lists subagent/subagents \u2014 a purpose tool spawns a PROVABLY read-only child (roles.is_read_only, roles.py:243-256; scout/reviewer tool_allowlist \u2282 read-only set), so it needs its own ToolProfile row and an explicit CONSEQUENTIAL_TOOLS decision (widening that tuple is 'a deliberate, visible edit', tae_loop.py:104)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "TOOL_PROFILES[purpose] == ToolProfile(class='read', required_approval=False, inheritable=True) for all five; tae_loop.CONSEQUENTIAL_TOOLS is unchanged (5 entries); the purpose child's role is a read-only builtin so roles.is_read_only(role) is True for every purpose tool's role",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Armed agents mode (#411) refuses a child whose requested_tools are not \u2286 the parent's effective tools (agents/delegation.py:164-179) and the web-scout spec pinned 'a scout child receives web only when the parent's surface contains it' (spec honesty line 33) \u2014 replace-don't-add on cortex CONTRADICTS that \u2286 pin: a purpose tool's child surface is FIXED BY THE TOOL (the role allow-list), not requested by the parent, so the \u2286 rule must be stated over the parent's surface PLUS the purpose tool's fixed child set \u2014 a recorded change to that honesty condition, never a silent one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "agents/delegation.validate treats a purpose-tool delegation's requested_tools as the role allow-list (fixed) and does NOT refuse it when the parent lacks web; the old honesty condition (web-scout spec line 33) is marked superseded in docs/features/web-scout.md and its pinning test is rewritten, not deleted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "scripts/compare_arms.py counts delegations as subagent/subagents steps (compare_arms.py:181-183) and associate_calls by matching a delegation step's recorded served_model to artifact['associate']['served_model'] (191-215): the purpose-tool call rate joins the delegations column and a purpose step records served_model like a subagent step; the same 1.0\u00d7 turns / 1.2\u00d7 wall bar as row 48; a miss is a miss",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "compare_arms.py's delegations column counts steps whose tool is subagent/subagents OR any of the five purpose tools; associate_calls counts a purpose step whose served_model equals the artifact's associate served_model; a purpose step records served_model in Step.arguments like a subagent step",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Per-seat effort on the associate side: effort.SEAT_TABLE has ONE 'associate': 'off' row (effort.py:69) and every associate seat resolves seat='associate' (associate.py:86-94 associate_engine_config; associate_seats.py:220-227 scout_child_config); env overrides are generated from SEAT_TABLE keys as COLLEAGUE_<SEAT>_REASONING_EFFORT (effort.py:246-256) and config.json reasoning_effort_seats keys are seat names (config.py:2021-2025). Split shape: an ASSOCIATE_SEAT_TABLE {scout: off, compact: off, synthesis: off, digest: off, distill: low} consulted between the associate row and the per-seat override, with COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT> overrides; the 'default' kill-switch still wins; unset = byte-identical for every seat but distill",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "effort.ASSOCIATE_SEAT_TABLE == {scout: off, compact: off, synthesis: off, digest: off, distill: low}; precedence for an associate seat: kill-switch > parent_override > COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT> / reasoning_effort_seats['associate.<seat>'] > COLLEAGUE_ASSOCIATE_REASONING_EFFORT (the associate row override) > ASSOCIATE_SEAT_TABLE; with nothing set scout/compact/synthesis/digest resolve exactly as today ('off')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The distill child sends NO effort today: _openai_completion (distill.py:613-647) POSTs only model/messages/max_tokens/temperature over raw urllib, the child argv is --repo/--task-id/--model (distill.py:753-755) with base_url/key via env, and associate_seats.distill_author returns DistillAuthor(model, base_url, api_key) with no rung (associate_seats.py:231-245). 'distill low' therefore needs (a) an effort value threaded to the detached child (argv/env) and (b) a chat_template_kwargs fragment on that second raw OpenAI POST site with the ladder-400 retry-once rule mirrored (vllm_openai.py:1099-1105 pops the whole fragment) \u2014 a plumbing task, not a table row",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the detached distill child receives its rung (argv --effort or env) and _openai_completion sends chat_template_kwargs {reasoning_effort: low} (or enable_thinking false for off / nothing for default); a ladder-400 on that POST retries ONCE without the fragment and writes the warning into the child's outcome marker; the child's completion record keeps reasoning chars",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Memory arming in measurement repos: the loop arms memory only when <memory-repo>/.eidetic is a directory (loop.py:2505-2514 _memory_armed) and the eidetic CLI is installed (config.py:2124-2140, default-on); the distill seat fires only via _resolve_distill_fn when ctx.distill_author and memory_distill are set (loop.py:2606-2625). Every pre-registered arm row (rows 49+) states 'repo WITH an .eidetic store' explicitly and records the artifact's memory distill counters (distill: detached alive-counters) \u2014 row 45's zero-associate-calls arm measured 'arming is inert here' for exactly this reason (docs/live-testing.md:109)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "docs/live-testing.md rows 49 and 50 are written BEFORE any run and each names 'repo WITH an .eidetic store' and the eidetic CLI version; each row records the artifact's memory distill counters (attempts/validated/detached) and the distill child's served model",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Delegation prose follows the tools: delegation_text.apply_armed_facts splices the armed-seat sentence onto subagent/subagents descriptions only (delegation_text.py:26,50-60) and the opt-in HANDOVER_EXAMPLE section (prompttext.py:175-227, COLLEAGUE_PROMPT_SECTIONS) names subagent; purpose tools get the armed-facts sentence on web_survey/code_survey and a one-line description each \u2014 no new prompt section (the #437/#440 lesson: prompt text buys deliberation, arms measured v1 prompt \u2248 parity)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "delegation_text.apply_armed_facts splices the armed sentence onto web_survey/code_survey (and still subagent/subagents); no new prompttext SECTION_TABLE entry is added; the default system prompt text is byte-identical to v1.65.1",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "success_signal",
+      "text": "Live rows 49/50 pre-registered BEFORE any run: (49) the row-48 decomposable brief (docs/live-testing/briefs/row48-delegation.md) n=3 with code_survey offered vs main @ e589451, bar turns \u2264 1.0\u00d7 / wall \u2264 1.2\u00d7, delegations column = purpose-tool calls, \u2265 1 on \u2265 2 of 3 runs; (50) the row-47 web brief with web_survey (cortex holds NO web): the scout child's served model = the associate's, evidence ids cited in the answer, and ZERO steps outside the brief's repo (no run_command host probing \u2014 the d15 drift cannot recur because the seat holding web has no run_command)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "row 49 (n=3 with code_survey vs main @ e589451 re-run n=3): purpose-tool calls \u2265 1 on \u2265 2 of 3 runs AND turns \u2264 1.0\u00d7 AND wall \u2264 1.2\u00d7 (compare_arms.py, never prose); row 50 (web brief with web_survey): scout child served model = associate's, evidence ids in the final answer, and zero run_command steps outside the repo; a miss is written as a miss",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "boundary",
+      "text": "Never a router (CLAUDE.md:293-360, eleven sanctioned increments): a purpose tool is the deepthink precedent (increment 1 \u2014 one tool, one judgment, one declared seat) addressed by purpose; the model calls it explicitly and the runtime never picks a model per turn \u2014 pinned today by tests/test_thinking_effort_boundary.py:150 (no per-turn path assigns effort) and tests/test_associate_seats.py:90 (AST guard: .associate referenced only by the enumerated consumers); both guards must still pass with the new modules added to their sanctioned lists",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "CLAUDE.md's increment count stays eleven; the Web scout bullet + increment (1) text name purpose tools as the deepthink precedent applied by purpose; tests/test_thinking_effort_boundary.py and tests/test_associate_seats.py's AST guards pass with purpose_schemas.py/templatekwargs.py added to their sanctioned lists with a stated reason; no per-turn path selects a model",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "boundary",
+      "text": "The associate seat builders are untouched except for the rung: ASSOCIATE_SEATS stays ('scout','compact','synthesis','digest','distill'); code-authoring seats never reference config.associate (test_associate_seats.py:90-108); 'review' runs the existing reviewer role (roles.py:168-177, ROLE_TABLE reviewer=low) on CORTEX \u2014 reviewer is NOT an associate seat and adding it would be a spec change to the five-tuple",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "git diff main -- colleague/associate_seats.py colleague/associate.py touches only effort resolution (the sub-seat rung), ASSOCIATE_SEATS is unchanged, and review/validate/plan children never reference config.associate",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "boundary",
+      "text": "The effort tables are pinned exactly: tests/test_effort.py:20-58 pins every SEAT_TABLE/ROLE_TABLE row and the exact key sets, and tests/test_thinking_effort_docs.py:55-72 requires docs/features/thinking-effort.md to render every table row (and forbids a duplicate table elsewhere, line 74) \u2014 a new associate sub-seat table lands with its pin rows and its doc table in the SAME PR; /effort, config show and the max_tokens line iterate SEAT_TABLE (_session_actions.py:89-104, config.py:82, harness_cli.py:34) and must list the sub-seat rows or say they are folded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "tests/test_effort.py pins every ASSOCIATE_SEAT_TABLE row and the exact key set; docs/features/thinking-effort.md renders each row exactly once; /effort, config show and the max_tokens line list associate.scout/compact/synthesis/digest/distill (or state they fold into the associate row) \u2014 decided in the plan, recorded in the doc",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "boundary",
+      "text": "Doc drift to fix in the doc pass: docs/features/adopt-from-qwen-code.md:176-177 says ROLE_TABLE['scout'] = 'low' while effort.py:79 declares 'off' (and test_effort pins the key but not the value) \u2014 the feature doc must state 'off' with the t19 reason",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "docs/features/adopt-from-qwen-code.md states ROLE_TABLE['scout'] = 'off' with the t19 reason; no doc claims 'low' for the unarmed scout",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "audience",
+      "text": "The operator running cortex (Qwen3.8-27B, main @ e589451) with COLLEAGUE_ASSOCIATE_MODEL=lobes (Nemotron 3.5 Lightning on Orin, addressed on the wire as the role name 'associate') and webglass on PATH, who saw 0 delegations in 13 measured runs (rows 41-48) but 8 web calls in one turn (row 47) and wants the fetch loop and the survey loop to run on the fast seat by calling ONE typed tool \u2014 never by writing a subagent brief",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "the feature doc names the audience by ROLE (cortex / associate / scout / reviewer / validator / planner), never by model id in config code; the zero-model-ids boundary test passes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "before_state",
+      "text": "Before: cortex holds web (shared surface, web-scout q3) AND run_command; delegation is never chosen (0 subagent calls in 13 runs, rows 41-48) while typed tools are (8 web calls turn 1, row 47; unprompted grep_search/glob, row 48); the associate seat idles (row 45 zero associate calls); the distill child completes with no effort rung at all (distill.py:613-647); one associate-wide 'off' row covers scout and distill alike (effort.py:69)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "the spec's before-state quotes rows 41-48 (0 delegations / 13 runs), row 47 (8 web calls turn 1; host recon d15), row 45 (zero associate calls) and distill.py:613-647 (no effort key) verbatim from docs/live-testing.md and the code \u2014 not restated from memory",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "why_it_matters",
+      "text": "Why: the shape of the ask decides delegation \u2014 subagent demands a meta-decision (brief, role, isolation), a typed tool is one call; row 48 showed adding surface buys deliberation (3.31\u00d7 wall / 1.41\u00d7 turns, 2\u00d7 reasoning chars, 0/3 delegations) and row 47 re-run showed cortex holding web+run_command drifts into host reconnaissance; the direct seat numbers (scout 17 s off vs 25 s low; digest 9 s off vs 61 s low with a better judgment half) say scout=off / distill=low is the right split \u2014 docs/live-testing.md rows 45/47/48",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "the feature doc cites the direct-seat numbers (17 s/25 s survey, 9 s/61 s digest) with their date and row 45, and the row-48 numbers (3.31\u00d7/1.41\u00d7, 2\u00d7 reasoning chars) with artifact ids",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "after_state",
+      "text": "After: on the armed rig 'colleague work' offers web_survey/code_survey (no raw web on cortex); cortex calls code_survey('interfaces of alpha/beta/gamma') and gets a digest from a scout child whose artifact records the associate's served model; web_survey('find X', urls=[...]) returns a digest with operation_id/evidence_refs or an honest 'unreachable' line; a memory-armed run's distill child completes at low with reasoning chars on its record; the multi-turn scout's earlier thinking is kept in its own history; COLLEAGUE_WEB=0 / no webglass hides web_survey, an unarmed rig runs the same tools on cortex, and the unset-knob suite is byte-identical to v1.65.1",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "the row-49 artifact shows web_survey/code_survey/review/validate/plan in the offered list, no 'web', a code_survey step with a child artifact whose served model is the associate's; the row-50 artifact shows a web_survey digest with operation_id/evidence_refs or an 'unreachable' digest line; a memory-armed run's distill marker shows reasoning chars at low; COLLEAGUE_WEB=0 hides web_survey only; the unset suite is byte-identical to v1.65.1",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "Five purpose tools, each fixed purpose \u2192 fixed built-in role \u2192 fixed seat: web_survey and code_survey \u2192 scout (associate when armed), review \u2192 reviewer, validate \u2192 validator (read-only + run_tests, roles.py:102), plan \u2192 planner \u2014 all read-only builtins (roles.py:147-197, is_read_only True); reviewer/validator/planner run on cortex at their ROLE_TABLE rungs (low/low/medium, effort.py:73-80) because only scout is an ASSOCIATE_SEATS member; no writer purpose tool exists",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "PURPOSE_ROLE table == {web_survey: scout, code_survey: scout, review: reviewer, validate: validator, plan: planner}; every value is a read-only builtin; each child's rung comes from effort.PURPOSE_TABLE (web_survey/code_survey/review/validate/plan each their own row) passed as the spawn's explicit effort override \u2014 NOT the role's ROLE_TABLE rung; the three cortex roles run on the parent's cortex config, scout on the associate seat only when armed; the kill-switch still yields no fragment",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "each purpose child resolves its rung from its OWN role row \u2014 review=low, validate=low, plan=medium, code_survey/web_survey=off (scout; on the associate seat when armed) \u2014 and NEVER from the parent's cortex rung, the parent's seat override, or the global rung; deepthink stays xhigh and tools-off (unchanged); asserted on the child config's reasoning_effort_seat for every purpose under a parent at medium",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "Purpose-tool class (q2): every READ-ONLY purpose tool is ToolProfile class 'read', NOT in tae_loop.CONSEQUENTIAL_TOOLS and NOT inheritable (q9: children never hold purpose tools; they are offered to cortex + worker only); the child role's tool_allowlist is a read-only builtin so the spawn cannot mutate the tree (roles.is_read_only); the plan purpose returns a plan ARTIFACT as text, never a file write. handover_to_colleague is class 'write', consequential, non-inheritable \u2014 exactly subagent's profile, which it replaces",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "no purpose tool is in CONSEQUENTIAL_TOOLS or _NOT_INHERITABLE; a TAE run treats a purpose call as a non-consequential action; the plan tool's ToolOutcome.result is text (the child's finish) and the child's changed-file set is empty by construction (read-only role)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Purpose child surface exemption (q3): agents/delegation.py's requested_tools \u2286 parent check treats a purpose tool's child surface as FIXED BY THE TOOL \u2014 the child's effective tools = the role allow-list \u2229 the environment (webglass presence for web), independent of the parent's curated surface; the web-scout spec's honesty condition (docs/specs/2026-08-28-web-scout-associate.md:33) is superseded and its pinning test rewritten to the new rule",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "agents/delegation.validate accepts a purpose delegation whose requested_tools (the role allow-list \u2229 environment) exceed the parent's curated surface ONLY for purpose tools; a manual subagent/subagents delegation is still refused on a superset; the web-scout spec honesty line 33 is marked superseded in docs/features/web-scout.md",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "boundary",
+      "text": "Scope-line placement (q5): CLAUDE.md records purpose tools under sanctioned increment (1) \u2014 the deepthink precedent \u2014 in the Web scout bullet + the increment (1) text; the count stays eleven; the excluded router line is unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "CLAUDE.md \u00a7 v1 scope: increment (1) text gains one clause naming purpose tools; the eleven count and the excluded-router sentence are unchanged; docs/features/purpose-tools.md is the pointer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Worktree (q1): every purpose child runs via the unchanged run_subagent path in a sub/<id> worktree (subagents.py:830,1298-1314); the cost is one worktree_add per call under worktrees.py's fcntl lock \u2014 recorded on the tool's report line; no new execution path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "a purpose child runs through run_subagent unchanged (worktree_add on sub/<id>, teardown on every exit path); the parent's tool result line names the child id and its worktree cost is visible on WorkStats (subagent count); no code path in purpose_schemas.py touches worktrees",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "Purpose tools carry NO 'effort' parameter \u2014 the model cannot pick a rung; the rung is c29's PURPOSE_TABLE row passed as the spawn's explicit override. HONEST LIMIT recorded, not fixed here (c29 keeps the manual path byte-identical): a MANUAL subagent/subagents child still resolves seat_override from the parent's seat override (subagents.py:700-722, 896-916), which resolve_effort ranks above the child's ROLE_TABLE row (effort.py:130-132) \u2014 so COLLEAGUE_CORTEX_REASONING_EFFORT=medium leaks into a manual reviewer child; docs/features/thinking-effort.md \u00a7 Honest limits names it; follow-up parked as v5",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "the five purpose schemas have no 'effort' property (schema test); under COLLEAGUE_CORTEX_REASONING_EFFORT=medium a review purpose child's payload carries reasoning_effort=low while a MANUAL subagent role='reviewer' child carries medium \u2014 both asserted side by side, and the feature doc's Honest limits names the manual-path leak with that test as its pointer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "challenge / failure-mode lens: the web budget is PER EXECUTOR \u2014 'each subagent child, which builds its own executor, carries its own independent counter, never the parent's' (webbudget.py:9-10) \u2014 so N web_survey calls \u00d7 COLLEAGUE_WEB_MAX_CALLS(20) is unbounded per work item; the purpose child must draw from ONE work-item-wide web budget: the parent passes its remaining count into the child spec and folds the child's web_calls/web_failed back into its own counters + WorkStats on return (the resume_counts precedent, webbudget.py:118)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "with COLLEAGUE_WEB_MAX_CALLS=5, three web_survey calls whose scouts fetch 2 pages each end with the third scout refused at call 6 (cap message on the child's result AND on the parent's tool result); result.stats.web_calls on the PARENT artifact == 5",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "challenge / failure-mode lens: a purpose child is a full bounded loop; ChildSpec.max_steps already exists (subagents.py:105,682,884) \u2014 each READ-ONLY purpose carries a FIXED max_steps in its table row (proposal: web_survey 12, code_survey 12, review 16, validate 16, plan 10, operator-overridable), and a child that exhausts it returns its partial/forced synthesis as the tool result prefixed '[purpose budget exhausted: N steps]' \u2014 never an empty string, never a raise (the #191/#192 precedent). Per decision c39 the read-only purposes are EXEMPT from MAX_SUBAGENT_FANOUT/TOTAL (only cortex/worker can call them, so no recursion; the parent's own COLLEAGUE_MAX_STEPS bounds the call count, one step per call); handover_to_colleague (writer) still charges depth/total",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "a purpose child hitting its step cap yields a non-empty tool result carrying the '[purpose budget exhausted' marker and the child's INCOMPLETE status on sub_results; the 25th purpose call in one work item returns the agent-budget refusal as a string (no exception on the parent's step trace)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "challenge / security lens: the D2 read-then-fetch channel now crosses the purpose boundary \u2014 cortex (which can read_file secrets) supplies web_survey's urls[]/question, the scout fetches; the run report must show it at the PARENT: the parent's tool result and its run-report web line list every URL the child fetched (from the child's Step.result envelopes, verbatim), and a pre_tool hook deny on web still fires inside the child (the child loop loads the repo hooks: loop.py:4834 load_hooks(task.repo_path)) \u2014 no new policy, the operator's three D2 mitigations keep working through the boundary",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "a web_survey call whose scout fetched two URLs leaves both URLs on the parent's Step.result and on the parent artifact's web report line; a .colleague/hooks.json pre_tool deny on 'web' makes the child's web calls fail and the digest says so \u2014 e2e mock test with a fake webglass",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "challenge / hidden-dependency lens: three effort key shapes now coexist \u2014 seat (COLLEAGUE_<SEAT>_REASONING_EFFORT / reasoning_effort_seats), associate sub-seat (COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT> / reasoning_effort_seats['associate.<seat>'], c8) and purpose (COLLEAGUE_<PURPOSE>_REASONING_EFFORT / reasoning_effort_purposes, c29); every value passes validate_effort (effort.py:99-116), config show / /effort render all three groups, and a purpose-called scout's rung is the PURPOSE row (explicit override) \u2014 ASSOCIATE_SEAT_TABLE.scout applies ONLY to a manual subagent role='scout'; both tables spell scout=off and a test pins that they agree",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "config show on an armed config prints seat, associate.<seat> and purpose rung groups; an invalid value in any of the three refuses at resolve() with the validate_effort message; test asserts PURPOSE_TABLE['code_survey'] == ASSOCIATE_SEAT_TABLE['scout'] == 'off'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "challenge / failure-mode lens: the distill child POSTs max_tokens=_DISTILL_MAX_TOKENS=4096 (distill.py:577,626) and vLLM counts reasoning tokens inside max_tokens; at 'low' the associate produced 17k reasoning chars (~4k+ tokens, #439) before the judgment \u2014 so the lesson JSON would be cut with finish_reason='length' and rung-2 silently yields no lesson; the child's max_tokens rises when a rung is ON (proposal: 4096 \u2192 12288 at low/medium/high, unchanged at off/default) and finish_reason='length' is recorded as its own failure reason in the outcome marker ('reasoning exhausted max_tokens'), never folded into 'no lesson extracted'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h36",
+      "kind": "honesty",
+      "text": "a fake server returning finish_reason='length' with reasoning and no JSON leaves an outcome marker naming 'length'; the POST body at low carries max_tokens \u2265 12288 and at off carries 4096 (unchanged)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "handover_to_colleague(task, optional acceptance[]) \u2014 the sixth purpose tool and the WRITE purpose: runs a writer-role child on the parent's cortex config (same model, the qwen-direct 'spawns ITSELF' rule) in a sub/<id> worktree with the existing merge-on-return (subagents.run_subagent unchanged), rung = ROLE_TABLE writer (medium) via PURPOSE_TABLE, max_steps = the parent's default; it REPLACES raw subagent on cortex/worker (with q10 dropping subagents, neither raw delegation tool is offered there); a writer child still counts against MAX_SUBAGENT_DEPTH/TOTAL (it can mutate and merge) \u2014 the read-only purposes do not; the child's changed files fold into the parent's set exactly as a subagent's do",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h37",
+      "kind": "honesty",
+      "text": "curate_schemas('writer') on cortex offers handover_to_colleague and the five read-only purposes and NEITHER subagent NOR subagents; a handover child's SubResult carries changed_files that reach the parent's handoff; a handover child hitting MAX_SUBAGENT_DEPTH returns the refusal text; test_e2e_mock shows mock and vllm-openai yield the same sub_results shape",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 effort tables: ASSOCIATE_SEAT_TABLE + PURPOSE_TABLE + PURPOSE_STEPS in a NEW module, with env/config overrides for the two new groups",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/efforttables.py defines ASSOCIATE_SEAT_TABLE == {scout: off, compact: off, synthesis: off, digest: off, distill: low}, PURPOSE_TABLE == {web_survey: off, code_survey: off, review: low, validate: low, plan: medium, handover_to_colleague: medium} and PURPOSE_STEPS == {web_survey: 12, code_survey: 12, review: 16, validate: 16, plan: 10, handover_to_colleague: None}; tests/test_effort.py pins every row and the exact key sets",
+        "resolve_reasoning_effort_overrides (or a sibling in the new module) reads COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT> / reasoning_effort_seats['associate.<seat>'] and COLLEAGUE_<PURPOSE>_REASONING_EFFORT / reasoning_effort_purposes[<purpose>], each value through validate_effort (invalid \u2192 the same refusal message); config.json keys round-trip through EngineConfig.resolve",
+        "a precedence test: kill-switch 'default' > explicit override > associate.<seat> override > associate row override > ASSOCIATE_SEAT_TABLE; PURPOSE_TABLE['code_survey'] == ASSOCIATE_SEAT_TABLE['scout'] == 'off' is pinned",
+        "effort.py and config.py net line count unchanged (tests/test_file_length_ratchet.py passes); unset knobs \u2192 every existing resolve path byte-identical (tests/test_effort.py existing cases untouched and green)"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h8",
+        "c16",
+        "h16",
+        "c37"
+      ],
+      "instruction": "Ratchet: effort.py/config.py cannot grow \u2014 put the three tables + the two override readers in NEW colleague/efforttables.py (stdlib only; 'config imports effort, never the reverse' still holds) and wire them with net-zero hunks. Keep SEAT_TABLE/ROLE_TABLE untouched. docs/features/thinking-effort.md rendering is t11's; you only add the tables and pins."
+    },
+    {
+      "id": "t2",
+      "summary": "t2 associate seat builders consume the sub-seat rung",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "associate_engine_config(config, seat=<name>) (or resolve_associate_seat_config) resolves the rung on the associate row with ASSOCIATE_SEAT_TABLE[<seat>] as the table default and the associate.<seat> override above it; scout_child_config passes seat='scout'; make_associate_complete passes its seat name; distill_author carries the resolved 'distill' rung on DistillAuthor (new optional field, default None)",
+        "git diff main -- colleague/associate.py colleague/associate_seats.py contains only effort-resolution hunks; ASSOCIATE_SEATS is still the five-tuple; tests/test_associate_seats.py AST guard + five-tuple pin pass unchanged; new tests assert distill resolves 'low' and scout/compact/synthesis 'off' with nothing set, and 'default' yields None everywhere"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c15",
+        "h15"
+      ],
+      "instruction": "Thread the seat NAME into the existing builders (a keyword with a default so unarmed callers are byte-identical). DistillAuthor gains 'effort: Optional[str] = None' \u2014 t3 consumes it. Do not touch distill.py here."
+    },
+    {
+      "id": "t3",
+      "summary": "t3 distill child: effort plumbing, raised max_tokens when a rung is on, 'length' failure reason",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "make_distill_fn/_build_child_argv pass the author's rung to the detached child (argv --effort or env COLLEAGUE_DISTILL_EFFORT); child_main parses it; _openai_completion sends chat_template_kwargs via effort.to_chat_template_kwargs (absent for None/'default')",
+        "a ladder-400 on the distill POST retries ONCE without chat_template_kwargs and the outcome marker records the warning; max_tokens is 4096 when the rung is off/None and \u2265 12288 for low/medium/high/xhigh; finish_reason='length' with no lesson JSON writes failure reason 'reasoning exhausted max_tokens' (not 'no lesson extracted')",
+        "tests with a fake HTTP server (the existing distill child test harness) cover: body carries the fragment at low; 400 \u2192 retry without it; length \u2192 marker reason; distill.py net line count unchanged (helpers live in NEW colleague/distilleffort.py)"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c9",
+        "h9",
+        "c38",
+        "h36"
+      ],
+      "instruction": "distill.py is ratchet-pinned (803): put fragment/argv/max_tokens/failure-reason helpers in colleague/distilleffort.py and call them with net-zero hunks. Mirror vllm_openai._maybe_retry_ladder_400's rule (one retry, one warning) \u2014 do not import the adapter. The child stays a raw urllib POST (the boundary test's sanctioned list is unchanged)."
+    },
+    {
+      "id": "t4",
+      "summary": "t4 purpose_schemas.py: the six purpose tool schemas, PURPOSE_ROLE, hidden-state rule, brief templates",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/purpose_schemas.py exports PURPOSE_SCHEMAS (six OpenAI function schemas: web_survey{question, urls[]}, code_survey{question, paths[]}, review{diff_ref}, validate{scope}, plan{goal}, handover_to_colleague{task, acceptance[]}), PURPOSE_ROLE == {web_survey: scout, code_survey: scout, review: reviewer, validate: validator, plan: planner, handover_to_colleague: writer}, offered(name, allow) and hidden_names() (web_survey hidden exactly when web_schemas.hidden_names() contains 'web'), and brief_for(name, arguments) rendering a fixed template ('find X, cite operation_id/evidence_refs' for web_survey)",
+        "no schema has an 'effort', 'model', 'engine' or 'role' property (schema test); tools.SCHEMAS is unchanged (pin its names); every PURPOSE_ROLE value satisfies roles.is_read_only except handover_to_colleague (writer)",
+        "unit tests for brief_for per tool (verbatim question/urls/paths land in the brief; untrusted-data sentence present for web_survey)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c24",
+        "h27",
+        "c31",
+        "h31"
+      ],
+      "instruction": "Model on colleague/web_schemas.py + search_schemas.py (offered/hidden_names, dispatch shape). Descriptions: one line each, steer multi-file/multi-page surveys to the tool and single reads to read_file \u2014 no numbers, no prompt section (c12). Do NOT touch tools.py here (t5 splices)."
+    },
+    {
+      "id": "t5",
+      "summary": "t5 surface curation: cortex/worker offer purposes, lose web + subagent + subagents; tool profiles",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "curate_schemas('writer') and the thinker_coder/worker purpose surfaces contain the six purpose schemas and NOT web/subagent/subagents; curate_schemas for scout/explorer/reviewer/validator/planner contain NO purpose schema and still contain web (read-only roles unchanged); byte-identical when purposes are not offered? \u2014 N/A: purposes are always offered to cortex/worker; pin the new offered list as the fixture",
+        "agents/tools.TOOL_PROFILES: five read-only purposes = ToolProfile(class='read', required_approval=False, inheritable=False); handover_to_colleague = class 'write', inheritable=False; tae_loop.CONSEQUENTIAL_TOOLS gains exactly 'handover_to_colleague' (the subagent it replaces) and none of the read-only purposes; assert_purpose_surface still refuses a talker holding handover_to_colleague",
+        "tools.py/roles.py/agents/tools.py hunks are net-zero (ratchet green); tests/test_role_curation.py, test_search_schemas.py, test_deepthink_tool.py fixtures updated deliberately (the diff names each removed/added name)"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c4",
+        "h4",
+        "c5",
+        "h5",
+        "c25",
+        "h23",
+        "h37"
+      ],
+      "instruction": "One splice in tools.curate_schemas (like search_schemas/web_schemas.offered) + one dispatch entry per purpose pointing at purpose_schemas.dispatch(self) (t6 fills the executor). roles._writer_allowlist: drop web/subagent/subagents, add the six purposes; keep _READONLY_TOOLS as is. WORKER_TOOLS: replace subagent/subagents with the six purposes. Update the conftest webglass fixture expectations if a pin references web on cortex."
+    },
+    {
+      "id": "t6",
+      "summary": "t6 purpose executor: spawn with fixed role/rung/max_steps; budget-exhausted marker; arithmetic exemption",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "purpose_schemas.dispatch(executor) handlers call executor._spawn(brief, engine=None, model=None, role=PURPOSE_ROLE[name], effort=PURPOSE_TABLE rung, max_steps=PURPOSE_STEPS[name]) \u2014 a parametrised test asserts role/effort/max_steps per tool and that a parent at reasoning_effort_seats={'cortex':'medium'} yields child rung low for review, off for code_survey",
+        "a child that exhausts max_steps returns a NON-empty tool result prefixed '[purpose budget exhausted: N steps]' with its partial; a read-only purpose call does NOT charge MAX_SUBAGENT_FANOUT/TOTAL (25 sequential code_survey calls all run on mock) while handover_to_colleague does (depth/total refusal text returned as the tool result, no exception)",
+        "the child runs through run_subagent unchanged (sub/<id> worktree created and removed \u2014 e2e mock test); purpose_schemas.py imports no worktrees/subprocess (grep guard); handover_to_colleague's changed_files reach the parent's changed-file set; tests/test_e2e_mock.py shows mock and vllm-openai produce the same sub_results shape"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c3",
+        "h3",
+        "h30",
+        "c28",
+        "h26",
+        "c34",
+        "h33",
+        "c40"
+      ],
+      "instruction": "The spawn callable is already threaded (ToolExecutor._spawn \u2192 subagents.make_spawn); add 'max_steps' to make_spawn's signature \u2192 ChildSpec.max_steps (exists). For the arithmetic exemption add a 'charges_budget: bool' on ChildSpec honoured by _enforce_delegation_bounds/_AgentBudget.charge \u2014 net-zero hunks in subagents.py (pinned 1692): move the exemption logic into purpose_schemas or a tiny new module if needed. Budget-exhausted marker: read the child's TaskResult.status/incompletion; never raise."
+    },
+    {
+      "id": "t7",
+      "summary": "t7 parent-side reporting + one work-item web budget across purpose children",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a purpose child inherits remaining web calls (COLLEAGUE_WEB_MAX_CALLS \u2212 parent.web_calls) and on return its web_calls/web_failed fold into the parent's executor counters; with COLLEAGUE_WEB_MAX_CALLS=5 three web_survey scouts fetching 2 pages each end with call 6 refused and parent result.stats.web_calls == 5",
+        "the parent's Step.result for web_survey ends with a 'urls fetched:' block listing every URL from the child's web steps verbatim, and the parent artifact's web report line (web_schemas.summary_line) includes them; a .colleague/hooks.json pre_tool deny on 'web' fails the child's fetches and the digest says so (e2e mock + fake webglass)"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c33",
+        "h32",
+        "c36",
+        "h34"
+      ],
+      "instruction": "Pass the remaining budget on ChildSpec (new optional field) and read the child's SubResult stats on return; webbudget.py helpers (resume_counts precedent). Keep the child's own cap semantics for manual subagents byte-identical (remaining=None \u2192 today's behaviour)."
+    },
+    {
+      "id": "t8",
+      "summary": "t8 armed-agents \u2286 exemption for purpose delegations",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "agents/delegation.validate accepts a DelegationRequest flagged purpose=<name> whose requested_tools (the role allow-list \u2229 environment) exceed the parent's effective tools; an unflagged request with a superset is still refused \u2014 both asserted side by side",
+        "the web-scout spec honesty line 33 pin (child receives web only when the parent holds it) is rewritten to the new rule, not deleted; docs/features/web-scout.md marks it superseded with a pointer to this spec (doc line edit only \u2014 the full doc pass is t11)"
+      ],
+      "deps": [
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c6",
+        "h6",
+        "c26",
+        "h24"
+      ],
+      "instruction": "Add an optional 'purpose' field to DelegationRequest; subagents' armed path sets it from ChildSpec. Find the existing pin test by grepping tests/ for 'receives' + 'web'."
+    },
+    {
+      "id": "t9",
+      "summary": "t9 compare_arms: purpose steps in delegations + associate_calls",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_count_delegations counts subagent/subagents and the six purpose tools; _count_associate_calls matches a purpose step's served_model to artifact['associate']['served_model']; fixture artifact with one code_survey step + served_model yields delegations=1, associate_calls=1; existing fixtures unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h7"
+      ],
+      "instruction": "Import the purpose names from colleague.purpose_schemas (or a PURPOSE_TOOL_NAMES constant) \u2014 no duplicate list. Also count purpose steps in the web_calls column? No \u2014 web calls stay the CHILD's; t7 folds them."
+    },
+    {
+      "id": "t10",
+      "summary": "t10 delegation prose + config show / /effort render the three rung groups",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "delegation_text.apply_armed_facts splices the armed sentence onto web_survey/code_survey/handover_to_colleague descriptions (and subagent/subagents when present); prompttext.default_system() output is byte-identical to the committed fixture (no new section)",
+        "colleague config show and session /effort print three groups \u2014 seats, associate.<seat>, purposes \u2014 with resolved rungs; an invalid value in any group refuses at resolve() with validate_effort's message (parametrised test per group)"
+      ],
+      "deps": [
+        "t1",
+        "t4"
+      ],
+      "covers": [
+        "c12",
+        "h12",
+        "h35"
+      ],
+      "instruction": "config.py:82 / _session_actions.py:89-104 / harness_cli.py:34 iterate SEAT_TABLE today \u2014 iterate efforttables too. Keep --json shapes additive (new keys only)."
+    },
+    {
+      "id": "t11",
+      "summary": "t11 docs: purpose-tools.md feature doc, thinking-effort tables, web-scout q3 superseded, adopt doc scout=off, CLAUDE.md increment (1) clause",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/purpose-tools.md exists (what/before-after/audience by ROLE/why with rows 45/47/48 + direct-seat numbers quoted with dates and artifact ids/what shipped/knobs/honest limits incl. the manual-child rung leak v5, webtrust v6, flight v7, batch v2); CLAUDE.md: Web scout bullet + increment (1) gain one clause each, the count stays eleven (grep 'twelve' \u2192 none); docs/features/thinking-effort.md renders ASSOCIATE_SEAT_TABLE + PURPOSE_TABLE once (tests/test_thinking_effort_docs.py green); adopt-from-qwen-code.md says ROLE_TABLE['scout'] = 'off'; web-scout.md q3 marked superseded; markdownlint-cli2 clean"
+      ],
+      "deps": [
+        "t10",
+        "t8",
+        "t3"
+      ],
+      "covers": [
+        "c14",
+        "h14",
+        "c17",
+        "h17",
+        "c27",
+        "h25",
+        "c20",
+        "h18",
+        "c21",
+        "h19",
+        "c22",
+        "h20"
+      ],
+      "instruction": "Follow the feature-doc shape of docs/features/web-scout.md. Cite line numbers; never restate numbers from memory \u2014 copy from docs/live-testing.md. Reference #446 for thinking continuity (out of scope)."
+    },
+    {
+      "id": "t12",
+      "summary": "t12 pre-register live rows 49/50 + briefs BEFORE any run",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/live-testing.md rows 49 and 50 exist with brief pointer, repo ('throwaway repo WITH an .eidetic store, eidetic CLI <version>'), pass bar (49: purpose calls \u2265 1 on \u2265 2/3 runs, turns \u2264 1.0\u00d7, wall \u2264 1.2\u00d7 vs main @ e589451 RE-RUN n=3; 50: scout served model = associate's, evidence ids in the final answer, zero run_command steps outside the repo) and 'result: pending'; docs/live-testing/briefs/row49-purpose.md (the row-48 brief verbatim) + row50-web-purpose.md; both name the memory distill counters to record"
+      ],
+      "deps": [],
+      "covers": [
+        "c11",
+        "h11"
+      ],
+      "instruction": "Copy the row-47/48 pre-registration shape exactly. Do this in wave 1 so the bar is committed before any code exists."
+    },
+    {
+      "id": "t13",
+      "summary": "t13 guards + byte-identical suite + all-engines e2e",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_purpose_tools_boundary.py: AST guards in tests/test_thinking_effort_boundary.py and tests/test_associate_seats.py list purpose_schemas.py/efforttables.py/distilleffort.py with a stated reason and pass; no per-turn path assigns effort; purpose_schemas imports no worktrees/subprocess",
+        "unarmed byte-identical suite: with no associate, COLLEAGUE_WEB=0/no webglass, no effort knobs \u2014 payload keys, prompt text, step trace vs the e589451 fixtures are identical EXCEPT the recorded offered-tool list change on cortex (web/subagent/subagents \u2192 purposes), which the test names explicitly; tests/test_e2e_mock.py all-engines shape check covers a purpose step"
+      ],
+      "deps": [
+        "t7",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "h1",
+        "c1"
+      ],
+      "instruction": "Reuse tests/test_all_engines_batch.py fixtures; the 'byte-identical' claim is honest only with the cortex surface change carved out and asserted \u2014 say so in the test docstring."
+    },
+    {
+      "id": "t14",
+      "summary": "t14 live proof: baseline re-run + rows 49/50 + compare_arms",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "main @ e589451 re-run n=3 on the row-48 brief (artifact ids recorded); branch n=3 with purposes offered + associate armed in an .eidetic-armed repo; row 49 filled from scripts/compare_arms.py --bar-wall 1.2 --bar-turns 1.0 (delegations column = purpose calls); row 50 filled (served model, evidence ids, run_command steps outside the repo = 0, memory distill counters, distill child rung/reasoning chars); a miss is written as a miss"
+      ],
+      "deps": [
+        "t11",
+        "t12",
+        "t13"
+      ],
+      "covers": [
+        "c13",
+        "h13",
+        "c23",
+        "h21"
+      ],
+      "instruction": "Run from the operator's login shell (Brave key; DNS). Detach via setsid, never run_in_background. GPU serializes: baseline first, then branch. Record wall vs turns per column (c35)."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "v2 purpose tools are NOT in toolbatch.CONCURRENCY_SAFE_TOOLS; parallel purpose calls from one turn serialize on the main thread \u2014 cost unmeasured until row 49; if it dominates wall, a follow-up measures batch-safe purpose calls (nested worktree_add under the pool)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "v6 resident webtrust: whether the per-turn confirmation gate fires on the web_survey purpose call or only on the child's raw web call is undecided \u2014 t7 must not silently choose; default: gate at the purpose call (the operator-visible boundary) and record it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "v7 flight reach: 'flight stop' on the parent may not reach a running purpose child (own task id / flight file) \u2014 t6 verifies with a mock child and records the finding in the feature doc (t11); if it does not reach, the parent's stop waits for the child's step cap",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "c35 wall vs turns can diverge under purpose tools (each call = a serial child run on a serializing GPU); row 49 is reported per column and a turns-pass/wall-miss is a MISS \u2014 the arc must not average it away",
+      "kind": "unknown_nonblocking",
+      "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "ratchet friction: tools.py (1508), subagents.py (1692), distill.py (803), effort.py (280), config.py are line-pinned \u2014 every wired task must land net-zero hunks or move logic into its new module; a baseline bump is a recorded deviation, never silent",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "the row-48 brief may not trigger purpose calls at all (row 48: 0 delegations on both arms with subagent offered); purpose tools lower the ask's cost but nothing forces them \u2014 a 0-call row 49 is a MISS and evidence for #435, not a bug to fix mid-arc",
+      "kind": "unknown_nonblocking",
+      "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}
