@@ -49,7 +49,7 @@ def test_rows_49_and_50_exist_and_are_pending():
         assert "BEFORE any run" in last, f"row {n} must state it was written before any run"
         assert (
             "result: pending" in last
-        ), f"row {n} must end the pre-registration at 'result: pending'"
+        ), f"row {n} must carry the pre-registration 'result: pending' (a filled row keeps it before its '→ RUN' record)"
 
 
 def test_row_49_shape():
