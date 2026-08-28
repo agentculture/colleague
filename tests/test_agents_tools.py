@@ -123,6 +123,62 @@ def test_digest_is_sorted_stable_and_order_insensitive() -> None:
     assert tool_surface_digest(WORKER_TOOLS) != tool_surface_digest(THINKER_CODER_TOOLS)
 
 
+def test_web_profile_is_read_no_approval_inheritable() -> None:
+    """t4: 'web' classifies exactly like every other pure-read tool — no code
+    branch singles it out, it falls straight out of ``_classify``'s default."""
+    assert TOOL_PROFILES["web"] == ToolProfile(
+        "web", "read", required_approval=False, inheritable=True
+    )
+    assert profile_for("web").tool_class == "read"
+
+
+def test_assert_purpose_surface_still_refuses_talker_write_capable() -> None:
+    # A write-capable class ('write', 'external', 'destructive') still refuses
+    # for the talker even with 'web' (a 'read' class) newly in the mix.
+    with pytest.raises(ValueError):
+        agent_tools.assert_purpose_surface("talker", {"web", "write_file"})
+    with pytest.raises(ValueError):
+        agent_tools.assert_purpose_surface("talker", {"web", "devague"})
+    # 'web' alone is read-only — never refused for the talker.
+    agent_tools.assert_purpose_surface("talker", {"web"})
+    # Every other purpose passes through unchanged, 'web' included.
+    agent_tools.assert_purpose_surface("worker", {"web", "write_file"})
+
+
+def test_scout_bound_child_gets_web_only_when_parent_surface_has_it() -> None:
+    """A scout-bound child's effective surface is the intersection with the
+    PARENT's own surface (t4, c12/h10) — 'web' never appears in the child's
+    tools unless the parent's surface already carried it, mirroring the
+    ⊆-by-construction guarantee ``effective_tools`` already provides."""
+    scout_tools = frozenset(roles.BUILTIN_ROLES["scout"].tool_allowlist)
+    assert "web" in scout_tools  # scout's own curated surface offers it
+
+    # Parent surface WITHOUT 'web' -> child effective tools exclude it.
+    parent_without_web = scout_tools - {"web"}
+    child = effective_tools(
+        available=parent_without_web,
+        model_supported=scout_tools,
+        purpose_tools=scout_tools,
+        policy_tools=scout_tools,
+        env_tools=scout_tools,
+        approved_tools=scout_tools,
+    )
+    assert "web" not in child
+    assert set(child) <= parent_without_web
+
+    # Parent surface WITH 'web' -> child may get it (still an intersection).
+    child_with_web = effective_tools(
+        available=scout_tools,
+        model_supported=scout_tools,
+        purpose_tools=scout_tools,
+        policy_tools=scout_tools,
+        env_tools=scout_tools,
+        approved_tools=scout_tools,
+    )
+    assert "web" in child_with_web
+    assert set(child_with_web) <= scout_tools
+
+
 def test_module_is_pure() -> None:
     src = open(agent_tools.__file__, encoding="utf-8").read()
     for banned in (

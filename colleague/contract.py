@@ -260,6 +260,10 @@ class WorkStats:
     answer_chars / answer_bytes:
         Length of all ``message.content`` text generated (the final answer), in
         Unicode chars and UTF-8 bytes.
+    web_calls / web_failed:
+        The web-call budget (colleague/webbudget.py, plan t9): total ``web``
+        tool calls this work item made, and how many of those failed. Old
+        artifacts (pre-t9) load with both at 0.
     """
 
     request: str = ""
@@ -276,6 +280,8 @@ class WorkStats:
     reasoning_bytes: int = 0
     answer_chars: int = 0
     answer_bytes: int = 0
+    web_calls: int = 0  # t9: web-call budget — colleague/webbudget.py
+    web_failed: int = 0
     counts: dict[str, int] = field(default_factory=dict)
 
     def add_generated(self, *, reasoning: str = "", answer: str = "") -> None:
@@ -306,6 +312,8 @@ class WorkStats:
             "reasoning_bytes": self.reasoning_bytes,
             "answer_chars": self.answer_chars,
             "answer_bytes": self.answer_bytes,
+            "web_calls": self.web_calls,
+            "web_failed": self.web_failed,
         }
         if self.counts:  # t20: omit-when-zero keeps the pre-arc 14-key shape
             data["counts"] = {k: int(v) for k, v in self.counts.items()}
@@ -328,6 +336,8 @@ class WorkStats:
             reasoning_bytes=int(data.get("reasoning_bytes", 0)),
             answer_chars=int(data.get("answer_chars", 0)),
             answer_bytes=int(data.get("answer_bytes", 0)),
+            web_calls=int(data.get("web_calls", 0)),
+            web_failed=int(data.get("web_failed", 0)),
             counts={str(k): int(v) for k, v in (data.get("counts") or {}).items()},
         )
 

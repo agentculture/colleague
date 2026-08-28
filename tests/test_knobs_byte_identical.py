@@ -60,6 +60,14 @@ OFF_ENV: "dict[str, str | None]" = {
     "COLLEAGUE_PRIOR_READ": "0",
 }
 
+#: Not one of the eleven reversibility knobs — the ``web`` tool (plan t3) is
+#: additionally hidden whenever ``webglass`` is absent from PATH, so a bare
+#: off-state comparison would be nondeterministic across machines that do
+#: (or don't) have it installed. Forcing this knob off, like
+#: ``COLLEAGUE_TOOLS_LEGACY`` above, keeps the captured schema surface
+#: matching the pre-``web`` fixture regardless of the running machine's PATH.
+_WEB_OFF_ENV = {"COLLEAGUE_WEB": "0"}
+
 #: Not one of the eleven reversibility knobs — an unrelated, pre-existing
 #: streaming feature (#393). Set so the vllm scenario's blocking-JSON fake
 #: rig (no SSE support) matches how the fixtures were recorded.
@@ -73,6 +81,8 @@ def _apply_off_knobs(monkeypatch: pytest.MonkeyPatch) -> None:
         else:
             monkeypatch.setenv(key, value)
     for key, value in _SCENARIO_ENV.items():
+        monkeypatch.setenv(key, value)
+    for key, value in _WEB_OFF_ENV.items():
         monkeypatch.setenv(key, value)
     _resync_loop_default_system(monkeypatch)
 

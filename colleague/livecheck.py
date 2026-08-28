@@ -10,13 +10,16 @@ This module owns the logic; the CLI verb in
 from __future__ import annotations
 
 import io
+import json
 import os
 import queue
+import shutil
 import statistics
 import struct
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import wave
@@ -49,14 +52,8 @@ def probe_endpoint(repo: str | Path) -> dict[str, Any]:
     """Probe the configured endpoint for reachability.
 
     Reuses :func:`colleague.config.EngineConfig.resolve` and the same
-    urllib-based reachability check as
-    :mod:`colleague.oilcheck.reachability`.
-
-    Returns a dict with keys:
-
-    - ``endpoint`` (str) — the resolved base_url
-    - ``reachable`` (bool)
-    - ``reason`` (str | None) — error detail when not reachable
+    urllib-based check as :mod:`colleague.oilcheck.reachability`. Returns
+    ``{"endpoint": str, "reachable": bool, "reason": str | None}``.
     """
     repo_path = str(repo)
     config = EngineConfig.resolve(repo_path=repo_path)
@@ -109,10 +106,9 @@ def select_proofs(repo: str | Path) -> list[dict[str, str]]:
     return results
 
 
-# Per-proof timeout default (seconds). A full live drive routinely exceeds two
-# minutes per turn-sequence on the reference 27B (one slow model turn alone can
-# take the work loop's whole 120s COLLEAGUE_TIMEOUT window), so the cap must be
-# rig-realistic; override with COLLEAGUE_LIVECHECK_TIMEOUT (#266).
+# Per-proof timeout default (seconds): a live drive routinely exceeds two
+# minutes/turn-sequence on the reference 27B, so the cap must be rig-realistic;
+# override with COLLEAGUE_LIVECHECK_TIMEOUT (#266).
 _DEFAULT_PROOF_TIMEOUT = 600.0
 _PROOF_TIMEOUT_ENV = "COLLEAGUE_LIVECHECK_TIMEOUT"
 
@@ -189,24 +185,77 @@ def run_proofs(
     return results
 
 
-# ---------------------------------------------------------------------------
-# Media live proofs (plan task t13): image end-to-end + audio honest-skip.
-#
-# Unlike the pytest-file proofs above (subprocess to a *separate* gated test
-# file), these two checks drive one real ``engine.work()`` call directly —
-# the same seam ``tests/test_vllm_live.py`` uses (``VllmOpenAIEngine().work``)
-# — because each needs a runtime-generated fixture attachment rather than a
-# pre-existing test file. The classification logic below is pure (no I/O) so
-# it is unit-testable against simulated ``TaskResult`` payloads with no live
-# rig required; only ``run_media_image_check``/``run_media_audio_check``
-# touch the network, and both degrade to "skipped" — never a traceback — when
-# the endpoint is unreachable or the live call itself errors.
-# ---------------------------------------------------------------------------
+_WEBGLASS_TIMEOUT = 10.0  # t6 acceptance: "within 10 s"
+_DEADLINE_SKIP = "skipped: probe deadline"  # Qodo #11: the shared-deadline sessions marker
 
-# Live rig fact (probed 2026-07-02, see docs/live-testing.md): the reference
-# endpoint accepts an ``input_audio`` content part with a 200 OK response but
-# contributes ~0 prompt tokens for it — a SILENT DROP, not a rejection. Named
-# here so both the classifier and the CLI/docs procedure state the same reason.
+
+def _webglass_session_count(data: object) -> int | None:
+    """Session count from ``session list --json``: real shape (probed
+    2026-08-28) is ``content.trusted.sessions``; also accepts a bare list or
+    a top-level ``sessions`` key, so an older/future shape degrades, never
+    crashes.
+    """
+    if isinstance(data, list):
+        return len(data)
+    if not isinstance(data, dict):
+        return None
+    content = data.get("content") if isinstance(data.get("content"), dict) else {}
+    trusted = content.get("trusted") if isinstance(content.get("trusted"), dict) else {}
+    for candidate in (trusted.get("sessions"), data.get("sessions")):
+        if isinstance(candidate, list):
+            return len(candidate)
+    return None
+
+
+def webglass_status(timeout: float = _WEBGLASS_TIMEOUT) -> dict:
+    """``webglass doctor`` + ``session list --json``; never raises.
+
+    Lives here (not ``oilcheck``) since it shells out. Returns ``{present,
+    healthy, detail, sessions}``. Qodo #11: the two probes share ONE
+    *timeout*-second deadline rather than each getting the full budget; the
+    session probe is skipped (``sessions`` = :data:`_DEADLINE_SKIP`) once
+    that shared clock is spent.
+    """
+    binary = shutil.which("webglass")
+    if not binary:
+        return {"present": False, "healthy": False, "detail": "not on PATH", "sessions": None}
+    deadline = time.monotonic() + timeout
+    try:
+        proc = subprocess.run(  # noqa: S603 - operator-installed webglass CLI
+            [binary, "doctor"], capture_output=True, text=True, timeout=timeout
+        )
+        healthy = proc.returncode == 0
+        out = (proc.stdout if healthy else (proc.stderr or proc.stdout)).strip().splitlines()
+        fallback = out[-1] if out else "exit %d" % proc.returncode
+        detail = "webglass doctor exited 0" if healthy else fallback
+    except subprocess.TimeoutExpired:
+        healthy, detail = False, f"webglass doctor timed out after {timeout:g}s"
+    except Exception as exc:  # noqa: BLE001 - a probe must never take doctor down
+        healthy, detail = False, str(exc)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return {"present": True, "healthy": healthy, "detail": detail, "sessions": _DEADLINE_SKIP}
+    sessions = None
+    try:
+        proc = subprocess.run(  # noqa: S603 - operator-installed webglass CLI
+            [binary, "session", "list", "--json"], capture_output=True, text=True, timeout=remaining
+        )
+        data = json.loads(proc.stdout) if proc.returncode == 0 else None
+        sessions = _webglass_session_count(data)
+    except Exception:  # noqa: BLE001 - nosec B110 - a probe must never take doctor down
+        sessions = None
+    return {"present": True, "healthy": healthy, "detail": detail, "sessions": sessions}
+
+
+# Media live proofs (plan task t13): image end-to-end + audio honest-skip.
+# Unlike the pytest-file proofs above, these drive one real ``engine.work()``
+# call directly (the ``tests/test_vllm_live.py`` seam, runtime-generated
+# fixture attachment); classification is pure/unit-testable, only the two
+# run_* callers touch the network and degrade to "skipped", never a traceback.
+
+# Live rig fact (probed 2026-07-02, docs/live-testing.md): the reference
+# endpoint accepts ``input_audio`` with a 200 OK but ~0 prompt tokens — a
+# SILENT DROP, not a rejection. Named here so the classifier + CLI/docs agree.
 _AUDIO_DROP_REASON = (
     "rig silently drops input_audio (200 OK, ~0 prompt tokens contributed "
     "— see docs/live-testing.md)"
@@ -321,10 +370,9 @@ def classify_media_audio_check(media_record: dict[str, Any] | None, answer: str)
 
 
 # lobes-cli#89 (0.38.0 — colleague#292/291 S1): stt/tts readiness is now
-# LIVE-PROBED via the gateway's realtime bridge (see colleague/lobes.py's
-# ready_kind + colleague/voice.py's bounded 503+Retry-After warming retry).
-# The round-trip proof checks readiness FIRST: a genuinely down/unready role
-# SKIPs honestly, naming the rig state — never the old bare-"502" workaround.
+# LIVE-PROBED via the gateway's realtime bridge (lobes.py ready_kind +
+# voice.py's bounded 503+Retry-After retry); the round-trip proof checks
+# readiness FIRST, SKIPping honestly, never the old bare-"502" workaround.
 _VOICE_LANE_NOT_READY_REASON = (
     "gateway reports the role not ready (live-probed via the realtime bridge, "
     "lobes-cli#89) — graded from evidence, never a fabricated pass"
@@ -464,16 +512,13 @@ def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
     """Grade an stt/tts voice-lane live proof (t10) from its recorded outcome.
 
     Since lobes-cli#89 (0.38.0), stt/tts ``ready`` is LIVE-PROBED via the
-    gateway's realtime bridge — a warming backend answers 503+Retry-After
-    (``colleague/voice.py`` bounds one retry on that), never a bare 502. The
-    round-trip proof now checks readiness FIRST, so ``outcome`` is ``"ok"``
-    (a verbatim transcript / a written wav — possibly after one bounded
-    warming retry), ``"not_ready"`` (the live readiness probe itself reports
-    the role down/unready — the ONLY case this SKIPs on, honestly naming the
-    rig state), or any other string (an unexpected failure). Because
-    ``ready`` is now live-probe-backed, a round-trip that still fails despite
-    a ready report is a genuine regression and FAILs — never silently
-    SKIPped the way the old bare-502 workaround used to.
+    gateway's realtime bridge (a warming backend answers 503+Retry-After,
+    never a bare 502 — ``colleague/voice.py`` bounds one retry on that). The
+    round-trip proof checks readiness FIRST: ``outcome`` is ``"ok"`` (a
+    transcript/wav, possibly after one warming retry), ``"not_ready"`` (the
+    readiness probe reports the role down — the ONLY SKIP case, honestly
+    naming the rig state), or anything else (a genuine FAIL — no longer
+    silently SKIPped the way the old bare-502 workaround did).
     """
     if outcome == "ok":
         return "passed", f"{kind} lane round-tripped audio through the gateway"
@@ -483,15 +528,12 @@ def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Presence-beat narration proof (presence-default-everywhere arc, task t12,
-# decision c17): does a rendered ack/update/reply beat actually produce a
-# companion .wav? Grades from the SAME evidence discipline as the media/voice
-# checks above — never a fabricated pass. Reuses colleague.voice.synthesize's
-# own degrade-never-raise contract (a 502/no-audio body writes no file), so
-# "no wav landed" and "the rig's tts proxy is down" are indistinguishable from
-# here — exactly the honest limit classify_media_audio_check already
-# documents for the sibling audio-drop case, and it flips to a real pass the
-# day the rig actually serves audio.
+# Presence-beat narration proof (presence-default-everywhere arc, t12, c17):
+# does a rendered ack/update/reply beat produce a companion .wav? Same
+# evidence discipline as the media/voice checks — never a fabricated pass.
+# Reuses ``colleague.voice.synthesize``'s degrade-never-raise contract (a
+# 502/no-audio body writes no file), so "no wav" and "tts proxy down" are
+# indistinguishable here (same honest limit as the audio-drop case above).
 # ---------------------------------------------------------------------------
 
 
@@ -516,13 +558,11 @@ def classify_presence_narration_check(narrated: bool) -> tuple[str, str]:
 def run_presence_narration_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
     """Live proof (t12): wire a rendered presence beat through to a real wav.
 
-    Resolves the repo's ``VoiceConfig`` (``config.voice``, optionally
-    overridden with an explicit ``model`` as the tts model) and, when a
-    ``tts_model`` is present, drives one
-    :func:`colleague.voice.build_presence_narrator` call with a short
-    presence-beat line into a throwaway directory. SKIPs honestly — never a
-    fabricated pass — when voice isn't configured at all, or when the
-    synthesis degrades (the reference rig's tts proxy currently 502s; see
+    Resolves ``config.voice`` (optionally overridden with an explicit
+    ``model`` as the tts model) and, when a ``tts_model`` is present, drives
+    one :func:`colleague.voice.build_presence_narrator` call with a short
+    presence-beat line into a throwaway directory. SKIPs honestly when voice
+    isn't configured, or synthesis degrades (see
     :func:`classify_presence_narration_check`).
     """
     from colleague.attribution import acting_seat_label
@@ -551,11 +591,10 @@ def run_presence_narration_check(repo: str | Path, *, model: str | None = None) 
 
 
 # ---------------------------------------------------------------------------
-# Talking-to-one middle-manager proof (task t9): every announcement beat —
-# ack → dispatch → grounded update → conversational answer — graded from the
-# recorded evidence alone (the session transcript + TaskResult.senses), plus
-# the front-latency measurement. Pure classifiers (unit-testable, no I/O);
-# the live drive lives in tests/test_vllm_live_talking_to_one.py (gated).
+# Talking-to-one middle-manager proof (t9): every announcement beat — ack →
+# dispatch → grounded update → conversational answer — graded from recorded
+# evidence alone, plus front-latency. Pure classifiers; the live drive lives
+# in tests/test_vllm_live_talking_to_one.py (gated).
 # ---------------------------------------------------------------------------
 
 
@@ -587,19 +626,14 @@ def classify_streaming_check(
 ) -> tuple[str, str]:
     """Grade the token-streaming proof (feels-alive arc, spec c10/h13).
 
-    With a delta sink armed, the FIRST visible model output must arrive within
-    ``first_target`` seconds of the completion starting — or at worst inside
-    the first half of the turn — instead of only at full-turn latency (the
-    pre-arc baseline: a 13.62s turn whose longest silent gap was 4.43s,
-    measured 2026-07-10). Graded from wall-clock evidence, never estimates:
-
-    - an ``error`` (unreachable rig, live-call failure) SKIPs honestly — a
-      fabricated pass is a test failure;
-    - zero deltas from an ARMED stream is a FAIL (streaming never engaged);
-    - a single delta is a FAIL (one terminal burst is not a stream — that is
-      exactly the silence this feature removes);
-    - otherwise PASS iff the first delta beat ``first_target`` seconds or half
-      the turn, else FAIL naming the numbers.
+    With a delta sink armed, the FIRST visible model output must arrive
+    within ``first_target`` seconds (or at worst half the turn) instead of
+    only at full-turn latency (pre-arc baseline: a 13.62s turn, longest
+    silent gap 4.43s, measured 2026-07-10). Graded from wall-clock evidence:
+    an ``error`` SKIPs honestly; zero deltas from an ARMED stream FAILs
+    (never engaged); a single delta FAILs (one terminal burst, not a
+    stream); else PASS iff the first delta beat the target, else FAIL
+    naming the numbers.
     """
     if error:
         return "skipped", f"no streaming measurement: {error}"
@@ -761,10 +795,8 @@ def _run_media_check(
     return ProofResult(file=name, status=status, detail=detail)
 
 
-# Gating condition (see docs/live-testing.md's media-proof ledger entry): the
-# image proof needs a live, media-capable serving path — pass model= (or set
-# COLLEAGUE_MODEL) to target whichever configured model actually accepts
-# image input; no colleague code special-cases a specific model (t14 rule).
+# Gating (docs/live-testing.md media-proof ledger): pass model= (or set
+# COLLEAGUE_MODEL) to target a media-capable model; no special-casing (t14).
 def run_media_image_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
     """Live proof (t13): a real solid-red PNG through the ``--attach`` engine seam.
 
@@ -869,16 +901,13 @@ def classify_cortex_senses_check(
 ) -> tuple[str, str]:
     """Grade the cortex-only vs split comparison from artifact EVIDENCE (t13).
 
-    Asserts ONLY runtime facts — NEVER a quality score (the two summaries are
-    never compared for "better"). PASSES when the split run recorded
-    ``mode=split`` AND preserved the operator's original request VERBATIM across
-    the cortex/senses boundary; the returned detail emits the per-mode wall-clock
-    (``stats.duration_seconds``) and the senses runtime (each record's
-    ``point=latency``/``tokens``, via :func:`_senses_record_runtime`) side by
-    side, which is the measurable-against-cortex-only deliverable. A split
-    artifact missing the block, or whose packet dropped the verbatim original,
-    FAILS (a real regression); the runner SKIPs before this when the stack is
-    not serving.
+    Asserts ONLY runtime facts — NEVER a quality score (never "better"summaries).
+    PASSES when the split run recorded ``mode=split`` AND preserved the
+    operator's original request VERBATIM across the cortex/senses boundary;
+    detail emits the per-mode wall-clock + senses runtime (via
+    :func:`_senses_record_runtime`) side by side — the measurable deliverable.
+    A split artifact missing the block, or whose packet dropped the verbatim
+    original, FAILS; the runner SKIPs before this when the stack isn't serving.
     """
     split = split_artifact or {}
     senses = split.get("senses")
@@ -905,14 +934,12 @@ def run_cortex_senses_check(repo: str | Path, *, model: str | None = None) -> Pr
     """Live proof (t13): run the SAME task cortex-only and split, side by side.
 
     Drives ``VllmOpenAIEngine().work()`` twice against the live rig — once
-    cortex-only (``config.senses`` nulled) and once split (senses intake →
-    ContextPacket on the task → the loop records mode=split; then speak-back +
-    intake/speak-back records folded in, mirroring the session/resident path) —
-    and grades the two artifacts via :func:`classify_cortex_senses_check`.
+    cortex-only (``config.senses`` nulled), once split (senses intake →
+    ContextPacket → the loop records mode=split, speak-back folded in) —
+    graded via :func:`classify_cortex_senses_check`.
 
-    SKIPs honestly (never fails, never fabricates a pass) when the endpoint is
-    unreachable OR the rebalanced cortex+senses stack is not serving
-    (:func:`probe_lobes_stack`) OR the live calls error — the exact
+    SKIPs honestly when the endpoint is unreachable OR the stack isn't
+    serving (:func:`probe_lobes_stack`) OR a live call errors — the same
     degrade-to-skipped contract the media proofs use.
     """
     reachable, reason = _reachable(repo)
@@ -983,12 +1010,10 @@ def run_cortex_senses_check(repo: str | Path, *, model: str | None = None) -> Pr
 
 
 # ---------------------------------------------------------------------------
-# Per-front presence classifiers (presence-default-everywhere, task t14): each
-# front's full middle-manager beat sequence — ack → grounded update/reply →
-# (optional) guidance relay — graded from the SHARED SensesBlock (t3) + that
-# front's own rendered lines, machine-checkable, no human judgment. The SAME
-# beats are graded on every front (h6 / c4 / c15): a front missing a beat FAILS
-# its check; a front the rig could not exercise SKIPs (never a fabricated pass).
+# Per-front presence classifiers (presence-default-everywhere, t14): each
+# front's ack → grounded update/reply → (optional) guidance relay beat
+# sequence, graded from the SHARED SensesBlock (t3) + its own rendered lines
+# (h6/c4/c15): a missing beat FAILS; an unexercised front SKIPs (never fakes).
 # ---------------------------------------------------------------------------
 
 #: The fronts the presence lane serves. Each grades the SAME SensesBlock shape
@@ -1102,12 +1127,10 @@ def classify_work_presence_check(senses, stderr_lines):  # noqa: ANN001
 
 
 # ---------------------------------------------------------------------------
-# "One teammate" proof (talking-to-one-teammate arc, task t8): a non-repo
-# turn ("hi" / "what are you?") must be answered by senses DIRECTLY, with NO
-# cortex work item spawned — the exact pain the front door removes (a bare
-# greeting used to cost a git branch + an eidetic remember). Pure classifier
-# (unit-testable, no I/O); the live drive lives wherever the front door is
-# wired (when armed) and passes its recorded evidence in here.
+# "One teammate" proof (talking-to-one-teammate arc, t8): a non-repo turn
+# ("hi" / "what are you?") must be answered by senses DIRECTLY, no cortex work
+# item spawned — the pain the front door removes. Pure classifier; the live
+# drive lives wherever the front door is wired and passes evidence in here.
 # ---------------------------------------------------------------------------
 
 
@@ -1275,14 +1298,13 @@ def classify_at_home_check(leg: str, **evidence: object) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Realtime session live proof (realtime-speech arc, task t7, spec c12/h9):
-# does the ears-only realtime lane (colleague/realtime.py, tasks t1-t4) dial,
-# authenticate, and get the server genuinely talking back? Graded from the
-# SAME evidence discipline as every check above — never a fabricated pass.
-# The PASS bar is deliberately a SESSION + EVENT handshake, not a transcript
-# round-trip: an honest transcript needs real spoken audio, which this proof
-# cannot honestly synthesize (see :func:`classify_realtime_check`'s docstring
-# for exactly what a PASS proves and does not prove).
+# Realtime session live proof (realtime-speech arc, t7, spec c12/h9): does
+# the ears-only realtime lane (colleague/realtime.py, t1-t4) dial, auth, and
+# get the server genuinely talking back? Same evidence discipline as every
+# check above. The PASS bar is a SESSION + EVENT handshake, not a transcript
+# round-trip (an honest transcript needs real spoken audio this proof cannot
+# synthesize — see :func:`classify_realtime_check`'s docstring for the exact
+# proof/non-proof boundary).
 # ---------------------------------------------------------------------------
 
 #: How long run_realtime_check waits for at least one server event after
@@ -1310,30 +1332,21 @@ def classify_realtime_check(
 ) -> tuple[str, str]:
     """Grade the realtime session-handshake proof (t7) from evidence alone.
 
-    The PASS bar is deliberately a SESSION + EVENT handshake — a real dial
-    that opens (the 101 upgrade plus an accepted ``session.update``) AND at
-    least one server event received within a bounded timeout (a session
-    lifecycle, VAD, or transcription event — any real event on the wire
-    counts). This is REAL evidence the lane is live, not merely "no
-    exception was raised while opening a socket that then sits silent".
+    PASS bar: a SESSION + EVENT handshake — the dial opens (101 upgrade +
+    accepted ``session.update``) AND at least one server event (lifecycle/
+    VAD/transcription — any counts) arrives within a bounded timeout. Real
+    evidence the lane is live, not just "no exception opening a silent socket".
 
-    What a PASS here proves: the realtime lane dials, authenticates, and the
-    server is genuinely talking back over the wire end-to-end.
+    Proves: the lane dials, authenticates, and the server talks back
+    end-to-end. Does NOT prove a transcript round-trip — this sends a
+    silence burst (:func:`_silence_burst_pcm16`), which a genuine VAD/ASR may
+    never transcribe; a real microphone transcript is task t9's live-rig
+    proof (docs/live-testing.md), not this one.
 
-    What a PASS here does NOT prove: a speech-to-text TRANSCRIPT round-trip.
-    Producing an honest transcript needs real spoken audio; this proof sends
-    a silence burst (:func:`_silence_burst_pcm16`), which a genuine VAD/ASR
-    pipeline may legitimately never transcribe. This check never claims a
-    transcript was produced — only that the session+event wire is live. A
-    real microphone transcript round-trip is task t9's live-rig proof
-    (docs/live-testing.md), not this one.
-
-    SKIPs (never a fabricated pass) when *opened* is ``False``, naming
-    *reason* — the extra/config/rig-lane absence :func:`run_realtime_check`
-    already diagnosed before ever reaching this grade. FAILs when the session
-    opened but produced ZERO server events within the bounded timeout — a
-    real regression (the wire is silent, not merely quiet, once a dial
-    genuinely succeeded). PASSes only when both hold.
+    SKIPs (never fakes) when *opened* is ``False``, naming *reason* — the
+    extra/config/rig-lane absence :func:`run_realtime_check` already
+    diagnosed. FAILs when opened but ZERO server events arrived (a real
+    regression). PASSes only when both hold.
     """
     if not opened:
         return "skipped", reason or "realtime session did not open — nothing to grade"
@@ -1363,32 +1376,21 @@ def run_realtime_check(
 ) -> ProofResult:
     """Live proof (t7): open the ears-only realtime session end-to-end.
 
-    Resolves the repo's :class:`~colleague.config.RealtimeConfig`
-    (``config.realtime``) and, when available, dials
-    :func:`colleague.realtime.open_session`, sends one short silence burst
-    (:func:`_silence_burst_pcm16`), and waits up to *timeout* seconds for at
-    least one server event — graded by :func:`classify_realtime_check`, whose
-    docstring states exactly what a PASS proves and does not prove.
+    Resolves ``config.realtime`` and, when available, dials
+    :func:`colleague.realtime.open_session`, sends a silence burst
+    (:func:`_silence_burst_pcm16`), and waits up to *timeout* seconds for a
+    server event — graded by :func:`classify_realtime_check` (see its
+    docstring for what a PASS proves/does not prove).
 
-    SKIPs honestly (never a fabricated pass) on any of three absences, each
-    named in the detail — exactly the three the acceptance criterion names:
-
-    - **the extra is absent** — the ``[voice]`` extra is not installed, so
-      :func:`colleague.realtime.open_session` raises
-      :class:`~colleague.cli._errors.CliError`, caught here and reported as a
-      SKIP naming the extra;
-    - **the config is absent** — ``config.realtime`` is ``None`` (or,
-      defensively, not ``available``): no realtime lane resolved at all, so
-      nothing is ever dialed;
-    - **the rig lane is absent** — the extra is installed and a target is
-      configured, but the dial/handshake itself fails and
-      :func:`colleague.realtime.open_session` degrades to ``None`` (a
-      configured endpoint that is not actually serving ``/v1/realtime``).
+    SKIPs honestly on three absences, each named in the detail: the
+    ``[voice]`` extra absent (``open_session`` raises ``CliError``, caught
+    here); ``config.realtime`` absent/unavailable (nothing to dial); or the
+    rig lane absent (extra + config present but the dial/handshake fails and
+    ``open_session`` degrades to ``None``).
 
     Only once the session genuinely opens does this hand off to
-    :func:`classify_realtime_check` for the final PASS/FAIL grade — never
-    raises past this function's boundary; the session is always closed
-    (bounded join) before returning, success or failure.
+    :func:`classify_realtime_check`; never raises past this boundary — the
+    session is always closed (bounded join) before returning.
     """
     repo_path = str(repo)
     config = EngineConfig.resolve(repo_path=repo_path, model=model)
@@ -1443,13 +1445,11 @@ def run_realtime_check(
 
 
 # ---------------------------------------------------------------------------
-# Runner-check registry (task t7): closes the no-production-caller gap found
-# in /scope — every one of these ProofResult-returning functions above
-# previously had NO production caller at all; colleague/cli/_commands/
-# livecheck.py's cmd_livecheck only ever ran the pytest-file proofs
-# (_KNOWN_PROOFS via run_proofs). run_runner_checks executes every registered
-# runner and returns their ProofResults so the CLI verb can report them in
-# the SAME table/JSON as the pytest-file proofs.
+# Runner-check registry (t7): closes the no-production-caller gap found in
+# /scope — every ProofResult-returning function above had no production
+# caller; cmd_livecheck only ran the pytest-file proofs (_KNOWN_PROOFS via
+# run_proofs). run_runner_checks runs every registered runner and returns
+# their ProofResults for the SAME table/JSON as the pytest-file proofs.
 # ---------------------------------------------------------------------------
 
 _RUNNER_CHECKS: tuple[Callable[..., ProofResult], ...] = (

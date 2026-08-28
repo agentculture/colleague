@@ -454,3 +454,174 @@ def test_pre_tool_rewrite_into_a_mutating_command_is_demoted_out_of_the_pool(
     ), "demoted: runs after the parallel part"
     assert [s.tool for s in result.steps][:3] == ["run_command", "read_file", "read_file"]
     assert result.steps[0].arguments == {"command": "touch mutated.txt"}
+
+
+# ---------------------------------------------------------------------------
+# t18 (Qodo #4/#8 on PR #444) — the web in-flight cap + budget move OFF a
+# worker-side threading.Semaphore / unsynchronised check-then-increment onto
+# the MAIN thread: _apply_web_budget (before the pool), _web_capped_waves /
+# _run_web_capped (sequential waves through the pool), _record_web_failures
+# (after the join). Unit tests exercise these directly with fakes — a batch
+# that goes through the REAL colleague.web_schemas.dispatch would double-count
+# the budget here, because dispatch's own "_budget_counted" skip is t16's
+# change and is not present in this worktree; the one integration test below
+# stands in a fake 'web' executor for exactly that reason.
+# ---------------------------------------------------------------------------
+
+
+class _FakeWebExecutor:
+    """Bare stand-in for ToolExecutor's three web-budget counters — enough for
+    colleague.webbudget.check_and_increment/record_result, nothing else."""
+
+    def __init__(self) -> None:
+        self.web_calls = 0
+        self.web_failed = 0
+        self.web_cap_hit = None
+
+
+def _prepared(name: str, arguments: dict) -> Any:
+    return toolbatch_loop._Prepared(ToolCall("id", name, arguments), dict(arguments), None, False)
+
+
+class TestApplyWebBudget:
+    def test_refuses_past_the_cap_and_stamps_submitted_items(self, monkeypatch) -> None:
+        monkeypatch.setenv("COLLEAGUE_WEB_MAX_CALLS", "20")
+        executor = _FakeWebExecutor()
+        prepared = [
+            _prepared("web", {"verb": "page open", "url": f"https://x/{i}"}) for i in range(25)
+        ]
+        submitted = toolbatch_loop._apply_web_budget(executor, prepared)
+        assert len(submitted) == 20
+        assert executor.web_calls == 20
+        refused = [p for p in prepared if p not in submitted]
+        assert len(refused) == 5
+        for item in refused:
+            assert isinstance(item.exc, ToolError)
+            assert "web budget reached" in str(item.exc)
+            assert item.outcome is None
+        for item in submitted:
+            assert item.arguments["_budget_counted"] is True
+
+    def test_non_web_items_pass_through_untouched(self) -> None:
+        executor = _FakeWebExecutor()
+        prepared = [_prepared("read_file", {"path": "a"})]
+        submitted = toolbatch_loop._apply_web_budget(executor, prepared)
+        assert submitted == prepared
+        assert executor.web_calls == 0
+        assert "_budget_counted" not in submitted[0].arguments
+
+
+class TestWebCappedWaves:
+    def test_five_page_items_split_three_and_two(self) -> None:
+        items = [(None, "web", {"verb": "page open"}) for _ in range(5)]
+        waves = toolbatch_loop._web_capped_waves(items, cap=3)
+        assert [len(w) for w in waves] == [3, 2]
+
+    def test_non_page_items_are_never_split(self) -> None:
+        items = [(None, "read_file", {"path": "a"}) for _ in range(5)]
+        waves = toolbatch_loop._web_capped_waves(items, cap=1)
+        assert waves == [items]
+
+    def test_search_items_are_never_split(self) -> None:
+        items = [(None, "web", {"verb": "search"}) for _ in range(5)]
+        waves = toolbatch_loop._web_capped_waves(items, cap=1)
+        assert waves == [items]
+
+
+class TestRunWebCapped:
+    def test_five_page_reads_never_more_than_three_in_flight(self, monkeypatch) -> None:
+        monkeypatch.setenv(toolbatch.ENV_WEB_CONCURRENCY, "3")
+        lock = threading.Lock()
+        in_flight = 0
+        max_seen = 0
+        call_count = 0
+
+        def fake_execute(item: tuple) -> tuple:
+            nonlocal in_flight, max_seen, call_count
+            with lock:
+                in_flight += 1
+                max_seen = max(max_seen, in_flight)
+                call_count += 1
+            time.sleep(0.05)
+            with lock:
+                in_flight -= 1
+            return (item[2].get("url"), None, 0.0)
+
+        monkeypatch.setattr(toolbatch_loop, "_execute_item", fake_execute)
+        items = [(None, "web", {"verb": "page open", "url": f"https://x/{i}"}) for i in range(5)]
+        results = toolbatch_loop._run_web_capped(items, width=10)
+        assert call_count == 5
+        assert max_seen <= 3, f"saw {max_seen} concurrent web page calls, cap is 3"
+        assert [r[0] for r in results] == [f"https://x/{i}" for i in range(5)]
+
+
+class TestRecordWebFailures:
+    def test_missing_success_header_and_exceptions_count_as_failed(self) -> None:
+        executor = _FakeWebExecutor()
+        ok_item = _prepared("web", {})
+        ok_item.outcome = ToolOutcome(result="operation_id: x\nlifecycle_state: succeeded\nbody")
+        bad_item = _prepared("web", {})
+        bad_item.outcome = ToolOutcome(result="operation_id: y\nlifecycle_state: failed\nbody")
+        exc_item = _prepared("web", {})
+        exc_item.outcome, exc_item.exc = None, ToolError("boom")
+        non_web = _prepared("read_file", {})
+        non_web.outcome = ToolOutcome(result="lifecycle_state: succeeded")
+
+        toolbatch_loop._record_web_failures(executor, [ok_item, bad_item, exc_item, non_web])
+        assert executor.web_failed == 2
+
+
+class _WebCapExecutor(ToolExecutor):
+    """A repo-confined executor with a FAKE ``web`` handler standing in for
+    ``colleague.web_schemas.dispatch`` (t18): this worktree does not have
+    t16's dispatch-side ``_budget_counted`` skip, so exercising the real
+    dispatch here would double-count the budget. This proves the MAIN-thread
+    orchestration (wave cap + budget + failure bookkeeping) alone."""
+
+    def __init__(self, root: Path) -> None:
+        super().__init__(root)
+        self._lock = threading.Lock()
+        self.in_flight = 0
+        self.max_overlap = 0
+
+    def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
+        if name != "web":
+            return super().execute(name, arguments)
+        assert arguments.get("_budget_counted") is True, "main thread must stamp submitted items"
+        with self._lock:
+            self.in_flight += 1
+            self.max_overlap = max(self.max_overlap, self.in_flight)
+        try:
+            time.sleep(0.03)
+            url = arguments.get("url")
+            return ToolOutcome(result=f"operation_id: {url}\nlifecycle_state: succeeded\nbody")
+        finally:
+            with self._lock:
+                self.in_flight -= 1
+
+
+def test_five_page_calls_through_the_real_loop_never_exceed_the_web_cap(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Integration proof of the t18 acceptance criterion: 5 page reads batched
+    through run() never run more than COLLEAGUE_WEB_CONCURRENCY concurrently,
+    all 5 execute, and results land in request order."""
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    monkeypatch.setenv(toolbatch.ENV_WEB_CONCURRENCY, "3")
+    executor = _WebCapExecutor(_repo(tmp_path))
+    calls = [
+        ToolCall(str(i), "web", {"verb": "page open", "url": f"https://x/{i}"}) for i in range(5)
+    ]
+    task = Task.new(str(tmp_path), "web batch")
+    result = run(
+        _scripted([ModelResponse(tool_calls=calls), _FINISH]),
+        task,
+        max_steps=10,
+        executor=executor,
+    )
+    assert result.status == OK
+    assert executor.max_overlap <= 3, f"saw {executor.max_overlap} concurrent web calls"
+    assert executor.web_calls == 5
+    web_steps = [s for s in result.steps if s.tool == "web"]
+    assert [s.arguments.get("url") for s in web_steps] == [f"https://x/{i}" for i in range(5)]
+    assert all("lifecycle_state: succeeded" in s.result for s in web_steps)

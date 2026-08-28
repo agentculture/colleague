@@ -48,7 +48,11 @@ it into ``loop.py`` is a later, separately-reviewed task). It has three parts:
   ``tests/test_boundary.py``'s ``_THREADS_ALLOWED``): ``width <= 1`` runs a
   plain sequential loop and never instantiates a ``ThreadPoolExecutor`` at
   all, so a caller that never asks for concurrency stays byte-identical to
-  today's sequential loop.
+  today's sequential loop. It knows nothing about ``web`` calls: the
+  ``COLLEAGUE_WEB_CONCURRENCY`` cap is enforced by the CALLER, on the main
+  thread, before submission (convention change (6) — see
+  ``colleague/toolbatch_loop.py``'s wave partitioning), never inside the pool
+  (t18 — Qodo #4/#8 on the prior worker-side ``threading.Semaphore``).
 
 **None of the above is a permission decision.** Every function here answers
 exactly one question — "can this run at the same time as other safe calls
@@ -66,6 +70,7 @@ side without creating an import cycle.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from concurrent.futures import ThreadPoolExecutor
@@ -91,8 +96,21 @@ CONCURRENCY_SAFE_TOOLS: frozenset = frozenset(
         "grep_search",
         "glob",
         "view_media",
+        "web",
     }
 )
+
+#: Default in-flight cap on ``web`` calls whose ``verb`` is a ``page *`` verb
+#: (``page open``/``page read``/``page inspect``/``page extract``/``page
+#: links``) — a browser-driving CLI is heavier than a plain read, so a wide
+#: general batch width (``COLLEAGUE_TOOL_CONCURRENCY``) must not translate
+#: into e.g. 10 concurrent ``webglass`` child processes. ``search`` is a
+#: lighter call and is bounded only by the general batch width.
+DEFAULT_WEB_CONCURRENCY = 3
+#: The operator knob for the web-specific cap; unset/invalid falls back to
+#: :data:`DEFAULT_WEB_CONCURRENCY`, and (mirroring ``concurrency_width``) a
+#: value below 1 floors at 1 rather than disabling the cap.
+ENV_WEB_CONCURRENCY = "COLLEAGUE_WEB_CONCURRENCY"
 
 
 def is_memory_recall_call(tool_name: str, arguments: Optional[Mapping[str, Any]]) -> bool:
@@ -390,6 +408,31 @@ def partition_by_concurrency_safety(
 # ---------------------------------------------------------------------------
 
 
+def web_concurrency() -> int:
+    """The web page-verb cap from ``COLLEAGUE_WEB_CONCURRENCY``; unset/invalid
+    falls back to :data:`DEFAULT_WEB_CONCURRENCY`, ``<1`` floors at 1 —
+    mirroring :func:`colleague.toolbatch_loop.concurrency_width`."""
+    raw = os.environ.get(ENV_WEB_CONCURRENCY, "")
+    try:
+        width = int(raw)
+    except ValueError:
+        return DEFAULT_WEB_CONCURRENCY
+    return max(1, width)
+
+
+def is_web_page_verb(name: str, arguments: Any) -> bool:
+    """True for a ``web`` call whose ``verb`` argument starts with ``"page"``
+    (``page open``/``page read``/…) — the shape :mod:`colleague.toolbatch_loop`
+    partitions into ``COLLEAGUE_WEB_CONCURRENCY``-sized waves on the main
+    thread, BEFORE the pool (t18). A plain ``search`` call is never gated —
+    it is bounded only by the general batch ``width``.
+    """
+    if name != "web" or not isinstance(arguments, Mapping):
+        return False
+    verb = arguments.get("verb")
+    return isinstance(verb, str) and verb.startswith("page")
+
+
 def run_batch(execute: Callable[[T], R], calls: Sequence[T], width: int) -> List[R]:
     """Run ``calls`` through ``execute(call)`` with at most ``width`` concurrent.
 
@@ -399,7 +442,9 @@ def run_batch(execute: Callable[[T], R], calls: Sequence[T], width: int) -> List
     asks for concurrency is byte-identical to a hand-written ``for`` loop.
     This function (plus the module import itself) is the ONE sanctioned NEW
     thread consumer this module adds to colleague — see
-    ``tests/test_boundary.py``'s ``_THREADS_ALLOWED``.
+    ``tests/test_boundary.py``'s ``_THREADS_ALLOWED``. It applies NO per-tool
+    throttling of its own (t18) — a caller that needs the ``web`` cap
+    partitions its own sub-batches before calling this function.
     """
     if width <= 1 or len(calls) <= 1:
         return [execute(call) for call in calls]

@@ -78,6 +78,7 @@ class TestCultureToolExposed:
             "check_test_integrity",
             "run_tests",
             "view_media",
+            "web",
         }
 
     def test_tool_names_includes_culture(self) -> None:

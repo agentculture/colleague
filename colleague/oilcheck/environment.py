@@ -11,20 +11,20 @@ failed checks so one broken probe cannot take down the whole report.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
+from colleague import livecheck
 from colleague.configdir import CONFIG_DIR_NAME
 from colleague.oilcheck import make_check
 
+#: t6 acceptance: webglass warns above this many concurrent sessions.
+_WEBGLASS_SESSION_WARN_THRESHOLD = 10
+
 
 def _repo_path() -> Path:
-    """Return the current working directory as the repo root.
-
-    The environment group is invoked by ``colleague doctor`` from whatever
-    directory the user is in — that directory is the implicit repo root,
-    exactly as it is for ``colleague work --repo .``.
-    """
+    """Return cwd as the repo root (mirrors ``colleague work --repo .``)."""
     return Path.cwd()
 
 
@@ -51,18 +51,14 @@ def _check_config_dir(repo: Path) -> dict:
                 msg = "no .colleague/ config dir (repo-level or user-level) — config is optional"
         _ = roots  # used to confirm the resolver does not raise
         return make_check("config_dir", True, "info", msg)
+    # Probe error surfaces as a check, not a crash.
     except Exception as exc:  # noqa: BLE001
-        # Contract: an unexpected probe error is surfaced as a failed check, not
-        # masked behind a passing info. Config is optional, so this is a warning.
         return make_check(
             "config_dir",
             False,
             "warning",
             f"config_roots probe failed: {exc}",
-            remediation=(
-                "check filesystem permissions; ensure .colleague/ and "
-                "~/.colleague are accessible"
-            ),
+            remediation="check filesystem permissions on .colleague/ and ~/.colleague",
         )
 
 
@@ -72,29 +68,17 @@ def _check_hooks_valid(repo: Path) -> dict:
         hooks_path = repo / CONFIG_DIR_NAME / "hooks.json"
         if not hooks_path.is_file():
             return make_check(
-                "hooks_valid",
-                True,
-                "info",
-                ".colleague/hooks.json absent — hooks are optional",
+                "hooks_valid", True, "info", ".colleague/hooks.json absent — optional"
             )
-        raw = hooks_path.read_text(encoding="utf-8")
-        json.loads(raw)  # raises json.JSONDecodeError on malformed input
-        return make_check(
-            "hooks_valid",
-            True,
-            "info",
-            ".colleague/hooks.json is valid JSON",
-        )
+        json.loads(hooks_path.read_text(encoding="utf-8"))  # raises on malformed input
+        return make_check("hooks_valid", True, "info", ".colleague/hooks.json is valid JSON")
     except json.JSONDecodeError as exc:
         return make_check(
             "hooks_valid",
             False,
             "error",
             f".colleague/hooks.json is malformed JSON: {exc}",
-            remediation=(
-                "fix the syntax in .colleague/hooks.json; "
-                "run `python3 -m json.tool .colleague/hooks.json` to validate"
-            ),
+            remediation="fix the syntax; `python3 -m json.tool .colleague/hooks.json` validates",
         )
     except OSError as exc:
         return make_check(
@@ -121,12 +105,7 @@ def _check_commands_parse(repo: Path) -> dict:
 
         discovered = discover_commands(repo)
         if not discovered:
-            return make_check(
-                "commands_parse",
-                True,
-                "info",
-                "no command templates found — commands are optional",
-            )
+            return make_check("commands_parse", True, "info", "no command templates — optional")
         failures: list[str] = []
         for stem, path in discovered.items():
             try:
@@ -140,7 +119,7 @@ def _check_commands_parse(repo: Path) -> dict:
                 False,
                 "error",
                 f"{len(failures)} command template(s) failed to parse: {', '.join(failures)}",
-                remediation=("fix or remove the offending template(s) under .colleague/commands/"),
+                remediation="fix or remove the offending template(s) under .colleague/commands/",
             )
         return make_check(
             "commands_parse",
@@ -163,14 +142,11 @@ def _check_layering(repo: Path) -> dict:
     try:
         from colleague.layers import resolve_agents, resolve_skills
 
-        # Use a sentinel model name; we want to confirm the resolution
-        # machinery itself works, not that any overlay files are present.
-        _model = "mock"
-        agents = resolve_agents(repo, _model)
-        skills = resolve_skills(repo, _model)
-        n_agents = len(agents)
-        n_skills = len(skills)
-        msg = f"AGENTS/skills layering resolved: {n_agents} AGENTS layer(s), {n_skills} skill(s)"
+        # Sentinel model name: confirms the resolution machinery works, not
+        # that any overlay files are present.
+        agents = resolve_agents(repo, "mock")
+        skills = resolve_skills(repo, "mock")
+        msg = f"layering resolved: {len(agents)} AGENTS layer(s), {len(skills)} skill(s)"
         return make_check("layering", True, "info", msg)
     except Exception as exc:  # noqa: BLE001
         return make_check(
@@ -178,10 +154,7 @@ def _check_layering(repo: Path) -> dict:
             False,
             "warning",
             f"AGENTS/skills layering raised an exception: {exc}",
-            remediation=(
-                "check AGENTS.md / AGENTS.colleague.md and .colleague/skills/ "
-                "for file permission issues or symlinks escaping the repo"
-            ),
+            remediation="check AGENTS.md / .colleague/skills/ for permission issues",
         )
 
 
@@ -195,10 +168,7 @@ def _check_git_present() -> dict:
         False,
         "error",
         "git not found on PATH",
-        remediation=(
-            "install git (e.g. `apt install git` or `brew install git`); "
-            "git is required for the handoff (branch/commit/push)"
-        ),
+        remediation="install git (e.g. `apt install git`); required for handoff",
     )
 
 
@@ -212,11 +182,7 @@ def _check_gh_present() -> dict:
         False,
         "warning",
         "gh (GitHub CLI) not found on PATH",
-        remediation=(
-            "install gh for PR-creation handoff "
-            "(see https://cli.github.com/); "
-            "offline/CI drives that pass --no-pr still work without it"
-        ),
+        remediation="install gh (https://cli.github.com/); --no-pr drives still work without it",
     )
 
 
@@ -237,24 +203,60 @@ def _check_cli_integrity() -> dict:
         from colleague.cli import _build_parser
 
         _build_parser()
-        return make_check(
-            "cli_integrity",
-            True,
-            "error",
-            f"CLI integrity OK (colleague {version})",
-        )
+        return make_check("cli_integrity", True, "error", f"CLI integrity OK (colleague {version})")
     except Exception as exc:  # noqa: BLE001
         return make_check(
             "cli_integrity",
             False,
             "error",
             f"CLI integrity check failed: {exc}",
-            remediation=(
-                "ensure colleague is installed correctly; "
-                "try `uv sync` and re-run; "
-                "if the error persists, file a bug"
-            ),
+            remediation="ensure colleague is installed correctly; try `uv sync` and re-run",
         )
+
+
+def _check_webglass() -> dict:
+    """Check 8: webglass (t6) — WARN-only, never flips report health.
+
+    ``ok`` when ``webglass doctor`` exits 0 within 10s; ``warn`` when
+    absent/unhealthy; ``warn`` naming the count when ``session list --json``
+    reports more than :data:`_WEBGLASS_SESSION_WARN_THRESHOLD` sessions.
+    Shells out via :func:`colleague.livecheck.webglass_status` (the
+    sanctioned subprocess consumer) — no new subprocess import here.
+    """
+    status = livecheck.webglass_status()
+    if not status["healthy"]:
+        return make_check(
+            "webglass",
+            False,
+            "warning",
+            f"webglass unhealthy: {status['detail']}",
+            remediation="install/fix webglass (see docs/organs.md)",
+        )
+    sessions = status["sessions"]
+    if isinstance(sessions, int) and sessions > _WEBGLASS_SESSION_WARN_THRESHOLD:
+        return make_check(
+            "webglass",
+            False,
+            "warning",
+            f"webglass healthy but {sessions} sessions open (> {_WEBGLASS_SESSION_WARN_THRESHOLD})",
+            remediation="close excess webglass sessions (`webglass session list`)",
+        )
+    return make_check("webglass", True, "warning", f"webglass healthy: {status['detail']}")
+
+
+def _check_web_search_provider() -> dict:
+    """Check 9: web_search_provider (t6) — WARN-only; never prints the key value."""
+    if os.environ.get("WEBGLASS_BRAVE_API_KEY"):
+        return make_check(
+            "web_search_provider", True, "warning", "WEBGLASS_BRAVE_API_KEY is set in this process"
+        )
+    return make_check(
+        "web_search_provider",
+        False,
+        "warning",
+        "WEBGLASS_BRAVE_API_KEY unset in this process",
+        remediation="export WEBGLASS_BRAVE_API_KEY=<key> to enable web search",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -263,14 +265,9 @@ def _check_cli_integrity() -> dict:
 
 
 def checks() -> list[dict]:
-    """Return all environment checks.
-
-    Verifies: config dir resolution, hooks.json validity, command templates
-    parsing, AGENTS/skills layering, git on PATH, gh on PATH, and CLI
-    self-integrity.
-
-    Read-only and never raises — all probe errors are caught and returned as
-    failed checks.
+    """Return all environment checks: config dir, hooks.json, command templates,
+    AGENTS/skills layering, git, gh, CLI integrity, webglass, web_search_provider
+    (the last two, t6, are WARN-only). Read-only; never raises.
     """
     repo = _repo_path()
     return [
@@ -281,4 +278,6 @@ def checks() -> list[dict]:
         _check_git_present(),
         _check_gh_present(),
         _check_cli_integrity(),
+        _check_webglass(),
+        _check_web_search_provider(),
     ]

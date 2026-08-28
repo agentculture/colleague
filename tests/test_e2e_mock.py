@@ -32,7 +32,9 @@ from colleague import registry
 from colleague.cli import main
 from colleague.config import EngineConfig, ResolveOverrides
 from colleague.contract import INCOMPLETE, OK, SubResult, Task
+from colleague.engines import mock as mock_engine
 from colleague.engines import vllm_openai
+from colleague.loop import ModelResponse, ToolCall
 from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.tools import SCHEMAS
 from tests._batch_fixture import (
@@ -194,6 +196,7 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
         "view_media",
         "grep_search",
         "glob",
+        "web",
     }
     # Base six remain, the chassis tools are added, and nothing else creeps in.
     assert _BASE_TOOLS <= exposed, "the six base tools must remain exposed"
@@ -203,6 +206,116 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
 
     # The vLLM engine literally hands this shared surface to the model.
     assert vllm_openai.SCHEMAS is SCHEMAS
+
+
+def test_mock_and_vllm_engines_produce_the_same_web_step_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All-engines rule (t3): a scripted ``web`` tool call yields the same Step
+    shape on both engines — both dispatch through the shared
+    ``colleague.tools.ToolExecutor`` / ``web_schemas.dispatch`` handler, so this
+    also proves the rendered text is byte-identical, not merely same-shaped.
+
+    ``shutil.which`` is monkeypatched to report ``webglass`` present regardless
+    of the real PATH, so this passes on CI machines without the CLI installed
+    (per the t3 brief: the dev machine happens to have it on PATH already).
+    """
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/webglass" if name == "webglass" else None
+    )
+    monkeypatch.delenv("COLLEAGUE_WEB", raising=False)
+    envelope = {
+        "operation_id": "op-test-0001",
+        "kind": "search",
+        "lifecycle_state": "succeeded",
+        "evidence_refs": ["ev-0001"],
+        "policy_verdict": {"decision": "allowed"},
+        "content": {"untrusted": ["a result"]},
+    }
+    monkeypatch.setattr(
+        "colleague.web.run_web", lambda verb, args, root: "exit=0\n" + json.dumps(envelope)
+    )
+    web_args = {"verb": "search", "query": "colleague"}
+
+    def _mock_web_script(_task: Task):
+        turns = [
+            ModelResponse(
+                content="searching",
+                reasoning="mock reasoning: search the web",
+                tool_calls=[ToolCall("mock-web", "web", web_args)],
+                prompt_tokens=1,
+                completion_tokens=1,
+                finish_reason="stop",
+            ),
+            ModelResponse(
+                content="done",
+                reasoning="mock reasoning: finished",
+                tool_calls=[ToolCall("mock-finish", "finish", {"summary": "searched"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+                finish_reason="stop",
+            ),
+        ]
+        state = {"i": 0}
+
+        def complete(_messages: list[dict]) -> ModelResponse:
+            turn = turns[min(state["i"], len(turns) - 1)]
+            state["i"] += 1
+            return turn
+
+        return complete
+
+    monkeypatch.setattr(mock_engine, "_script", _mock_web_script)
+
+    def _vllm_turn(name: str, arguments: dict) -> dict:
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": name,
+                                "function": {"name": name, "arguments": json.dumps(arguments)},
+                            }
+                        ],
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+        }
+
+    vllm_turns = [
+        _vllm_turn("web", web_args),
+        _vllm_turn("finish", {"summary": "searched"}),
+    ]
+    vllm_state = {"i": 0}
+
+    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
+        turn = vllm_turns[min(vllm_state["i"], len(vllm_turns) - 1)]
+        vllm_state["i"] += 1
+        return turn
+
+    monkeypatch.setattr(vllm_openai, "_post_json", fake_post)
+
+    cfg = EngineConfig.resolve()
+    mock_repo = tmp_path / "mock"
+    vllm_repo = tmp_path / "vllm"
+    mock_repo.mkdir()
+    vllm_repo.mkdir()
+
+    mock_result = registry.load("mock").work(Task.new(str(mock_repo), "do web work"), cfg)
+    vllm_result = registry.load("vllm-openai").work(Task.new(str(vllm_repo), "do web work"), cfg)
+
+    assert mock_result.status == OK
+    assert vllm_result.status == OK
+    mock_web_step = next(s for s in mock_result.steps if s.tool == "web")
+    vllm_web_step = next(s for s in vllm_result.steps if s.tool == "web")
+    assert _key_shape(mock_web_step.to_dict()) == _key_shape(vllm_web_step.to_dict())
+    assert mock_web_step.arguments == vllm_web_step.arguments == web_args
+    assert mock_web_step.ok is True
+    assert vllm_web_step.ok is True
+    assert mock_web_step.result == vllm_web_step.result  # same handler, same rendered text
 
 
 def test_mock_and_vllm_engines_record_deliberate_finish_states_on_a_clean_run(

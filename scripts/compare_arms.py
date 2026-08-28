@@ -10,6 +10,21 @@ FIRST named arm (the baseline). Never estimates or reads prose — every number
 comes straight from ``stats`` on the artifact JSON, matching the token-honesty
 discipline the rest of colleague holds (decision c11/c17).
 
+Plan task t7 (spec ``docs/specs/2026-08-28-web-scout-associate.md``, covers
+c14/h11/c32/h21) adds three per-artifact counters, printed as the
+``delegations`` / ``associate_calls`` / ``web_calls`` columns:
+
+* ``delegations`` — the count of steps whose tool is ``subagent`` or
+  ``subagents`` (the model's explicit delegation choices, never forced);
+* ``associate_calls`` — the count of delegation steps whose recorded served
+  model equals the associate's (``artifact["associate"]["served_model"]`` when
+  present) plus ``sub_results`` recorded with role ``associate``; 0 when the
+  artifact carries no ``associate`` block;
+* ``web_calls`` — the count of steps whose tool is ``web``.
+
+All three are read straight from the artifact's ``steps`` / ``associate`` /
+``sub_results`` keys — never estimated from prose.
+
 The c28 bar (decision c28, per the arc spec): a non-baseline arm passes when its
 wall-clock ratio is <= 0.7 and its model-turns ratio is <= 0.8. A ratio above
 either bar for ANY non-baseline arm is a miss, and the process exits 1 so a CI
@@ -53,11 +68,19 @@ class ArtifactLookupError(RuntimeError):
 
 @dataclass
 class ArtifactStats:
-    """The two numbers this script ever reads from an artifact."""
+    """The numbers this script reads from an artifact.
+
+    ``duration_seconds`` / ``model_turns`` are the t10 ratio inputs; the three
+    counters (t7) are per-artifact delegation/associate/web facts read from
+    ``steps`` / ``associate`` / ``sub_results`` — never estimated.
+    """
 
     task_id: str
     duration_seconds: float
     model_turns: int
+    delegations: int = 0
+    associate_calls: int = 0
+    web_calls: int = 0
 
 
 @dataclass
@@ -78,6 +101,21 @@ class ArmResult:
     @property
     def mean_turns(self) -> float:
         return sum(a.model_turns for a in self.artifacts) / self.n
+
+    @property
+    def delegations(self) -> int:
+        """Total subagent/subagents steps across the arm's artifacts (t7)."""
+        return sum(a.delegations for a in self.artifacts)
+
+    @property
+    def associate_calls(self) -> int:
+        """Total associate-served delegation steps/seats across the arm (t7)."""
+        return sum(a.associate_calls for a in self.artifacts)
+
+    @property
+    def web_calls(self) -> int:
+        """Total web steps across the arm's artifacts (t7)."""
+        return sum(a.web_calls for a in self.artifacts)
 
 
 def load_artifact_stats(repo: str | Path, task_id: str) -> ArtifactStats:
@@ -117,7 +155,68 @@ def load_artifact_stats(repo: str | Path, task_id: str) -> ArtifactStats:
             f"(duration_seconds={duration!r}, model_turns={turns!r}) — "
             "a ratio against it would divide by zero or invert"
         )
-    return ArtifactStats(task_id=task_id, duration_seconds=duration, model_turns=turns)
+    return ArtifactStats(
+        task_id=task_id,
+        duration_seconds=duration,
+        model_turns=turns,
+        delegations=_count_delegations(data),
+        associate_calls=_count_associate_calls(data),
+        web_calls=_count_web_calls(data),
+    )
+
+
+def _steps(data: dict) -> list[dict]:
+    """The artifact's step records (tolerant of a missing/malformed key)."""
+    steps = data.get("steps")
+    if not isinstance(steps, list):
+        return []
+    return [s for s in steps if isinstance(s, dict)]
+
+
+def _step_tool(step: dict) -> str:
+    tool = step.get("tool")
+    return tool if isinstance(tool, str) else ""
+
+
+def _count_delegations(data: dict) -> int:
+    """Steps whose tool is ``subagent`` or ``subagents`` (t7)."""
+    return sum(1 for s in _steps(data) if _step_tool(s) in ("subagent", "subagents"))
+
+
+def _count_web_calls(data: dict) -> int:
+    """Steps whose tool is ``web`` (t7)."""
+    return sum(1 for s in _steps(data) if _step_tool(s) == "web")
+
+
+def _count_associate_calls(data: dict) -> int:
+    """Delegation steps/seats whose recorded served model is the associate's (t7).
+
+    The associate's served model is ``artifact["associate"]["served_model"]``
+    when present; a delegation step (``subagent``/``subagents``) counts when its
+    recorded ``served_model`` equals it, and a ``sub_results`` entry counts when
+    its ``role`` is ``associate``. 0 when the artifact carries no ``associate``
+    block — never an error.
+    """
+    associate = data.get("associate")
+    served = associate.get("served_model") if isinstance(associate, dict) else None
+    if not isinstance(served, str) or not served:
+        return 0
+    count = 0
+    for s in _steps(data):
+        if _step_tool(s) not in ("subagent", "subagents"):
+            continue
+        arguments = s.get("arguments")
+        step_served = s.get("served_model")
+        if isinstance(arguments, dict) and arguments.get("served_model") is not None:
+            step_served = arguments.get("served_model")
+        if step_served == served:
+            count += 1
+    sub_results = data.get("sub_results")
+    if isinstance(sub_results, list):
+        for r in sub_results:
+            if isinstance(r, dict) and r.get("role") == "associate":
+                count += 1
+    return count
 
 
 def load_arm(repo: str | Path, name: str, task_ids: Sequence[str]) -> ArmResult:
@@ -160,13 +259,15 @@ def format_table(arms: Sequence[ArmResult], bar_wall: float, bar_turns: float) -
     lines = []
     header = (
         f"{'arm':<24}{'n':>4}{'mean_wall_s':>14}{'mean_turns':>12}"
+        f"{'delegations':>13}{'associate_calls':>17}{'web_calls':>11}"
         f"{'wall_ratio':>12}{'turns_ratio':>13}  bar"
     )
     lines.append(header)
     lines.append("-" * len(header))
     lines.append(
         f"{baseline.name:<24}{baseline.n:>4}{baseline.mean_wall:>14.2f}"
-        f"{baseline.mean_turns:>12.2f}{'—':>12}{'—':>13}  baseline"
+        f"{baseline.mean_turns:>12.2f}{baseline.delegations:>13}{baseline.associate_calls:>17}"
+        f"{baseline.web_calls:>11}{'—':>12}{'—':>13}  baseline"
     )
 
     any_miss = False
@@ -177,7 +278,8 @@ def format_table(arms: Sequence[ArmResult], bar_wall: float, bar_turns: float) -
         verdict = "MISS" if miss else "pass"
         lines.append(
             f"{arm.name:<24}{arm.n:>4}{arm.mean_wall:>14.2f}"
-            f"{arm.mean_turns:>12.2f}{wall_ratio:>12.3f}{turns_ratio:>13.3f}  {verdict}"
+            f"{arm.mean_turns:>12.2f}{arm.delegations:>13}{arm.associate_calls:>17}"
+            f"{arm.web_calls:>11}{wall_ratio:>12.3f}{turns_ratio:>13.3f}  {verdict}"
         )
     lines.append("")
     lines.append(f"bar: wall_ratio <= {bar_wall}, turns_ratio <= {bar_turns} (decision c28)")

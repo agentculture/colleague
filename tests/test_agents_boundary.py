@@ -237,6 +237,9 @@ _PINNED_SUBPROCESS_ALLOWED = frozenset(
         # out to the operator-installed `rg` CLI; the stdlib walker is the
         # fallback — reasons pinned in test_boundary.py.
         "colleague/search_tools.py",
+        # web-scout arc (task t1): the curated `web` tool shells out to the
+        # operator-installed `webglass` CLI in its own process group.
+        "colleague/web.py",
     }
 )
 

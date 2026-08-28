@@ -178,6 +178,19 @@ only the two file-based flight-plane primitives (:func:`is_safe_task_id`,
 :func:`append_guidance`) and the senses talk lane are touched, exactly the
 primitives :mod:`colleague.flight` and :mod:`colleague.senses` already
 expose (no duplication).
+
+**The c43 web boundary (task t10).** Trust decision c19 says a non-operator
+turn is read-only or refused; c43 extends that to the ``web`` tool: a turn
+that did NOT originate from the operator never sees ``web`` on its curated
+surface, and a turn a Culture node marks as relaying the operator's OWN
+request counts as operator-initiated but owes ONE explicit confirmation
+before its first web fetch. :mod:`colleague.resident.webtrust` owns both
+rules (and documents the honest gap: no such relay marker exists in the
+protocol today); this module only calls it — once, in :meth:`feed_message` —
+and threads its answer into the dispatched config through the SAME
+``config_lifecycle`` ``tool_set`` seam both engines already narrow the offered
+schemas AND the executor allow-list with: no new policy module, no second
+refusal path, and an operator turn narrows nothing at all.
 """
 
 from __future__ import annotations
@@ -185,7 +198,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import replace as _dc_replace
@@ -205,7 +217,17 @@ from colleague.flight import append_guidance, feed_path, is_safe_task_id
 from colleague.frontdoor import run_frontdoor
 from colleague.media import validate_attachment
 from colleague.presence import cadence_from_env, clarify_from_env, should_clarify, should_update
+
+# Re-exported: the two request-line conventions' grammar lives in that module.
+from colleague.resident.requestlines import _MAX_ATTACHMENTS  # noqa: F401
+from colleague.resident.requestlines import _extract_attach_lines, _extract_relay_line
 from colleague.resident.trust import ALLOW_WRITE, check_attachment_path, classify_request
+from colleague.resident.webtrust import (
+    WebConfirmationGate,
+    classify_origin,
+    resolve_web_access,
+    turn_lifecycle,
+)
 from colleague.senses import (
     UPDATE_POINT,
     run_senses_intake,
@@ -223,13 +245,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
 
 # Sentinel placed on the reply queue by stop() to end the replies() stream.
 _STOP: object = object()
-
-# t12: the mesh media-reference convention -- a line-anchored `attach: <path>`
-# token, one per line. Capped so a request can't smuggle an unbounded number
-# of filesystem probes through one message; extras beyond the cap are counted
-# and reported, never silently dropped.
-_MAX_ATTACHMENTS = 4
-_ATTACH_LINE_RE = re.compile(r"^attach:\s*(\S.*)$")
 
 # Presence-default-everywhere (t11): the fixed acknowledgment when senses'
 # intake carried no ack line (a degraded intake) — an honest plain fact, never a
@@ -359,62 +374,6 @@ class _ResidentPresenceSink:
         return None
 
 
-def _extract_attach_lines(text: str) -> tuple[str, list[str], int]:
-    """Split *text* into ``(cleaned_text, candidate_paths, dropped_count)``.
-
-    Recognises the ``attach: <path>`` convention (see the module docstring).
-    A matched line is REMOVED from the returned text entirely. At most
-    :data:`_MAX_ATTACHMENTS` candidates are kept, in order; any further
-    matches are counted in *dropped_count* (never silently truncated without
-    a trace -- the caller turns that count into a recorded note).
-
-    A *text* with no ``attach:`` lines is returned completely unchanged
-    (same object, even) -- a request with no media reference behaves
-    byte-identically to before this feature existed.
-    """
-    lines = text.splitlines()
-    if not any(_ATTACH_LINE_RE.match(line) for line in lines):
-        return text, [], 0
-
-    kept_lines: list[str] = []
-    candidates: list[str] = []
-    dropped = 0
-    for line in lines:
-        match = _ATTACH_LINE_RE.match(line)
-        if not match:
-            kept_lines.append(line)
-            continue
-        path = match.group(1).rstrip()
-        if len(candidates) < _MAX_ATTACHMENTS:
-            candidates.append(path)
-        else:
-            dropped += 1
-    return "\n".join(kept_lines), candidates, dropped
-
-
-# t8: the mesh relay-addressing convention -- a line-anchored `relay <task-id>:
-# <text>` token (case-insensitive keyword; the task id is a single non-whitespace,
-# non-colon token). See the module docstring's "Trust-gated relay" section.
-_RELAY_LINE_RE = re.compile(r"^relay\s+([^\s:]+):\s*(\S.*)$", re.IGNORECASE)
-
-
-def _extract_relay_line(text: str) -> Optional[tuple[str, str]]:
-    """Return ``(task_id, relay_text)`` for the FIRST ``relay <task-id>: <text>``
-    line found in *text*, or ``None`` when no line matches the convention.
-
-    Unlike :func:`_extract_attach_lines` (which strips matched lines and lets
-    the REST of the message proceed as a normal work request), a matched relay
-    line takes the message down an entirely different path (see
-    :meth:`AppserverHarness._handle_relay`) — no work item is ever dispatched
-    for it, so there is nothing to "clean" and return alongside it.
-    """
-    for line in text.splitlines():
-        match = _RELAY_LINE_RE.match(line.strip())
-        if match:
-            return match.group(1), match.group(2).rstrip()
-    return None
-
-
 class AppserverHarness:
     """agent-lifecycle ``Harness`` adapter dispatching mesh requests as work items.
 
@@ -486,6 +445,9 @@ class AppserverHarness:
         # generator, mirroring ColleagueHarness's pattern exactly.
         self._reply_queue: "asyncio.Queue[Any]" = asyncio.Queue()
         self._replies_iter: Optional[AsyncIterator[Message]] = None
+        # c43 (t10): one WebConfirmationGate per relaying sender — the ONE
+        # confirmation a relayed operator request owes before web access.
+        self._web_gates: "dict[str, WebConfirmationGate]" = {}
 
     # `async` with no `await` is required here: the upstream agent_lifecycle
     # Harness Protocol declares `async def start()`, and the supervisor awaits
@@ -517,8 +479,7 @@ class AppserverHarness:
         An expected work-item failure (:class:`~colleague.cli._errors.CliError`
         — e.g. an unreachable engine) is caught and turned into an error reply.
         Any OTHER exception propagates: the Supervisor's pump catches it and
-        records it via ``failure()`` — a genuine infrastructure failure is
-        never silently swallowed.
+        records it via ``failure()`` — never silently swallowed.
         """
         sender = getattr(message, "sender", "") or ""
         target = getattr(message, "target", "") or self._default_target
@@ -544,61 +505,36 @@ class AppserverHarness:
 
         raw_body = getattr(message, "body", "") or ""
 
-        relay = _extract_relay_line(raw_body)
-        if relay is not None:
-            relay_task_id, relay_text = relay
-            await self._handle_relay(
-                sender=sender,
-                target=target,
-                decision=decision,
-                task_id=relay_task_id,
-                relay_text=relay_text,
-            )
+        # c43 web boundary (t10): this turn's web posture — withheld unless the
+        # turn is operator-initiated, and for a RELAYED operator request only
+        # after its one explicit confirmation. See colleague/resident/webtrust.py.
+        web = resolve_web_access(
+            self._web_gates,
+            sender=sender,
+            origin=classify_origin(
+                sender=sender, metadata=metadata, operator_identity=self._operator_identity
+            ),
+            body=raw_body,
+            operator_identity=self._operator_identity,
+        )
+        if await self._maybe_short_circuit(sender, target, raw_body, decision, web):
             return
 
         body, attachments, attachment_notes = self._resolve_attachments(sender, raw_body)
 
         # Front door (t7, talking-to-one-teammate arc, all-fronts): a confidently
-        # non-repo message ("what are you?", a greeting, ...) gets a direct senses
-        # answer with NO cortex work item at all -- no Task, no execute_work, no
-        # artifact, no intake/ack. Skipped entirely (byte-identical to before this
-        # feature) when senses is unarmed OR the message carries attachments (media
-        # is always cortex work) -- the SAME guard shape the other senses beats in
-        # this method use. Safe for BOTH an operator and a non-operator: the answer
-        # is grounded ONLY in architecture facts + the message text (tools-off,
-        # facts-only, see colleague.frontdoor.run_frontdoor / colleague.senses.
-        # run_senses_frontdoor), so it exposes no repo state and performs no write.
-        if self._config.senses is not None and not attachments:
-            if await self._maybe_answer_at_front_door(body, target):
-                return
+        # non-repo message gets a direct senses answer with NO cortex work item
+        # at all; see :meth:`_maybe_front_door` for the exact guard/skip shape.
+        if await self._maybe_front_door(body, target, attachments):
+            return
 
-        # Cortex/senses (t9): with a senses model resolved, perceive the inbound
-        # message through senses INTAKE first (→ a ContextPacket on the task, so the
-        # loop records mode=split), then shape the reply via SPEAK-BACK below. The
-        # c19 trust model is UNCHANGED — intake runs regardless of the request's
-        # trust tier (senses is tools-off; write authorization is decision.role's
-        # job, untouched here). A degraded intake attaches nothing and the raw
-        # message proceeds — the run never fails (senses unresolved = byte-identical).
+        # Cortex/senses (t9) intake + t11/c10/c19 middle-manager presence beats;
+        # see :meth:`_run_senses_beats` — both strict no-ops when senses is
+        # unresolved, and the presence beats stay operator-only (c19 boundary).
         senses_active = self._config.senses is not None
-        packet, intake_record = None, None
-        if senses_active:
-            loop = asyncio.get_running_loop()
-            packet, intake_record = await loop.run_in_executor(None, self._senses_intake, body)
-
-        # Middle-manager presence (t11 / c10 / c19): the OPERATOR lane gains the
-        # beats — an ack replied-to-origin BEFORE cortex's first step (+ a
-        # clarify question on a low-confidence intake) and cadence-gated proactive
-        # updates pushed reply-to-origin WHILE the work item runs. Gated on the
-        # confirmed operator (``ALLOW_WRITE``): a non-operator NEVER gets these
-        # beats (the c19 boundary — its request stays the read-only reactive lane
-        # and can never reach ``append_guidance``, unchanged). A strict no-op when
-        # senses is unresolved (byte-identical).
-        is_operator = decision.outcome == ALLOW_WRITE
-        presence_sink: Optional[_ResidentPresenceSink] = None
-        ack_chat: list[dict[str, Any]] = []
-        if senses_active and is_operator:
-            ack_chat = await self._send_operator_ack(packet, target)
-            presence_sink = self._build_presence_sink(packet, target)
+        packet, intake_record, presence_sink, ack_chat = await self._run_senses_beats(
+            body, target, decision, senses_active
+        )
 
         task = Task.new(
             self._repo_path,
@@ -608,7 +544,20 @@ class AppserverHarness:
         )
         if packet is not None:
             task.context_packet = packet
-        req_config = _dc_replace(self._config, role=decision.role)
+        req_config = _dc_replace(
+            self._config,
+            role=decision.role,
+            # The narrowing rides the config-lifecycle snapshot seam BOTH
+            # engines already read (offered schemas + executor allow-list) —
+            # never a second gate; ``None``/no narrowing when web is allowed.
+            config_lifecycle=turn_lifecycle(
+                decision.role,
+                allow_web=web.allow_web,
+                repo_path=self._repo_path,
+                model=getattr(self._config, "model", None),
+                existing=getattr(self._config, "config_lifecycle", None),
+            ),
+        )
 
         await self._dispatch_and_reply(
             task,
@@ -622,27 +571,78 @@ class AppserverHarness:
             ack_chat=ack_chat,
         )
 
+    async def _maybe_short_circuit(
+        self, sender: str, target: str, raw_body: str, decision, web
+    ) -> bool:
+        """Emit the c43 web-confirmation reply and/or handle a ``relay`` line;
+        return ``True`` when :meth:`feed_message` should stop here."""
+        if web.reply is not None:
+            await self._reply_queue.put(
+                Message(
+                    sender=self._agent_nick,
+                    target=target,
+                    body=web.reply,
+                    kind="message",
+                    metadata={"phase": "web_confirmation"},
+                )
+            )
+            if web.handled:
+                return True
+
+        relay = _extract_relay_line(raw_body)
+        if relay is not None:
+            relay_task_id, relay_text = relay
+            await self._handle_relay(
+                sender=sender,
+                target=target,
+                decision=decision,
+                task_id=relay_task_id,
+                relay_text=relay_text,
+            )
+            return True
+        return False
+
+    async def _maybe_front_door(self, body: str, target: str, attachments) -> bool:
+        """Skip (``False``) unless senses is armed and the turn carries no
+        attachments (media is always cortex work); otherwise defer to
+        :meth:`_maybe_answer_at_front_door` for the actual attempt."""
+        if self._config.senses is None or attachments:
+            return False
+        return await self._maybe_answer_at_front_door(body, target)
+
+    async def _run_senses_beats(
+        self, body: str, target: str, decision, senses_active: bool
+    ) -> tuple[Any, Any, "Optional[_ResidentPresenceSink]", list[dict[str, Any]]]:
+        """Cortex/senses intake (t9) then t11/c10/c19 middle-manager presence
+        beats — both strict no-ops when senses is unresolved (byte-identical),
+        and the presence beats stay operator-only (the c19 boundary)."""
+        packet, intake_record = None, None
+        if senses_active:
+            loop = asyncio.get_running_loop()
+            packet, intake_record = await loop.run_in_executor(None, self._senses_intake, body)
+
+        presence_sink: Optional[_ResidentPresenceSink] = None
+        ack_chat: list[dict[str, Any]] = []
+        if senses_active and decision.outcome == ALLOW_WRITE:
+            ack_chat = await self._send_operator_ack(packet, target)
+            presence_sink = self._build_presence_sink(packet, target)
+
+        return packet, intake_record, presence_sink, ack_chat
+
     async def _maybe_answer_at_front_door(self, body: str, target: str) -> bool:
         """Try the shared front door (t7); reply + return ``True`` on a direct
-        senses answer, or return ``False`` to fall through to the normal
-        cortex dispatch (intake -> ack -> Task -> execute_work, unchanged).
+        senses answer, or ``False`` to fall through to the normal cortex
+        dispatch (intake -> ack -> Task -> execute_work, unchanged).
 
         Resolves the senses engine via the SAME :meth:`_senses_engine` seam
-        every other senses beat in this class uses; when it cannot resolve
-        one (unarmed or unloadable engine) this returns ``False`` WITHOUT
-        calling :func:`~colleague.frontdoor.run_frontdoor` at all -- the
-        caller's guard already checked ``config.senses is not None``, but a
-        registry load failure is still handled the same way every other
-        senses call site here handles it: proceed as if senses were absent.
-
-        :func:`~colleague.frontdoor.run_frontdoor` runs in the executor (it
-        may issue one tools-off senses completion, mirroring
-        :meth:`_senses_intake`). It never raises. Only a CLEAN
-        ``answered_directly`` outcome replies here and returns ``True``; a
-        cortex-routed or degraded-senses-direct outcome returns ``False`` so
-        the caller proceeds to the existing pipeline unchanged (no reply is
-        sent here in that case -- the normal dispatch path produces the
-        eventual reply).
+        every other senses beat in this class uses; a registry load failure
+        returns ``False`` (proceed as if senses were absent), same as every
+        other senses call site here. :func:`~colleague.frontdoor.run_frontdoor`
+        runs in the executor (may issue one tools-off senses completion,
+        mirroring :meth:`_senses_intake`) and never raises; only a CLEAN
+        ``answered_directly`` outcome replies here and returns ``True`` — a
+        cortex-routed or degraded outcome returns ``False`` with no reply
+        sent (the normal dispatch path produces the eventual reply).
         """
         pair = self._senses_engine()
         if pair is None:

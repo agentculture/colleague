@@ -310,3 +310,172 @@ def test_build_parser_defaults():
     args = parser.parse_args(["--arm", "main=main-1", "--arm", "other=other-1"])
     assert args.bar_wall == 0.7
     assert args.bar_turns == 0.8
+
+
+# --- delegation / associate / web columns (plan t7, covers c14/h11/c32/h21) --
+
+
+def _step(index: int, tool: str, arguments: dict | None = None) -> dict:
+    return {"index": index, "tool": tool, "arguments": arguments or {}, "result": "", "ok": True}
+
+
+def _write_full_artifact(
+    repo: Path,
+    task_id: str,
+    steps: list[dict],
+    stats: dict,
+    associate: dict | None = None,
+    sub_results: list[dict] | None = None,
+) -> None:
+    """Write a synthetic artifact carrying the full TaskResult surface the
+    column counters read (steps, stats, optional associate block, optional
+    sub_results) — not just the stats-only shape the t10 fixtures use."""
+    (repo / ".colleague").mkdir(parents=True, exist_ok=True)
+    data: dict = {"task_id": task_id, "stats": stats, "steps": steps}
+    if associate is not None:
+        data["associate"] = associate
+    if sub_results is not None:
+        data["sub_results"] = sub_results
+    (repo / ".colleague" / f"{task_id}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_delegations_counts_subagent_and_subagents_steps(tmp_path: Path):
+    """delegations = the count of steps whose tool is 'subagent' or 'subagents'."""
+    _write_full_artifact(
+        tmp_path,
+        "deleg-1",
+        [
+            _step(0, "read_file"),
+            _step(1, "subagent", {"instruction": "survey module A"}),
+            _step(2, "subagents", {"instructions": [{"instruction": "survey B"}]}),
+            _step(3, "web", {"verb": "search"}),
+            _step(4, "edit_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "deleg-1")
+    assert stats.delegations == 2
+
+
+def test_web_calls_counts_web_steps(tmp_path: Path):
+    """web_calls = the count of steps whose tool is 'web'."""
+    _write_full_artifact(
+        tmp_path,
+        "web-1",
+        [
+            _step(0, "web", {"verb": "search", "query": "upstream docs"}),
+            _step(1, "web", {"verb": "page read", "url": "https://example.com/a"}),
+            _step(2, "web", {"verb": "page read", "url": "https://example.com/b"}),
+            _step(3, "read_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "web-1")
+    assert stats.web_calls == 3
+
+
+def test_associate_calls_counts_delegation_steps_served_by_the_associate(tmp_path: Path):
+    """associate_calls = delegation steps (subagent/subagents) whose recorded
+    served model equals the associate's (artifact['associate']['served_model']),
+    plus sub_results recorded with role 'associate'. 0 when the block is absent."""
+    _write_full_artifact(
+        tmp_path,
+        "assoc-1",
+        [
+            _step(
+                0, "subagent", {"profile": "associate", "served_model": "unsloth/Qwen3.8-27B-NVFP4"}
+            ),
+            _step(
+                1,
+                "subagent",
+                {"profile": "worker", "served_model": "unsloth/Qwen3.6-35B-A3B-NVFP4"},
+            ),
+            _step(2, "subagents", {"served_model": "unsloth/Qwen3.8-27B-NVFP4"}),
+            _step(3, "web", {"served_model": "unsloth/Qwen3.8-27B-NVFP4"}),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        associate={"served_model": "unsloth/Qwen3.8-27B-NVFP4"},
+        sub_results=[
+            {
+                "task_id": "child-1",
+                "engine": "vllm-openai",
+                "model": "associate",
+                "status": "ok",
+                "role": "associate",
+            },
+            {
+                "task_id": "child-2",
+                "engine": "vllm-openai",
+                "model": "associate",
+                "status": "ok",
+                "role": "worker",
+            },
+        ],
+    )
+    stats = load_artifact_stats(tmp_path, "assoc-1")
+    # steps 0 and 2 served by the associate + one sub_result with role 'associate'
+    assert stats.associate_calls == 3
+
+
+def test_associate_calls_zero_without_the_associate_block(tmp_path: Path):
+    """No artifact['associate'] block -> the counter is 0, never an error."""
+    _write_full_artifact(
+        tmp_path,
+        "assoc-0",
+        [_step(0, "subagent", {"served_model": "unsloth/Qwen3.8-27B-NVFP4"})],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "assoc-0")
+    assert stats.associate_calls == 0
+    assert stats.delegations == 1
+    assert stats.web_calls == 0
+
+
+def test_main_prints_the_three_new_columns(tmp_path: Path, capsys):
+    """End-to-end: the table carries delegations / associate_calls / web_calls
+    columns with the exact per-artifact counts (two synthetic artifacts: one
+    with 2 subagent steps + 1 web step, one with none)."""
+    _write_full_artifact(
+        tmp_path,
+        "busy-1",
+        [
+            _step(
+                0, "subagent", {"profile": "associate", "served_model": "unsloth/Qwen3.8-27B-NVFP4"}
+            ),
+            _step(1, "subagents", {"served_model": "unsloth/Qwen3.8-27B-NVFP4"}),
+            _step(2, "web", {"verb": "search"}),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        associate={"served_model": "unsloth/Qwen3.8-27B-NVFP4"},
+    )
+    _write_full_artifact(
+        tmp_path,
+        "quiet-1",
+        [_step(0, "read_file"), _step(1, "edit_file")],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    exit_code = main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--arm",
+            "baseline=busy-1",
+            "--arm",
+            "other=quiet-1",
+            "--bar-wall",
+            "1.0",
+            "--bar-turns",
+            "1.0",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "delegations" in out
+    assert "associate_calls" in out
+    assert "web_calls" in out
+    # the busy arm's row: 2 delegations, 2 associate calls, 1 web call
+    busy_line = next(line for line in out.splitlines() if line.startswith("baseline"))
+    assert "2" in busy_line
+    # the quiet arm's row: all three counters 0
+    quiet_line = next(line for line in out.splitlines() if line.startswith("other"))
+    assert "0" in quiet_line

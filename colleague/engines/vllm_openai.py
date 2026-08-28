@@ -37,12 +37,13 @@ from colleague.loop import (
     ContextControls,
     ModelResponse,
     ToolCall,
+    curated_schemas,
     resolve_role,
     run,
 )
 from colleague.senses import make_senses_run
 from colleague.tae_loop import make_tae_session
-from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas, narrow_role_by_tool_set
+from colleague.tools import SCHEMAS, ToolExecutor, narrow_role_by_tool_set
 
 # The one spelling of the wire content-type, referenced by every JSON POST
 # below (chat completions, the SSE stream variant, and /tokenize) — S1192.
@@ -1260,7 +1261,7 @@ class VllmOpenAIEngine(Engine):
             snapshot = snapshot_attr() if callable(snapshot_attr) else snapshot_attr
             tool_set = getattr(snapshot, "tool_set", ()) or ()
         role = narrow_role_by_tool_set(role, tool_set)
-        offered_tools = curate_schemas(role, deepthink=dt_run is not None)
+        offered_tools = curated_schemas(role, config, deepthink=dt_run is not None)
         # Acting-seat label for the flight run-start marker (t2,
         # change-content-consumption-lane spec, covers c9/h9): mirrors the
         # mock engine's identical wiring (all-engines rule) — a resolved
