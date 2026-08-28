@@ -36,16 +36,22 @@ from typing import Sequence
 
 from colleague.identity import identity_env, resolve_identity
 
+#: The ``page open`` verb — the url is a positional argument.
+PAGE_OPEN = "page open"
+
+#: The ``page extract`` verb — may add a free-text query after ``--``.
+PAGE_EXTRACT = "page extract"
+
 #: The curated allow-list of webglass verbs the engine may invoke. Excludes
 #: ``action`` / ``session`` (no such verb is a member) and ``page
 #: screenshot`` (binary output has no place in a text tool loop).
 ALLOWED_VERBS: frozenset[str] = frozenset(
     {
         "search",
-        "page open",
+        PAGE_OPEN,
         "page read",
         "page inspect",
-        "page extract",
+        PAGE_EXTRACT,
         "page links",
     }
 )
@@ -53,7 +59,7 @@ ALLOWED_VERBS: frozenset[str] = frozenset(
 #: The subset of :data:`ALLOWED_VERBS` that take a URL as their first
 #: free argument.
 _URL_VERBS: frozenset[str] = frozenset(
-    {"page open", "page read", "page inspect", "page extract", "page links"}
+    {PAGE_OPEN, "page read", "page inspect", PAGE_EXTRACT, "page links"}
 )
 
 #: argv tokens that name a session/profile identifier — always refused,
@@ -96,6 +102,52 @@ def _check_forbidden_tokens(verb: str, args: Sequence[str]) -> None:
             raise WebToolError(f"webglass verb '{verb}' refused: forbidden argument {token!r}")
 
 
+def _build_search_argv(args: list[str]) -> list[str]:
+    """``search`` argv: options FIRST, then a literal ``--``, then the
+    free-text query — so a query that starts with ``-`` can never be
+    mistaken for a flag.
+
+    ``args[0]`` is the free-text query (see web_schemas._build_args); the
+    remaining args are options (e.g. --limit N).
+    """
+    if not args:
+        raise WebToolError("webglass verb 'search' requires a query argument")
+    argv = ["webglass", "search", "--json", *args[1:]]
+    argv.extend(["--", args[0]])
+    return argv
+
+
+def _check_url(verb: str, args: list[str]) -> tuple[str, list[str]]:
+    """Validate the url argument of a URL verb; return ``(url, rest)``."""
+    if not args or not _URL_RE.match(str(args[0])):
+        raise WebToolError(f"webglass verb '{verb}' requires a url argument matching ^https?://")
+    return args[0], args[1:]
+
+
+def _split_options_and_query(rest: list[str]) -> tuple[list[str], list[str]]:
+    """Split *rest* into (options, query) for ``page extract``.
+
+    Options (--limit N, ...) are emitted as pairs BEFORE ``--``; only the
+    free-text query goes after it (Qodo #7).
+    """
+    options: list[str] = []
+    query: list[str] = []
+    i = 0
+    while i < len(rest):
+        token = rest[i]
+        if token.startswith("--"):
+            options.append(token)
+            # A flag with a value (--limit N) keeps its value adjacent and
+            # BEFORE "--".
+            if i + 1 < len(rest) and not rest[i + 1].startswith("--"):
+                options.append(rest[i + 1])
+                i += 1
+        else:
+            query.append(token)
+        i += 1
+    return options, query
+
+
 def _build_argv(verb: str, args: list[str]) -> list[str]:
     """Build the webglass argv for *verb* (grammar verified 2026-08-28 against
     ``webglass <verb> --help``).
@@ -109,46 +161,19 @@ def _build_argv(verb: str, args: list[str]) -> list[str]:
       ``--``.
     """
     if verb == "search":
-        # args[0] is the free-text query (see web_schemas._build_args); the
-        # remaining args are options (e.g. --limit N).
-        if not args:
-            raise WebToolError("webglass verb 'search' requires a query argument")
-        argv = ["webglass", "search", "--json", *args[1:]]
-        argv.extend(["--", args[0]])
-        return argv
+        return _build_search_argv(args)
 
     if verb in _URL_VERBS:
-        if not args or not _URL_RE.match(str(args[0])):
-            raise WebToolError(
-                f"webglass verb '{verb}' requires a url argument matching ^https?://"
-            )
-        url = args[0]
-        rest = args[1:]
-        if verb == "page open":
+        url, rest = _check_url(verb, args)
+        if verb == PAGE_OPEN:
             # page open takes the url positionally.
             return ["webglass", "page", "open", "--json", url, *rest]
         # page read|inspect|extract|links take the url as --url, never
         # positional.
         argv = ["webglass", "page", verb.split()[1], "--json", "--url", url]
-        if verb == "page extract":
+        if verb == PAGE_EXTRACT:
             # extract may carry a free-text query after a literal "--".
-            # Options (--limit N, ...) are emitted as pairs BEFORE "--"; only
-            # the free-text query goes after it (Qodo #7).
-            options: list[str] = []
-            query: list[str] = []
-            i = 0
-            while i < len(rest):
-                token = rest[i]
-                if token.startswith("--"):
-                    options.append(token)
-                    # A flag with a value (--limit N) keeps its value adjacent
-                    # and BEFORE "--".
-                    if i + 1 < len(rest) and not rest[i + 1].startswith("--"):
-                        options.append(rest[i + 1])
-                        i += 1
-                else:
-                    query.append(token)
-                i += 1
+            options, query = _split_options_and_query(rest)
             argv.extend(options)
             if query:
                 argv.extend(["--", *query])

@@ -270,23 +270,30 @@ def summary_line(steps: Sequence[Any]) -> "str | None":
     return f"{line}: {', '.join(failed)}" if failed else line
 
 
-def _build_args(verb: str, arguments: dict[str, Any]) -> list[str]:
-    """Forward url/query/limit to the CLI (webglass takes them as free args)."""
-    args: list[str] = []
+def _url_and_query(verb: str, arguments: dict[str, Any]) -> list[str]:
+    """The url/query free args for *verb* (url first; query for search and
+    ``page extract``)."""
     if verb == "search":
         query = arguments.get("query")
         if isinstance(query, str) and query.strip():
+            return [query]
+        return []
+    args: list[str] = []
+    url = arguments.get("url")
+    if isinstance(url, str) and url.strip():
+        args.append(url)
+    if verb == web.PAGE_EXTRACT:
+        # page extract also takes a free-text query (Qodo #6) — it goes
+        # after the url and is placed behind "--" by web._build_argv.
+        query = arguments.get("query")
+        if isinstance(query, str) and query.strip():
             args.append(query)
-    else:
-        url = arguments.get("url")
-        if isinstance(url, str) and url.strip():
-            args.append(url)
-        if verb == "page extract":
-            # page extract also takes a free-text query (Qodo #6) — it goes
-            # after the url and is placed behind "--" by web._build_argv.
-            query = arguments.get("query")
-            if isinstance(query, str) and query.strip():
-                args.append(query)
+    return args
+
+
+def _build_args(verb: str, arguments: dict[str, Any]) -> list[str]:
+    """Forward url/query/limit to the CLI (webglass takes them as free args)."""
+    args = _url_and_query(verb, arguments)
     limit = arguments.get("limit")
     if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
         args.extend(["--limit", str(limit)])
@@ -341,19 +348,7 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
     """
     from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
 
-    def handler(arguments: dict[str, Any]) -> Any:
-        # Pre-counted batch item (Qodo #8, contract with t18): the batch loop
-        # counts on the main thread before submission and records after the
-        # join, so this call must skip BOTH the check/increment and the
-        # record_result. Strip the private key before building argv.
-        pre_counted = arguments.get("_budget_counted") is True
-        if pre_counted:
-            arguments = {k: v for k, v in arguments.items() if k != "_budget_counted"}
-        verb = arguments.get("verb")
-        if not isinstance(verb, str) or verb not in web.ALLOWED_VERBS:
-            raise ToolError(
-                f"web needs a 'verb' from the allow-list ({', '.join(sorted(web.ALLOWED_VERBS))})"
-            )
+    def _check_hidden() -> None:
         # Re-check the hidden state immediately before the spawn (TOCTOU): the
         # knob/PATH may have changed since the schema was curated, so the check
         # that gates the child lives here, not at entry.
@@ -366,8 +361,10 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
             raise ToolError(
                 f"tool '{WEB_TOOL_NAME}' is hidden by {WEB_ENV}=0 — unset it to use the web tool"
             )
-        if not pre_counted:
-            webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
+
+    def _run_and_render(
+        executor: Any, verb: str, arguments: dict[str, Any], pre_counted: bool
+    ) -> Any:
         try:
             output = web.run_web(verb, _build_args(verb, arguments), root=executor.root)
         except web.WebToolError as exc:
@@ -384,5 +381,23 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
             )  # t9: counts a failed call
         text = render_result(envelope) if envelope is not None else render_raw(output)
         return ToolOutcome(result=executor._truncate(text, WEB_TOOL_NAME))
+
+    def handler(arguments: dict[str, Any]) -> Any:
+        # Pre-counted batch item (Qodo #8, contract with t18): the batch loop
+        # counts on the main thread before submission and records after the
+        # join, so this call must skip BOTH the check/increment and the
+        # record_result. Strip the private key before building argv.
+        pre_counted = arguments.get("_budget_counted") is True
+        if pre_counted:
+            arguments = {k: v for k, v in arguments.items() if k != "_budget_counted"}
+        verb = arguments.get("verb")
+        if not isinstance(verb, str) or verb not in web.ALLOWED_VERBS:
+            raise ToolError(
+                f"web needs a 'verb' from the allow-list ({', '.join(sorted(web.ALLOWED_VERBS))})"
+            )
+        _check_hidden()
+        if not pre_counted:
+            webbudget.check_and_increment(executor)  # t9: refuses call N+1, no spawn
+        return _run_and_render(executor, verb, arguments, pre_counted)
 
     return {WEB_TOOL_NAME: handler}
