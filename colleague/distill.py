@@ -13,12 +13,11 @@ The run's return is **never** blocked by distillation: the child is detached
 
 Role resolution mirrors deepthink/lobes precedence: env/config always win over
 lobes-discovered roles. When no author is resolved the rung-1 floor stands
-(byte-identical record, no counters — spec c16/h13).
-
-Sanctioned subprocess consumer: delegates to :func:`background.spawn_background`
-(the one-shot detach primitive, plan t12). This module itself never imports
-``subprocess`` directly — ``tests/test_boundary.py`` extends its
-sanctioned-consumer list to include this module.
+(byte-identical record, no counters — spec c16/h13). Sanctioned subprocess
+consumer: delegates to :func:`background.spawn_background` (the one-shot
+detach primitive, plan t12) — this module itself never imports ``subprocess``
+directly; ``tests/test_boundary.py`` extends its sanctioned-consumer list to
+include this module.
 """
 
 from __future__ import annotations
@@ -231,14 +230,16 @@ def write_outcome_marker(
     pid: int | None = None,
     lesson: dict[str, str] | None = None,
     reason: str | None = None,
+    warning: str | None = None,
 ) -> None:
     """Write the outcome marker file (best-effort, never raises).
 
     The marker is a small JSON file with ``status``
     (``pending``/``done``/``failed``/``dead``), an optional ``pid`` (for
     liveness probing), an optional ``lesson`` dict (when ``status == "done"``),
-    and an optional ``reason`` (when ``status`` is ``failed`` or ``dead`` —
-    see :func:`_failure_reason` for the failure vocabulary).
+    an optional ``reason`` (when ``status`` is ``failed`` or ``dead`` — see
+    :func:`_failure_reason`), and an optional ``warning`` (a ladder-400
+    retry note, t3, regardless of ``status``).
     """
     try:
         payload: dict[str, Any] = {"status": status, "written_at": time.time()}
@@ -248,6 +249,8 @@ def write_outcome_marker(
             payload["lesson"] = lesson
         if reason is not None:
             payload["reason"] = reason
+        if warning is not None:
+            payload["warning"] = warning
         marker_path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
@@ -360,13 +363,15 @@ def _build_child_argv(
     repo_path: str | Path,
     task_id: str,
     author_model: str,
+    author_effort: str | None = None,
 ) -> list[str]:
     """Build the argv for the distillation child process.
 
     The child re-invokes the module entry ``python -m colleague.distill``;
     author credentials ride the child env (:func:`_child_env`), never argv.
+    *author_effort* (t2's resolved sub-seat rung) rides argv as ``--effort``.
     """
-    return [
+    argv = [
         sys.executable,
         "-m",
         "colleague.distill",
@@ -377,6 +382,9 @@ def _build_child_argv(
         "--model",
         author_model,
     ]
+    if author_effort:
+        argv += ["--effort", author_effort]
+    return argv
 
 
 def _child_env(
@@ -396,31 +404,19 @@ def detach_distill_child(
     author_model: str,
     author_base_url: str,
     author_api_key: str,
+    author_effort: str | None = None,
 ) -> background.BackgroundHandle | None:
     """Detach the distillation child via the sanctioned one-shot pattern.
 
     Uses :func:`background.spawn_background` (start_new_session=True, no
     wait/poll) — the same one-shot detach primitive as ``--background``.
     The child re-invokes the colleague CLI to perform the distillation.
-
     Returns the :class:`background.BackgroundHandle` on success, or ``None``
-    on any failure (the parent never blocks or raises).
-
-    Parameters
-    ----------
-    repo_path:
-        The repo root.
-    task_id:
-        The work item's task id.
-    author_model:
-        The distillation author's model id.
-    author_base_url:
-        The distillation author's base URL.
-    author_api_key:
-        The distillation author's API key.
+    on any failure (the parent never blocks or raises). *author_effort* is
+    the resolved distill sub-seat rung (t2), threaded to argv unchanged.
     """
     try:
-        argv = _build_child_argv(repo_path, task_id, author_model)
+        argv = _build_child_argv(repo_path, task_id, author_model, author_effort)
         child_env = _child_env(author_base_url, author_api_key)
         return background.spawn_background(
             repo_path,
@@ -436,32 +432,17 @@ def make_distill_fn(
     author_model: str | None,
     author_base_url: str | None,
     author_api_key: str | None,
+    author_effort: str | None = None,
 ) -> Any | None:
     """Build the injectable ``distill_fn`` for the loop's rung-2 seam.
 
     Returns a callable ``(result, request_head) -> None`` that detaches the
     distillation child and returns immediately (non-blocking). When no author
     is resolved (``author_model`` is ``None``), returns ``None`` — the rung-1
-    floor (byte-identical record, no counters — spec c16/h13).
-
-    The returned callable **never raises**: any failure is caught and the
-    child is detached. The run's return is never blocked by distillation.
-
-    Parameters
-    ----------
-    repo_path:
-        The repo root.
-    author_model:
-        The distillation author's model id, or ``None`` for no author.
-    author_base_url:
-        The distillation author's base URL.
-    author_api_key:
-        The distillation author's API key.
-
-    Returns
-    -------
-    callable | None
-        The non-blocking distill_fn, or ``None`` when no author is resolved.
+    floor (byte-identical record, no counters — spec c16/h13). The returned
+    callable **never raises**: any failure is caught and the child is
+    detached. *author_effort* is the resolved distill sub-seat rung (t2),
+    threaded to the child via :func:`detach_distill_child`.
     """
     if not author_model:
         return None
@@ -482,6 +463,7 @@ def make_distill_fn(
                 author_model=author_model,
                 author_base_url=author_base_url or "",
                 author_api_key=author_api_key or "",
+                author_effort=author_effort,
             )
         return None
 
@@ -542,39 +524,21 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
 # The child entry (t17 finisher) — `python -m colleague.distill`
 # ---------------------------------------------------------------------------
 #
-# The live probe caught the detach pointing at a CLI verb that never existed
-# (the #363 armed-not-alive class, for real): the scaffolding above had no
-# child main and no completion call. This is that child. It is NOT an operator
-# verb — it never registers on the CLI; the only caller is
+# NOT an operator verb — it never registers on the CLI; the only caller is
 # :func:`detach_distill_child`'s one-shot detach.
 
 
 # The bounded completion's token envelope, SIZED FROM LIVE MEASUREMENT (t3,
-# spec h10) against unsloth/Qwen3.8-27B-NVFP4 on 2026-08-20 with realistic
-# rung-2 payloads composed by :func:`_compose_child_prompt`:
-#
-#   payload                     max_tokens  finish_reason  reasoning  content  tok
-#   A (one clear TypeError)            400  length          1854 ch     0 ch   400
-#   A                                  800  stop            2530 ch   655 ch   669
-#   A                                 1600  stop            2530 ch   655 ch   669
-#   B (contradictory gates)           1600  stop            6346 ch   459 ch  1449
-#   C (ambiguous outcome)             1600  stop            4854 ch   709 ch  1160
-#
-# Two facts drive the number. (1) The degradation is REAL, not theoretical:
-# payload A at 400 returns a 200 with `finish_reason=length`, 1854 chars of
-# reasoning and ZERO content — an empty lesson from a successful HTTP call.
-# (2) The old 1600 cap left a 151-token margin over the worst realistic
-# payload (1449, 90.6% of the cap), and reasoning — not the prompt — is what
-# varies: `_compose_child_prompt` truncates every field, so the prompt is
-# structurally capped near 1.7 KB while the reasoning spend tripled between
-# an easy diagnosis and a hard one. Content itself is only ~150-200 tokens.
-#
-# 4096 is 2.8x the measured worst case and still a BOUNDED completion (the
-# detached-and-bounded child contract holds). Raising it is free on the stop
-# path: at temperature 0 the same payload emitted an identical 669/1449/1160
-# tokens at caps of 800, 1600, 3200 and 6000 — vLLM bills what is generated,
-# not what is reserved. The explicit `finish_reason=length` handling below
-# lands regardless: a measured envelope is not a proof of an upper bound.
+# spec h10) against unsloth/Qwen3.8-27B-NVFP4 on 2026-08-20: the worst
+# realistic rung-2 payload spent 1449 of a 1600-token cap, and a reasoning
+# model bills its thinking against the SAME max_tokens as its answer — an
+# under-sized cap returns a 200 with finish_reason=length and ZERO content,
+# an empty lesson from a successful HTTP call. 4096 is 2.8x that worst case
+# and still a BOUNDED completion; raising it is free on the stop path (vLLM
+# bills what is generated, not what is reserved). This is the OFF-rung
+# envelope — an armed thinking-effort rung (t3 extension) raises the cap via
+# :func:`colleague.distilleffort.max_tokens_for_rung`, which carries the
+# full sizing rationale for that raised envelope.
 _DISTILL_MAX_TOKENS = 4096
 
 #: Wall-clock ceiling for the one bounded completion. The slowest measured
@@ -599,6 +563,7 @@ class DistillCompletion:
     content: str
     reasoning: str
     finish_reason: str
+    warning: str | None = None  # a ladder-400 retry note (t3), or None
 
     @property
     def text(self) -> str:
@@ -611,31 +576,58 @@ class DistillCompletion:
         return self.finish_reason == "length"
 
 
-def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> DistillCompletion:
-    """ONE bounded chat completion over urllib (the vLLM-adapter convention)."""
+def _openai_completion(
+    model: str,
+    base_url: str,
+    api_key: str,
+    prompt: str,
+    *,
+    max_tokens: int = _DISTILL_MAX_TOKENS,
+    chat_template_kwargs: dict | None = None,
+) -> DistillCompletion:
+    """ONE bounded chat completion over urllib (the vLLM-adapter convention).
+
+    A ladder-400 rejecting *chat_template_kwargs* retries ONCE without it
+    (``distilleffort.py`` mirrors the adapter's rule, unimported) — the
+    retry's warning rides the returned completion's ``warning`` field.
+    """
+    import urllib.error
     import urllib.request
 
+    from colleague import distilleffort
+
     url = base_url.rstrip("/") + "/chat/completions"
-    body = json.dumps(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": _DISTILL_MAX_TOKENS,
-            "temperature": 0,
-        }
-    ).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key or 'x'}",
-        },
-    )
-    with urllib.request.urlopen(
-        req, timeout=_DISTILL_TIMEOUT
-    ) as resp:  # nosec B310 - operator-configured http(s) endpoint
-        data = json.loads(resp.read().decode("utf-8"))
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0,
+    }
+    if chat_template_kwargs:
+        payload["chat_template_kwargs"] = chat_template_kwargs
+
+    def _dispatch() -> dict:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key or 'x'}",
+            },
+        )
+        with urllib.request.urlopen(
+            req, timeout=_DISTILL_TIMEOUT
+        ) as resp:  # nosec B310 - operator-configured http(s) endpoint
+            return json.loads(resp.read().decode("utf-8"))
+
+    warning = None
+    try:
+        data = _dispatch()
+    except urllib.error.HTTPError as exc:
+        outcome = distilleffort.retry_without_fragment_once(exc, payload, _dispatch)
+        if outcome is None:
+            raise
+        data, warning = outcome.response, outcome.warning
     choice = (data.get("choices") or [{}])[0]
     msg = choice.get("message") or {}
     # Servers disagree on the spelling of the reasoning field (s14): vLLM's
@@ -645,6 +637,7 @@ def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> 
         content=msg.get("content") or "",
         reasoning=reasoning,
         finish_reason=choice.get("finish_reason") or "",
+        warning=warning,
     )
 
 
@@ -709,29 +702,26 @@ def _compose_child_prompt(artifact: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def _failure_reason(completion: DistillCompletion, verdict_reason: str) -> str:
+def _failure_reason(completion: DistillCompletion, verdict_reason: str, max_tokens: int) -> str:
     """Name WHY no lesson was extracted, on the existing marker channel.
 
     The three failures are operationally different and must not read alike
-    (spec h10). A completion whose reasoning ate the token budget is a SIZING
-    fault; a completion with no content at all is a SERVING fault; anything
-    else is the genuine schema refusal the validator already explains.
-    Reporting the first two as a schema complaint would send the operator
-    hunting the prompt instead of the cap — and an empty completion must
-    never pass silently as "no lesson today".
-
-    The marker itself is the recorded-warning channel: a ``failed`` marker
-    counts as an attempt-without-a-validation in the ``distillation_alive``
-    check group, so doctor surfaces it as the armed-but-not-alive warning.
+    (spec h10). A completion whose reasoning ate *max_tokens* is a SIZING
+    fault (:func:`colleague.distilleffort.reasoning_exhausted_reason`); a
+    completion with no content at all is a SERVING fault; anything else is
+    the genuine schema refusal the validator already explains. Reporting the
+    first two as a schema complaint would send the operator hunting the
+    prompt instead of the cap — and an empty completion must never pass
+    silently as "no lesson today". The marker itself is the recorded-warning
+    channel: a ``failed`` marker counts as an attempt-without-a-validation in
+    the ``distillation_alive`` check group, so doctor surfaces it as the
+    armed-but-not-alive warning.
     """
     if completion.truncated:
-        return (
-            f"truncated: the distillation completion hit max_tokens="
-            f"{_DISTILL_MAX_TOKENS} (finish_reason=length) with "
-            f"{len(completion.reasoning)} reasoning chars and "
-            f"{len(completion.content)} content chars — the reasoning consumed "
-            f"the budget before a complete lesson JSON was emitted; raise "
-            f"_DISTILL_MAX_TOKENS or shorten the distillation prompt"
+        from colleague import distilleffort
+
+        return distilleffort.reasoning_exhausted_reason(
+            max_tokens, len(completion.reasoning), len(completion.content)
         )
     if not completion.content.strip():
         return (
@@ -754,7 +744,12 @@ def child_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--effort", default=None)  # t3: the resolved distill sub-seat rung
     args = parser.parse_args(argv)
+    from colleague import distilleffort
+
+    effort_rung = args.effort or os.environ.get("COLLEAGUE_DISTILL_EFFORT")
+    max_tokens = distilleffort.max_tokens_for_rung(effort_rung)
 
     # The child spawns at remember time, but the parent persists the artifact
     # only after the run returns — a bounded wait (c31's window) bridges the
@@ -778,6 +773,8 @@ def child_main(argv: list[str] | None = None) -> int:
             os.environ.get("COLLEAGUE_DISTILL_BASE_URL", ""),
             os.environ.get("COLLEAGUE_DISTILL_API_KEY", ""),
             _compose_child_prompt(artifact),
+            max_tokens=max_tokens,
+            chat_template_kwargs=distilleffort.chat_template_fragment(effort_rung),
         )
         parsed = lessons.parse_lesson_json(completion.text)
         verdict = lessons.validate_lesson(parsed if parsed is not None else completion.text)
@@ -789,10 +786,13 @@ def child_main(argv: list[str] | None = None) -> int:
         if parsed is not None and verdict.allowed and not completion.truncated:
             lesson = {k: str(parsed[k]) for k in ("pattern", "constant", "reason")}
             upsert_lesson(args.repo, args.task_id, lesson)
-            write_outcome_marker(marker, status="done", lesson=lesson)
+            write_outcome_marker(marker, status="done", lesson=lesson, warning=completion.warning)
             return 0
         write_outcome_marker(
-            marker, status="failed", reason=_failure_reason(completion, verdict.reason)
+            marker,
+            status="failed",
+            reason=_failure_reason(completion, verdict.reason, max_tokens),
+            warning=completion.warning,
         )
         return 1
     except Exception as exc:  # the marker IS the honest failure channel
