@@ -127,7 +127,15 @@ _PRE_ARC_TASKRESULT_KEYS = {
 # ALL runs — the ONE sanctioned artifact addition to the no-config shape.
 _SANCTIONED_FINISH_ADDITIONS = {"finish_states"}
 
-_EXPECTED_NOCONFIG_TASKRESULT_KEYS = _PRE_ARC_TASKRESULT_KEYS | _SANCTIONED_FINISH_ADDITIONS
+# Plan task t7 (purpose-tools-get-chosen, c49/h36): the composed system
+# prompt's sha256 is likewise unconditional observability for ALL runs — the
+# instrument that lets a live-testing row attribute its prose arm to the
+# prompt that actually ran. Additive and independent of three-tier config.
+_SANCTIONED_PROMPT_DIGEST_ADDITION = {"prompt_digest"}
+
+_EXPECTED_NOCONFIG_TASKRESULT_KEYS = (
+    _PRE_ARC_TASKRESULT_KEYS | _SANCTIONED_FINISH_ADDITIONS | _SANCTIONED_PROMPT_DIGEST_ADDITION
+)
 
 # Fields the arc introduced elsewhere on TaskResult (t7's config event stream)
 # that must stay ABSENT from a no-config serialized result — additive,

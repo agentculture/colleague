@@ -13,6 +13,7 @@ reloading it yields an equal object.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator, Optional, Sequence
@@ -1722,6 +1723,19 @@ class TaskResult:
     ``continued_from``/``chain``, the serialized key is OMITTED (not null)
     when ``None``, so a run with no config-event activity serializes
     byte-identically to today's artifact."""
+    prompt_digest: Optional[str] = None
+    """The sha256 digest of the system prompt this work item ACTUALLY ran with
+    (plan task t7, covers c49/h36) — computed by
+    :func:`prompt_digest_for` over the composed string each backend hands
+    ``loop.run`` as ``system_prompt`` (so an operator overlay under
+    ``.colleague/agents/<role>.md`` is inside the digest, never a
+    re-derivation of what the prompt *should* have been). This is what lets a
+    live-testing row cite the prompt arm read back off the artifact instead of
+    trusting the overlay file the operator believes was in place. ``None``
+    when the backend composed no system prompt at all. Like
+    ``config_digest``/``role``, the serialized key is OMITTED (not null) when
+    ``None``, so a prompt-less run serializes byte-identically to the
+    pre-``prompt_digest`` artifact shape."""
     tip_sha: Optional[str] = None
     """The ``colleague/<id>`` work branch's tip commit SHA after a successful
     handoff (plan task t5, covers c5), or ``None`` when the handoff produced no
@@ -1880,6 +1894,11 @@ class TaskResult:
             extra["config_events"] = [e.to_dict() for e in self.config_events]
         if self.config_digest is not None:
             extra["config_digest"] = self.config_digest
+        # prompt_digest sits BESIDE config_digest with the same omit-when-None
+        # treatment (plan task t7): a run whose backend composed no system
+        # prompt serializes byte-identically to today's artifact (no extra key).
+        if self.prompt_digest is not None:
+            extra["prompt_digest"] = self.prompt_digest
         # tip_sha gets the same omit-when-None treatment (plan task t5, covers c5):
         # a run whose handoff produced no commit serializes byte-identically to
         # the pre-tip_sha artifact (no extra key).
@@ -1975,6 +1994,7 @@ class TaskResult:
             ),
             config_events=_coerce_config_events(data.get("config_events")),
             config_digest=data.get("config_digest"),
+            prompt_digest=data.get("prompt_digest"),
             tip_sha=data.get("tip_sha"),
             warnings=list(data.get("warnings", [])),
         )
@@ -2347,6 +2367,29 @@ def config_digest_for(events: Sequence[ConfigEvent]) -> Optional[str]:
     if not events:
         return None
     return effective_digest(list(events))
+
+
+def prompt_digest_for(system_prompt: Optional[str]) -> Optional[str]:
+    """``TaskResult.prompt_digest`` for *system_prompt* — a plain sha256 hex
+    digest of the COMPOSED prompt string, or ``None`` when the backend
+    composed no system prompt (plan task t7).
+
+    Deliberately the narrowest possible function: it hashes exactly the bytes
+    a backend hands ``loop.run`` as ``system_prompt``, so whatever the
+    composition path actually produced — base family text, role prompt, an
+    operator overlay from ``.colleague/agents/<role>.md`` — is inside the
+    digest. It never re-derives the prompt from config, because a digest of a
+    re-derivation would attest to what the prompt *should* have been rather
+    than what ran (the whole point of the field).
+
+    Mirrors ``config_digest_for``'s omit-when-``None`` shape so both digests
+    on the artifact are produced by one convention. An EMPTY prompt (``""``)
+    is a composed prompt and DOES get a digest; only ``None`` (no prompt at
+    all) is omitted.
+    """
+    if system_prompt is None:
+        return None
+    return hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()
 
 
 # ── lazy import helper (avoids circular import at module level) ─────────

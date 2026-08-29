@@ -16,7 +16,7 @@ from typing import Callable
 from colleague import associate_seats
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
-from colleague.contract import Task, TaskResult
+from colleague.contract import Task, TaskResult, prompt_digest_for
 from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
 from colleague.engines import mock_scenarios
@@ -190,11 +190,16 @@ class MockEngine(Engine):
             if config.worker is not None or getattr(config, "thought_action_evaluation", False)
             else "cortex"
         )
+        # Prompt digest (plan task t7, covers c49/h36): hoist the composed
+        # prompt into a local so the artifact can attest to the string that
+        # ACTUALLY went on the wire — including any operator overlay — rather
+        # than a re-derivation. Byte-identical to the previous inline call.
+        composed_system_prompt = self.system_prompt(task, config)
         result = run(
             complete,
             task,
             max_steps=config.max_steps,
-            system_prompt=self.system_prompt(task, config),
+            system_prompt=composed_system_prompt,
             model=config.model,
             progress=config.progress,
             seat=seat,
@@ -226,6 +231,10 @@ class MockEngine(Engine):
                 associate_complete=associate_seats.make_associate_complete(config, self.name),
             ),
         )
+        # Prompt digest (t7): recorded on EVERY backend (all-engines rule)
+        # from the same composed string the loop received; ``None`` (no
+        # composed prompt) omits the key entirely — byte-identical artifact.
+        result.prompt_digest = prompt_digest_for(composed_system_prompt)
         # Model-bound agents (#411, t13): an ARMED config always returns the
         # versioned ``agents`` block with the SAME shape on every backend
         # (all-engines rule) — the fold only fills a still-``None`` field, so

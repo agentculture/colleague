@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 
 from colleague.config import DeepthinkConfig, EngineConfig
-from colleague.contract import OK, DeepthinkCall, Task
+from colleague.contract import OK, DeepthinkCall, Task, TaskResult
 from colleague.deepthink import DeepthinkResult
 from colleague.loop import ContextControls, ModelResponse, ToolCall, run
 from colleague.tools import ToolExecutor
@@ -238,7 +238,10 @@ def _wiring_probe(monkeypatch, engine_module, engine, config, tmp_path):
 
     def fake_run(complete, task, **kwargs):
         captured.update(kwargs)
-        return object()
+        # A real TaskResult, not a bare object(): every backend now records
+        # TaskResult.prompt_digest on the loop's return value (plan task t7),
+        # so a stub standing in for ``run`` must honour the return CONTRACT.
+        return TaskResult(task_id=task.id, status=OK)
 
     monkeypatch.setattr(engine_module, "run", fake_run)
     engine.work(Task.new(str(tmp_path), "x"), config)
@@ -280,7 +283,9 @@ def test_vllm_offers_deepthink_schema_only_under_dual_config(monkeypatch, tmp_pa
         return real_make(self, config, tools=tools)
 
     monkeypatch.setattr(vllm_module.VllmOpenAIEngine, "_make_complete", spying_make)
-    monkeypatch.setattr(vllm_module, "run", lambda complete, task, **kw: object())
+    monkeypatch.setattr(
+        vllm_module, "run", lambda complete, task, **kw: TaskResult(task_id=task.id, status=OK)
+    )
 
     engine = vllm_module.VllmOpenAIEngine()
     engine.work(Task.new(str(tmp_path), "x"), _dual_config())
