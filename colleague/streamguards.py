@@ -207,6 +207,28 @@ def _partial_is_payload(partial: bytes) -> bool:
     return bool(head) and not head.startswith(b":")
 
 
+def _account_for_chunk(buffer: bytearray, guards: StreamGuards) -> Iterator[bytes]:
+    """Yield every complete line *buffer* now holds, refreshing the idle clock
+    for the payload bytes this chunk contributed, and give the guards a turn.
+
+    Both halves of the accounting live here: each drained line refreshes the
+    clock unless it is an SSE comment (#438 guidance 4), and the bytes left in
+    the INCOMPLETE trailing line count too the moment that line is decidably
+    non-comment — a newline is not the unit of progress. (A non-empty trailing
+    line always ends with a byte from this chunk, so no stale partial can keep
+    refreshing the clock.) ``guards.check()`` runs once per chunk even when the
+    chunk completed no line at all.
+    """
+    for line in _drain_complete_lines(buffer):
+        if not _is_comment_line(line):
+            guards.saw_bytes()
+        guards.check()
+        yield line
+    if _partial_is_payload(bytes(buffer)):
+        guards.saw_bytes()
+    guards.check()
+
+
 def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
     """Yield *response*'s lines one socket READ at a time, consulting *guards*
     before and after every read.
@@ -223,8 +245,8 @@ def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
     simply stops being re-timed.
 
     The per-chunk deadline/idle bookkeeping (socket re-timing, the guarded
-    read itself, draining complete lines out of the buffer) is each factored
-    into its own helper purely to keep this function's own cognitive
+    read itself, and draining plus accounting for the chunk's bytes) is each
+    factored into its own helper purely to keep this function's own cognitive
     complexity low (SonarCloud python:S3776); the read1-chunking semantics
     are unchanged from the single-function form.
     """
@@ -245,18 +267,7 @@ def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
                 yield bytes(buffer)
             return
         buffer.extend(chunk)
-        for line in _drain_complete_lines(buffer):
-            if not _is_comment_line(line):
-                guards.saw_bytes()
-            guards.check()
-            yield line
-        # The bytes this chunk left in the INCOMPLETE trailing line count too,
-        # the moment that line is decidably non-comment: a newline is not the
-        # unit of progress. (A non-empty trailing line always ends with a byte
-        # from this chunk, so no stale partial can keep refreshing the clock.)
-        if _partial_is_payload(bytes(buffer)):
-            guards.saw_bytes()
-        guards.check()  # every chunk gets a turn, not only a completed line
+        yield from _account_for_chunk(buffer, guards)
 
 
 def stall_notice(guard: str, seconds: float, bound: float) -> str:
