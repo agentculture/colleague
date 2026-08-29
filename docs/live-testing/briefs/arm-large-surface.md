@@ -20,11 +20,17 @@ where delegation is the correct choice.
 A throwaway repo with an `.eidetic` store (eidetic CLI 0.13.0, so the distill
 seat can fire) containing **twelve modules** under `src/`, named `mod_a`
 through `mod_l`, each **~1,500 lines / ~60,000 characters** (~40 chars per
-line). Each module defines 8-12 public functions with docstrings; four
-pairs of modules contain the SAME algorithm under DIFFERENT function names
-and different local variable names (so the duplication cannot be found by
-grepping one identifier), and the call graph between modules is only visible
-from the import lines plus the call sites in the bodies.
+line). Each module defines 8-12 public functions with docstrings — bulk comes
+from module-level data tables and long bodies, not from extra functions. Four
+pairs of modules contain the SAME algorithm under DIFFERENT function names,
+parameter names, local variable names and docstrings (so the duplication
+cannot be found by grepping one identifier), and the four pairs implement four
+GENUINELY DIFFERENT algorithms — interval coalescing, decay-ranked ordering, a
+rolling 32-bit checksum, even partitioning — so "four pairs" is a well-defined
+answer rather than one eight-way duplicate. Each module imports two neighbours
+and bridges to BOTH of them, so the call graph between modules has two
+outgoing edges per module and is only visible from the import lines plus the
+call sites in the bodies.
 
 Generate it deterministically and commit the generator alongside the row so
 the fixture is reproducible; record the exact per-file line and byte counts
@@ -44,8 +50,8 @@ guesswork; the pilot below is what turns them into evidence.
   budget is **40** (`colleague/config.py` `_DEFAULT_MAX_STEPS`). Reading the
   surface in-seat consumes 90% of the budget and leaves 4 steps for the
   survey write-up plus the edit.
-- **Context budget.** ~720,000 characters of module text is roughly
-  **180,000 tokens** at ~4 chars/token, against a default context budget of
+- **Context budget.** ~757,000 characters of module text is roughly
+  **189,000 tokens** at ~4 chars/token, against a default context budget of
   **131,072** (`_DEFAULT_CONTEXT_BUDGET`). The fill-line threshold is 0.8
   (~104,858 tokens), crossed somewhere around the seventh module, so an
   in-seat read of all twelve crosses the capacity decision at least once and
@@ -143,6 +149,25 @@ Every arm row must therefore carry this scope line verbatim:
 This brief still runs as the matrix's larger-surface arm — it is a bigger
 brief, just not one that provably forces a limit. Its results are read under
 the same scope line as the rest.
+
+**The pilot ran against a superseded generator.** The three attempts above
+used the generator as it stood on tip `1d49c54`. A Qodo review of PR #450
+(comments 3887387011 / 3887387013 / 3887459533) then found three defects in
+it — all four pairs rendered the *same* implementation (an eight-way
+duplicate, so "four pairs" was not well defined), the filler loop emitted
+dozens of public functions per module instead of the 8-12 specified here, and
+the bridge selector `calls[i % 2]` under an `i % 4 == 0` guard could only ever
+pick the first neighbour, so the second call edge was missing. The generator
+is fixed; the fixture it now produces is **12 modules, 18,362 lines, 757,130
+chars** (per-module 1,518–1,539 lines / 62,654–63,369 chars, 10–11 public
+functions each, both call edges present, the four algorithms behaviourally
+distinct). The counts in the table above are left as recorded because they
+describe the runs that actually happened — they are not reproducible from the
+current generator. The pilot's *finding* (the acting seat builds a grep symbol
+index and does ranged `run_command` reads, so neither budget is approached) is
+about the tool surface, not the fixture's internals, and is unaffected; a
+re-pilot on the corrected fixture is nonetheless the honest way to re-confirm
+it if the arm is re-run.
 
 **Honest limit of this pilot.** One fixture size was tested (708 KB). The
 mechanism observed is size-independent in principle — a symbol index plus
