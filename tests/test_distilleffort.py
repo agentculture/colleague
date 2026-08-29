@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from colleague import distill, distilleffort
 
 # ---------------------------------------------------------------------------
@@ -445,3 +447,215 @@ class TestMakeDistillFnThreadsEffort:
             argv = mock_spawn.call_args[0][1]
             assert "--effort" in argv
             assert argv[argv.index("--effort") + 1] == "medium"
+
+
+# ---------------------------------------------------------------------------
+# Qodo review 3883003365 — the ladder-400 classifier must read the response
+# BODY: a real urllib HTTPError renders only "HTTP Error 400: Bad Request",
+# so the rejected rung is named in the body alone.
+# ---------------------------------------------------------------------------
+
+
+def _http_error(url: str, code: int, body: str) -> Any:
+    """A REAL ``urllib.error.HTTPError`` whose detail lives only in its body."""
+    import email.message
+    import io
+    import urllib.error
+
+    return urllib.error.HTTPError(
+        url, code, "Bad Request", email.message.Message(), io.BytesIO(body.encode("utf-8"))
+    )
+
+
+class TestLadder400ClassifiedFromTheBody:
+    def test_body_named_rung_retries_once_without_the_fragment(self, monkeypatch: Any) -> None:
+        import urllib.request
+
+        body = json.dumps(
+            {
+                "object": "error",
+                "message": (
+                    "Unexpected reasoning effort bogus. Supported types are "
+                    "xhigh (default), medium, and low."
+                ),
+            }
+        )
+        calls: list[dict] = []
+
+        def fake_urlopen(request: Any, timeout: float | None = None) -> Any:
+            payload = json.loads(request.data.decode("utf-8"))
+            calls.append(payload)
+            if len(calls) == 1:
+                raise _http_error(request.full_url, 400, body)
+            return _FakeCompletionResponse(_completion_body(content="{}"))
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        distill._openai_completion(
+            "m",
+            "http://rig/v1",
+            "k",
+            "prompt",
+            max_tokens=distilleffort.ARMED_MAX_TOKENS,
+            chat_template_kwargs={"reasoning_effort": "bogus"},
+        )
+        assert len(calls) == 2
+        assert "chat_template_kwargs" in calls[0]
+        assert "chat_template_kwargs" not in calls[1]
+
+    def test_the_warning_carries_what_the_server_said(self, monkeypatch: Any) -> None:
+        import urllib.request
+
+        body = "Unexpected reasoning effort bogus. Supported types are xhigh, medium, and low."
+        calls: list[dict] = []
+
+        def fake_urlopen(request: Any, timeout: float | None = None) -> Any:
+            calls.append(json.loads(request.data.decode("utf-8")))
+            if len(calls) == 1:
+                raise _http_error(request.full_url, 400, body)
+            return _FakeCompletionResponse(_completion_body(content="{}"))
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        completion = distill._openai_completion(
+            "m", "http://rig/v1", "k", "prompt", chat_template_kwargs={"reasoning_effort": "bogus"}
+        )
+        assert completion.warning is not None
+        assert "ladder retry" in completion.warning
+        assert "Supported types are xhigh" in completion.warning
+
+    def test_non_ladder_400_reraises_legibly_with_the_body(self, monkeypatch: Any) -> None:
+        import urllib.error
+        import urllib.request
+
+        body = json.dumps({"object": "error", "message": "model `nope` does not exist"})
+        calls: list[dict] = []
+
+        def fake_urlopen(request: Any, timeout: float | None = None) -> Any:
+            calls.append(json.loads(request.data.decode("utf-8")))
+            raise _http_error(request.full_url, 400, body)
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        with pytest.raises(urllib.error.HTTPError) as raised:
+            distill._openai_completion(
+                "nope",
+                "http://rig/v1",
+                "k",
+                "prompt",
+                chat_template_kwargs={"reasoning_effort": "low"},
+            )
+        assert len(calls) == 1  # no retry on a non-ladder 400
+        assert "does not exist" in str(raised.value)
+
+    def test_second_ladder_400_propagates_unguarded(self, monkeypatch: Any) -> None:
+        import urllib.error
+        import urllib.request
+
+        body = "Unexpected reasoning effort bogus."
+        calls: list[dict] = []
+
+        def fake_urlopen(request: Any, timeout: float | None = None) -> Any:
+            calls.append(json.loads(request.data.decode("utf-8")))
+            raise _http_error(request.full_url, 400, body)
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        with pytest.raises(urllib.error.HTTPError):
+            distill._openai_completion(
+                "m",
+                "http://rig/v1",
+                "k",
+                "prompt",
+                chat_template_kwargs={"reasoning_effort": "bogus"},
+            )
+        assert len(calls) == 2  # exactly ONE retry, then the raise
+
+
+class TestReadErrorBody:
+    def test_reads_the_body_once(self) -> None:
+        exc = _http_error("http://rig/v1/chat/completions", 400, "boom")
+        assert distilleffort.read_error_body(exc) == "boom"
+        # single-read stream: the second read is empty, never an exception
+        assert distilleffort.read_error_body(exc) == ""
+
+    def test_unreadable_body_degrades_to_empty(self) -> None:
+        exc = TestIsLadder400._FakeHTTPError(400, "no body here")
+        assert distilleffort.read_error_body(exc) == ""
+
+
+class TestIsLadder400ReadsTheDetail:
+    def test_detail_names_the_rung(self) -> None:
+        exc = TestIsLadder400._FakeHTTPError(400, "HTTP Error 400: Bad Request")
+        assert distilleffort.is_ladder_400(exc, "Unexpected reasoning effort bogus.") is True
+
+    def test_detail_without_the_phrase_is_not_a_ladder_400(self) -> None:
+        exc = TestIsLadder400._FakeHTTPError(400, "HTTP Error 400: Bad Request")
+        assert distilleffort.is_ladder_400(exc, "model `nope` does not exist") is False
+
+
+# ---------------------------------------------------------------------------
+# Qodo review 3883003379 — the parent's resolved rung is authoritative: a
+# kill-switched parent must not let an inherited COLLEAGUE_DISTILL_EFFORT
+# re-arm the child.
+# ---------------------------------------------------------------------------
+
+
+class TestApplyChildEffortEnv:
+    def test_armed_rung_is_exported(self) -> None:
+        env = distilleffort.apply_child_effort_env({}, "medium")
+        assert env["COLLEAGUE_DISTILL_EFFORT"] == "medium"
+
+    def test_resolved_none_removes_an_inherited_value(self) -> None:
+        env = distilleffort.apply_child_effort_env({"COLLEAGUE_DISTILL_EFFORT": "medium"}, None)
+        assert "COLLEAGUE_DISTILL_EFFORT" not in env
+
+
+class TestKillSwitchedParentCannotBeReArmedByTheEnv:
+    def test_child_env_drops_the_inherited_rung(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("COLLEAGUE_DISTILL_EFFORT", "medium")
+        env = distill._child_env("http://rig/v1", "k", None)
+        assert "COLLEAGUE_DISTILL_EFFORT" not in env
+
+    def test_child_env_exports_the_resolved_rung(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("COLLEAGUE_DISTILL_EFFORT", "medium")
+        env = distill._child_env("http://rig/v1", "k", "low")
+        assert env["COLLEAGUE_DISTILL_EFFORT"] == "low"
+
+    def test_spawned_child_runs_off_rung_with_the_baseline_cap(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """End to end: a kill-switched parent (effort=None) plus an operator
+        ``COLLEAGUE_DISTILL_EFFORT=medium`` spawns a child whose effective
+        rung is off and whose cap is ``OFF_MAX_TOKENS``."""
+        from unittest.mock import patch as _patch
+
+        from colleague import background
+
+        monkeypatch.setenv("COLLEAGUE_DISTILL_EFFORT", "medium")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        with _patch.object(background, "spawn_background") as mock_spawn:
+            mock_spawn.return_value = background.BackgroundHandle(
+                id="h1", pid=1, log_dir=".colleague/background/h1/", flight="f1"
+            )
+            distill.detach_distill_child(repo, "t1", "m", "http://rig/v1", "k", None)
+        argv = mock_spawn.call_args[0][1]
+        child_env = mock_spawn.call_args[1]["env"]
+        assert "--effort" not in argv
+        assert "COLLEAGUE_DISTILL_EFFORT" not in child_env
+
+        # …and the child, run under exactly that env, resolves the off rung.
+        adir = tmp_path / ".colleague"
+        adir.mkdir()
+        (adir / "t1.some-slug.json").write_text(
+            json.dumps({"task_id": "t1", "status": "ok", "summary": "s"}), encoding="utf-8"
+        )
+        captured: dict = {}
+
+        def fake_completion(model, base_url, api_key, prompt, **kwargs):
+            captured.update(kwargs)
+            return distill.DistillCompletion(content="{}", reasoning="", finish_reason="stop")
+
+        monkeypatch.setattr(distill, "_openai_completion", fake_completion)
+        monkeypatch.delenv("COLLEAGUE_DISTILL_EFFORT", raising=False)  # the child's env
+        with patch("colleague.memory.remember", return_value=False):
+            distill.child_main(["--repo", str(tmp_path), "--task-id", "t1", "--model", "m"])
+        assert captured["max_tokens"] == distilleffort.OFF_MAX_TOKENS
+        assert captured.get("chat_template_kwargs") is None

@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from colleague import associate_seats as _associate_seats
-from colleague import background, lessons, memory
+from colleague import background, distilleffort, lessons, memory
 from colleague.lobes import LobesRoles
 
 
@@ -390,12 +390,19 @@ def _build_child_argv(
 def _child_env(
     author_base_url: str,
     author_api_key: str,
+    author_effort: str | None = None,
 ) -> dict[str, str]:
-    """Build the child environment with author credentials."""
+    """Build the child environment with author credentials.
+
+    The PARENT's resolved rung is authoritative (Qodo 3883003379):
+    :func:`distilleffort.apply_child_effort_env` exports an armed rung and
+    REMOVES an inherited ``COLLEAGUE_DISTILL_EFFORT`` when the parent
+    resolved none.
+    """
     env = dict(os.environ)
     env["COLLEAGUE_DISTILL_BASE_URL"] = author_base_url
     env["COLLEAGUE_DISTILL_API_KEY"] = author_api_key
-    return env
+    return distilleffort.apply_child_effort_env(env, author_effort)
 
 
 def detach_distill_child(
@@ -417,7 +424,7 @@ def detach_distill_child(
     """
     try:
         argv = _build_child_argv(repo_path, task_id, author_model, author_effort)
-        child_env = _child_env(author_base_url, author_api_key)
+        child_env = _child_env(author_base_url, author_api_key, author_effort)
         return background.spawn_background(
             repo_path,
             argv,
@@ -587,14 +594,12 @@ def _openai_completion(
 ) -> DistillCompletion:
     """ONE bounded chat completion over urllib (the vLLM-adapter convention).
 
-    A ladder-400 rejecting *chat_template_kwargs* retries ONCE without it
-    (``distilleffort.py`` mirrors the adapter's rule, unimported) — the
-    retry's warning rides the returned completion's ``warning`` field.
+    HTTPError policy — the one-shot ladder-400 retry (its warning rides the
+    returned completion) and the legible body-folded re-raise — lives in
+    ``distilleffort.handle_http_error``.
     """
     import urllib.error
     import urllib.request
-
-    from colleague import distilleffort
 
     url = base_url.rstrip("/") + "/chat/completions"
     payload: dict[str, Any] = {
@@ -624,9 +629,7 @@ def _openai_completion(
     try:
         data = _dispatch()
     except urllib.error.HTTPError as exc:
-        outcome = distilleffort.retry_without_fragment_once(exc, payload, _dispatch)
-        if outcome is None:
-            raise
+        outcome = distilleffort.handle_http_error(exc, url, payload, _dispatch)
         data, warning = outcome.response, outcome.warning
     choice = (data.get("choices") or [{}])[0]
     msg = choice.get("message") or {}
@@ -718,8 +721,6 @@ def _failure_reason(completion: DistillCompletion, verdict_reason: str, max_toke
     armed-but-not-alive warning.
     """
     if completion.truncated:
-        from colleague import distilleffort
-
         return distilleffort.reasoning_exhausted_reason(
             max_tokens, len(completion.reasoning), len(completion.content)
         )
@@ -746,8 +747,6 @@ def child_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--effort", default=None)  # t3: the resolved distill sub-seat rung
     args = parser.parse_args(argv)
-    from colleague import distilleffort
-
     effort_rung = args.effort or os.environ.get("COLLEAGUE_DISTILL_EFFORT")
     max_tokens = distilleffort.max_tokens_for_rung(effort_rung)
 
