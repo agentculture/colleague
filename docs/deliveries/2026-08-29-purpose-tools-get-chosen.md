@@ -51,7 +51,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t7` | not started | wave 3 |
 | `t8` | delivered | `COLLEAGUE_ACTING_DROP_TOOLS`, depth-0 only; merged `a811661` |
 | `t9` | not started | wave 3 |
-| `t10` | partial | Both briefs authored and merged (`d2160a8`); acceptance criterion 2 (pilot run) deliberately deferred to the operator |
+| `t10` | delivered | Both briefs authored and merged (`d2160a8`); criterion 2 discharged by a three-attempt operator pilot recorded in the brief, with the deterministic fixture generator committed (`8af3ee6`) |
 | `t11` | not started | wave 3 |
 | `t12` | not started | wave 3 |
 | `t13` | not started | wave 4 |
@@ -59,8 +59,8 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t15` | not started | wave 7 |
 | `t16` | not started | wave 6 |
 
-Six of sixteen tasks delivered (one partial). Ten not started — wave 1 was the
-approved scope; the remaining waves are unblocked and unattempted, not failed.
+Six of sixteen tasks delivered. Ten not started — wave 1 was the approved
+scope; the remaining waves are unblocked and unattempted, not failed.
 
 ## Mid-work Decisions
 
@@ -96,6 +96,17 @@ miss recorded here rather than retrofitted into the delivery store.
   feature); `colleague/engines/vllm_openai.py` 1324 → 1358 (the shared-guards
   feature). `colleague/loop.py` was trimmed back to its 5281 baseline exactly
   rather than raised.
+- **The large-surface pilot was discharged as a NEGATIVE finding, not
+  engineered around.** Three attempts (`eeb7f261f87d` `ok` with no limit hit;
+  `75b0c4a23087` VOID on a 1800 s stall with `stream_guard_trips == 1`;
+  `b7b2c91748f9` SIGTERM'd at 5 steps under external GPU contention) showed
+  the acting seat never uses `read_file` for a survey — it builds a symbol
+  index with one `grep -nE '^(def |class |import |from )'` and then reads
+  ranges with `sed -n`. Two fixture flaws found en route were mine, not the
+  model's: shared pair doclines, and every algorithm sitting in the first ~36
+  lines so one uniform slice surfaced all twelve. Scattering the algorithms to
+  per-module offsets did not defeat the strategy — the grep index hands the
+  model the offsets.
 - **`t1` salvaged from an orphaned worktree.** A machine restart killed the run;
   a hard kill fires no #222 WIP-on-stop commit, so the work survived only as
   178 uncommitted insertions on disk.
@@ -104,7 +115,7 @@ miss recorded here rather than retrofitted into the delivery store.
 
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
-| `t10` | Acceptance criterion 2 (pilot run) was mis-specified for a doc-authoring seat; narrowed to specification-of-the-pilot, with execution deferred to the operator. Task reassigned from colleague to an opus subagent. | needs-follow-up |
+| `t10` | Acceptance criterion 2 (pilot run) was mis-specified for a doc-authoring seat; narrowed to specification-of-the-pilot and executed by the operator instead. Task reassigned from colleague to an opus subagent. Criterion 2 is now discharged — as a negative finding, which spec c47 explicitly authorises. | acceptable |
 | `t1` | Delivered work broke nine existing tests (doubles of the `_post_json` signature it changed) and its own new test recursed against conftest's autouse SSE bridge, so it never ran green as delivered. Integrator wrote a degrade path and rewrote the test as a socket-free unit test. | acceptable |
 | `t2` | Delivered with two self-reported defects — a duplicated `_escalate_request_timeout` call and +2 over the file-length ratchet — fixed by the integrator in `909bc41`. | acceptable |
 | `t8` | Merged without `test_file_length_ratchet.py` in its affected-test set, so `tools.py` growth surfaced two merges later. Operator gate gap, not a defect in delegated work. | acceptable |
@@ -124,6 +135,10 @@ miss recorded here rather than retrofitted into the delivery store.
   `3e355e9` `d2160a8` `0924f9f` `73546bf`
 - probe: `COLLEAGUE_ACTING_DROP_TOOLS=grep_search,glob` → acting seat lacks
   both, scout child retains both
+- pilot: `eeb7f261f87d` (`ok`, 18 steps, no limit) · `75b0c4a23087` (VOID,
+  `stats.counts.stream_guard_trips == 1`) · `b7b2c91748f9` (SIGTERM, 5 steps)
+- fixture: `scripts/make_large_surface_fixture.py` — 12 modules, 17,996 lines,
+  708,496 chars, deterministic
 - issues: #438 (four guidance points addressed), #435, #437, #443, #360, #399,
   #413
 
@@ -138,16 +153,20 @@ miss recorded here rather than retrofitted into the delivery store.
 | The acting seat can drop named tools while children keep them | high | commit `a811661` · test file `tests/test_acting_drop_knob.py` · live probe recorded above |
 | Two arm briefs exist, neither naming a tool its arm does not offer | high | commit `d2160a8` · `grep -rn subagent docs/live-testing/briefs/arm-*.md` exits 1 |
 | The 1800 s guard default is safer for real test-first tasks on this rig | medium | commit `b581b2c` · `t3` died at exactly 900 s; n=1 |
-| The large-surface brief's baseline provably hits a budget limit | unverified | pilot run not executed — `t10` criterion 2 deferred to the operator |
+| The large-surface brief's baseline provably hits a budget limit | **refuted** | pilot `eeb7f261f87d` finished `ok` in 18 steps with no limit hit; recorded in the brief |
+| The acting seat surveys via a shell symbol index rather than `read_file`, so `read_file` paging never binds | high | pilot steps 2-3 of `eeb7f261f87d` and `b7b2c91748f9` (`grep -nE '^(def \|class \|import \|from )'` then `sed -n`) |
+| `t4`'s stream-guard counter works against a real stall | high | pilot `75b0c4a23087` artifact: `stats.counts.stream_guard_trips == 1` |
+| Arm results will measure small briefs only, unless the seat drops shell reads | medium | the negative pilot above; one fixture size tested, the mechanism argued size-independent but not measured at larger sizes |
 | #438's stall class is closed | unverified | four guidance points implemented, but no post-fix live run has exercised them against a stalling gateway |
 | Purpose tools are more likely to be chosen after these changes | unverified | no arm has run — that is waves 4–6 |
 
 ## Remaining Work / Follow-up
 
-- **`t10` criterion 2** — build the twelve-module fixture the brief specifies
-  and record the pilot run, naming which limit it hit. Operator work. Note the
-  brief's own void condition: a #438 stall is *not* evidence for this
-  criterion; re-run.
+- **Decide what the negative pilot means for the matrix** — either accept
+  "small briefs only" as the reported scope of every arm, or re-spec a surface
+  that also drops `run_command` from the acting seat (a much larger change
+  than t8's, and one that alters what the arm measures). This is a `/think`
+  decision, not a build task.
 - **`t5`** (wave 2, the linchpin) — prompt/surface unification. Blocks every
   prose arm: the overlay instrument does not reach a bare run until it lands.
 - **`t6`, `t7`, `t9`, `t11`, `t12`** (wave 3) — markup counter, prompt digest,
