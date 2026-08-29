@@ -999,6 +999,27 @@ def _record_ladder_retry_warning(config: EngineConfig, warning: _LadderRetryWarn
     config.reasoning_effort_warnings = existing + (warning,)
 
 
+def _record_transport_guarded(config: EngineConfig, streaming: bool) -> None:
+    """Record on *config* whether THIS turn's transport is really stream-guarded.
+
+    The loop suppresses its PROACTIVE backpressure timeout raise while the
+    stream guards bound an alive-but-slow turn (#438 guidance 3). That decision
+    used to read the ENVIRONMENT alone, which is default-armed — so a
+    ``COLLEAGUE_STREAM=0`` run lost the guards *and* the raise (Qodo PR #450).
+    Only the SSE reader (and the blocking fallback ``_stream_or_blocking``
+    shares its guards with) reads its body through
+    :func:`streamguards.guarded_lines`; a plain blocking POST does not, so it is
+    honestly unguarded and keeps its one-time raise.
+
+    Written as a plain attribute per turn, the ``config.base_timeout`` /
+    ``config.reasoning_effort_warnings`` call-time-state convention; the loop
+    reads it back through ``loop._make_transport_guard_probe``.
+    """
+    config.transport_stream_guarded = bool(streaming) and (
+        streamguards.StreamGuards.from_env() is not None
+    )
+
+
 class VllmOpenAIEngine(Engine):
     """Drives an OpenAI-compatible chat-completions endpoint with tool calling."""
 
@@ -1102,6 +1123,7 @@ class VllmOpenAIEngine(Engine):
         convergence point, never duplicated logic in either transport
         function itself.
         """
+        _record_transport_guarded(config, streaming)
         if streaming:
             return _stream_or_blocking(
                 url,
