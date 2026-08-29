@@ -63,13 +63,11 @@ def _post_json(
     Isolated at module scope so tests monkeypatch it to drive the loop without a
     live server.
 
-    *guards* (c12, #438): when given, the response body is read through
-    ``streamguards.guarded_lines`` — the SAME idle/lifetime watchdogs the
-    streaming reader gets — so a drip-feeding server on the blocking path
-    (the ``_stream_or_blocking`` fallback) trips a guard within its bound
-    instead of hanging until the request timeout. ``None`` (the default, and
-    every call site that does not share a turn's guards) reads the body
-    exactly as before.
+    *guards* (c12, #438): when given, the body is read through
+    ``streamguards.guarded_lines`` — the SAME watchdogs the streaming reader
+    gets — so a drip-feeding server on the blocking fallback trips a guard
+    within its bound instead of hanging until the request timeout. ``None``
+    (the default) reads the body exactly as before.
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -82,7 +80,10 @@ def _post_json(
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
-            if guards is None:
+            # A response that supports neither read1 nor iteration (a test
+            # double with only .read()) degrades to the unguarded read — the
+            # same degrade-don't-break rule guarded_lines uses internally.
+            if guards is None or not (hasattr(response, "read1") or hasattr(response, "__iter__")):
                 return json.loads(response.read().decode("utf-8"))
             return json.loads(b"".join(streamguards.guarded_lines(response, guards)).decode("utf-8"))
     except TimeoutError as exc:
@@ -574,10 +575,9 @@ def _post_json_stream(
     ``ModelResponse.prompt_tokens``/``completion_tokens`` are plain ``int``
     fields, not ``Optional``) — never an estimate.
 
-    *guards* (c12, #438): the turn's :class:`streamguards.StreamGuards`, when
-    the caller (:func:`_stream_or_blocking`) wants the SAME object shared with
-    the blocking fallback; ``None`` (the default, and every direct call)
-    builds one from the environment exactly as before.
+    *guards* (c12, #438): the turn's :class:`streamguards.StreamGuards` when
+    :func:`_stream_or_blocking` shares one object across both paths; ``None``
+    (the default) builds one from the environment exactly as before.
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -793,12 +793,11 @@ def _stream_or_blocking(
     degradation path handles it exactly as it does today.
 
     The turn's :class:`streamguards.StreamGuards` (c12, #438) is built ONCE
-    here and shared by BOTH paths: the streaming reader and the blocking
-    fallback read through the same guard object, so a drip-feeding server on
-    the fallback trips the idle/lifetime bound within the turn's own clock
-    instead of hanging until the request timeout. The lifetime clock starts
-    at the turn, not at the fallback — a turn that already spent time on the
-    stream attempt does not get a fresh lifetime window for the retry.
+    here and shared by BOTH paths, so a drip-feeding server on the fallback
+    trips the idle/lifetime bound within the turn's own clock instead of
+    hanging until the request timeout. The lifetime clock starts at the turn,
+    not at the fallback — a turn that already spent time on the stream attempt
+    gets no fresh lifetime window for the retry.
     """
     guards = streamguards.StreamGuards.from_env(base_timeout=timeout)
     try:

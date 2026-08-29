@@ -305,45 +305,26 @@ def test_fallback_shares_the_streaming_guards_object(monkeypatch) -> None:
 
     monkeypatch.setattr(streamguards.StreamGuards, "from_env", classmethod(counting_from_env))
 
+    # A pure unit assertion: both transports are stubbed, so no socket is
+    # opened and conftest's autouse _sse_bridge_over_blocking_stubs (which
+    # dispatches urlopen through the module-level _post_json) never engages.
     stream_guards: list[Any] = []
-    real_post_json_stream = vllm_openai._post_json_stream
-
-    def capturing_post_json_stream(url, payload, **kwargs):
-        stream_guards.append(kwargs.get("guards"))
-        return real_post_json_stream(url, payload, **kwargs)
-
-    monkeypatch.setattr(vllm_openai, "_post_json_stream", capturing_post_json_stream)
-
     fallback_guards: list[Any] = []
-    real_post_json = vllm_openai._post_json  # capture BEFORE patching: the autouse
-    # _sse_bridge_over_blocking_stubs fixture dispatches through the module-level
-    # _post_json, so a wrapper that re-reads it would recurse.
+    turn = {"choices": [{"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}]}
 
-    def capturing_post_json(url, payload, **kwargs):
+    def stub_post_json_stream(url, payload, **kwargs):
+        stream_guards.append(kwargs.get("guards"))
+        raise ConnectionError("stream died mid-turn")  # a _STREAM_FALLBACK_ERRORS member
+
+    def stub_post_json(url, payload, **kwargs):
         fallback_guards.append(kwargs.get("guards"))
-        return real_post_json(url, payload, **kwargs)
+        return turn
 
-    monkeypatch.setattr(vllm_openai, "_post_json", capturing_post_json)
+    monkeypatch.setattr(vllm_openai, "_post_json_stream", stub_post_json_stream)
+    monkeypatch.setattr(vllm_openai, "_post_json", stub_post_json)
 
-    body = json.dumps(
-        {
-            "choices": [
-                {"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}
-            ]
-        }
-    ).encode()
-    request_no = 0
+    _stream_or_blocking("http://stub.invalid/v1/chat/completions", timeout=10.0)
 
-    def script(write):
-        nonlocal request_no
-        request_no += 1
-        if request_no == 1:
-            write(_frame("partial"))  # no terminal frame -> fallback
-            return
-        write(body)
-
-    with _Server(script) as url:
-        _stream_or_blocking(url, timeout=10.0)
     # Exactly ONE guard object per turn, and BOTH paths got that SAME object.
     assert len(from_env_calls) == 1
     assert from_env_calls[0].idle == 30.0
