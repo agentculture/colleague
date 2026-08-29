@@ -1,6 +1,6 @@
 """Exact per-run harness counters on the artifact (plan t20, spec c43/h32).
 
-Five integers land on ``WorkStats.counts`` — the adopt-from-qwen-code
+Six integers land on ``WorkStats.counts`` — the adopt-from-qwen-code
 mechanisms' own scoreboard, every one an exact count incremented by the code
 path that did the work (never estimated):
 
@@ -14,12 +14,17 @@ path that did the work (never estimated):
   ``.colleague/tool-output/`` (:mod:`colleague.readpage` /
   :mod:`colleague.truncation`, plan t9/t11);
 * ``guard_trips`` — always-on loop guards that halted the run
-  (:mod:`colleague.loopguards`, plan t16 — derived from its warnings).
+  (:mod:`colleague.loopguards`, plan t16 — derived from its warnings);
+* ``stream_guard_trips`` — stream guards that cut a stalled turn
+  (:mod:`colleague.streamguards`, #438 guidance 5 — derived from the
+  ``step-stall`` warnings the loop records when a
+  :class:`colleague.streamguards.StreamGuardTripped` rides its stall path,
+  naming ``stream-idle`` or ``stream-lifetime``).
 
 Shape rule (all-engines, c19/h14): ``WorkStats.to_dict`` emits the ``counts``
 block ONLY when at least one counter is non-zero, so a run that never touched
 a mechanism — every ``mock`` run today — keeps the pre-arc 14-key stats
-block byte-for-byte. :func:`counts_of` gives readers the full five-key view
+block byte-for-byte. :func:`counts_of` gives readers the full six-key view
 with zeros filled in.
 """
 
@@ -27,18 +32,25 @@ from __future__ import annotations
 
 from typing import Any
 
-#: The five counter keys, in artifact order.
+#: The six counter keys, in artifact order.
 KEYS: tuple[str, ...] = (
     "batches_run",
     "calls_parallelised",
     "results_blanked",
     "outputs_spilled",
     "guard_trips",
+    "stream_guard_trips",
 )
 
 #: Warning kinds whose records the finalizer folds into a counter.
 _MICROCOMPACTION_KIND = "microcompaction"
 _LOOP_GUARD_KIND = "loop-guard"
+_STEP_STALL_KIND = "step-stall"
+
+#: The ``guard`` names a :class:`colleague.streamguards.StreamGuardTripped`
+#: records on its ``step-stall`` warning (``streamguards._KNOB``) — as opposed
+#: to the plain #400 progress bound, which names ``step-stall`` itself.
+_STREAM_GUARDS: tuple[str, ...] = ("stream-idle", "stream-lifetime")
 
 
 def bump(result: Any, key: str, n: int = 1) -> None:
@@ -52,7 +64,7 @@ def bump(result: Any, key: str, n: int = 1) -> None:
 
 
 def counts_of(result: Any) -> dict[str, int]:
-    """The five counters with zeros filled in — the reader-side view."""
+    """The six counters with zeros filled in — the reader-side view."""
     counts = getattr(getattr(result, "stats", None), "counts", None) or {}
     return {key: int(counts.get(key, 0)) for key in KEYS}
 
@@ -60,12 +72,12 @@ def counts_of(result: Any) -> dict[str, int]:
 def finalize(result: Any, executor: Any = None) -> None:
     """Fold the derived counters in at loop exit (called from ``_finalize_stats``).
 
-    ``results_blanked`` and ``guard_trips`` are read back from the warnings the
-    mechanisms already record per event (so the counter and the record can
-    never disagree); ``outputs_spilled`` is the executor's spill tally
-    (:func:`colleague.readpage.bound_output` stamps it). The two batch counters
-    are bumped live by :mod:`colleague.toolbatch_loop`. Idempotent: derived
-    counters are recomputed, not accumulated.
+    ``results_blanked``, ``guard_trips`` and ``stream_guard_trips`` are read
+    back from the warnings the mechanisms already record per event (so the
+    counter and the record can never disagree); ``outputs_spilled`` is the
+    executor's spill tally (:func:`colleague.readpage.bound_output` stamps it).
+    The two batch counters are bumped live by :mod:`colleague.toolbatch_loop`.
+    Idempotent: derived counters are recomputed, not accumulated.
     """
     warnings = list(getattr(result, "warnings", None) or [])
     blanked = sum(
@@ -74,11 +86,23 @@ def finalize(result: Any, executor: Any = None) -> None:
         if isinstance(w, dict) and w.get("kind") == _MICROCOMPACTION_KIND
     )
     trips = sum(1 for w in warnings if isinstance(w, dict) and w.get("kind") == _LOOP_GUARD_KIND)
+    # A StreamGuardTripped rides the loop's stall path and records a
+    # ``step-stall`` warning naming WHICH guard tripped (``stream-idle`` /
+    # ``stream-lifetime``); the plain #400 progress bound names ``step-stall``
+    # itself and is NOT a stream-guard trip.
+    stream_trips = sum(
+        1
+        for w in warnings
+        if isinstance(w, dict)
+        and w.get("kind") == _STEP_STALL_KIND
+        and w.get("guard") in _STREAM_GUARDS
+    )
     spilled = int(getattr(executor, "outputs_spilled", 0) or 0)
     counts = result.stats.counts
     for key, value in (
         ("results_blanked", blanked),
         ("guard_trips", trips),
+        ("stream_guard_trips", stream_trips),
         ("outputs_spilled", spilled),
     ):
         if value > 0:
