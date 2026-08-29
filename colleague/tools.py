@@ -632,7 +632,9 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
 
 
 def narrow_role_by_tool_set(
-    role: "Role | str | None", tool_set: tuple[str, ...] = ()
+    role: "Role | str | None",
+    tool_set: tuple[str, ...] = (),
+    drop: tuple[str, ...] = (),
 ) -> "Role | str | None":
     """Compose *role*'s curated surface with a config-lifecycle ``tool_set`` narrowing.
 
@@ -660,17 +662,35 @@ def narrow_role_by_tool_set(
     (``None`` meant unrestricted). :data:`SCHEMAS`'s silent-unknown-name skip
     and :class:`ToolExecutor`'s exact-name check do the rest, so an
     unresolvable name in ``tool_set`` is simply never offered/callable.
+
+    ``drop`` (plan t8, the acting-seat-scoped drop knob): a NAMED drop-set
+    applied AFTER the ``tool_set`` intersection — the tools the acting seat
+    must not offer or call (e.g. ``grep_search``/``glob`` under
+    ``COLLEAGUE_ACTING_DROP_TOOLS``). It is the same single composed value
+    that feeds both halves, so a dropped tool is hidden from the schema AND
+    refused at dispatch with no second refusal mechanism. ``drop`` empty
+    (the default) is a strict no-op: *role* is returned unchanged,
+    byte-identical to today. *role* ``None`` + a non-empty ``drop`` narrows
+    the FULL surface (:data:`TOOL_NAMES`) down to everything-but-the-drop;
+    the returned synthetic :class:`Role` is non-read-only (``None`` meant
+    unrestricted). A ``drop`` name the role already withholds removes
+    nothing (dropping only ever removes tools, never adds one).
     """
-    if not tool_set:
+    if not tool_set and not drop:
         return role
     from colleague.roles import BUILTIN_ROLES, Role
 
     keep = set(tool_set)
+    drop_set = set(drop)
     if role is None:
+        if tool_set:
+            allowlist = tuple(tool_set)
+        else:
+            allowlist = tuple(t for t in TOOL_NAMES if t not in drop_set)
         return Role(
             name="narrowed",
             prompt_fragment="",
-            tool_allowlist=tuple(tool_set),
+            tool_allowlist=allowlist,
             skill_subset=None,
             read_only=False,
         )
@@ -680,7 +700,9 @@ def narrow_role_by_tool_set(
             raise ValueError(f"unknown role '{role}'")
         role = role_obj
     if isinstance(role, Role):
-        narrowed_allowlist = tuple(t for t in role.tool_allowlist if t in keep)
+        narrowed_allowlist = tuple(
+            t for t in role.tool_allowlist if (not tool_set or t in keep) and t not in drop_set
+        )
         return replace(role, tool_allowlist=narrowed_allowlist)
     raise TypeError(
         f"narrow_role_by_tool_set expects a Role, role name, or None, got {type(role).__name__}"
