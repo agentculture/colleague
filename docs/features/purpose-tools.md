@@ -164,6 +164,39 @@ model = the associate's, evidence ids cited in the answer, and zero
 | `PURPOSE_STEPS` | n/a — value table | Per-purpose step caps (12/12/16/16/10; `handover_to_colleague` rides the caller's); exhaustion yields the `[purpose budget exhausted: N steps]` marker (`purpose_schemas.py:347-357`). | `colleague/efforttables.py` |
 | `COLLEAGUE_WEB_MAX_CALLS` | n/a — value, default `20` | ONE work-item-wide web budget: the parent passes its remaining count into the child spec and folds the child's counters back, so purpose children never multiply the budget (`purpose_schemas.py:474`, `purpose_schemas.py:405`). | `colleague/webbudget.py` |
 
+## The q3 exemption — why a purpose child is not narrowed from its parent
+
+`colleague/agents/delegation.py`'s `validate_delegation` skips the
+`requested_tools` ⊆ parent check when `req.purpose` is set. Under #411 every
+model-bound child surface must be identical to or narrower than its parent's,
+so this reads at a glance like an escalation path. It is the opposite — the
+exemption is *required by* this arc's central decision, and is adjudicated in
+the spec at line 59 (raised as `s8`, line 151).
+
+**Replace-don't-add** means cortex GIVES UP the raw `web` tool so that the
+scout child becomes its only holder. Applying the subset rule here would make
+the design impossible: the parent by construction no longer holds what the
+child needs, so every `web_survey` call would refuse. The ⊆ rule assumes a
+parent that *delegates a portion of its own surface*; a purpose tool instead
+routes to a fixed role whose surface was never the parent's to begin with.
+
+This does not widen anyone's authority:
+
+- The child's surface is a `PURPOSE_TABLE` constant — one fixed purpose to one
+  fixed role to one fixed seat and rung. It is never model-chosen,
+  caller-chosen, or derived from the request.
+- The effective surface is that role allow-list intersected with the
+  environment (e.g. `web` only when WebGlass is installed), so an absent
+  operator CLI still yields no tool.
+- Every other bound in `validate_delegation` — authority ceiling, depth,
+  fanout, total, context mode — still applies to purpose children unchanged.
+- Host policy and the approval gate still gate every route; this is the
+  delegation's own arithmetic only.
+
+The predecessor honesty condition (`docs/features/web-scout.md` line 33, "the
+scout receives `web` only when the parent's surface contains it") is superseded
+by exactly this decision, and its pinning test was rewritten to the new rule.
+
 ## Provenance
 
 - Spec: `docs/specs/2026-08-28-purpose-tools-associate-seat.md` (decisions

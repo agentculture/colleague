@@ -161,7 +161,7 @@ def validate_delegation(
     bound is crossed — never raises on a bad request:
 
     - ``requested_tools`` is not a subset of the parent's effective tools
-      (skipped when ``req.purpose`` is set — q3 exemption);
+      (skipped when ``req.purpose`` — q3, see ``docs/features/purpose-tools.md``);
     - ``authority_ceiling`` ranks above the parent's ceiling;
     - ``depth`` / ``fanout`` / ``total`` exceed ``MAX_SUBAGENT_DEPTH`` /
       ``MAX_SUBAGENT_FANOUT`` / ``MAX_SUBAGENT_TOTAL``;
