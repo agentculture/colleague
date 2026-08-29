@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.67.0] - 2026-08-29
+
+### Added
+
+- acting-seat-scoped tool drop knob `COLLEAGUE_ACTING_DROP_TOOLS` — a named drop-set applied at depth 0 only through the existing `narrow_role_by_tool_set`, so the acting seat can lose a tool while spawned children keep it (unset = byte-identical)
+- `stream_guard_trips` on `WorkStats.counts` — stream-guard trips are now a countable artifact field, not just a warning (#438 guidance 5)
+- the two arm briefs for the purpose-tools-get-chosen matrix, plus the deterministic large-surface fixture generator `scripts/make_large_surface_fixture.py`
+
+### Changed
+
+- stream max-lifetime default raised 900s -> 1800s: 900s was too tight for a real test-first task on the reference rig
+- the idle guard no longer counts SSE keepalive comment lines as activity, on both the read1 and fallback paths — a gateway relaying keepalives over a dead upstream no longer looks alive (#438 guidance 4)
+- backpressure's proactive request-timeout raise is suppressed while stream guards are armed; the reactive raise is unchanged (#438 guidance 3)
+
+### Fixed
+
+- the non-streaming blocking fallback is now bounded by the same StreamGuards as the streaming path, sharing ONE guard object per turn so a failed stream attempt gets no fresh lifetime window (#438 guidance 1)
+
 ## [1.66.0] - 2026-08-28
 
 ### Added

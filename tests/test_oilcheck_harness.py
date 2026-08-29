@@ -39,7 +39,7 @@ def test_snapshot_of_the_four_rows_at_defaults(monkeypatch: pytest.MonkeyPatch) 
         harness.shutil, "which", lambda name: "/usr/bin/rg" if name == "rg" else None
     )
     rows = _by_id(harness.checks(repo_path=None))
-    assert rows["harness_stream_guards"]["message"] == "stream guards: idle=240s lifetime=900s"
+    assert rows["harness_stream_guards"]["message"] == "stream guards: idle=240s lifetime=1800s"
     assert rows["harness_tool_concurrency"]["message"] == (
         "tool concurrency: 10 (parallel read-only batches up to 10)"
     )

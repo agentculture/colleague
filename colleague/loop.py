@@ -732,6 +732,12 @@ class _Work:
     # doubles the engine's per-turn timeout ONCE per work item. ``None`` (direct
     # ``run`` callers) leaves the feature dormant — byte-identical behavior.
     escalate_timeout: Callable[[], float | None] | None = None
+    # Whether the LAST completion's transport was actually stream-guarded (#438
+    # guidance 3, Qodo #450): the proactive raise is suppressed only when the
+    # guards really bound this turn, never merely because the env defaults arm
+    # them. ``None`` (direct ``run`` callers, and any backend that records
+    # nothing) keeps the env-only decision — byte-identical.
+    transport_guarded: Callable[[], bool] | None = None
     # The raised per-turn timeout after a #268 escalation — a list cell because
     # ``_Work`` is frozen (the ``_turn_latencies``/``_backpressure_state``
     # precedent). Read through :func:`_effective_timeout` so backpressure
@@ -1922,10 +1928,37 @@ def _record_turn_latency(ctx: _Work, seconds: float) -> None:
         existing = ctx.result.capacity_warning
         ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
         _emit_phase(ctx, note)
-        # #268 ask 2: the harness saw the timeout coming — raise the per-turn
-        # timeout NOW (bounded, once) instead of pushing "raise COLLEAGUE_TIMEOUT"
-        # to the caller after the work is lost.
-        _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
+        # #268 ask 2 / #438 guidance 3: raise the per-turn timeout NOW (bounded,
+        # once) — suppressed while this turn's transport is stream-guarded
+        # (reactive raise unchanged).
+        if not _turn_transport_guarded(ctx):
+            _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
+
+
+def _turn_transport_guarded(ctx: _Work) -> bool:
+    """Whether the turn just recorded ran on a genuinely stream-guarded transport.
+
+    #438 guidance 3 suppresses the PROACTIVE backpressure timeout raise while the
+    stream guards already bound an alive-but-slow turn. The env alone cannot
+    answer that (Qodo PR #450): :meth:`streamguards.StreamGuards.from_env` is
+    default-armed, but a blocking (non-SSE) completion — ``COLLEAGUE_STREAM=0``
+    — never reads its body through the guards, so such a turn is unguarded and
+    must keep its one-time raise. Both halves must hold: the guards armed in the
+    environment AND the backend reporting a guarded transport for this turn.
+
+    ``ctx.transport_guarded`` is ``None`` for a direct ``run`` caller and for a
+    backend that reports nothing (``mock``), which keeps the original env-only
+    decision — byte-identical. A probe that raises is treated as guarded for the
+    same reason: never let advisory plumbing flip behavior on an error.
+    """
+    if streamguards.StreamGuards.from_env() is None:
+        return False
+    if ctx.transport_guarded is None:
+        return True
+    try:
+        return bool(ctx.transport_guarded())
+    except Exception:  # noqa: BLE001 - advisory plumbing must never break a turn
+        return True
 
 
 def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
@@ -3216,6 +3249,13 @@ class ContextControls:
     escalate_timeout: Callable[[], float | None] | None = field(
         default=None, compare=False, repr=False
     )
+    # Per-turn transport-guardedness probe (#438 guidance 3 / Qodo PR #450):
+    # built by :func:`_make_transport_guard_probe` in :meth:`from_config` (the
+    # all-engines single source). It reads back what the backend recorded on the
+    # engine config for the turn just sent, so the proactive raise is suppressed
+    # only for a turn the stream guards really bound. A backend that records
+    # nothing reads as guarded — the pre-#450 env-only decision, byte-identical.
+    transport_guarded: Callable[[], bool] | None = field(default=None, compare=False, repr=False)
     # Dual-model deepthink escalation (t5 / spec c10): the bound ``DeepthinkRun``
     # seam (:func:`colleague.deepthink.make_deepthink_run`), ``None`` when no
     # dual-model config is present — the runtime escalation points (acceptance
@@ -3400,6 +3440,7 @@ class ContextControls:
             request_timeout=config.timeout,
             throttle_fanout=_make_fanout_throttle(config),
             escalate_timeout=_make_timeout_escalator(config),
+            transport_guarded=_make_transport_guard_probe(config),
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
             coherence=bool(getattr(config, "coherence", True)),
@@ -3510,6 +3551,34 @@ def _make_timeout_escalator(config) -> Callable[[], float | None]:
         return config.timeout
 
     return escalate
+
+
+#: The attribute a backend sets on its ``EngineConfig`` to report, per turn,
+#: whether the transport it just used was read through the stream guards. The
+#: same reassign-a-plain-attribute convention ``config.base_timeout`` and
+#: ``config.reasoning_effort_warnings`` already use for call-time state.
+TRANSPORT_GUARDED_ATTR = "transport_stream_guarded"
+
+
+def _make_transport_guard_probe(config) -> Callable[[], bool]:
+    """Build the per-turn transport-guardedness probe bound to *config* (#450).
+
+    The vLLM adapter records ``config.transport_stream_guarded`` on every
+    dispatch — ``True`` only when the turn actually went out on the guarded SSE
+    reader, ``False`` for a blocking (``COLLEAGUE_STREAM=0``) completion whose
+    body the guards never see. A backend that records nothing (``mock``, whose
+    turns never touch a socket) reads as ``True``, which keeps the pre-#450
+    env-only suppression — byte-identical.
+
+    ``config`` is left untyped for the same reason
+    :func:`_make_timeout_escalator` leaves it untyped: no import cycle with
+    :mod:`colleague.config`.
+    """
+
+    def probe() -> bool:
+        return bool(getattr(config, TRANSPORT_GUARDED_ATTR, True))
+
+    return probe
 
 
 def _make_fanout_throttle(config) -> Callable[[str], None]:
@@ -5016,6 +5085,7 @@ def run(
         fanout_throttle=_context.throttle_fanout,
         agents=_context.agents_run,
         escalate_timeout=_context.escalate_timeout,
+        transport_guarded=_context.transport_guarded,
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,

@@ -51,6 +51,7 @@ Pure: reads :mod:`colleague.roles`/:mod:`colleague.purpose_schemas` lazily
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -58,6 +59,35 @@ from typing import Any, Optional
 #: ``EngineConfig`` it builds — absent (or falsy) means "the top-level acting
 #: seat", never a spawned child.
 CHILD_DEPTH_ATTR = "child_depth"
+
+#: The acting-seat-scoped tool drop knob (plan t8, the surface lever's
+#: instrument). A comma-separated list of tool names the TOP-LEVEL acting seat
+#: (depth 0 only) must not offer or call — e.g. ``grep_search,glob``. Unlike
+#: ``COLLEAGUE_TOOLS_LEGACY`` (role-blind: ``curate_schemas`` consults it for
+#: EVERY role, so it strips the scout child too, 8 tools -> 6), this knob is
+#: applied at the ONE seam that already knows the depth, so a spawned child
+#: keeps the named tools. Unset/empty means "no drop" — every rendered surface
+#: is byte-identical to today.
+ACTING_DROP_ENV = "COLLEAGUE_ACTING_DROP_TOOLS"
+
+
+def acting_drop_set() -> tuple[str, ...]:
+    """The acting seat's named drop-set, read ONCE from ``ACTING_DROP_ENV``.
+
+    Comma-separated tool names, whitespace-tolerant, order-preserving,
+    de-duplicated. Unset or blank returns ``()`` — the "no drop" sentinel
+    (``narrow_role_by_tool_set``'s empty-drop no-op), so an unarmed run is
+    byte-identical to today.
+    """
+    raw = os.environ.get(ACTING_DROP_ENV, "")
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in raw.split(","):
+        name = part.strip()
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return tuple(out)
 
 
 def child_depth(config: Any) -> int:
@@ -101,18 +131,31 @@ def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
     :data:`colleague.roles.BUILTIN_ROLES`\\ ``['writer']`` — the top-level
     acting seat's real curated surface is never the raw, unfiltered
     ``SCHEMAS`` list again (deviation d14). Depth 0 with any other resolved
-    role is returned unchanged.
+    role is returned unchanged EXCEPT for the acting-seat-scoped drop knob
+    (plan t8): when ``COLLEAGUE_ACTING_DROP_TOOLS`` names tools, the resolved
+    role is threaded through :func:`colleague.tools.narrow_role_by_tool_set`
+    with that drop-set, so the acting seat loses the named tools while a
+    spawned child keeps them. The drop is applied at depth 0 ONLY — this is
+    the ONE seam that already knows the depth, which is exactly why
+    ``COLLEAGUE_TOOLS_LEGACY`` (role-blind, consulted for every role) was
+    rejected as the instrument.
 
     Depth >= 1 (a spawned child): a roleless spawn is ALSO defaulted to the
     writer role first (today's byte-identical default), then every resolved
     role — including that default — has its purpose-tool names stripped
     (:func:`strip_purpose_tools`, q9): children never hold a purpose tool.
+    The drop knob does NOT reach a child (depth >= 1 returns before it).
     """
     if is_top_level(config):
         if role is None:
             from colleague.roles import BUILTIN_ROLES
 
-            return BUILTIN_ROLES["writer"]
+            role = BUILTIN_ROLES["writer"]
+        drop = acting_drop_set()
+        if drop:
+            from colleague.tools import narrow_role_by_tool_set
+
+            role = narrow_role_by_tool_set(role, drop=drop)
         return role
     if role is None:
         from colleague.roles import BUILTIN_ROLES

@@ -51,12 +51,22 @@ _CONTENT_TYPE_JSON = "application/json"
 
 
 def _post_json(
-    url: str, payload: dict[str, Any], *, api_key: str, timeout: float
+    url: str,
+    payload: dict[str, Any],
+    *,
+    api_key: str,
+    timeout: float,
+    guards: Any = None,
 ) -> dict[str, Any]:
     """POST ``payload`` as JSON and parse the JSON response (OpenAI wire format).
 
     Isolated at module scope so tests monkeypatch it to drive the loop without a
     live server.
+
+    *guards* (c12, #438): when given, the body is read through
+    ``streamguards.guarded_lines`` — the SAME watchdogs the streaming reader
+    gets — so a drip-feeding server on the blocking fallback trips a guard
+    within its bound. ``None`` (the default) reads the body as before.
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -69,7 +79,15 @@ def _post_json(
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
-            return json.loads(response.read().decode("utf-8"))
+            # A response supporting neither read1 nor iteration (a test double
+            # with only .read()) degrades to the unguarded read — guarded_lines'
+            # own degrade-don't-break rule.
+            readable = hasattr(response, "read1") or hasattr(response, "__iter__")
+            if guards is None or not readable:
+                return json.loads(response.read().decode("utf-8"))
+            return json.loads(
+                b"".join(streamguards.guarded_lines(response, guards)).decode("utf-8")
+            )
     except TimeoutError as exc:
         _raise_legible_timeout(url, timeout, exc)
     except urllib.error.HTTPError as exc:
@@ -533,6 +551,7 @@ def _post_json_stream(
     api_key: str,
     timeout: float,
     on_delta: Callable[[str], None],
+    guards: Any = None,
 ) -> ModelResponse:
     """POST *payload* (already carrying ``stream``/``stream_options``) and
     incrementally assemble a :class:`ModelResponse` from Server-Sent Events,
@@ -557,6 +576,9 @@ def _post_json_stream(
     already does for a response with no ``usage`` key (:func:`_parse_response`,
     ``ModelResponse.prompt_tokens``/``completion_tokens`` are plain ``int``
     fields, not ``Optional``) — never an estimate.
+
+    *guards* (c12, #438): the turn's :class:`streamguards.StreamGuards` when
+    :func:`_stream_or_blocking` shares one across both paths; ``None`` builds one.
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -571,7 +593,8 @@ def _post_json_stream(
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
-            guards = streamguards.StreamGuards.from_env(base_timeout=timeout)  # c12
+            if guards is None:
+                guards = streamguards.StreamGuards.from_env(base_timeout=timeout)  # c12
             for frame in _iter_sse_frames(response, terminal=terminal_marker, guards=guards):
                 _apply_stream_frame(frame, acc, on_delta)
             if not terminal_marker[0] and not acc.saw_finish_reason:
@@ -769,9 +792,18 @@ def _stream_or_blocking(
     A failing blocking attempt propagates ITS OWN error unchanged (already
     legible via :func:`_post_json`'s own wrapping) — the loop's existing
     degradation path handles it exactly as it does today.
+
+    The turn's :class:`streamguards.StreamGuards` (c12, #438) is built ONCE
+    here and shared by BOTH paths, so a drip-feeding server on the fallback
+    trips the idle/lifetime bound within the turn's own clock. The lifetime
+    clock starts at the turn, not at the fallback — a turn that already spent
+    time on the stream attempt gets no fresh window for the retry.
     """
+    guards = streamguards.StreamGuards.from_env(base_timeout=timeout)
     try:
-        return _post_json_stream(url, payload, api_key=api_key, timeout=timeout, on_delta=on_delta)
+        return _post_json_stream(
+            url, payload, api_key=api_key, timeout=timeout, on_delta=on_delta, guards=guards
+        )
     except urllib.error.HTTPError as exc:
         if not _is_stream_unsupported_http_error(exc):
             raise
@@ -779,7 +811,9 @@ def _stream_or_blocking(
     except _STREAM_FALLBACK_ERRORS as exc:
         _emit_stream_fallback_notice(f"{type(exc).__name__}: {exc}")
 
-    data = _post_json(url, _blocking_payload(payload), api_key=api_key, timeout=timeout)
+    data = _post_json(
+        url, _blocking_payload(payload), api_key=api_key, timeout=timeout, guards=guards
+    )
     return _parse_response(data)
 
 
@@ -965,6 +999,27 @@ def _record_ladder_retry_warning(config: EngineConfig, warning: _LadderRetryWarn
     config.reasoning_effort_warnings = existing + (warning,)
 
 
+def _record_transport_guarded(config: EngineConfig, streaming: bool) -> None:
+    """Record on *config* whether THIS turn's transport is really stream-guarded.
+
+    The loop suppresses its PROACTIVE backpressure timeout raise while the
+    stream guards bound an alive-but-slow turn (#438 guidance 3). That decision
+    used to read the ENVIRONMENT alone, which is default-armed — so a
+    ``COLLEAGUE_STREAM=0`` run lost the guards *and* the raise (Qodo PR #450).
+    Only the SSE reader (and the blocking fallback ``_stream_or_blocking``
+    shares its guards with) reads its body through
+    :func:`streamguards.guarded_lines`; a plain blocking POST does not, so it is
+    honestly unguarded and keeps its one-time raise.
+
+    Written as a plain attribute per turn, the ``config.base_timeout`` /
+    ``config.reasoning_effort_warnings`` call-time-state convention; the loop
+    reads it back through ``loop._make_transport_guard_probe``.
+    """
+    config.transport_stream_guarded = bool(streaming) and (
+        streamguards.StreamGuards.from_env() is not None
+    )
+
+
 class VllmOpenAIEngine(Engine):
     """Drives an OpenAI-compatible chat-completions endpoint with tool calling."""
 
@@ -1068,6 +1123,7 @@ class VllmOpenAIEngine(Engine):
         convergence point, never duplicated logic in either transport
         function itself.
         """
+        _record_transport_guarded(config, streaming)
         if streaming:
             return _stream_or_blocking(
                 url,

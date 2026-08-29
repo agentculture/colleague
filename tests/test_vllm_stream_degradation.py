@@ -504,7 +504,7 @@ def test_opted_out_path_never_touches_the_stream_fallback_wrapper(
 
     calls = {"n": 0}
 
-    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
+    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float, **_kw: object) -> dict:
         calls["n"] += 1
         assert "stream" not in payload
         assert "stream_options" not in payload

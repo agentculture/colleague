@@ -106,7 +106,7 @@ def _stub_stream(monkeypatch: pytest.MonkeyPatch, captured: dict[str, object]) -
 
 
 def _stub_blocking(monkeypatch: pytest.MonkeyPatch, captured: dict[str, object]) -> None:
-    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
+    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float, **_kw: object) -> dict:
         captured["payload"] = payload
         return {"choices": [{"message": {"content": "hi"}}], "usage": {}}
 
@@ -442,7 +442,7 @@ def _stub_scripted_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
     turns = _script_turns()
     state = {"i": 0}
 
-    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
+    def fake_post(url: str, payload: dict, *, api_key: str, timeout: float, **_kw: object) -> dict:
         turn = turns[min(state["i"], len(turns) - 1)]
         state["i"] += 1
         return turn

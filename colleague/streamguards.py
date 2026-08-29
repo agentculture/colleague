@@ -10,10 +10,15 @@ that keeps *dripping* — a byte at a time, never a newline — which resets any
 idle watchdog forever (qwen-code issue #8597 burned hours that way). Two
 independent guards close that:
 
-- ``COLLEAGUE_STREAM_IDLE_TIMEOUT`` (default 240s) — seconds with NO bytes
-  arriving. The request timeout already bounds each read, so this guard only
-  fires when it is the NEARER bound; the request timeout keeps its meaning.
-- ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 900s) — seconds since the stream
+- ``COLLEAGUE_STREAM_IDLE_TIMEOUT`` (default 240s) — seconds with NO non-comment
+  payload BYTES arriving (a newline is not the unit of progress: a long line
+  still streaming — an SSE frame, or a blocking JSON body — restarts the clock
+  as its bytes land). SSE comment lines (a ``:`` prefix — vLLM/OpenAI use
+  these for keepalives) do NOT restart the idle clock: a gateway relaying
+  keepalives over a dead upstream must not look alive (#438 guidance 4). The
+  request timeout already bounds each read, so this guard only fires when it is
+  the NEARER bound; the request timeout keeps its meaning.
+- ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 1800s) — seconds since the stream
   opened, regardless of activity.
 
 ``0``, a negative, a non-finite (``inf``/``nan``), or an unparsable value
@@ -42,7 +47,7 @@ __all__ = ["StreamGuards", "StreamGuardTripped", "guarded_lines", "stall_notice"
 IDLE_ENV = "COLLEAGUE_STREAM_IDLE_TIMEOUT"
 LIFETIME_ENV = "COLLEAGUE_STREAM_MAX_LIFETIME"
 IDLE_DEFAULT = 240.0
-LIFETIME_DEFAULT = 900.0
+LIFETIME_DEFAULT = 1800.0
 _KNOB = {"stream-idle": IDLE_ENV, "stream-lifetime": LIFETIME_ENV}
 
 
@@ -99,7 +104,11 @@ class StreamGuards:
         return cls(idle, lifetime, current, current, base_timeout)
 
     def saw_bytes(self, now: Optional[float] = None) -> None:
-        """Bytes arrived: restart the idle clock (the lifetime clock never restarts)."""
+        """Non-comment payload bytes arrived (a whole line, or the decidably
+        non-comment part of one still streaming): restart the idle clock (the
+        lifetime clock never restarts). SSE comment lines (keepalives) do NOT call this —
+        a gateway relaying keepalives over a dead upstream must not look alive
+        (#438 guidance 4)."""
         self.last_bytes = time.monotonic() if now is None else now
 
     def _deadlines(self, now: float) -> list[tuple[float, str, float, float]]:
@@ -133,7 +142,8 @@ def _guarded_line_fallback(response: Any, guards: StreamGuards) -> Iterator[byte
     """Per-line guard checks for a response with no ``read1`` (a test
     double) — the degrade path ``guarded_lines`` falls back to."""
     for raw_line in response:
-        guards.saw_bytes()
+        if not _is_comment_line(raw_line):
+            guards.saw_bytes()
         guards.check()
         yield raw_line
 
@@ -173,6 +183,52 @@ def _drain_complete_lines(buffer: bytearray) -> Iterator[bytes]:
         del buffer[: newline + 1]
 
 
+def _is_comment_line(line: bytes) -> bool:
+    """True for an SSE comment line (a ``:`` prefix after any leading
+    whitespace) — the keepalives vLLM/OpenAI gateways relay. A comment line
+    carries no payload, so it must NOT restart the idle clock (#438 guidance 4)."""
+    return line.lstrip().startswith(b":")
+
+
+def _partial_is_payload(partial: bytes) -> bool:
+    """True once the INCOMPLETE trailing line in the buffer has arrived far
+    enough to be decidably NOT an SSE comment.
+
+    Waiting for a newline before restarting the idle clock is wrong: a long
+    payload line with no newline yet — a blocking JSON body read through
+    :func:`guarded_lines`, or an SSE frame streamed continuously — makes real
+    progress while the idle deadline elapses, and ``stream-idle`` trips on a
+    healthy transfer. One byte decides it: after stripping leading whitespace,
+    a ``:`` means comment (still no refresh, #438 guidance 4), anything else
+    means payload. An all-whitespace-so-far partial is still UNDECIDED and
+    refreshes nothing — the next byte settles it.
+    """
+    head = partial.lstrip()
+    return bool(head) and not head.startswith(b":")
+
+
+def _account_for_chunk(buffer: bytearray, guards: StreamGuards) -> Iterator[bytes]:
+    """Yield every complete line *buffer* now holds, refreshing the idle clock
+    for the payload bytes this chunk contributed, and give the guards a turn.
+
+    Both halves of the accounting live here: each drained line refreshes the
+    clock unless it is an SSE comment (#438 guidance 4), and the bytes left in
+    the INCOMPLETE trailing line count too the moment that line is decidably
+    non-comment — a newline is not the unit of progress. (A non-empty trailing
+    line always ends with a byte from this chunk, so no stale partial can keep
+    refreshing the clock.) ``guards.check()`` runs once per chunk even when the
+    chunk completed no line at all.
+    """
+    for line in _drain_complete_lines(buffer):
+        if not _is_comment_line(line):
+            guards.saw_bytes()
+        guards.check()
+        yield line
+    if _partial_is_payload(bytes(buffer)):
+        guards.saw_bytes()
+    guards.check()
+
+
 def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
     """Yield *response*'s lines one socket READ at a time, consulting *guards*
     before and after every read.
@@ -189,8 +245,8 @@ def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
     simply stops being re-timed.
 
     The per-chunk deadline/idle bookkeeping (socket re-timing, the guarded
-    read itself, draining complete lines out of the buffer) is each factored
-    into its own helper purely to keep this function's own cognitive
+    read itself, and draining plus accounting for the chunk's bytes) is each
+    factored into its own helper purely to keep this function's own cognitive
     complexity low (SonarCloud python:S3776); the read1-chunking semantics
     are unchanged from the single-function form.
     """
@@ -210,10 +266,8 @@ def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
             if buffer:
                 yield bytes(buffer)
             return
-        guards.saw_bytes()
-        guards.check()
         buffer.extend(chunk)
-        yield from _drain_complete_lines(buffer)
+        yield from _account_for_chunk(buffer, guards)
 
 
 def stall_notice(guard: str, seconds: float, bound: float) -> str:

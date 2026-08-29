@@ -33,13 +33,14 @@ _PRE_ARC_STATS_KEYS = {
 }
 
 
-def test_keys_are_the_five_exact_counters() -> None:
+def test_keys_are_the_six_exact_counters() -> None:
     assert runcounts.KEYS == (
         "batches_run",
         "calls_parallelised",
         "results_blanked",
         "outputs_spilled",
         "guard_trips",
+        "stream_guard_trips",
     )
 
 
@@ -55,6 +56,7 @@ def test_bump_and_counts_of() -> None:
         "results_blanked": 0,
         "outputs_spilled": 0,
         "guard_trips": 0,
+        "stream_guard_trips": 0,
     }
     with pytest.raises(KeyError):
         runcounts.bump(result, "not_a_counter")
@@ -90,6 +92,7 @@ def test_finalize_derives_blanked_trips_and_spills() -> None:
         "results_blanked": 5,
         "outputs_spilled": 2,
         "guard_trips": 1,
+        "stream_guard_trips": 0,
     }
     # Idempotent: a second finalize recomputes, never accumulates.
     runcounts.finalize(result, _Executor())
@@ -98,6 +101,54 @@ def test_finalize_derives_blanked_trips_and_spills() -> None:
     empty = TaskResult(task_id="e", status=OK)
     runcounts.finalize(empty, None)
     assert empty.stats.counts == {}
+
+
+def test_finalize_tallies_stream_guard_trips() -> None:
+    # A StreamGuardTripped rides the loop's stall path (loop.py:2972) and records
+    # a ``step-stall`` warning naming WHICH guard tripped — ``stream-idle`` or
+    # ``stream-lifetime``. The plain #400 progress bound names ``step-stall``.
+    # #438 guidance 5: the stream-guard trips must become a counter a live-testing
+    # row can cite without parsing the warnings array.
+    result = TaskResult(task_id="t", status=OK)
+    result.warnings.extend(
+        [
+            {
+                "kind": "step-stall",
+                "guard": "stream-lifetime",
+                "seconds": 900.0,
+                "bound_seconds": 900.0,
+            },
+            {
+                "kind": "step-stall",
+                "guard": "stream-idle",
+                "seconds": 240.0,
+                "bound_seconds": 240.0,
+            },
+            {"kind": "step-stall", "guard": "step-stall", "seconds": 600.0, "bound_seconds": 600.0},
+            {"kind": "loop-guard", "guard": "identical"},
+        ]
+    )
+    runcounts.finalize(result, None)
+    counts = runcounts.counts_of(result)
+    # Two stream-guard trips, readable off the counter — not the warnings array.
+    assert counts["stream_guard_trips"] == 2
+    # Loop-guard counting is unchanged: the plain step-stall is NOT a loop guard.
+    assert counts["guard_trips"] == 1
+    # Idempotent: a second finalize recomputes, never accumulates.
+    runcounts.finalize(result, None)
+    assert runcounts.counts_of(result)["stream_guard_trips"] == 2
+
+
+def test_finalize_no_stream_guard_trip_leaves_counter_absent() -> None:
+    # A run with only the plain #400 step-stall (guard == "step-stall") records no
+    # stream-guard trip, so the counter stays off the block (omit-when-zero).
+    result = TaskResult(task_id="t", status=OK)
+    result.warnings.append(
+        {"kind": "step-stall", "guard": "step-stall", "seconds": 600.0, "bound_seconds": 600.0}
+    )
+    runcounts.finalize(result, None)
+    assert "stream_guard_trips" not in result.stats.counts
+    assert runcounts.counts_of(result)["stream_guard_trips"] == 0
 
 
 def test_mock_batch_run_counts_batches_and_parallelised_calls(
