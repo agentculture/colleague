@@ -222,3 +222,18 @@ def test_acting_drop_set_parses_comma_separated(monkeypatch: pytest.MonkeyPatch)
 def test_acting_drop_set_empty_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(DROP_ENV, raising=False)
     assert actingsurface.acting_drop_set() == ()
+
+
+def test_narrow_role_none_applies_drop_after_tool_set() -> None:
+    """``role=None`` + a non-empty ``tool_set`` AND ``drop``: the drop-set is
+    applied AFTER the intersection (Qodo #450 / comment 3887387007 — the drop
+    was silently ignored), preserving ``tool_set`` order."""
+    narrowed = narrow_role_by_tool_set(
+        None,
+        tool_set=("read_file", "grep_search", "write_file"),
+        drop=("grep_search",),
+    )
+    assert narrowed is not None
+    assert "grep_search" not in narrowed.tool_allowlist
+    assert narrowed.tool_allowlist == ("read_file", "write_file")
+    assert narrowed.read_only is False

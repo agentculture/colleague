@@ -658,7 +658,8 @@ def narrow_role_by_tool_set(
     ``tool_set``: a ``tool_set`` entry outside *role*'s surface adds nothing
     (narrowing only ever removes tools, never adds one the role withholds).
     *role* ``None`` (the pre-role "full surface" default) narrows straight to
-    ``tool_set``; the returned synthetic :class:`Role` is non-read-only
+    ``tool_set`` (minus ``drop``, in ``tool_set`` order); the returned
+    synthetic :class:`Role` is non-read-only
     (``None`` meant unrestricted). :data:`SCHEMAS`'s silent-unknown-name skip
     and :class:`ToolExecutor`'s exact-name check do the rest, so an
     unresolvable name in ``tool_set`` is simply never offered/callable.
@@ -679,10 +680,8 @@ def narrow_role_by_tool_set(
     keep = set(tool_set)
     drop_set = set(drop)
     if role is None:
-        if tool_set:
-            allowlist = tuple(tool_set)
-        else:
-            allowlist = tuple(t for t in TOOL_NAMES if t not in drop_set)
+        source = tool_set if tool_set else TOOL_NAMES
+        allowlist = tuple(t for t in source if t not in drop_set)
         return Role(
             name="narrowed",
             prompt_fragment="",
