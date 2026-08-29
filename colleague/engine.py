@@ -181,7 +181,22 @@ class Engine(abc.ABC):
         # base + AGENTS + the role's prompt_fragment + the role's curated skill subset
         # (one assembly path — compose_role_prompt reuses system_prompt_for's pieces).
         # An unknown/absent role falls back to the role-less prompt → byte-identical.
-        role_name = getattr(config, "role", None)
+        #
+        # Prompt/surface unification (plan t5): the name comes from
+        # ``actingsurface.acting_role_name`` — the SAME resolution
+        # (``loop.resolve_role`` → ``curate_for_depth``) the engines run in
+        # ``work()`` to build the curated tool schema — never from a second
+        # read of ``config.role``. That is what makes the depth-0 bare-run
+        # writer substitution (deviation d14) reach the PROMPT too: a bare run
+        # and an explicit ``--role writer`` run now compose an identical system
+        # prompt (operator ``.colleague/agents/writer.md`` overlay included) as
+        # well as an identical tool surface. Seats that deliberately carry no
+        # role fragment resolve to a name ``load_role`` refuses (the #411
+        # agents-mode synthetic purpose roles) or never reach this method at all
+        # (the tools-off evaluator seat) — see ``acting_role_name``.
+        from colleague.actingsurface import acting_role_name
+
+        role_name = acting_role_name(config, task.repo_path)
         if role_name:
             from colleague.roles import load_role
 

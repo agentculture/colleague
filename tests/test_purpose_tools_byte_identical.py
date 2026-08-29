@@ -61,6 +61,7 @@ from tests.test_knobs_byte_identical import (
     _SCENARIO_ENV,
     _WEB_OFF_ENV,
     OFF_ENV,
+    _assert_acting_seat_prompt_carveout,
     _resync_loop_default_system,
 )
 
@@ -130,9 +131,14 @@ def test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm(
     top-level acting seat's bare case) drops subagent/subagents and gains
     five purpose tools on every turn's payload — the SAME swap
     ``test_writer_role_surface_carves_out_the_purpose_tool_swap`` names on the
-    writer role directly. Every other captured field (status, steps, the
-    ``schemas`` probe, system prompt, tokenize/chat counts, and every OTHER
-    payload key) is untouched."""
+    writer role directly.
+
+    Plan t5 (``docs/plans/2026-08-29-purpose-tools-get-chosen.md``) adds the
+    matching PROMPT carve-out: the same bare run's wire system message now
+    also carries the writer role's prompt fragment, because both halves read
+    one resolution (``actingsurface.acting_role_name``). Every other captured
+    field (status, steps, the ``schemas`` probe, the ``system_prompt`` base
+    probe, tokenize/chat counts, and every OTHER payload key) is untouched."""
     _apply_off_knobs(monkeypatch)
     repo = scenario.make_repo(tmp_path / "vllm")
     captured = scenario.capture_vllm_scenario(repo)
@@ -146,6 +152,7 @@ def test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm(
         c_tools = {t["function"]["name"] for t in cp.pop("tools", [])}
         e_tools = {t["function"]["name"] for t in ep.pop("tools", [])}
         _assert_purpose_tool_carveout(c_tools, e_tools)
+        _assert_acting_seat_prompt_carveout(cp.pop("messages", []), ep.pop("messages", []))
         assert cp == ep
 
 

@@ -70,6 +70,11 @@ CHILD_DEPTH_ATTR = "child_depth"
 #: is byte-identical to today.
 ACTING_DROP_ENV = "COLLEAGUE_ACTING_DROP_TOOLS"
 
+#: The built-in role a seat with NO resolved role acts as — the ONE name the
+#: bare-run substitution (deviation d14) names, referenced by
+#: :func:`substitute_bare_role` and nowhere else.
+DEFAULT_ACTING_ROLE = "writer"
+
 
 def acting_drop_set() -> tuple[str, ...]:
     """The acting seat's named drop-set, read ONCE from ``ACTING_DROP_ENV``.
@@ -120,6 +125,54 @@ def strip_purpose_tools(role: "Optional[Any]") -> "Optional[Any]":
     return replace(role, tool_allowlist=narrowed)
 
 
+def substitute_bare_role(role: "Optional[Any]") -> Any:
+    """The ONE place a bare (``None``) role becomes
+    :data:`colleague.roles.BUILTIN_ROLES`\\ ``[``:data:`DEFAULT_ACTING_ROLE`\\ ``]``.
+
+    Both :func:`curate_for_depth` branches (depth 0 and depth >= 1) and the
+    prompt half (:func:`acting_role_name`, consumed by
+    :meth:`colleague.engine.Engine.system_prompt`) read the substitution from
+    here, so the surface and the prompt can never disagree about which role is
+    acting (plan t5). A non-``None`` *role* is returned unchanged.
+    """
+    if role is not None:
+        return role
+    from colleague.roles import BUILTIN_ROLES
+
+    return BUILTIN_ROLES[DEFAULT_ACTING_ROLE]
+
+
+def acting_role_name(config: Any, repo_path: str) -> "Optional[str]":
+    """The role NAME this seat ACTS AS — the prompt half of the ONE resolution
+    that already produces the tool surface (plan t5).
+
+    Runs the SAME :func:`colleague.loop.resolve_role` the engines call in
+    ``work()`` to build the curated schema and the role-aware executor, and
+    returns the resolved role's ``name``. Because that resolution ends in
+    :func:`curate_for_depth`, the depth-0 bare-run writer substitution
+    (deviation d14) is no longer a surface-only fact: a bare run
+    (``config.role`` unset) reports ``"writer"`` here, so
+    :meth:`colleague.engine.Engine.system_prompt` composes the writer's prompt
+    fragment — and an operator overlay at ``.colleague/agents/writer.md`` —
+    exactly as an explicit ``--role writer`` run does.
+
+    Seats that deliberately carry no role fragment are untouched, because the
+    name they resolve to is not a built-in role and
+    :func:`colleague.roles.load_role` refuses it: the #411 agents-mode seats
+    narrow to the synthetic ``"narrowed"``/tools-off purpose role before this
+    seam sees them, and the tools-off evaluator seat never reaches
+    ``Engine.system_prompt`` at all (:mod:`colleague.tae_loop` composes its own
+    prompt). ``None`` is returned only when no role resolved at all.
+    """
+    from colleague.loop import resolve_role
+
+    role = resolve_role(config, repo_path)
+    if role is None:
+        return None
+    name = getattr(role, "name", None)
+    return str(name) if name else None
+
+
 def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
     """The ONE seam :func:`colleague.loop.resolve_role` applies last, after
     every other role-resolution branch (name lookup, the #411 agents-mode
@@ -147,18 +200,11 @@ def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
     The drop knob does NOT reach a child (depth >= 1 returns before it).
     """
     if is_top_level(config):
-        if role is None:
-            from colleague.roles import BUILTIN_ROLES
-
-            role = BUILTIN_ROLES["writer"]
+        role = substitute_bare_role(role)
         drop = acting_drop_set()
         if drop:
             from colleague.tools import narrow_role_by_tool_set
 
             role = narrow_role_by_tool_set(role, drop=drop)
         return role
-    if role is None:
-        from colleague.roles import BUILTIN_ROLES
-
-        role = BUILTIN_ROLES["writer"]
-    return strip_purpose_tools(role)
+    return strip_purpose_tools(substitute_bare_role(role))

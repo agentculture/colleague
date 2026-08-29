@@ -175,14 +175,45 @@ def _assert_purpose_tool_carveout(captured_tools: "list[str]", expected_tools: "
     assert added == set(PURPOSE_TOOL_NAMES) - {"web_survey"}, added
 
 
+#: The SECOND documented, deliberate exception, added by plan t5 of
+#: ``docs/plans/2026-08-29-purpose-tools-get-chosen.md`` (prompt/surface
+#: unification): the carve-out above changed what the bare acting seat is
+#: OFFERED without changing what it is TOLD. ``Engine.system_prompt`` now reads
+#: the SAME resolution the surface does (``actingsurface.acting_role_name`` →
+#: ``loop.resolve_role`` → ``curate_for_depth``), so a bare run's WIRE system
+#: message is main's text plus the writer role's prompt fragment — the exact
+#: text an explicit ``--role writer`` run already sent. Named here rather than
+#: normalized away; nothing else about the message list may move.
+_ACTING_SEAT_PROMPT_SEPARATOR = "\n\n"
+
+
+def _assert_acting_seat_prompt_carveout(
+    captured_messages: "list[dict[str, Any]]", expected_messages: "list[dict[str, Any]]"
+) -> None:
+    from colleague.roles import BUILTIN_ROLES
+
+    fragment = BUILTIN_ROLES["writer"].prompt_fragment
+    assert len(captured_messages) == len(expected_messages)
+    for cm, em in zip(captured_messages, expected_messages):
+        if em.get("role") == "system":
+            assert cm.get("role") == "system"
+            assert cm["content"] == em["content"] + _ACTING_SEAT_PROMPT_SEPARATOR + fragment
+            assert set(cm) == set(em)
+        else:
+            assert cm == em
+
+
 def test_vllm_scenario_byte_identical_to_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Byte-identical EXCEPT the one documented purpose-tools-associate-seat
-    carve-out on the wire tool surface (deviation d14 fix, see
-    ``_PURPOSE_TOOL_CARVEOUT_DROPPED`` above): every payload's ``tools`` name
-    list swaps subagent/subagents for five purpose tools; every OTHER
-    captured field — status, steps, the schemas probe, system prompt,
+    """Byte-identical EXCEPT the two documented carve-outs: (1) the
+    purpose-tools-associate-seat swap on the wire tool surface (deviation d14
+    fix, see ``_PURPOSE_TOOL_CARVEOUT_DROPPED`` above) — every payload's
+    ``tools`` name list swaps subagent/subagents for five purpose tools; and
+    (2) the plan-t5 prompt/surface unification (see
+    ``_assert_acting_seat_prompt_carveout``) — every payload's system message
+    gains the writer role's prompt fragment. Every OTHER captured field —
+    status, steps, the schemas probe, the ``system_prompt`` base probe,
     tokenize/chat counts, and every other payload key — is untouched."""
     _apply_off_knobs(monkeypatch)
     repo = scenario.make_repo(tmp_path / "vllm")
@@ -195,6 +226,7 @@ def test_vllm_scenario_byte_identical_to_main(
     assert len(captured_payloads) == len(expected_payloads)
     for cp, ep in zip(captured_payloads, expected_payloads):
         _assert_purpose_tool_carveout(cp.pop("tools", []), ep.pop("tools", []))
+        _assert_acting_seat_prompt_carveout(cp.pop("messages", []), ep.pop("messages", []))
         assert cp == ep
 
 
