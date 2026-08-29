@@ -1923,10 +1923,8 @@ def _record_turn_latency(ctx: _Work, seconds: float) -> None:
         ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
         _emit_phase(ctx, note)
         # #268 ask 2 / #438 guidance 3: raise the per-turn timeout NOW (bounded,
-        # once) — suppressed while the stream guards are armed; the reactive
-        # turn-timeout raise is unchanged.
+        # once) — suppressed while stream guards are armed (reactive raise unchanged).
         if streamguards.StreamGuards.from_env() is None:
-            _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
             _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
 
 

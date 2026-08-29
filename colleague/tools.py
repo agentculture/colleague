@@ -665,16 +665,12 @@ def narrow_role_by_tool_set(
 
     ``drop`` (plan t8, the acting-seat-scoped drop knob): a NAMED drop-set
     applied AFTER the ``tool_set`` intersection — the tools the acting seat
-    must not offer or call (e.g. ``grep_search``/``glob`` under
-    ``COLLEAGUE_ACTING_DROP_TOOLS``). It is the same single composed value
-    that feeds both halves, so a dropped tool is hidden from the schema AND
-    refused at dispatch with no second refusal mechanism. ``drop`` empty
-    (the default) is a strict no-op: *role* is returned unchanged,
-    byte-identical to today. *role* ``None`` + a non-empty ``drop`` narrows
-    the FULL surface (:data:`TOOL_NAMES`) down to everything-but-the-drop;
-    the returned synthetic :class:`Role` is non-read-only (``None`` meant
-    unrestricted). A ``drop`` name the role already withholds removes
-    nothing (dropping only ever removes tools, never adds one).
+    must not offer or call (``COLLEAGUE_ACTING_DROP_TOOLS``). Same single
+    composed value, so a dropped tool is hidden from the schema AND refused
+    at dispatch — no second refusal mechanism. Empty ``drop`` (the default)
+    is a strict no-op. *role* ``None`` + a non-empty ``drop`` narrows the
+    FULL surface (:data:`TOOL_NAMES`) to everything-but-the-drop; dropping
+    only ever removes tools, never adds one.
     """
     if not tool_set and not drop:
         return role
