@@ -229,7 +229,31 @@ def test_drip_feed_trips_the_lifetime_guard(monkeypatch) -> None:
 # --- the blocking fallback is bounded by the SAME guards (#438) --------------
 
 
-def test_fallback_drip_feed_trips_the_idle_guard(monkeypatch) -> None:
+_BLOCKING_BODY = json.dumps(
+    {"choices": [{"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}]}
+).encode()
+
+
+def _counting(script: Callable[[Callable[[bytes], None], int], None]):
+    """``_Server``'s Handler closes over ONE script; wrap it to number requests
+    (request 1 = the streaming attempt, request 2 = the blocking fallback)."""
+    request_no = 0
+
+    def counting_script(write: Callable[[bytes], None]) -> None:
+        nonlocal request_no
+        request_no += 1
+        script(write, request_no)
+
+    return counting_script
+
+
+def _incomplete_stream(write: Callable[[bytes], None]) -> None:
+    """One real frame, then the connection closes with NO terminal frame ->
+    ``_StreamIncomplete`` -> the turn degrades to ONE blocking POST."""
+    write(_frame("partial"))
+
+
+def test_fallback_stall_trips_the_idle_guard(monkeypatch) -> None:
     """The non-streaming fallback of ``_stream_or_blocking`` must be bounded by
     the SAME StreamGuards the streaming reader gets — not a plain
     ``response.read()`` that hangs until the request timeout.
@@ -237,46 +261,86 @@ def test_fallback_drip_feed_trips_the_idle_guard(monkeypatch) -> None:
     Real socket, never a mock: the first request is an SSE stream that closes
     with no terminal frame (``_StreamIncomplete`` — a fallback-eligible
     failure), so the turn degrades to ONE blocking POST. That blocking POST
-    drips a JSON body one byte at a time, never a newline — the exact shape a
+    sends the head of a JSON body and then goes SILENT — the exact shape a
     fake iterable stream hides (the fake-streams-hide-blocking-reader-bugs
     lesson). The idle guard must trip within its bound, promptly, instead of
-    the turn sitting out the full 10s request timeout.
+    the turn sitting out the full 10s request timeout. (A body that keeps
+    *arriving* is progress and must NOT trip — see
+    ``test_continuous_no_newline_body_does_not_trip_the_idle_guard``.)
     """
     monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "0.4")
     monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "30")
 
-    body = json.dumps(
-        {"choices": [{"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}]}
-    ).encode()
-
     def script(write, request_no):
         if request_no == 1:
-            # Streaming attempt: one real frame, then the connection closes
-            # with NO terminal frame -> _StreamIncomplete -> fallback.
-            write(_frame("partial"))
+            _incomplete_stream(write)
             return
-        # Blocking fallback: drip the JSON body byte by byte, never a newline.
-        for b in body:
-            write(bytes([b]))
-            time.sleep(0.01)
+        # Blocking fallback: the head of the body, then a long silence.
+        write(_BLOCKING_BODY[:10])
+        time.sleep(3.0)  # well past the 0.4s idle bound
 
-    # _Server's Handler closes over ``outer.script``; wrap it to count calls.
-    request_no = 0
-
-    def counting_script(write):
-        nonlocal request_no
-        request_no += 1
-        script(write, request_no)
-
-    with _Server(counting_script) as url:
+    with _Server(_counting(script)) as url:
         start = time.monotonic()
         with pytest.raises(streamguards.StreamGuardTripped) as excinfo:
             _stream_or_blocking(url, timeout=10.0)  # request timeout is LARGER than the idle bound
         elapsed = time.monotonic() - start
     assert excinfo.value.guard == "stream-idle"
     assert excinfo.value.bound == pytest.approx(0.4)
-    # Tripped at the idle bound on the fallback's drip, not at the 10s request timeout.
+    # Tripped at the idle bound on the fallback's silence, not at the 10s request timeout.
     assert 0.4 <= elapsed < 3.0, elapsed
+
+
+def test_continuous_no_newline_body_does_not_trip_the_idle_guard(monkeypatch) -> None:
+    """Regression (Qodo 3887387003): a payload that arrives as ONE long line
+    with no newline is real progress and must restart the idle clock as its
+    bytes land — not sit undelivered while ``stream-idle`` elapses.
+
+    The blocking fallback's JSON body is exactly that shape (and is now read
+    through ``guarded_lines``): dripped over ~2s with a 0.4s idle bound, it
+    must COMPLETE, not trip. Refreshing only on a completed line made this a
+    guaranteed false trip on any body slower than the bound.
+    """
+    monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "0.4")
+    monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "30")
+
+    def script(write, request_no):
+        if request_no == 1:
+            _incomplete_stream(write)
+            return
+        # Blocking fallback: drip the JSON body byte by byte, never a newline,
+        # for far longer than the 0.4s idle bound. Bytes never stop arriving.
+        for byte in _BLOCKING_BODY:
+            write(bytes([byte]))
+            time.sleep(0.02)
+
+    with _Server(_counting(script)) as url:
+        response = _stream_or_blocking(url, timeout=10.0)
+    assert response.content == "ok"
+
+
+def test_partial_comment_keepalive_still_trips_the_idle_guard(monkeypatch) -> None:
+    """The mid-line idle refresh must NOT leak the comment exclusion (#438
+    guidance 4): a keepalive dripped WITHOUT its newline is still a comment
+    from its first byte, so a gateway relaying one over a dead upstream still
+    trips ``stream-idle`` at its deadline."""
+    monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "0.4")
+    monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "30")
+
+    def script(write):
+        write(_frame("hello"))  # the one real payload line
+        write(b": ")  # a comment line that never terminates...
+        for _ in range(150):  # ...dripped for ~3s, well past the idle bound
+            write(b"keepalive ")
+            time.sleep(0.02)
+
+    with _Server(script) as url:
+        start = time.monotonic()
+        with pytest.raises(streamguards.StreamGuardTripped) as excinfo:
+            _stream(url, timeout=10.0)  # request timeout is LARGER than the idle bound
+        elapsed = time.monotonic() - start
+    assert excinfo.value.guard == "stream-idle"
+    assert excinfo.value.bound == pytest.approx(0.4)
+    assert 0.4 <= elapsed < 1.5, elapsed
 
 
 def test_fallback_shares_the_streaming_guards_object(monkeypatch) -> None:
