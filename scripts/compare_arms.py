@@ -15,15 +15,23 @@ c14/h11/c32/h21) adds three per-artifact counters, printed as the
 ``delegations`` / ``associate_calls`` / ``web_calls`` columns:
 
 * ``delegations`` — the count of steps whose tool is ``subagent`` or
-  ``subagents`` (the model's explicit delegation choices, never forced);
+  ``subagents`` (the model's explicit delegation choices, never forced) OR one
+  of the six purpose tools (``colleague.purpose_schemas.PURPOSE_TOOL_NAMES``,
+  plan t9 — imported, never duplicated);
 * ``associate_calls`` — the count of delegation steps whose recorded served
   model equals the associate's (``artifact["associate"]["served_model"]`` when
-  present) plus ``sub_results`` recorded with role ``associate``; 0 when the
-  artifact carries no ``associate`` block;
-* ``web_calls`` — the count of steps whose tool is ``web``.
+  present; a purpose step records ``served_model`` in ``Step.arguments`` like
+  a subagent step) plus ``sub_results`` recorded with role ``associate``; 0
+  when the artifact carries no ``associate`` block;
+* ``web_calls`` — the work item's total web calls, read from the serialized
+  ``stats.web_calls`` counter when the artifact carries it, falling back to
+  the count of top-level ``web`` steps for pre-t9 artifacts that predate the
+  field. Under #443 a purpose run's ``web_survey`` child is not persisted
+  separately — its web calls are folded into the PARENT's ``stats.web_calls``
+  — so the step count alone would report zero for a purpose-only arm.
 
-All three are read straight from the artifact's ``steps`` / ``associate`` /
-``sub_results`` keys — never estimated from prose.
+All four numbers are read straight from the artifact's ``stats`` / ``steps`` /
+``associate`` / ``sub_results`` keys — never estimated from prose.
 
 The c28 bar (decision c28, per the arc spec): a non-baseline arm passes when its
 wall-clock ratio is <= 0.7 and its model-turns ratio is <= 0.8. A ratio above
@@ -57,9 +65,17 @@ from typing import Sequence
 # ``.colleague/<id>.<slug>.json`` naming scheme here.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from colleague.artifact import find_artifact  # noqa: E402
+from colleague.purpose_schemas import PURPOSE_TOOL_NAMES  # noqa: E402
 
 DEFAULT_BAR_WALL = 0.7
 DEFAULT_BAR_TURNS = 0.8
+
+#: The tools that count as a delegation: the explicit subagent/subagents
+#: steps plus the six purpose tools (plan t9, covers c7/h7 — imported, never
+#: duplicated).
+DELEGATION_TOOLS: frozenset[str] = frozenset(("subagent", "subagents")) | frozenset(
+    PURPOSE_TOOL_NAMES
+)
 
 
 class ArtifactLookupError(RuntimeError):
@@ -72,7 +88,7 @@ class ArtifactStats:
 
     ``duration_seconds`` / ``model_turns`` are the t10 ratio inputs; the three
     counters (t7) are per-artifact delegation/associate/web facts read from
-    ``steps`` / ``associate`` / ``sub_results`` — never estimated.
+    ``stats`` / ``steps`` / ``associate`` / ``sub_results`` — never estimated.
     """
 
     task_id: str
@@ -104,7 +120,8 @@ class ArmResult:
 
     @property
     def delegations(self) -> int:
-        """Total subagent/subagents steps across the arm's artifacts (t7)."""
+        """Total delegation steps (subagent/subagents + purpose tools) across
+        the arm's artifacts (t7 + t9)."""
         return sum(a.delegations for a in self.artifacts)
 
     @property
@@ -114,7 +131,8 @@ class ArmResult:
 
     @property
     def web_calls(self) -> int:
-        """Total web steps across the arm's artifacts (t7)."""
+        """Total web calls across the arm's artifacts (t7 + t9: ``stats.web_calls``
+        when present, else the top-level ``web`` step count)."""
         return sum(a.web_calls for a in self.artifacts)
 
 
@@ -179,12 +197,32 @@ def _step_tool(step: dict) -> str:
 
 
 def _count_delegations(data: dict) -> int:
-    """Steps whose tool is ``subagent`` or ``subagents`` (t7)."""
-    return sum(1 for s in _steps(data) if _step_tool(s) in ("subagent", "subagents"))
+    """Steps whose tool is ``subagent``/``subagents`` or a purpose tool (t7 + t9)."""
+    return sum(1 for s in _steps(data) if _step_tool(s) in DELEGATION_TOOLS)
 
 
 def _count_web_calls(data: dict) -> int:
-    """Steps whose tool is ``web`` (t7)."""
+    """The work item's total web calls (t7 + t9).
+
+    Prefers the serialized ``stats.web_calls`` counter
+    (:class:`colleague.contract.WorkStats`, written by
+    ``colleague/webbudget.py``) — the ONLY accurate count under the #443
+    purpose-tools arc, where cortex/worker no longer hold the raw ``web`` tool
+    and call ``web_survey`` instead: the scout child's artifact is not
+    persisted separately, so its web calls are folded into the PARENT's
+    ``stats.web_calls``. Counting top-level ``web`` steps alone would report
+    zero for a purpose-only run and silently corrupt the arm comparison.
+
+    Absent (a pre-t9 artifact) means "fall back to the top-level ``web`` step
+    count"; a present ``0`` means exactly 0 — the key is always emitted by
+    ``WorkStats.to_dict``, so a modern artifact is never fallen back on.
+    """
+    stats = data.get("stats")
+    if isinstance(stats, dict) and stats.get("web_calls") is not None:
+        try:
+            return int(stats["web_calls"])
+        except (TypeError, ValueError):
+            pass  # malformed value -> the step-count floor, never an error
     return sum(1 for s in _steps(data) if _step_tool(s) == "web")
 
 
@@ -192,10 +230,11 @@ def _count_associate_calls(data: dict) -> int:
     """Delegation steps/seats whose recorded served model is the associate's (t7).
 
     The associate's served model is ``artifact["associate"]["served_model"]``
-    when present; a delegation step (``subagent``/``subagents``) counts when its
-    recorded ``served_model`` equals it, and a ``sub_results`` entry counts when
-    its ``role`` is ``associate``. 0 when the artifact carries no ``associate``
-    block — never an error.
+    when present; a delegation step (``subagent``/``subagents`` or a purpose
+    tool — a purpose step records ``served_model`` in ``Step.arguments`` like a
+    subagent step, plan t9) counts when its recorded ``served_model`` equals
+    it, and a ``sub_results`` entry counts when its ``role`` is ``associate``.
+    0 when the artifact carries no ``associate`` block — never an error.
     """
     associate = data.get("associate")
     served = associate.get("served_model") if isinstance(associate, dict) else None
@@ -203,7 +242,7 @@ def _count_associate_calls(data: dict) -> int:
         return 0
     count = 0
     for s in _steps(data):
-        if _step_tool(s) not in ("subagent", "subagents"):
+        if _step_tool(s) not in DELEGATION_TOOLS:
             continue
         arguments = s.get("arguments")
         step_served = s.get("served_model")

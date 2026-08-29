@@ -64,6 +64,47 @@ duplicate it.
 | `explorer` | `off` |
 | `scout` | `off` |
 
+### Associate sub-seats (`ASSOCIATE_SEAT_TABLE`, `colleague/efforttables.py`)
+
+The five enumerated associate seats (`ASSOCIATE_SEATS`) each carry their own
+rung; the `associate` row above is the whole-seat override. Precedence:
+`default` kill-switch > explicit per-child override >
+`COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT>` / `reasoning_effort_seats["associate.<seat>"]`
+> `COLLEAGUE_ASSOCIATE_REASONING_EFFORT` (the whole-seat row) > this table.
+Unset, every seat but `distill` resolves exactly as before.
+
+| Associate seat | Default rung |
+|----------------|--------------|
+| `scout` | `off` |
+| `compact` | `off` |
+| `synthesis` | `off` |
+| `digest` | `off` |
+| `distill` | `low` |
+
+### Purpose tools (`PURPOSE_TABLE` + `PURPOSE_STEPS`, `colleague/efforttables.py`)
+
+A purpose tool's child gets its OWN rung, passed to the spawn as the explicit
+override — never the parent's rung, the parent's seat override, or the global
+rung (decision q7 of the purpose-tools spec). Operator knob:
+`COLLEAGUE_<PURPOSE>_REASONING_EFFORT` / `reasoning_effort_purposes[<purpose>]`;
+the `default` kill-switch still yields no fragment. The step cap is the child's
+`max_steps` (`None` = the parent's default).
+
+| Purpose tool | Child role | Default rung | Step cap |
+|--------------|------------|--------------|----------|
+| `web_survey` | `scout` (associate when armed) | `off` | 12 |
+| `code_survey` | `scout` (associate when armed) | `off` | 12 |
+| `review` | `reviewer` | `low` | 16 |
+| `validate` | `validator` | `low` | 16 |
+| `plan` | `planner` | `medium` | 10 |
+| `handover_to_colleague` | `writer` | `medium` | parent default |
+
+Honest limit (follow-up v5 of the purpose-tools spec): a **manual**
+`subagent`/`subagents` child still resolves the parent's cortex seat override
+above its own `ROLE_TABLE` row (`colleague/subagents.py`, the child rung
+resolution) — so `COLLEAGUE_CORTEX_REASONING_EFFORT=medium` reaches a manual
+reviewer child; a purpose child does not inherit it.
+
 ### Top-level role overrides (`TOP_LEVEL_ROLE_TABLE`)
 
 A typed role is *also* a top-level `colleague work --role` flag, not only a
@@ -211,6 +252,19 @@ byte-identical.
   client-side enum. Thor's no-MTP cortex and the 35B worker template may expose
   a different or no ladder — the ladder-400 retry-once is the runtime guard,
   unmeasured until a Thor run.
+- **The distill child's `max_tokens` is not window-clamped** (colleague#448).
+  `distilleffort.max_tokens_for_rung` returns a fixed 4096 / 12288 rather than
+  clamping against the served window via `outputclamp.clamp_output_tokens`,
+  because the detached distill child has neither input the clamp needs: the
+  context window and prompt-token count come from the one run-start
+  `/tokenize` probe in the vLLM adapter, and the child is a raw `urllib` POST
+  that never builds an adapter. Stated plainly: there is nothing to clamp
+  against today, and a guessed window would look like a clamp while encoding
+  an assumption the child cannot verify. Not a live risk on the pinned rig
+  (12288 against a 131072 window), and a length-cut completion already fails
+  legibly via `reasoning_exhausted_reason`, which names the cap. Raised by the
+  Qodo review on #447; a real fix needs window discovery in the child, which
+  is its own re-spec.
 - **Exact reasoning-token accounting is adjacent, parked.** The rig now reports
   `usage.completion_tokens_details.reasoning_tokens` (#417) while
   `vllm_openai.py` still carries a stale comment that the server reports none;

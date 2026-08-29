@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.66.0] - 2026-08-28
+
+### Added
+
+- Purpose tools (#443): six typed delegation tools on the top-level acting seat — web_survey/code_survey (scout child, on the associate seat when armed), review/validate/plan (reviewer/validator/planner children on cortex), handover_to_colleague (writer child on cortex) — each a fixed purpose → fixed role → fixed seat + rung; new colleague/purpose_schemas.py, colleague/actingsurface.py, colleague/efforttables.py, colleague/distilleffort.py, colleague/cli/_commands/_effort_groups.py
+- Associate sub-seat effort (#442): ASSOCIATE_SEAT_TABLE (distill=low, others off) with `COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT>` / `reasoning_effort_seats["associate.<seat>"]` overrides; PURPOSE_TABLE + PURPOSE_STEPS per purpose with `COLLEAGUE_<PURPOSE>_REASONING_EFFORT` / reasoning_effort_purposes; config show + /effort render all three groups
+- Distill child effort plumbing: the detached rung-2 distill child sends its rung, raises max_tokens when thinking is on, retries once on a ladder-400, and records finish_reason=length as its own failure reason
+- One work-item-wide web budget spanning purpose children + parent-side urls fetched: report; purpose delegations exempt from the armed-agents ⊆-parent check; docs/features/purpose-tools.md; live rows 49/50 (pre-registered, filled: both MISS on the bar, row 50 mechanism proven); delivery record docs/deliveries/2026-08-28-purpose-tools-associate-seat.md
+
+### Changed
+
+- REPLACE, not add (recorded, one-way): cortex/worker no longer hold raw web/subagent/subagents — CLAUDE.md records purpose tools under sanctioned increment (1); children never hold purpose tools; resident peer turns withhold web_survey as well as web
+- scripts/compare_arms.py counts purpose steps in delegations/associate_calls; delegation armed-facts sentence spliced onto web_survey/code_survey
+- docs: thinking-effort.md gains the ASSOCIATE_SEAT_TABLE + PURPOSE_TABLE tables; adopt-from-qwen-code.md states ROLE_TABLE[scout]=off; web-scout.md honesty line 33 marked superseded
+
+### Fixed
+
+- loop.resolve_role agents-narrowing guard used a strict-subset test that silently fell through to the full surface once purpose names existed
+- purpose child rung never leaks from the parent or the global rung (PURPOSE_TABLE passed as the explicit override; kill-switch still wins)
+
 ## [1.65.1] - 2026-08-28
 
 ### Changed

@@ -18,6 +18,7 @@ Pinned here:
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -248,9 +249,15 @@ def test_talker_child_cannot_smuggle_write_tools(tmp_path: Path, capture: _Captu
 
 
 def test_worker_seat_holds_no_code_authoring_pair(tmp_path: Path) -> None:
+    # t5 (q9/q10): the worker delegates BY PURPOSE now — subagent/subagents
+    # leave its surface, replaced by the six purpose tools.
     surface = effective_surface(_armed("worker"), tmp_path)
-    assert "read_file" in surface and "subagent" in surface
-    assert "write_file" not in surface and "edit_file" not in surface
+    assert "read_file" in surface
+    assert "code_survey" in surface
+    assert "subagent" not in surface
+    assert "subagents" not in surface
+    assert "write_file" not in surface
+    assert "edit_file" not in surface
 
 
 # ---------------------------------------------------------------------------
@@ -261,11 +268,19 @@ def test_worker_seat_holds_no_code_authoring_pair(tmp_path: Path) -> None:
 
 
 def test_profileless_child_inherits_the_parent_surface(tmp_path: Path, capture: _Capture) -> None:
+    """A profileless child inherits the parent's purpose (worker), narrowed to
+    the parent's surface — EXCEPT the six purpose tools (t15/actingsurface,
+    q9): a spawned child never holds a purpose tool, no matter which purpose
+    it inherited, so its effective surface is the parent's minus those six."""
+    from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
+
     parent = _armed("worker")
     _spawn(tmp_path, parent, ChildSpec())
     _task, child_cfg = capture.calls[0]
     assert getattr(child_cfg, "agents_profile") == "worker"
-    assert effective_surface(child_cfg, tmp_path) == effective_surface(parent, tmp_path)
+    assert effective_surface(child_cfg, tmp_path) == effective_surface(parent, tmp_path) - set(
+        PURPOSE_TOOL_NAMES
+    )
 
 
 def test_profileless_grandchild_inherits_too(tmp_path: Path, capture: _Capture) -> None:
@@ -398,3 +413,77 @@ def test_agent_engine_config_carries_the_purpose(tmp_path: Path) -> None:
     seat = agent_engine_config(_armed("thinker_coder"), profile, object())
     assert getattr(seat, "agents_profile") == "worker"
     assert "write_file" not in effective_surface(seat, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# (f) purpose-tool exemption (t8, q3): a purpose delegation's FIXED child
+# surface is exempt from the parent ⊆ check; a manual delegation carrying the
+# SAME wider surface stays subject to it.
+# ---------------------------------------------------------------------------
+
+
+def test_cortex_without_web_calls_code_survey_allowed(tmp_path: Path, capture: _Capture) -> None:
+    """cortex (thinker_coder) holds no raw 'web' (replace-not-add, spec c/q3
+    decision) — a purpose-tool child (role='scout', whose own allow-list
+    includes 'web') still runs end to end through ``run_subagent``: its
+    child surface is FIXED by the tool, never requested from the parent."""
+    from colleague.agents.tools import tools_for_purpose
+
+    parent = _armed("thinker_coder")
+    assert "web" not in tools_for_purpose("thinker_coder")
+    sub = _spawn(
+        tmp_path,
+        parent,
+        ChildSpec(purpose="code_survey", charges_budget=False),
+        role="scout",
+    )
+    assert sub.status == OK
+    assert len(capture.calls) == 1
+
+
+def test_manual_scout_delegation_requesting_web_still_refused(tmp_path: Path) -> None:
+    """The SAME scout surface (curate_schemas('scout'), which includes 'web')
+    requested WITHOUT the ``purpose`` flag — i.e. a MANUAL ``subagent``/
+    ``subagents`` delegation — stays subject to the ⊆ check and is refused:
+    the purpose exemption never leaks into a manual delegation. Exercises the
+    real production :func:`colleague.subagents._delegation_bounds`."""
+    from colleague.agents.tools import tools_for_purpose
+    from colleague.subagents import _child_requested_tools, _delegation_bounds
+
+    parent = _armed("thinker_coder")
+    manual_spec = ChildSpec(purpose=None)
+    scout_tools = _child_requested_tools(
+        dataclasses.replace(manual_spec, purpose="code_survey"), "thinker_coder", "scout"
+    )
+    assert "web" in scout_tools  # the scout role's own surface offers it
+
+    _child_purpose, _ceiling, requested_tools, verdict = _delegation_bounds(
+        parent, manual_spec, instruction="do the thing", depth=1, role="scout"
+    )
+    assert requested_tools == tuple(sorted(tools_for_purpose("thinker_coder")))
+    assert "web" not in requested_tools  # today's manual path never carries it
+    assert verdict.allowed is True  # ⊆ holds vacuously — the real gap this
+    # test documents: use ``validate_delegation`` directly, forcing the same
+    # scout surface onto a manual (unflagged) request, to prove the ⊆ rule
+    # itself still refuses it once 'web' IS on a manual request.
+    from colleague.agents.delegation import DelegationRequest, validate_delegation
+    from colleague.agents.runtime import seat_ceiling
+
+    manual_req = DelegationRequest(
+        delegation_id="",
+        from_agent="thinker_coder",
+        requested_agent_profile="scout",
+        objective="do the thing",
+        acceptance="",
+        requested_tools=scout_tools,
+        authority_ceiling=seat_ceiling(parent, "scout"),
+        depth=1,
+        purpose=None,
+    )
+    manual_verdict = validate_delegation(
+        manual_req,
+        parent_effective_tools=tools_for_purpose("thinker_coder"),
+        parent_ceiling=seat_ceiling(parent, getattr(parent, "role", None)),
+    )
+    assert manual_verdict.allowed is False
+    assert "web" in (manual_verdict.reason or "")

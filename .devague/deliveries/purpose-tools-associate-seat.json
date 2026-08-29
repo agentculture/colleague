@@ -1,0 +1,201 @@
+{
+  "plan_slug": "purpose-tools-associate-seat",
+  "schema_version": 1,
+  "created": "2026-08-28T14:35:39Z",
+  "updated": "2026-08-28T17:26:18Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "d1: the frame's announcement (c1) and after-state (c23) still say 'the multi-turn scout keeps its thinking history' \u2014 that clause was dropped by decision q8 / non-goal c41 (#446) after the challenge pass; the exported spec's headline carries a claim the plan does not build",
+      "task_ref": "t11",
+      "reason": "q8 dropped c10 after c1/c23 were confirmed; no frame-text edit was made to the confirmed announcement/after-state",
+      "affects": [
+        "t11",
+        "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "d2: t1 (effort tables) on the colleague lane STALLED \u2014 step-stall 900 s at step 22, 10 turns averaging 369 s, 20.6k reasoning chars, 0 changed files (run 2efba884e43f); reassigned to a sonnet agent in the same worktree with the verbatim brief",
+      "task_ref": "t1",
+      "reason": "the brief mixes a new module with net-zero hunks in config.py (~4000 lines) \u2014 the large-file edit class colleague times out on (memory: colleague-edits-large-files-time-out); same shape as web-scout d2/d3",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "d3: t12 colleague run a8da10e42059 ended INCOMPLETE (step-stall at step 31 under GPU contention) but delivered the whole deliverable (rows 49/50, two briefs, a pre-registration test); the integrator fixed the test's own parser (5-column matrix, one phrase) rather than re-dispatching \u2014 merged as t12",
+      "task_ref": "t12",
+      "reason": "honest-incompletion soft rule: a substantive non-meta finish = delivered; the parser fix is a 6-line test-only touch-up",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "d4: t9 (compare_arms) created colleague/purpose_schemas.py ahead of t4 \u2014 a 26-line stub exporting PURPOSE_TOOL_NAMES so the script imports one list instead of duplicating it; t4's brief now says to extend that module in place",
+      "task_ref": "t9",
+      "reason": "the t9 brief said 'import the purpose names, no duplicate list' and t4 had not landed yet; the stub is the agreed single source",
+      "affects": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "d5: t2 colleague run ae21579f3f9a stalled at step 27 (14 turns, 48k reasoning chars) after writing the task's failing tests (137 lines in tests/test_associate_seats.py, 7 red) and no implementation; retried ONCE as a narrowed continuation brief (t2b: 'the tests exist, make them pass', associate.py + associate_seats.py only) on a colleague lane through the lobes gateway; sonnet is the fallback",
+      "task_ref": "t2",
+      "reason": "TDD red half delivered; the implementation is small and now fully specified by the tests; operator asked for colleague-first dogfooding and raised the lane cap to 4",
+      "affects": [
+        "t2",
+        "t3"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d6",
+      "what": "d6: t5 (sonnet) fixed a latent bug outside its brief \u2014 loop.resolve_role's agents-narrowing guard used a strict-subset test (set(purpose_tools) < set(TOOL_NAMES)) which, once purpose surfaces contain names outside TOOL_NAMES, always failed and silently fell through to the unrestricted full surface; corrected to != with a net-zero loop.py hunk; tae_loop.py also touched (CONSEQUENTIAL_TOOLS + handover_to_colleague) as planned fallout",
+      "task_ref": "t5",
+      "reason": "the surface change exposed the guard; leaving it would have made worker/thinker_coder narrowing a no-op in agents mode",
+      "affects": [
+        "t5",
+        "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d7",
+      "what": "d7: t10 (delegation prose + config show/effort groups) on a colleague lane through the lobes gateway STALLED \u2014 28 read-only steps over 18 min, a 1089 s model turn past the 900 s guard (the #438 blocking-fallback class), zero edits (run 09a4292aa7df, stopped via flight stop); reassigned to sonnet. The wave-1+2 ask-colleague review (de61d945192e) also step-stalled at step 3 (the known PR-diff-review stall) \u2014 to be re-run tightly scoped",
+      "task_ref": "t10",
+      "reason": "under 3-4 concurrent lanes every colleague turn runs 5-18 min; the gateway did not help; the stream-lifetime guard does not fire on this path (#438)",
+      "affects": [
+        "t10",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d8",
+      "what": "d8: t10's brief (and plan line 99) told the agent to splice the armed-scout sentence onto handover_to_colleague as well; the spec (c12/h12) names only web_survey/code_survey and the handover child is a cortex WRITER, so the sentence would be false there \u2014 the integrator reverted that one name before merging (delegation_text._DELEGATION_TOOL_NAMES + 3 test lines); the plan text stays as written, this record supersedes it",
+      "task_ref": "t10",
+      "reason": "plan/brief drift from the spec, caught by the sonnet agent's flag",
+      "affects": [
+        "t10",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d9",
+      "what": "d9: spec claim c28/h26 (and scope s20) assumed every purpose child runs in a sub/<id> worktree via run_subagent; t6 found that run_subagent creates NO worktree (subagents.py:834's docstring is stale \u2014 only the batch path make_batch_spawn does), so a single-child purpose call runs in the parent's tree exactly as a manual subagent does today. Read-only purposes cannot write regardless; handover_to_colleague inherits today's manual-subagent behaviour. t6's e2e test pins the observable half (no sub/* branches, one worktree). The feature doc (t11) must state this honestly and h26 is re-read as 'unchanged run_subagent path'",
+      "task_ref": "t6",
+      "reason": "the spec cited a docstring, not the code path; no behaviour change made",
+      "affects": [
+        "t6",
+        "t11",
+        "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d10",
+      "what": "d10: t6 left the per-purpose operator override seam (executor.purpose_effort_overrides / effort_kill_switch, from config.reasoning_effort_purposes) unset by any construction path \u2014 the shipped rung is the PURPOSE_TABLE row; t7's brief now threads it at the loop's ToolExecutor build (net-zero loop.py hunk) with a test",
+      "task_ref": "t6",
+      "reason": "t6's brief scoped the executor, not the loop wiring; c37/h35 need the override to reach the child",
+      "affects": [
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d11",
+      "what": "d11: t3 (distill child effort plumbing + max_tokens + 'length' reason) on a colleague lane STALLED as the SOLE lane on the spark origin \u2014 step-stall at step 23, 8 turns, 12.9k reasoning chars, 0 changed files (run 5db5e4b35a5e); reassigned to sonnet in the same worktree with the verbatim brief",
+      "task_ref": "t3",
+      "reason": "read-heavy brief spanning distill.py (803, pinned) + associate_seats + loop.py seam; the same 'reads until the stall' shape as t1/t10 \u2014 contention was NOT the cause this time",
+      "affects": [
+        "t3",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d12",
+      "what": "d12: t7 threaded the per-purpose effort overrides through make_spawn's closure (executor._spawn.parent_config) instead of the loop's ToolExecutor( build site named in the integrator note \u2014 the agent verified that site (_resolve_run_collaborators' default) is unreachable in production because both engines pass an explicit executor; the closure seam is exercised by both engines and tested (reasoning_effort_purposes={'review':'off'} \u2192 child off). Also fixed in passing: the scout-seat replace in _build_child_config would have dropped web_calls_remaining",
+      "task_ref": "t7",
+      "reason": "the brief's suggested wiring point was dead code; the agent chose the live seam and proved it",
+      "affects": [
+        "t7",
+        "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d13",
+      "what": "d13: the wave-3 dogfood review (ask-colleague review 0e9fdacaba63, scoped to purpose_schemas.py + efforttables.py after the unscoped review de61d945192e stalled) returned BLOCK on (b) 'the kill-switch/override seam is set nowhere' \u2014 true on the reviewed tip 3474234 and already resolved by t7 (d4e5e1a, verified on the current tip: kill-switch \u2192 no rung, override review=off \u2192 off); its two minor findings \u2014 the exhausted marker mislabels non-budget failures (c), no scope-guard sentence on the handover brief (d) \u2014 are routed to t13's brief. Review graded 4/5 in the feedback store",
+      "task_ref": "t13",
+      "reason": "review of a moving tip; findings verified before acting",
+      "affects": [
+        "t13",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d14",
+      "what": "d14: the arc's headline surface change did not reach the BARE run \u2014 t5 swapped web/subagent/subagents \u2192 purpose tools only on the writer ROLE's allow-list, but a bare 'colleague work' (no --role, unarmed) resolves role=None and curate_schemas(None) offers the full pre-arc surface (verified on tip 95520cb: bare offers web/subagent/subagents, no purposes); t13 documented the gap honestly while pinning it. A NEW task t15 (sonnet) applies the swap to the top-level acting seat (depth 0, role None or writer) + the TAE worker, withholds purposes from every child (q9: children never hold them; a handover writer child keeps no web/subagent either), refuses the three raw names at the executor for that seat, and re-records the byte-identical fixtures with the carve-out the spec's h1 already names",
+      "task_ref": "t13",
+      "reason": "spec c4/c23/h1 name the bare 'colleague work' surface; the plan's t5 wording ('curate_schemas(writer)') let the role-less default path slip through",
+      "affects": [
+        "t5",
+        "t13",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky"
+    },
+    {
+      "id": "d15",
+      "what": "d15: after t15 the resident's operator seat offers web_survey instead of raw web, which broke tests/test_resident_web_trust.py::test_resident_withholds_web_from_a_peer_turn (it pinned raw web on the operator turn); the integrator applied park v6's stated default \u2014 peer turns withhold web_survey as well as web (webtrust.turn_tool_set) \u2014 and repointed the pin: operator turn holds web_survey and never web; peer turn holds neither. The per-turn confirmation prompt still fires on the child's raw web call; gating the confirmation at the purpose call itself stays parked (v6)",
+      "task_ref": "t15",
+      "reason": "the swap reached the resident front through the shared top-level seat; the security property (peers never reach the web) is preserved and now covers the purpose path",
+      "affects": [
+        "t15",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    }
+  ]
+}

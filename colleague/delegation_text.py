@@ -1,4 +1,4 @@
-"""Armed-facts sentence for the delegation surface (plan t8, spec c30/c31, h19/h20).
+"""Armed-facts sentence for the delegation surface (plan t8/t10, spec c30/c31, h19/h20).
 
 When an associate seat is armed (``config.associate`` is not ``None``, the
 ``scout`` role — :mod:`colleague.associate_seats` — can act as a ``subagent``/
@@ -10,10 +10,15 @@ child is a good fit for a given piece of work. Two pieces:
 * :func:`armed_facts` — the ONE sentence itself, built fresh per *config* (no
   digits, no time units, no imperative verbs — decisions c42/c44). Empty
   string when unarmed.
-* :func:`apply_armed_facts` — splices that sentence onto the ``subagent`` and
-  ``subagents`` tool descriptions only. Unarmed (or an empty sentence) returns
-  the SAME list object unchanged — byte-identical to the pre-t8 schema list
-  (the v1.64.0 fixture), never a copy.
+* :func:`apply_armed_facts` — splices that sentence onto the ``subagent``/
+  ``subagents`` tool descriptions AND (t10, post-t5 purpose-tools surface)
+  the ``web_survey``/``code_survey`` purpose-tool
+  descriptions. Cortex's curated surface holds the purpose tools and no
+  longer holds ``subagent``/``subagents`` (t5); a manual role config (or the
+  raw, uncurated schema list) may still hold the latter — either way, only
+  names present in the passed-in *schemas* are ever touched. Unarmed (or an
+  empty sentence) returns the SAME list object unchanged — byte-identical to
+  the pre-t8 schema list (the v1.64.0 fixture), never a copy.
 """
 
 from __future__ import annotations
@@ -22,8 +27,11 @@ from typing import Any
 
 __all__ = ["armed_facts", "apply_armed_facts"]
 
-#: Tool names whose description gains the armed-facts sentence.
-_DELEGATION_TOOL_NAMES = frozenset({"subagent", "subagents"})
+#: Tool names whose description gains the armed-facts sentence: the two raw
+#: delegation tools (still offered to a manual role config, or the
+#: uncurated full surface) plus the three purpose tools that replaced them on
+#: cortex's curated surface (t5/t10).
+_DELEGATION_TOOL_NAMES = frozenset({"subagent", "subagents", "web_survey", "code_survey"})
 
 
 def armed_facts(config: Any) -> str:
@@ -48,16 +56,21 @@ def armed_facts(config: Any) -> str:
 
 
 def apply_armed_facts(schemas: list[dict[str, Any]], config: Any) -> list[dict[str, Any]]:
-    """Splice :func:`armed_facts` onto the ``subagent``/``subagents`` descriptions.
+    """Splice :func:`armed_facts` onto every :data:`_DELEGATION_TOOL_NAMES` entry
+    present in *schemas* (``subagent``/``subagents`` and the ``web_survey``/
+    ``code_survey`` purpose tools — t10; never ``handover_to_colleague``,
+    whose child is a cortex writer, not the scout seat).
 
     Unarmed (or an empty sentence) returns *schemas* itself, unchanged — the
     same list object, so a caller comparing it against the pre-t8 fixture
-    sees byte-for-byte identity. Armed, returns a NEW list: every entry not
-    named ``subagent``/``subagents`` is passed through as-is (same dict
-    object — nothing about it changes), and each delegation entry is a
-    shallow-copied dict/``function`` sub-dict with the sentence appended to
-    its description. Nothing else on the schema (parameters, name, other
-    tools) is touched.
+    sees byte-for-byte identity. Armed, returns a NEW list: every entry whose
+    name is not in :data:`_DELEGATION_TOOL_NAMES` is passed through as-is
+    (same dict object — nothing about it changes), and each matching entry is
+    a shallow-copied dict/``function`` sub-dict with the sentence appended to
+    its description. A name in :data:`_DELEGATION_TOOL_NAMES` but absent from
+    *schemas* (e.g. ``subagent`` on cortex's post-t5 curated surface) is
+    simply never encountered — nothing to splice onto. Nothing else on the
+    schema (parameters, name, other tools) is touched.
     """
     sentence = armed_facts(config)
     if not sentence:

@@ -343,8 +343,11 @@ def test_resident_withholds_web_from_a_peer_turn(tmp_path: Path, webglass_on_pat
     assert WEB not in peer_tools
     assert "read_file" in peer_tools
 
+    assert "web_survey" not in _offered_names(peer_configs[0], harness._repo_path)
     operator_configs, _ = _feed(harness, "ori", "read the readme")
-    assert WEB in _offered_names(operator_configs[0], harness._repo_path)
+    # The top-level acting seat holds web_survey (the purpose form), never raw web (t15).
+    assert "web_survey" in _offered_names(operator_configs[0], harness._repo_path)
+    assert WEB not in _offered_names(operator_configs[0], harness._repo_path)
     assert _narrowing(operator_configs[0]) == ()  # the operator lane narrows nothing
 
 

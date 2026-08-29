@@ -479,3 +479,175 @@ def test_main_prints_the_three_new_columns(tmp_path: Path, capsys):
     # the quiet arm's row: all three counters 0
     quiet_line = next(line for line in out.splitlines() if line.startswith("other"))
     assert "0" in quiet_line
+
+
+# --- purpose steps in delegations + associate_calls (plan t9, covers c7/h7) --
+
+
+def test_purpose_tool_names_are_imported_not_duplicated():
+    """compare_arms must import the purpose names from colleague.purpose_schemas
+    (no duplicate list) and count exactly the six purpose tools."""
+    import scripts.compare_arms as compare_arms
+    from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
+
+    assert compare_arms.PURPOSE_TOOL_NAMES is PURPOSE_TOOL_NAMES
+    assert set(PURPOSE_TOOL_NAMES) == {
+        "web_survey",
+        "code_survey",
+        "review",
+        "validate",
+        "plan",
+        "handover_to_colleague",
+    }
+
+
+def test_delegations_counts_purpose_tool_steps(tmp_path: Path):
+    """delegations = subagent/subagents steps OR any of the six purpose tools."""
+    _write_full_artifact(
+        tmp_path,
+        "deleg-purpose-1",
+        [
+            _step(0, "read_file"),
+            _step(1, "subagent", {"instruction": "survey module A"}),
+            _step(2, "code_survey", {"question": "interfaces of alpha/beta/gamma"}),
+            _step(3, "web_survey", {"question": "find X", "urls": ["https://example.com/a"]}),
+            _step(4, "review", {"diff_ref": "HEAD~1"}),
+            _step(5, "validate", {"scope": "tests/"}),
+            _step(6, "plan", {"goal": "ship the widget"}),
+            _step(7, "handover_to_colleague", {"task": "t9", "acceptance": ["done"]}),
+            _step(8, "edit_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "deleg-purpose-1")
+    # 1 subagent + 6 purpose steps
+    assert stats.delegations == 7
+
+
+def test_purpose_step_served_model_counts_as_associate_call(tmp_path: Path):
+    """A purpose step records served_model in Step.arguments like a subagent
+    step; associate_calls counts it when it equals the artifact's associate
+    served_model. Fixture with one code_survey step + served_model yields
+    delegations=1, associate_calls=1."""
+    _write_full_artifact(
+        tmp_path,
+        "assoc-purpose-1",
+        [
+            _step(
+                0,
+                "code_survey",
+                {"question": "interfaces of alpha/beta/gamma", "served_model": "nemotron-3.5"},
+            ),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        associate={"served_model": "nemotron-3.5"},
+    )
+    stats = load_artifact_stats(tmp_path, "assoc-purpose-1")
+    assert stats.delegations == 1
+    assert stats.associate_calls == 1
+
+
+def test_purpose_step_not_served_by_associate_is_not_an_associate_call(tmp_path: Path):
+    """A purpose step whose served_model differs from the associate's counts as
+    a delegation but NOT as an associate call."""
+    _write_full_artifact(
+        tmp_path,
+        "assoc-purpose-2",
+        [
+            _step(
+                0,
+                "code_survey",
+                {"question": "interfaces", "served_model": "cortex-model"},
+            ),
+            _step(1, "review", {"diff_ref": "HEAD~1"}),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        associate={"served_model": "nemotron-3.5"},
+    )
+    stats = load_artifact_stats(tmp_path, "assoc-purpose-2")
+    assert stats.delegations == 2
+    assert stats.associate_calls == 0
+
+
+def test_purpose_web_survey_reports_the_folded_child_web_calls(tmp_path: Path):
+    """Under #443 cortex/worker hold no raw ``web`` tool — they call
+    ``web_survey``, whose scout child is not persisted separately; the child's
+    web calls are folded into the PARENT's ``stats.web_calls``. The column
+    reports that folded count (4), not the zero top-level ``web`` steps."""
+    _write_full_artifact(
+        tmp_path,
+        "web-purpose-1",
+        [
+            _step(0, "web_survey", {"question": "find X", "urls": ["https://example.com/a"]}),
+            _step(1, "read_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": 4},
+    )
+    stats = load_artifact_stats(tmp_path, "web-purpose-1")
+    assert stats.delegations == 1
+    assert stats.web_calls == 4
+
+
+def test_stats_web_calls_wins_over_the_top_level_web_step_count(tmp_path: Path):
+    """A mixed run (raw ``web`` steps AND a folded purpose child) reports the
+    serialized counter, which already includes both — never the step count."""
+    _write_full_artifact(
+        tmp_path,
+        "web-mixed-1",
+        [
+            _step(0, "web", {"verb": "search"}),
+            _step(1, "web_survey", {"question": "find X"}),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": 5},
+    )
+    stats = load_artifact_stats(tmp_path, "web-mixed-1")
+    assert stats.web_calls == 5
+
+
+def test_stats_web_calls_present_zero_is_zero_not_a_fallback(tmp_path: Path):
+    """A present ``0`` means exactly 0 — absent-vs-zero is a real distinction,
+    so a zeroed counter never falls back to counting steps."""
+    _write_full_artifact(
+        tmp_path,
+        "web-zero-1",
+        [_step(0, "web", {"verb": "search"}), _step(1, "web", {"verb": "page read"})],
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": 0},
+    )
+    stats = load_artifact_stats(tmp_path, "web-zero-1")
+    assert stats.web_calls == 0
+
+
+def test_legacy_artifact_without_stats_web_calls_falls_back_to_step_count(tmp_path: Path):
+    """A pre-t9 artifact carries no ``stats.web_calls``; the column falls back
+    to the top-level ``web`` step count rather than reporting zero."""
+    _write_full_artifact(
+        tmp_path,
+        "web-legacy-1",
+        [
+            _step(0, "web", {"verb": "search"}),
+            _step(1, "web", {"verb": "page read"}),
+            _step(2, "read_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "web-legacy-1")
+    assert (
+        "web_calls"
+        not in json.loads(
+            (tmp_path / ".colleague" / "web-legacy-1.json").read_text(encoding="utf-8")
+        )["stats"]
+    )
+    assert stats.web_calls == 2
+
+
+def test_malformed_stats_web_calls_falls_back_to_step_count(tmp_path: Path):
+    """A non-numeric ``stats.web_calls`` degrades to the step-count floor —
+    never an error, matching the tolerant reads the other counters use."""
+    _write_full_artifact(
+        tmp_path,
+        "web-malformed-1",
+        [_step(0, "web", {"verb": "search"})],
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": "not-a-number"},
+    )
+    stats = load_artifact_stats(tmp_path, "web-malformed-1")
+    assert stats.web_calls == 1

@@ -3,32 +3,28 @@
 A *delegation* is the typed, ledgered act of handing a scoped piece of work to
 another model-bound agent. This module is the CONTRACT for that act — it
 computes and records; it does NOT spawn. The spawn wiring lives in
-:mod:`colleague.subagents` (``run_subagent``), which t14 threads through
+:mod:`colleague.subagents` (``run_subagent``), threaded through
 :func:`open_delegation` / :func:`close_delegation` so the ``delegate`` /
 ``return`` events bracket the child's life on the task ledger (t4).
 
 **No spawning here.** Nothing in this module loads an engine, starts a child
-work item, opens a socket, or forks a process. It is pure stdlib over the
-append-only task ledger and the validated tool surface (t2) — the same
-"compute, don't act" seam as :mod:`colleague.agents.tools`.
+work item, or opens a socket — pure stdlib over the append-only task ledger,
+the same "compute, don't act" seam as :mod:`colleague.agents.tools`.
 
 **Authority ceilings are a small closed enum, ordered.**
 :data:`AUTHORITY_CEILINGS` = ``read_only`` < ``repo_patch_no_publish`` <
 ``repo_patch_publish``. A child may never be granted a ceiling above its
 parent's — :func:`ceiling_rank` makes the ordering total and
-:func:`validate_delegation` enforces it. Host policy still gates every route:
-this module only checks the delegation's own arithmetic (tools subset, ceiling
-order, depth/fanout/total within the ``MAX_SUBAGENT_*`` caps); it never
-substitutes for the host's approval/policy layer.
+:func:`validate_delegation` enforces it (tools subset, ceiling order,
+depth/fanout/total within ``MAX_SUBAGENT_*``); host policy still gates every
+route, never substituted for by this module.
 
-**Refuse whole.** :func:`validate_delegation` returns a
-:class:`DelegationVerdict` (``allowed`` / ``reason``) — the
-:mod:`colleague.agents.messages` refuse-whole shape — and never raises on a
-bad request. A refused delegation records nothing and spawns nothing.
+**Refuse whole.** :func:`validate_delegation` returns a :class:`DelegationVerdict`
+(the :mod:`colleague.agents.messages` refuse-whole shape) and never raises: a
+refused delegation records/spawns nothing.
 
 **Ledger-only handoff.** :func:`handoff` transfers plan-node ownership by
-appending a ``plan_node`` event; it touches the ledger and nothing else.
-"""
+appending a ``plan_node`` event — the ledger, and nothing else."""
 
 from __future__ import annotations
 
@@ -66,12 +62,10 @@ CONTEXT_MODES: tuple[str, ...] = ("inherit", "clear")
 
 @dataclass(frozen=True)
 class DelegationVerdict:
-    """The outcome of validating one :class:`DelegationRequest`.
-
-    Refuse-whole shape (mirrors :class:`colleague.agents.messages.MessageVerdict`):
-    exactly one outcome holds — ``allowed=True`` with ``reason=None`` (clean),
-    or ``allowed=False`` with a short human-readable ``reason`` (refused whole;
-    nothing was recorded and nothing spawns).
+    """The outcome of validating one :class:`DelegationRequest` — refuse-whole
+    (mirrors :class:`colleague.agents.messages.MessageVerdict`): ``allowed=True``
+    with ``reason=None`` (clean), or ``allowed=False`` with a short ``reason``
+    (nothing recorded, nothing spawns).
     """
 
     allowed: bool
@@ -97,6 +91,10 @@ class DelegationRequest:
     per-child override rather than the role/seat tables. Both are recorded
     on the ``delegate`` event by :func:`open_delegation`, purely as trace
     data — this module computes/records, it never resolves the rung itself.
+
+    ``purpose`` (q3/t8) names a fixed purpose tool when set: its
+    ``requested_tools`` is then exempt from the ``⊆`` check below. A manual
+    subagent delegation always leaves this ``None``.
     """
 
     delegation_id: str
@@ -115,6 +113,7 @@ class DelegationRequest:
     total: int = 1
     effort: str | None = None
     effort_override: bool = False
+    purpose: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,7 +160,8 @@ def validate_delegation(
     Refuses whole (a :class:`DelegationVerdict` with ``allowed=False``) when ANY
     bound is crossed — never raises on a bad request:
 
-    - ``requested_tools`` is not a subset of the parent's effective tools;
+    - ``requested_tools`` is not a subset of the parent's effective tools
+      (skipped when ``req.purpose`` — q3, see ``docs/features/purpose-tools.md``);
     - ``authority_ceiling`` ranks above the parent's ceiling;
     - ``depth`` / ``fanout`` / ``total`` exceed ``MAX_SUBAGENT_DEPTH`` /
       ``MAX_SUBAGENT_FANOUT`` / ``MAX_SUBAGENT_TOTAL``;
@@ -171,7 +171,7 @@ def validate_delegation(
     arithmetic only, not a substitute for the approval/policy layer.
     """
     parent_tools = frozenset(parent_effective_tools)
-    if not frozenset(req.requested_tools) <= parent_tools:
+    if req.purpose is None and not frozenset(req.requested_tools) <= parent_tools:
         extra = sorted(set(req.requested_tools) - parent_tools)
         return DelegationVerdict(
             allowed=False,

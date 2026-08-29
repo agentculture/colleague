@@ -51,6 +51,7 @@ import dataclasses
 from typing import Any, Callable, Optional, cast
 
 from colleague import effort as _effort
+from colleague import efforttables as _efforttables
 from colleague.associate import associate_engine_config
 from colleague.config import EngineConfig
 
@@ -101,7 +102,7 @@ def resolve_associate_seat_config(config: EngineConfig, seat: str) -> EngineConf
     object, so the caller's path is byte-identical to main.
     """
     _check_seat(seat)
-    seat_config = associate_engine_config(config)
+    seat_config = associate_engine_config(config, sub_seat=seat)
     return seat_config if seat_config is not None else config
 
 
@@ -211,18 +212,19 @@ def scout_child_config(
     """
     if role != SCOUT_ROLE:
         return child
-    seat = associate_engine_config(child)
+    seat = associate_engine_config(child, sub_seat=SCOUT_ROLE)
     if seat is None:
         return child
     seat.context_budget_tokens = min(child.context_budget_tokens, seat.context_budget_tokens)
     setattr(
         seat,
         "reasoning_effort_seat",
-        _effort.resolve_effort(
+        _efforttables.resolve_associate_sub_seat_effort(
             kill_switch=(parent_config.reasoning_effort == "default"),
             parent_override=effort_override,
-            seat_override=parent_config.reasoning_effort_seats.get("associate"),
-            seat="associate",
+            seat_override=parent_config.reasoning_effort_seats.get(f"associate.{SCOUT_ROLE}"),
+            row_override=parent_config.reasoning_effort_seats.get("associate"),
+            seat=SCOUT_ROLE,
         ),
     )
     return seat
@@ -242,4 +244,15 @@ def distill_author(config: object) -> Optional[Any]:
         return None
     from colleague.distill import DistillAuthor
 
-    return DistillAuthor(model=assoc.wire_model, base_url=assoc.base_url, api_key=assoc.api_key)
+    seats = getattr(config, "reasoning_effort_seats", None) or {}
+    return DistillAuthor(
+        model=assoc.wire_model,
+        base_url=assoc.base_url,
+        api_key=assoc.api_key,
+        effort=_efforttables.resolve_associate_sub_seat_effort(
+            kill_switch=(getattr(config, "reasoning_effort", None) == "default"),
+            seat_override=seats.get("associate.distill"),
+            row_override=seats.get("associate"),
+            seat="distill",
+        ),
+    )

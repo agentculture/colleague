@@ -38,12 +38,14 @@ __all__ = [
     "WEB_TOOL_NAME",
     "UNTRUSTED_BEGIN",
     "UNTRUSTED_END",
+    "attach_web_report",
     "dispatch",
     "hidden_names",
     "offered",
     "render_raw",
     "render_result",
     "summary_line",
+    "urls_from_steps",
     "web_hidden",
 ]
 
@@ -269,36 +271,113 @@ def render_result(envelope: Any) -> str:
     return "\n".join(lines)
 
 
-def summary_line(steps: Sequence[Any]) -> "str | None":
-    """The run report's ``web:`` line (t5) — ``None`` when no step used ``web``.
-
-    Reads ONLY the provenance header :func:`render_result` puts first in
-    ``Step.result`` (never re-fetches): a step is failed when its header
-    carries ``lifecycle_state: failed``. Each failed url is listed once, as
-    ``<url> (<operation_id>[, <error.code>])``.
-    """
-    web_steps = [s for s in steps if getattr(s, "tool", None) == WEB_TOOL_NAME]
-    if not web_steps:
+def _direct_web_failure(step: Any) -> "str | None":
+    """The ``<url> (<operation_id>[, <error.code>])`` detail for a FAILED direct
+    ``web`` step (``lifecycle_state: failed`` in its provenance header), or
+    ``None`` when the step succeeded — read ONLY from the header
+    :func:`render_result` puts first in ``Step.result`` (never re-fetches)."""
+    header = (step.result or "").split(UNTRUSTED_BEGIN, 1)[0]
+    state = re.search(r"^lifecycle_state: (.+)$", header, re.MULTILINE)
+    if not state or state.group(1).strip() != "failed":
         return None
+    op = re.search(r"^operation_id: (.+)$", header, re.MULTILINE)
+    err = re.search(r"^error: code=(\S+)", header, re.MULTILINE)
+    detail = op.group(1).strip() if op else "?"
+    if err:
+        detail += f", {err.group(1)}"
+    return detail
+
+
+def _note_failed(url: str, detail: str, seen: "set[str]", failed: "list[str]") -> None:
+    """Append ``url (detail)`` to *failed* once — a url is listed at most once."""
+    if url in seen:
+        return
+    seen.add(url)
+    failed.append(f"{url} ({detail})")
+
+
+def _fold_direct_web_step(step: Any, arguments: dict, seen: "set[str]", failed: "list[str]") -> int:
+    """Count one direct ``web`` step; note its failure from the provenance header."""
+    detail = _direct_web_failure(step)
+    if detail is not None:
+        _note_failed(arguments.get("url") or arguments.get("query") or "?", detail, seen, failed)
+    return 1
+
+
+def _fold_purpose_urls(arguments: dict, seen: "set[str]", failed: "list[str]") -> int:
+    """Count the urls a purpose-tool step carries; note the ones its child failed."""
+    urls = arguments.get("web_urls") or []
+    for url in arguments.get("web_urls_failed") or []:
+        _note_failed(url, "purpose child", seen, failed)
+    return len(urls)
+
+
+def summary_line(steps: Sequence[Any]) -> "str | None":
+    """The run report's ``web:`` line (t5) — ``None`` when no ``web`` was used,
+    directly OR embedded in a purpose-tool child (t7, c33/h32).
+
+    Counts every direct ``web`` step (failure read from its provenance
+    header) PLUS every url a purpose-tool step's ``arguments['web_urls']``
+    carries (stashed there by ``colleague.purpose_schemas._record`` from the
+    child's own web steps, via ``attach_web_report``) — so a work item that
+    delegated its web fetching to a ``web_survey`` scout still gets one
+    combined report line. Each failed url is listed once.
+    """
+    total = 0
     failed: list[str] = []
     seen: set[str] = set()
-    for step in web_steps:
-        header = (step.result or "").split(UNTRUSTED_BEGIN, 1)[0]
-        state = re.search(r"^lifecycle_state: (.+)$", header, re.MULTILINE)
-        if not state or state.group(1).strip() != "failed":
-            continue
-        url = step.arguments.get("url") or step.arguments.get("query") or "?"
-        if url in seen:
-            continue
-        seen.add(url)
-        op = re.search(r"^operation_id: (.+)$", header, re.MULTILINE)
-        err = re.search(r"^error: code=(\S+)", header, re.MULTILINE)
-        detail = op.group(1).strip() if op else "?"
-        if err:
-            detail += f", {err.group(1)}"
-        failed.append(f"{url} ({detail})")
-    line = f"web: {len(web_steps)} fetch(es), {len(failed)} failed"
+    for step in steps:
+        arguments = step.arguments if isinstance(getattr(step, "arguments", None), dict) else {}
+        if getattr(step, "tool", None) == WEB_TOOL_NAME:
+            total += _fold_direct_web_step(step, arguments, seen, failed)
+        else:
+            total += _fold_purpose_urls(arguments, seen, failed)
+    if total == 0:
+        return None
+    line = f"web: {total} fetch(es), {len(failed)} failed"
     return f"{line}: {', '.join(failed)}" if failed else line
+
+
+def urls_from_steps(steps: Sequence[Any]) -> "tuple[list[str], list[str]]":
+    """Every ``web`` step's url/query from *steps*, verbatim and in order, plus
+    the subset that FAILED (``Step.ok is False`` — a hook denial or a raised
+    ``WebToolError`` both set it, mirrored 1:1 by :func:`colleague.loop`'s
+    ``_record_denial``/``_record_execution``). Read by
+    :func:`colleague.subagents.run_subagent` off a purpose child's OWN
+    ``TaskResult.steps`` — a :class:`~colleague.contract.SubResult` never
+    carries steps itself (t7, c33/h32)."""
+    urls: list[str] = []
+    failed: list[str] = []
+    for step in steps:
+        if getattr(step, "tool", None) != WEB_TOOL_NAME:
+            continue
+        arguments = step.arguments if isinstance(getattr(step, "arguments", None), dict) else {}
+        url = arguments.get("url") or arguments.get("query") or "?"
+        urls.append(url)
+        if not getattr(step, "ok", True):
+            failed.append(url)
+    return urls, failed
+
+
+def attach_web_report(sub: Any, result: Any) -> None:
+    """Fold the child's web-call counters + fetched urls onto *sub*, as dynamic
+    attributes (no :class:`~colleague.contract.SubResult` field — mirrors the
+    ``executor.web_calls`` no-wiring seam). Gated on :func:`urls_from_steps`
+    finding at least one ``web`` step — NOT on ``result.stats.web_calls``,
+    which stays 0 when every ``web`` call was refused by a ``pre_tool`` hook
+    deny (the deny short-circuits before ``webbudget.check_and_increment``
+    ever runs) — so a fully-denied child still reports its attempted urls.
+    ``sub.web_calls``/``web_failed`` come from the child's own
+    ``result.stats`` (exact, via ``webbudget.finalize`` at the child's loop
+    exit)."""
+    urls, failed = urls_from_steps(getattr(result, "steps", None) or [])
+    if not urls:
+        return
+    stats = getattr(result, "stats", None)
+    sub.web_calls = int(getattr(stats, "web_calls", 0) or 0)
+    sub.web_failed = int(getattr(stats, "web_failed", 0) or 0)
+    sub.web_urls = urls
+    sub.web_urls_failed = failed
 
 
 def _url_and_query(verb: str, arguments: dict[str, Any]) -> list[str]:

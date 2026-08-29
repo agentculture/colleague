@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 
 import pytest
 
-from colleague import roles, tae_loop, tools
+from colleague import purpose_schemas, roles, tae_loop, tools
 from colleague.agents import tools as agent_tools
 from colleague.agents.profile import PURPOSES
 from colleague.agents.tools import (
@@ -26,10 +27,15 @@ from colleague.agents.tools import (
 )
 
 _FULL = set(tools.TOOL_NAMES)
+#: The six purpose tools (plan t5) — spliced onto CANONICAL_TOOLS/THINKER_CODER_TOOLS
+#: the same way DEEPTHINK is, never folded into ``tools.TOOL_NAMES`` itself.
+_PURPOSES = set(purpose_schemas.PURPOSE_TOOL_NAMES)
 
 
 def test_every_registry_tool_plus_deepthink_has_a_profile() -> None:
-    assert set(TOOL_PROFILES) == _FULL | {"deepthink"}
+    # t5: the six purpose tools (web_survey/code_survey/review/validate/plan/
+    # handover_to_colleague) join deepthink as profiled-but-outside-SCHEMAS names.
+    assert set(TOOL_PROFILES) == _FULL | {"deepthink"} | _PURPOSES
     for name, prof in TOOL_PROFILES.items():
         assert prof.canonical_id == name
         assert prof.tool_class in TOOL_CLASSES
@@ -50,7 +56,7 @@ def test_tool_class_reconciles_roles_write_set_and_tae_consequential_set() -> No
 def test_approval_and_inheritance_flags() -> None:
     assert profile_for("run_command").required_approval is True
     assert not any(p.required_approval for n, p in TOOL_PROFILES.items() if n != "run_command")
-    for spawner in ("subagent", "subagents", "deepthink"):
+    for spawner in ("subagent", "subagents", "deepthink", *_PURPOSES):
         assert profile_for(spawner).inheritable is False
     assert profile_for("read_file").inheritable
     assert profile_for("write_file").inheritable
@@ -61,8 +67,11 @@ def test_approval_and_inheritance_flags() -> None:
 
 
 def test_worker_profile_has_no_generic_code_authoring_tools() -> None:
+    # t5: subagent/subagents leave the worker's surface, replaced BY PURPOSE.
     assert "write_file" not in WORKER_TOOLS
     assert "edit_file" not in WORKER_TOOLS
+    assert "subagent" not in WORKER_TOOLS
+    assert "subagents" not in WORKER_TOOLS
     assert {
         "read_file",
         "view_media",
@@ -70,16 +79,16 @@ def test_worker_profile_has_no_generic_code_authoring_tools() -> None:
         "run_tests",
         "run_command",
         "memory",
-        "subagent",
-        "subagents",
         "finish",
-    } <= WORKER_TOOLS
+    } | _PURPOSES <= WORKER_TOOLS
     assert WORKER_TOOLS < THINKER_CODER_TOOLS
 
 
 def test_talker_is_empty_thinker_is_full_associate_is_coder_class() -> None:
     assert TALKER_TOOLS == frozenset()
-    assert THINKER_CODER_TOOLS == frozenset(_FULL)  # base six + chassis
+    # t5: THINKER_CODER_TOOLS is the registry surface minus web/subagent/subagents
+    # (replaced BY PURPOSE, operator decisions q9/q10), plus the six purposes.
+    assert THINKER_CODER_TOOLS == frozenset(_FULL - {"web", "subagent", "subagents"}) | _PURPOSES
     assert ASSOCIATE_TOOLS == THINKER_CODER_TOOLS
     assert set(PURPOSE_TOOLS) == set(PURPOSES)
     assert tools_for_purpose("worker") is WORKER_TOOLS
@@ -88,23 +97,24 @@ def test_talker_is_empty_thinker_is_full_associate_is_coder_class() -> None:
 
 
 def test_effective_tools_is_the_sorted_intersection_and_never_adds() -> None:
+    full = _FULL | _PURPOSES
     eff = effective_tools(
-        available=_FULL,
-        model_supported=_FULL,
+        available=full,
+        model_supported=full,
         purpose_tools=WORKER_TOOLS,
-        policy_tools=_FULL - {"run_command"},
-        env_tools=_FULL,
-        approved_tools=_FULL,
+        policy_tools=full - {"run_command"},
+        env_tools=full,
+        approved_tools=full,
     )
     assert eff == tuple(sorted(WORKER_TOOLS - {"run_command"}))
     assert set(eff) <= WORKER_TOOLS
     assert "write_file" not in eff
     # narrowing any dimension can only shrink
-    smaller = effective_tools(_FULL, _FULL, WORKER_TOOLS, {"read_file"}, _FULL, _FULL)
+    smaller = effective_tools(full, full, WORKER_TOOLS, {"read_file"}, full, full)
     assert smaller == ("read_file",)
     # an extra name in one dimension never appears in the result
     assert "write_file" not in effective_tools(
-        _FULL, _FULL, WORKER_TOOLS, _FULL | {"magic"}, _FULL, _FULL
+        full, full, WORKER_TOOLS, full | {"magic"}, full, full
     )
 
 
@@ -146,14 +156,19 @@ def test_assert_purpose_surface_still_refuses_talker_write_capable() -> None:
 
 
 def test_scout_bound_child_gets_web_only_when_parent_surface_has_it() -> None:
-    """A scout-bound child's effective surface is the intersection with the
-    PARENT's own surface (t4, c12/h10) — 'web' never appears in the child's
-    tools unless the parent's surface already carried it, mirroring the
-    ⊆-by-construction guarantee ``effective_tools`` already provides."""
+    """SUPERSEDED for a purpose-tool delegation by purpose-tools-associate-seat
+    (q3, colleague/agents/delegation.py's ``purpose`` exemption — see
+    docs/specs/2026-08-28-purpose-tools-associate-seat.md); still the rule for
+    a MANUAL ``subagent``/``subagents`` scout delegation, which this test pins
+    unchanged: a scout-bound child's effective surface is the intersection
+    with the PARENT's own surface (t4, c12/h10) — 'web' never appears in the
+    child's tools unless the parent's surface already carried it, mirroring
+    the ⊆-by-construction guarantee ``effective_tools`` already provides."""
     scout_tools = frozenset(roles.BUILTIN_ROLES["scout"].tool_allowlist)
     assert "web" in scout_tools  # scout's own curated surface offers it
 
-    # Parent surface WITHOUT 'web' -> child effective tools exclude it.
+    # Parent surface WITHOUT 'web' -> a MANUAL scout child's effective tools
+    # (no ``purpose`` flag) exclude it.
     parent_without_web = scout_tools - {"web"}
     child = effective_tools(
         available=parent_without_web,
@@ -177,6 +192,38 @@ def test_scout_bound_child_gets_web_only_when_parent_surface_has_it() -> None:
     )
     assert "web" in child_with_web
     assert set(child_with_web) <= scout_tools
+
+    # NEW RULE (q3): a delegation FLAGGED with a purpose tool's name is exempt
+    # from the parent-surface ⊆ check entirely — 'code_survey' on a parent
+    # WITHOUT 'web' still validates, because the purpose tool's child surface
+    # is FIXED (the role allow-list ∩ environment), never requested from the
+    # parent. The same request unflagged (a manual delegation) still refuses.
+    from colleague.agents.delegation import DelegationRequest, validate_delegation
+
+    purpose_req = DelegationRequest(
+        delegation_id="",
+        from_agent="thinker_coder",
+        requested_agent_profile="scout",
+        objective="survey",
+        acceptance="",
+        requested_tools=tuple(sorted(scout_tools)),  # includes 'web'
+        purpose="code_survey",
+    )
+    verdict = validate_delegation(
+        purpose_req,
+        parent_effective_tools=parent_without_web,
+        parent_ceiling="read_only",
+    )
+    assert verdict.allowed is True
+
+    manual_req = dataclasses.replace(purpose_req, purpose=None)
+    verdict = validate_delegation(
+        manual_req,
+        parent_effective_tools=parent_without_web,
+        parent_ceiling="read_only",
+    )
+    assert verdict.allowed is False
+    assert "web" in (verdict.reason or "")
 
 
 def test_module_is_pure() -> None:

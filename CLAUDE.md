@@ -85,7 +85,14 @@ minds. The architecture, part by part:
 - **Web scout (#436/#435)** — a curated read-only `web` tool over the
   operator-installed WebGlass CLI (hidden when absent / `COLLEAGUE_WEB=0`,
   byte-identical off-state); the scout seat gains the tool, never a router.
-  Doc: `web-scout.md`.
+  Doc: `web-scout.md`. **Purpose tools (#443)** — cortex/worker no longer hold
+  raw `web`/`subagent`/`subagents`; they hold six typed tools — `web_survey`/
+  `code_survey` (a scout child, on the associate seat when armed), `review`/
+  `validate`/`plan` (reviewer/validator/planner children on cortex) and
+  `handover_to_colleague` (a writer child on cortex) — each a FIXED purpose →
+  fixed role → fixed seat + rung (`PURPOSE_TABLE`, never leaked from the
+  parent), called explicitly: the deepthink precedent (increment 1) applied by
+  purpose, never a router. Doc: `purpose-tools.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
@@ -298,7 +305,11 @@ router / routing policy** (equally the multi-model router: any automatic
 task→model or task→backend routing decision). **Eight sanctioned increments** have landed at this line, each a
 re-spec'd, FIXED, ENUMERATED surface — never a routing policy (fuller descriptions
 in the architecture bullets above + their docs): (1) **dual-model deepthink
-escalation** (ONE declared second model); (2) **cortex/senses role split** (TWO
+escalation** (ONE declared second model — and, under the SAME precedent, the
+**purpose tools** `web_survey`/`code_survey`/`review`/`validate`/`plan`/
+`handover_to_colleague`: one tool, one fixed role, one fixed seat + rung, called
+explicitly by the model; spec `docs/specs/2026-08-28-purpose-tools-associate-seat.md`,
+the count stays eleven); (2) **cortex/senses role split** (TWO
 declared roles, FIXED boundary — cortex acts, senses perceives/presents — resolved
 BY NAME from `lobes`; no senses-decides-to-answer-itself); (3) **senses live
 presence + voice** (a concurrent conversational lane + two more FIXED named-role

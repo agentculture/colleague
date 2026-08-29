@@ -118,3 +118,79 @@ def test_apply_armed_facts_armed_changes_nothing_else_about_the_schema():
     original_subagent = next(s for s in SCHEMAS if s["function"]["name"] == "subagent")
     assert result_subagent["function"]["parameters"] == original_subagent["function"]["parameters"]
     assert result_subagent["type"] == original_subagent["type"]
+
+
+# --- t10: the purpose-tool surface (post-t5, cortex's curated writer role) --
+
+
+def _writer_schema_names(schemas):
+    return {s["function"]["name"] for s in schemas}
+
+
+def test_apply_armed_facts_curated_writer_surface_has_no_raw_subagent():
+    """Sanity: cortex's curated (``writer``) surface holds the purpose tools
+    and, post-t5, neither raw delegation tool — the case this test module
+    otherwise never exercises via the raw :data:`SCHEMAS` constant."""
+    from colleague.tools import curate_schemas
+
+    names = _writer_schema_names(curate_schemas("writer"))
+    assert "subagent" not in names
+    assert "subagents" not in names
+    assert {"web_survey", "code_survey", "handover_to_colleague"} <= names  # surface has all three
+
+
+def test_apply_armed_facts_splices_onto_web_survey_code_survey_handover():
+    from colleague.tools import curate_schemas
+
+    curated = curate_schemas("writer")
+    before = {s["function"]["name"]: s["function"]["description"] for s in curated}
+    result = apply_armed_facts(curated, _ARMED)
+    assert result is not curated
+    sentence = armed_facts(_ARMED)
+    changed = set()
+    for entry in result:
+        name = entry["function"]["name"]
+        desc = entry["function"]["description"]
+        if name in ("web_survey", "code_survey"):
+            assert desc == before[name] + " " + sentence
+            assert desc.count(sentence) == 1
+            changed.add(name)
+        else:
+            assert desc == before[name]
+    assert changed == {
+        "web_survey",
+        "code_survey",
+    }  # handover child is a cortex writer: no scout sentence
+
+
+def test_apply_armed_facts_curated_writer_surface_unarmed_returns_same_list():
+    from colleague.tools import curate_schemas
+
+    curated = curate_schemas("writer")
+    assert apply_armed_facts(curated, _UNARMED) is curated
+
+
+def test_apply_armed_facts_still_splices_subagent_when_present_alongside_purpose_tools():
+    """A manual/hypothetical schema list that still carries the raw delegation
+    tools ALONGSIDE the purpose tools (e.g. a manual role config) gets the
+    sentence on every one of the five names present — this module never
+    assumes the two surfaces are mutually exclusive."""
+    from colleague.tools import curate_schemas
+
+    manual = curate_schemas("writer") + [
+        s for s in SCHEMAS if s["function"]["name"] in ("subagent", "subagents")
+    ]
+    before = {s["function"]["name"]: s["function"]["description"] for s in manual}
+    result = apply_armed_facts(manual, _ARMED)
+    sentence = armed_facts(_ARMED)
+    target_names = {"web_survey", "code_survey", "subagent", "subagents"}
+    changed = set()
+    for entry in result:
+        name = entry["function"]["name"]
+        desc = entry["function"]["description"]
+        if name in target_names:
+            assert desc == before[name] + " " + sentence
+            changed.add(name)
+        else:
+            assert desc == before[name]
+    assert changed == target_names

@@ -23,6 +23,7 @@ import random
 from types import SimpleNamespace
 from typing import Iterable
 
+from colleague import roles
 from colleague.agents.delegation import (
     AUTHORITY_CEILINGS,
     CONTEXT_MODES,
@@ -150,6 +151,37 @@ def test_validate_refuses_tools_outside_parent() -> None:
     )
     assert verdict.allowed is False
     assert "write_file" in (verdict.reason or "")
+
+
+def test_validate_purpose_exempts_the_tools_subset_check_manual_still_refuses() -> None:
+    """t8/q3: a delegation flagged ``purpose=<name>`` is exempt from the
+    ``requested_tools`` ⊆ parent check — its child surface is FIXED by the
+    tool (the role allow-list ∩ environment), independent of the parent's
+    curated surface. The SAME superset request WITHOUT the purpose flag is
+    still refused with the pre-existing reason — asserted side by side."""
+    scout_tools = roles.BUILTIN_ROLES["scout"].tool_allowlist
+    assert "web" in scout_tools
+    req = _valid_request("thinker_coder", "worker")
+    superset = dataclasses.replace(req, requested_tools=tuple(sorted(scout_tools)))
+    parent_without_web = _effective("worker") - {"web"}
+
+    flagged = dataclasses.replace(superset, purpose="code_survey")
+    verdict = validate_delegation(
+        flagged,
+        parent_effective_tools=parent_without_web,
+        parent_ceiling=PURPOSE_CEILING["worker"],
+    )
+    assert verdict.allowed is True
+    assert verdict.reason is None
+
+    unflagged = dataclasses.replace(superset, purpose=None)
+    verdict = validate_delegation(
+        unflagged,
+        parent_effective_tools=parent_without_web,
+        parent_ceiling=PURPOSE_CEILING["worker"],
+    )
+    assert verdict.allowed is False
+    assert "web" in (verdict.reason or "")
 
 
 def test_validate_refuses_ceiling_above_parent() -> None:

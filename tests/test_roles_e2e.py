@@ -31,6 +31,7 @@ from colleague.contract import Task
 from colleague.engines.mock import MockEngine
 from colleague.layers import compose_role_prompt
 from colleague.loop import resolve_role
+from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 from colleague.roles import BUILTIN_ROLES
 from colleague.subagents import _AgentBudget
 from colleague.tools import SCHEMAS, ToolError, ToolExecutor, curate_schemas
@@ -131,10 +132,22 @@ def test_role_typed_result_shape_is_additive(git_repo):
 
 
 def test_no_role_offers_full_surface(git_repo):
-    # With no role requested, resolve_role yields None → the engine offers the full
-    # SCHEMAS and an unrestricted executor (byte-identical to the pre-role path).
-    assert resolve_role(EngineConfig(), str(git_repo)) is None
+    # ``curate_schemas(None)`` itself is UNCHANGED (t15/actingsurface, deviation
+    # d14): the "no role, full raw surface" contract every other caller relies on
+    # (curate_schemas(None) == the raw, unfiltered SCHEMAS list) still holds.
     full = {s["function"]["name"] for s in SCHEMAS}
-    # The writer (default) role's curated schema equals the full surface.
+    assert {s["function"]["name"] for s in curate_schemas(None)} == full
+    # t5 (operator decisions q9/q10): an EXPLICIT "writer" role differs from the
+    # raw full surface — cortex delegates BY PURPOSE, so the writer's curated
+    # schema drops web/subagent/subagents and gains the six purpose tools.
     writer_offered = {s["function"]["name"] for s in curate_schemas("writer")}
-    assert writer_offered == full
+    dropped = {"web", "subagent", "subagents"}
+    assert writer_offered == (full - dropped) | set(PURPOSE_TOOL_NAMES)
+    # d14 fix: resolve_role no longer returns None for the bare TOP-LEVEL acting
+    # seat (config.role unset, agents mode unarmed, depth 0) — it now resolves to
+    # exactly the writer role's carved-out surface above, so a bare run and an
+    # explicit --role writer run are offered the identical curated surface.
+    bare_role = resolve_role(EngineConfig(), str(git_repo))
+    assert bare_role is not None
+    assert set(bare_role.tool_allowlist) == set(BUILTIN_ROLES["writer"].tool_allowlist)
+    assert {s["function"]["name"] for s in curate_schemas(bare_role)} == writer_offered
