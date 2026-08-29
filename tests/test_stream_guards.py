@@ -169,6 +169,31 @@ def test_idle_gap_trips_the_idle_guard(monkeypatch) -> None:
     assert 0.4 <= elapsed < 2.5, elapsed  # tripped at the bound, not at the 3s gap's end
 
 
+def test_keepalive_comments_do_not_reset_the_idle_guard(monkeypatch) -> None:
+    """A gateway relaying SSE keepalives (``:`` comment lines) over a dead upstream
+    must NOT look alive: only non-comment payload lines restart the idle clock
+    (#438 guidance 4). A stream that sends one real frame and then only keepalives
+    trips ``stream-idle`` at its deadline instead of being kept alive by them."""
+    monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "0.4")
+    monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "30")
+
+    def script(write):
+        write(_frame("hello"))  # one real payload line
+        for _ in range(30):  # ~3s of keepalives, well past the 0.4s idle bound
+            write(b": keepalive\n")
+            time.sleep(0.1)
+
+    with _Server(script) as url:
+        start = time.monotonic()
+        with pytest.raises(streamguards.StreamGuardTripped) as excinfo:
+            _stream(url, timeout=10.0)  # request timeout is LARGER than the idle bound
+        elapsed = time.monotonic() - start
+    assert excinfo.value.guard == "stream-idle"
+    assert excinfo.value.bound == pytest.approx(0.4)
+    # Tripped at the idle deadline after the last REAL frame, not kept alive by the keepalives.
+    assert 0.4 <= elapsed < 1.5, elapsed
+
+
 def test_drip_feed_trips_the_lifetime_guard(monkeypatch) -> None:
     """One byte at a time, forever, never a newline: the idle guard never fires
     (bytes keep arriving) — the lifetime guard is what ends it (qwen #8597)."""
