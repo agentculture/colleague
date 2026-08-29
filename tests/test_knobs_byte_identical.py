@@ -143,6 +143,40 @@ def _normalize_capture(capture: "dict[str, Any]") -> "dict[str, Any]":
 # ---------------------------------------------------------------------------
 
 
+#: The THIRD documented, deliberate exception, added by plan t9 of
+#: ``docs/plans/2026-08-29-purpose-tools-get-chosen.md`` (spec c2/h10, operator
+#: deviation d1): the default system prompt's delegation paragraph named
+#: ``subagent``/``subagents``, tools the acting seat's baseline arm does not
+#: hold. It was replaced by the ``PURPOSE_TOOLS`` section naming the six typed
+#: purpose tools. This is the one paragraph of the base prompt that moved;
+#: named here rather than regenerating the historical baseline fixture, which
+#: would erase what the fixture is FOR.
+_MAIN_DELEGATION_SECTION_HEAD = "Subagents (optional)."
+
+
+def _assert_default_prompt_section_carveout(captured: str, expected: str) -> None:
+    """*captured* is *expected* with exactly one paragraph swapped: the stale
+    Subagents paragraph → :data:`colleague.prompttext._PURPOSE_TOOLS`.
+
+    Compares paragraph-by-paragraph so a second, undocumented prompt edit
+    anywhere else in the base text still fails this suite.
+    """
+    from colleague.prompttext import _PURPOSE_TOOLS
+
+    captured_paras = captured.split("\n\n")
+    expected_paras = expected.split("\n\n")
+    assert len(captured_paras) == len(expected_paras)
+    swapped = 0
+    for cp, ep in zip(captured_paras, expected_paras):
+        if cp == ep:
+            continue
+        assert ep.startswith(_MAIN_DELEGATION_SECTION_HEAD), ep[:60]
+        assert cp == _PURPOSE_TOOLS
+        swapped += 1
+    assert swapped == 1
+    assert "subagent" not in captured
+
+
 def test_mock_scenario_byte_identical_to_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -150,6 +184,9 @@ def test_mock_scenario_byte_identical_to_main(
     repo = scenario.make_repo(tmp_path / "mock")
     captured = _normalize_capture(scenario.capture_mock_scenario(repo))
     expected = _normalize_capture(_load_fixture("mock_scenario.json"))
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
 
 
@@ -201,7 +238,11 @@ def _assert_acting_seat_prompt_carveout(
     for cm, em in zip(captured_messages, expected_messages):
         if em.get("role") == "system":
             assert cm.get("role") == "system"
-            assert cm["content"] == em["content"] + _ACTING_SEAT_PROMPT_SEPARATOR + fragment
+            suffix = _ACTING_SEAT_PROMPT_SEPARATOR + fragment
+            assert cm["content"].endswith(suffix)
+            # …and the base underneath it is main's, modulo the ONE t9 section
+            # swap named by ``_assert_default_prompt_section_carveout``.
+            _assert_default_prompt_section_carveout(cm["content"][: -len(suffix)], em["content"])
             assert set(cm) == set(em)
         else:
             assert cm == em
@@ -226,6 +267,9 @@ def test_vllm_scenario_byte_identical_to_main(
 
     captured_payloads = captured.pop("payloads")
     expected_payloads = expected.pop("payloads")
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
     assert len(captured_payloads) == len(expected_payloads)
     for cp, ep in zip(captured_payloads, expected_payloads):

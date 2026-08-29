@@ -63,6 +63,7 @@ from tests.test_knobs_byte_identical import (
     _WEB_OFF_ENV,
     OFF_ENV,
     _assert_acting_seat_prompt_carveout,
+    _assert_default_prompt_section_carveout,
     _resync_loop_default_system,
 )
 
@@ -129,6 +130,12 @@ def test_bare_run_is_byte_identical_to_e589451_mock(
     repo = scenario.make_repo(tmp_path / "mock")
     captured = scenario.capture_mock_scenario(repo)
     expected = _load_fixture("mock_scenario.json")
+    # Plan t9's ONE named prompt carve-out (spec c2/h10, operator deviation
+    # d1): the base prompt's stale Subagents paragraph became the PURPOSE_TOOLS
+    # section. Named here, not normalized away — nothing else may move.
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
 
 
@@ -155,6 +162,9 @@ def test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm(
 
     captured_payloads = captured.pop("payloads")
     expected_payloads = expected.pop("payloads")
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
     assert len(captured_payloads) == len(expected_payloads)
     for cp, ep in zip(captured_payloads, expected_payloads):

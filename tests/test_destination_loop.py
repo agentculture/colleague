@@ -99,7 +99,10 @@ def test_default_system_advertises_culture_tools() -> None:
     # The destination + subagents guidance is untouched (the new paragraph is additive).
     assert "destination" in lower
     assert "announcement" in lower
-    assert "subagent" in lower
+    # The delegation paragraph is still there — but naming the six typed
+    # purpose tools, never subagent/subagents (plan t9, spec c2/h10).
+    assert "purpose tools" in lower
+    assert "subagent" not in lower
 
 
 # ---------------------------------------------------------------------------

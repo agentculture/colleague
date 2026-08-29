@@ -161,20 +161,29 @@ def test_subagent_sub_results_surface_through_mock_engine_drive(tmp_path: Path) 
     assert result.sub_results[0].engine == "mock"
 
 
-# --- AC2: the system prompt advertises the subagent tool as OPTIONAL ---
+# --- AC2: the system prompt advertises the DELEGATION SURFACE as OPTIONAL ---
 
 
-def test_default_system_advertises_subagent_as_optional() -> None:
-    """``_DEFAULT_SYSTEM`` mentions the subagent tool and frames it as optional /
-    engine-judged, parallel to the destination paragraph."""
+def test_default_system_advertises_the_purpose_tools_as_optional() -> None:
+    """``_DEFAULT_SYSTEM`` names the delegation surface the acting seat holds and
+    frames it as optional / engine-judged, parallel to the destination paragraph.
+
+    Superseded #122's original wording (plan t9,
+    ``docs/plans/2026-08-29-purpose-tools-get-chosen.md``; spec c2/h10): the
+    paragraph named ``subagent``/``subagents``, which the baseline arm's acting
+    seat does not hold (``COLLEAGUE_ACTING_DROP_TOOLS``). #122's underlying
+    point — an unnamed loop tool is invisible to the live model — is preserved
+    by naming the six typed purpose tools instead. Arm 4 (t11) put the two raw
+    tools back on the SURFACE; a present-but-undescribed tool is honest in both
+    arm states, so the prose deliberately stays silent about them.
+    """
+    from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
+
     lower = _DEFAULT_SYSTEM.lower()
-    assert "subagent" in lower, "_DEFAULT_SYSTEM must mention the subagent tool"
-    assert "optional" in lower, "_DEFAULT_SYSTEM must frame the subagent tool as optional"
-    # The plural batch tool and its parallel nature must be named too (#122): the
-    # prompt previously described only the singular tool, which left the live model
-    # unaware the parallel `subagents` tool exists.
-    assert "subagents" in lower, "_DEFAULT_SYSTEM must mention the plural subagents tool"
-    assert "parallel" in lower, "_DEFAULT_SYSTEM must describe parallel batch delegation"
+    for name in PURPOSE_TOOL_NAMES:
+        assert name in lower, f"_DEFAULT_SYSTEM must name the {name} purpose tool"
+    assert "optional" in lower, "_DEFAULT_SYSTEM must frame delegation as optional"
+    assert "subagent" not in lower, "_DEFAULT_SYSTEM must not name tools the arm may drop"
     # The destination guidance is untouched (the new paragraph is additive).
     assert "destination" in lower
     assert "announcement" in lower
