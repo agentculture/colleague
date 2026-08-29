@@ -23,11 +23,15 @@ c14/h11/c32/h21) adds three per-artifact counters, printed as the
   present; a purpose step records ``served_model`` in ``Step.arguments`` like
   a subagent step) plus ``sub_results`` recorded with role ``associate``; 0
   when the artifact carries no ``associate`` block;
-* ``web_calls`` — the count of steps whose tool is ``web``. Purpose steps do
-  NOT inflate this column: web calls stay the CHILD's (plan t7 folds them).
+* ``web_calls`` — the work item's total web calls, read from the serialized
+  ``stats.web_calls`` counter when the artifact carries it, falling back to
+  the count of top-level ``web`` steps for pre-t9 artifacts that predate the
+  field. Under #443 a purpose run's ``web_survey`` child is not persisted
+  separately — its web calls are folded into the PARENT's ``stats.web_calls``
+  — so the step count alone would report zero for a purpose-only arm.
 
-All three are read straight from the artifact's ``steps`` / ``associate`` /
-``sub_results`` keys — never estimated from prose.
+All four numbers are read straight from the artifact's ``stats`` / ``steps`` /
+``associate`` / ``sub_results`` keys — never estimated from prose.
 
 The c28 bar (decision c28, per the arc spec): a non-baseline arm passes when its
 wall-clock ratio is <= 0.7 and its model-turns ratio is <= 0.8. A ratio above
@@ -84,7 +88,7 @@ class ArtifactStats:
 
     ``duration_seconds`` / ``model_turns`` are the t10 ratio inputs; the three
     counters (t7) are per-artifact delegation/associate/web facts read from
-    ``steps`` / ``associate`` / ``sub_results`` — never estimated.
+    ``stats`` / ``steps`` / ``associate`` / ``sub_results`` — never estimated.
     """
 
     task_id: str
@@ -127,7 +131,8 @@ class ArmResult:
 
     @property
     def web_calls(self) -> int:
-        """Total web steps across the arm's artifacts (t7)."""
+        """Total web calls across the arm's artifacts (t7 + t9: ``stats.web_calls``
+        when present, else the top-level ``web`` step count)."""
         return sum(a.web_calls for a in self.artifacts)
 
 
@@ -197,7 +202,27 @@ def _count_delegations(data: dict) -> int:
 
 
 def _count_web_calls(data: dict) -> int:
-    """Steps whose tool is ``web`` (t7)."""
+    """The work item's total web calls (t7 + t9).
+
+    Prefers the serialized ``stats.web_calls`` counter
+    (:class:`colleague.contract.WorkStats`, written by
+    ``colleague/webbudget.py``) — the ONLY accurate count under the #443
+    purpose-tools arc, where cortex/worker no longer hold the raw ``web`` tool
+    and call ``web_survey`` instead: the scout child's artifact is not
+    persisted separately, so its web calls are folded into the PARENT's
+    ``stats.web_calls``. Counting top-level ``web`` steps alone would report
+    zero for a purpose-only run and silently corrupt the arm comparison.
+
+    Absent (a pre-t9 artifact) means "fall back to the top-level ``web`` step
+    count"; a present ``0`` means exactly 0 — the key is always emitted by
+    ``WorkStats.to_dict``, so a modern artifact is never fallen back on.
+    """
+    stats = data.get("stats")
+    if isinstance(stats, dict) and stats.get("web_calls") is not None:
+        try:
+            return int(stats["web_calls"])
+        except (TypeError, ValueError):
+            pass  # malformed value -> the step-count floor, never an error
     return sum(1 for s in _steps(data) if _step_tool(s) == "web")
 
 

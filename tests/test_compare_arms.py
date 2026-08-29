@@ -569,18 +569,85 @@ def test_purpose_step_not_served_by_associate_is_not_an_associate_call(tmp_path:
     assert stats.associate_calls == 0
 
 
-def test_purpose_steps_do_not_inflate_web_calls(tmp_path: Path):
-    """web calls stay the CHILD's (t7 folds them): a web_survey step is a
-    delegation, never a web_calls entry."""
+def test_purpose_web_survey_reports_the_folded_child_web_calls(tmp_path: Path):
+    """Under #443 cortex/worker hold no raw ``web`` tool — they call
+    ``web_survey``, whose scout child is not persisted separately; the child's
+    web calls are folded into the PARENT's ``stats.web_calls``. The column
+    reports that folded count (4), not the zero top-level ``web`` steps."""
     _write_full_artifact(
         tmp_path,
         "web-purpose-1",
         [
             _step(0, "web_survey", {"question": "find X", "urls": ["https://example.com/a"]}),
-            _step(1, "web", {"verb": "search"}),
+            _step(1, "read_file"),
         ],
-        {"duration_seconds": 100.0, "model_turns": 10},
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": 4},
     )
     stats = load_artifact_stats(tmp_path, "web-purpose-1")
     assert stats.delegations == 1
+    assert stats.web_calls == 4
+
+
+def test_stats_web_calls_wins_over_the_top_level_web_step_count(tmp_path: Path):
+    """A mixed run (raw ``web`` steps AND a folded purpose child) reports the
+    serialized counter, which already includes both — never the step count."""
+    _write_full_artifact(
+        tmp_path,
+        "web-mixed-1",
+        [
+            _step(0, "web", {"verb": "search"}),
+            _step(1, "web_survey", {"question": "find X"}),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": 5},
+    )
+    stats = load_artifact_stats(tmp_path, "web-mixed-1")
+    assert stats.web_calls == 5
+
+
+def test_stats_web_calls_present_zero_is_zero_not_a_fallback(tmp_path: Path):
+    """A present ``0`` means exactly 0 — absent-vs-zero is a real distinction,
+    so a zeroed counter never falls back to counting steps."""
+    _write_full_artifact(
+        tmp_path,
+        "web-zero-1",
+        [_step(0, "web", {"verb": "search"}), _step(1, "web", {"verb": "page read"})],
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": 0},
+    )
+    stats = load_artifact_stats(tmp_path, "web-zero-1")
+    assert stats.web_calls == 0
+
+
+def test_legacy_artifact_without_stats_web_calls_falls_back_to_step_count(tmp_path: Path):
+    """A pre-t9 artifact carries no ``stats.web_calls``; the column falls back
+    to the top-level ``web`` step count rather than reporting zero."""
+    _write_full_artifact(
+        tmp_path,
+        "web-legacy-1",
+        [
+            _step(0, "web", {"verb": "search"}),
+            _step(1, "web", {"verb": "page read"}),
+            _step(2, "read_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "web-legacy-1")
+    assert (
+        "web_calls"
+        not in json.loads(
+            (tmp_path / ".colleague" / "web-legacy-1.json").read_text(encoding="utf-8")
+        )["stats"]
+    )
+    assert stats.web_calls == 2
+
+
+def test_malformed_stats_web_calls_falls_back_to_step_count(tmp_path: Path):
+    """A non-numeric ``stats.web_calls`` degrades to the step-count floor —
+    never an error, matching the tolerant reads the other counters use."""
+    _write_full_artifact(
+        tmp_path,
+        "web-malformed-1",
+        [_step(0, "web", {"verb": "search"})],
+        {"duration_seconds": 100.0, "model_turns": 10, "web_calls": "not-a-number"},
+    )
+    stats = load_artifact_stats(tmp_path, "web-malformed-1")
     assert stats.web_calls == 1
