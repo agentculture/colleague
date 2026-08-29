@@ -126,13 +126,23 @@ The brief's arithmetic above assumes `read_file`'s 25,000-char paging, and
 likes, so 708 KB of surface is never traversed and neither budget is
 approached.
 
-**Consequence for the arm matrix.** Per spec c47's own instruction, this is
-recorded rather than engineered around: at this size, on this surface, no
-brief was constructed whose non-delegating baseline provably hits a limit, so
-**every arm result is reported as measuring small briefs only** unless the
-acting seat also drops shell reads. Dropping `run_command` from the acting
-seat is a far larger surface change than plan t8's `grep_search`/`glob` drop
-and would alter what the arm measures; it is NOT adopted here.
+**Consequence for the arm matrix — DECIDED (operator, 2026-08-29, spec c55).**
+Per spec c47's own instruction this is recorded rather than engineered around:
+at this size, on this surface, no brief was constructed whose non-delegating
+baseline provably hits a limit. The operator has **accepted "small briefs
+only" as the reported scope of every arm** — the h35 branch the spec
+authorises explicitly. The acting seat is NOT narrowed further: dropping
+`run_command` would be a far larger surface change than plan t8's
+`grep_search`/`glob` drop and would alter what the arm measures.
+
+Every arm row must therefore carry this scope line verbatim:
+
+> measures small briefs only (large-surface pilot refuted the cannot-fit
+> premise; see `arm-large-surface.md`)
+
+This brief still runs as the matrix's larger-surface arm — it is a bigger
+brief, just not one that provably forces a limit. Its results are read under
+the same scope line as the rest.
 
 **Honest limit of this pilot.** One fixture size was tested (708 KB). The
 mechanism observed is size-independent in principle — a symbol index plus

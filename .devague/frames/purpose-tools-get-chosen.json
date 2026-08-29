@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-29T12:04:09Z",
-  "updated": "2026-08-29T13:42:08Z",
+  "updated": "2026-08-29T18:44:01Z",
   "claims": [
     {
       "id": "c1",
@@ -933,6 +933,18 @@
       "hard_questions": [],
       "links": [],
       "instruction": "the row-49 re-run uses the same brief and n=3; if the markup counter is nonzero the original 0/3 is reported as inconclusive and the arc's framing is corrected in the docs",
+      "revisions": []
+    },
+    {
+      "id": "c55",
+      "kind": "decision",
+      "text": "OPERATOR (2026-08-29), after the three-attempt large-surface pilot: the arc ACCEPTS 'small briefs only' as the reported scope of every arm. The acting seat is NOT narrowed further to force the cannot-fit condition \u2014 dropping run_command from the seat would be a far larger surface change than t8's grep_search/glob drop and would alter what the arm measures. This takes the 'reported as measuring small briefs only' branch of honesty condition h35 (spec c47), which the spec authorises explicitly; it is a scope statement, not a failure.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "every arm row in docs/live-testing.md carries the scope line 'measures small briefs only (large-surface pilot refuted the cannot-fit premise; see arm-large-surface.md)' and the arc's closing record repeats it, so no later reader mistakes the matrix for a general result",
       "revisions": []
     }
   ],

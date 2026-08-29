@@ -107,6 +107,11 @@ miss recorded here rather than retrofitted into the delivery store.
   lines so one uniform slice surfaced all twelve. Scattering the algorithms to
   per-module offsets did not defeat the strategy — the grep index hands the
   model the offsets.
+- **"Small briefs only" accepted as the matrix's reported scope** (spec `c55`,
+  operator). The alternative — dropping `run_command` from the acting seat to
+  force the cannot-fit condition — was rejected as a larger surface change
+  than the arc measures. This takes h35's "reported as measuring small briefs
+  only" branch, which spec c47 authorises explicitly.
 - **`t1` salvaged from an orphaned worktree.** A machine restart killed the run;
   a hard kill fires no #222 WIP-on-stop commit, so the work survived only as
   178 uncommitted insertions on disk.
@@ -156,17 +161,16 @@ miss recorded here rather than retrofitted into the delivery store.
 | The large-surface brief's baseline provably hits a budget limit | **refuted** | pilot `eeb7f261f87d` finished `ok` in 18 steps with no limit hit; recorded in the brief |
 | The acting seat surveys via a shell symbol index rather than `read_file`, so `read_file` paging never binds | high | pilot steps 2-3 of `eeb7f261f87d` and `b7b2c91748f9` (`grep -nE '^(def \|class \|import \|from )'` then `sed -n`) |
 | `t4`'s stream-guard counter works against a real stall | high | pilot `75b0c4a23087` artifact: `stats.counts.stream_guard_trips == 1` |
-| Arm results will measure small briefs only, unless the seat drops shell reads | medium | the negative pilot above; one fixture size tested, the mechanism argued size-independent but not measured at larger sizes |
+| Arm results will be reported as measuring small briefs only | high | operator decision recorded as spec `c55`; the underlying refutation is the negative pilot above (one fixture size tested; size-independence argued, not measured) |
 | #438's stall class is closed | unverified | four guidance points implemented, but no post-fix live run has exercised them against a stalling gateway |
 | Purpose tools are more likely to be chosen after these changes | unverified | no arm has run — that is waves 4–6 |
 
 ## Remaining Work / Follow-up
 
-- **Decide what the negative pilot means for the matrix** — either accept
-  "small briefs only" as the reported scope of every arm, or re-spec a surface
-  that also drops `run_command` from the acting seat (a much larger change
-  than t8's, and one that alters what the arm measures). This is a `/think`
-  decision, not a build task.
+- **Scope of the matrix — DECIDED, no longer open.** The operator accepted
+  "small briefs only" as the reported scope of every arm (spec `c55`); the
+  acting seat is not narrowed further. Plan `t14` must carry the scope line
+  verbatim on every row, and `t15`'s closing record must repeat it.
 - **`t5`** (wave 2, the linchpin) — prompt/surface unification. Blocks every
   prose arm: the overlay instrument does not reach a bare run until it lands.
 - **`t6`, `t7`, `t9`, `t11`, `t12`** (wave 3) — markup counter, prompt digest,
