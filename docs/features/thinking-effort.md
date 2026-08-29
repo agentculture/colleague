@@ -252,6 +252,19 @@ byte-identical.
   client-side enum. Thor's no-MTP cortex and the 35B worker template may expose
   a different or no ladder — the ladder-400 retry-once is the runtime guard,
   unmeasured until a Thor run.
+- **The distill child's `max_tokens` is not window-clamped** (colleague#448).
+  `distilleffort.max_tokens_for_rung` returns a fixed 4096 / 12288 rather than
+  clamping against the served window via `outputclamp.clamp_output_tokens`,
+  because the detached distill child has neither input the clamp needs: the
+  context window and prompt-token count come from the one run-start
+  `/tokenize` probe in the vLLM adapter, and the child is a raw `urllib` POST
+  that never builds an adapter. Stated plainly: there is nothing to clamp
+  against today, and a guessed window would look like a clamp while encoding
+  an assumption the child cannot verify. Not a live risk on the pinned rig
+  (12288 against a 131072 window), and a length-cut completion already fails
+  legibly via `reasoning_exhausted_reason`, which names the cap. Raised by the
+  Qodo review on #447; a real fix needs window discovery in the child, which
+  is its own re-spec.
 - **Exact reasoning-token accounting is adjacent, parked.** The rig now reports
   `usage.completion_tokens_details.reasoning_tokens` (#417) while
   `vllm_openai.py` still carries a stale comment that the server reports none;
