@@ -131,15 +131,30 @@ _VALIDATOR_SKILL_PATTERNS: tuple[str, ...] = _INVESTIGATION_SKILL_PATTERNS + ("r
 
 
 def _writer_allowlist() -> tuple[str, ...]:
-    """The SCHEMAS-derived surface minus ``web``/``subagent``/``subagents``
-    (replaced by purpose tools, plan t5, operator decisions q9/q10) plus
-    ``deepthink`` (plan t4) and the six purpose tools — cortex delegates BY
-    PURPOSE now, never via the raw delegation/web tools it used to hold.
+    """The SCHEMAS-derived surface minus ``web`` (still replaced by
+    ``web_survey``, plan t5 / operator decisions q9/q10) plus ``deepthink``
+    (plan t4) and the six purpose tools.
+
+    **Arm 4 (plan t11) — the reversal under test.** #443 REPLACED the raw
+    ``subagent``/``subagents`` tools with the typed purposes ("replace, don't
+    add"). Those two names are back on the ACTING seat here: the arm measures
+    whether the raw alternatives crowd the typed purposes out, or whether
+    their absence is what suppressed delegation entirely (live-testing rows
+    49/50, ``docs/features/purpose-tools.md`` § *Arm 4*). This is a MEASURED
+    hypothesis, not a settled improvement.
+
+    ``web`` stays dropped — row 50 is the row that justified "replace, don't
+    add" and it concerns the web surface, so nothing here disturbs it.
+
+    The restoration is confined to the acting seat: a spawned child (depth
+    >= 1) has both names stripped again by
+    :func:`colleague.actingsurface.strip_child_forbidden_tools`, so a child
+    stays the BOUNDED 15-tool writer it is today.
     """
     from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
     from colleague.tools import DEEPTHINK, SCHEMAS
 
-    dropped = {"web", "subagent", "subagents"}
+    dropped = {"web"}
     names = tuple(s["function"]["name"] for s in SCHEMAS if s["function"]["name"] not in dropped)
     return names + (DEEPTHINK,) + PURPOSE_TOOL_NAMES
 

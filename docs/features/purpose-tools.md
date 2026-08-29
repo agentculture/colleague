@@ -174,7 +174,10 @@ exemption is *required by* this arc's central decision, and is adjudicated in
 the spec at line 59 (raised as `s8`, line 151).
 
 **Replace-don't-add** means cortex GIVES UP the raw `web` tool so that the
-scout child becomes its only holder. Applying the subset rule here would make
+scout child becomes its only holder. (The *delegation* half of that principle
+— cortex giving up raw `subagent`/`subagents` — is reversed under test by
+arm 4; see the section below. The `web` half, which is what this exemption
+turns on, still stands.) Applying the subset rule here would make
 the design impossible: the parent by construction no longer holds what the
 child needs, so every `web_survey` call would refuse. The ⊆ rule assumes a
 parent that *delegates a portion of its own surface*; a purpose tool instead
@@ -196,6 +199,63 @@ This does not widen anyone's authority:
 The predecessor honesty condition (`docs/features/web-scout.md` line 33, "the
 scout receives `web` only when the parent's surface contains it") is superseded
 by exactly this decision, and its pinning test was rewritten to the new rule.
+
+## Arm 4 (plan t11) — the replace-don't-add reversal, under test
+
+**This is a measured hypothesis, not a settled improvement.** #443 deliberately
+REPLACED the raw `subagent`/`subagents` tools on cortex with the six typed
+purposes ("replace, don't add"). Arm 4 of the `purpose-tools-get-chosen` arc
+(spec/plan `2026-08-29-purpose-tools-get-chosen`, task t11) puts the two raw
+names BACK on the acting seat **alongside** the purpose tools, to separate two
+explanations of the delegation numbers that row 49 cannot tell apart:
+
+- **H1 — crowding.** The raw alternatives are easier to reach for, so offering
+  them suppresses the typed purposes.
+- **H2 — suppression.** Removing the familiar delegation tools removed
+  delegation *itself*, and the typed purposes never replaced it.
+
+### The two rows, and what each actually showed
+
+| Row | What it did | What it actually showed |
+| --- | --- | --- |
+| **50** — the row that **justified** replace-don't-add | Web brief on the branch arm: cortex held `web_survey` and **no** raw `web`. One run, `0780c75e2519`. | **Delegation observed**: cortex fired `web_survey` ×3 in its first turn and made **zero** `run_command` steps. The row's own overall verdict is **"MISS on the bar, mechanism proven"** — the pass bar missed because cortex step-stalled (#438) before writing a final answer citing the evidence ids, and the served-model clause landed only PARTIAL. So the row is evidence that the purpose *form* gets called where the raw tool is absent — it is **not** evidence that the outcome improved. |
+| **49** — the row that **overturns** it (for the delegation half) | Decomposable code brief, branch arm n=3 vs main @ `e589451` n=3. | **0/3 purpose calls, `sub_results` 0** on the branch — a MISS on the delegation clause, and 1.18× turns (a MISS on the turns bar) at 0.27× wall. All six runs were `ok`. The row's own reading is that on a three-small-file brief cortex reads the files itself and the purpose form does not lower the ask enough to be chosen. So removing the raw delegation tools produced **no delegation of any kind** here, not typed delegation. |
+
+Two honest limits on that reading:
+
+- Row 50's mechanism proof is about `web`, where cortex had **no** alternative
+  way to reach the network. Row 49's brief was code work cortex could do
+  itself, so its 0/3 is consistent with H2 *and* with "delegation was simply
+  not worth it here". Arm 4 does not settle that on its own — it is measured
+  against the re-authored briefs of t10 and the pre-registered arm rows of t14.
+- Row 49's own 0/3 is under re-validation by plan task **t13** (whether the
+  count is real or an artifact of dropped tool markup, the #360 failure mode).
+  If t13 finds markup > 0, row 49 is rewritten as inconclusive and this
+  section's framing must be corrected with it.
+
+### What changed in code
+
+- `colleague/roles.py`'s `_writer_allowlist` now drops only `{"web"}` — the
+  acting seat holds `subagent`/`subagents` again, plus the six purposes
+  (21 → 23 offered tools on a bare seat).
+- `colleague/agents/tools.py`'s `THINKER_CODER_TOOLS` (and therefore
+  `ASSOCIATE_TOOLS`) mirrors it, so the #411 agents-mode acting seat matches.
+- **The restoration does not leak to children.** `strip_purpose_tools` was
+  widened into `colleague.actingsurface.strip_child_forbidden_tools`, which at
+  depth >= 1 removes the six purpose names *and*
+  `CHILD_FORBIDDEN_TOOLS = ("subagent", "subagents")`. A depth-1 child is
+  still the bounded **15-tool** writer it was before the arm — measured before
+  and after, unchanged.
+- The four exact-set pins (`tests/test_roles.py` ×3,
+  `tests/test_purpose_tools_byte_identical.py`, `tests/test_agents_tools.py`)
+  were **changed, never relaxed**: the acting seat is now a strict superset of
+  main's `e589451` surface, so
+  `tests/test_knobs_byte_identical.py`'s `_PURPOSE_TOOL_CARVEOUT_DROPPED` is
+  the empty set, stated explicitly.
+- One behavioural consequence recorded rather than normalized away:
+  `colleague/delegation_text.py`'s armed-facts sentence has always targeted
+  `subagent`/`subagents` as well as `web_survey`/`code_survey`, so on an armed
+  rig it now splices onto **four** descriptions instead of two.
 
 ## Provenance
 

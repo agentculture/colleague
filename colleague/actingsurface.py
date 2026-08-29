@@ -30,15 +30,17 @@ express cleanly on its own before this module existed:
    directly (bypassing ``resolve_role``) by several pinning tests and by
    :func:`colleague.subagents._child_requested_tools`'s bare-name lookups.
 
-3. **The never-inheritable purpose-tool strip (q9).** At depth >= 1 (any
+3. **The never-inheritable strip (q9 + plan t11).** At depth >= 1 (any
    spawned child, any nesting level), the resolved role's allow-list is
-   stripped of the six purpose-tool names — including a ``writer`` child
+   stripped of the six purpose-tool names AND of the raw
+   ``subagent``/``subagents`` names — including a ``writer`` child
    (``handover_to_colleague``, or a manual roleless spawn that would
    otherwise default to the bare-run writer substitution above): it keeps
-   the writer allow-list's t5 swap (no ``web``/``subagent``/``subagents``)
-   but never the purpose tools themselves, so a writer child can neither
-   fetch the web nor delegate further — a BOUNDED writer, deliberately
-   narrower than the top-level acting seat. A read-only child role
+   the writer allow-list's ``web`` drop but never the purpose tools or the
+   raw delegation tools, so a writer child can neither fetch the web nor
+   delegate further — a BOUNDED writer, deliberately narrower than the
+   top-level acting seat (which regains ``subagent``/``subagents`` under
+   arm 4, plan t11). A read-only child role
    (explorer/planner/reviewer/validator/scout) never held a purpose-tool
    name in the first place (they are absent from ``_READONLY_TOOLS``/
    ``_SCOUT_TOOLS``), so the strip is a no-op for them — they keep ``web``
@@ -106,22 +108,35 @@ def is_top_level(config: Any) -> bool:
     return child_depth(config) == 0
 
 
-def strip_purpose_tools(role: "Optional[Any]") -> "Optional[Any]":
-    """Drop every purpose-tool name from *role*'s allow-list (q9: a child
-    never holds a purpose tool, no matter which role/purpose named it).
+#: The raw delegation tools a spawned child never inherits, no matter what the
+#: acting seat holds (plan t11 / arm 4). Before arm 4 these two names were
+#: absent from every role's allow-list, so the depth >= 1 strip only had to
+#: remove the six purpose names; arm 4 puts them back on the ACTING seat
+#: (:func:`colleague.roles._writer_allowlist`), and without this set the
+#: restoration would leak down the whole tree and a depth-1 child would stop
+#: being the bounded writer it is today.
+CHILD_FORBIDDEN_TOOLS: tuple[str, ...] = ("subagent", "subagents")
+
+
+def strip_child_forbidden_tools(role: "Optional[Any]") -> "Optional[Any]":
+    """Drop every never-inheritable name from *role*'s allow-list: the six
+    purpose tools (q9 — a child never holds a purpose tool, no matter which
+    role/purpose named it) and :data:`CHILD_FORBIDDEN_TOOLS` (plan t11 — a
+    child never holds the raw ``subagent``/``subagents`` tools either, so
+    arm 4's acting-seat restoration cannot leak down the tree).
 
     ``None`` (no role at all) passes through unchanged; a role whose
-    allow-list holds none of the six names is returned unchanged (never a
+    allow-list holds none of those names is returned unchanged (never a
     needless copy).
     """
     if role is None:
         return None
     from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 
-    purposes = set(PURPOSE_TOOL_NAMES)
-    if not (set(role.tool_allowlist) & purposes):
+    forbidden = set(PURPOSE_TOOL_NAMES) | set(CHILD_FORBIDDEN_TOOLS)
+    if not (set(role.tool_allowlist) & forbidden):
         return role
-    narrowed = tuple(t for t in role.tool_allowlist if t not in purposes)
+    narrowed = tuple(t for t in role.tool_allowlist if t not in forbidden)
     return replace(role, tool_allowlist=narrowed)
 
 
@@ -195,9 +210,12 @@ def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
 
     Depth >= 1 (a spawned child): a roleless spawn is ALSO defaulted to the
     writer role first (today's byte-identical default), then every resolved
-    role — including that default — has its purpose-tool names stripped
-    (:func:`strip_purpose_tools`, q9): children never hold a purpose tool.
-    The drop knob does NOT reach a child (depth >= 1 returns before it).
+    role — including that default — has its purpose-tool names AND the raw
+    ``subagent``/``subagents`` names stripped
+    (:func:`strip_child_forbidden_tools`, q9 + plan t11): children never hold
+    a purpose tool, and never regain the raw delegation tools arm 4 restored
+    on the acting seat. The drop knob does NOT reach a child (depth >= 1
+    returns before it).
     """
     if is_top_level(config):
         role = substitute_bare_role(role)
@@ -207,4 +225,4 @@ def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
 
             role = narrow_role_by_tool_set(role, drop=drop)
         return role
-    return strip_purpose_tools(substitute_bare_role(role))
+    return strip_child_forbidden_tools(substitute_bare_role(role))

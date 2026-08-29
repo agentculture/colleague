@@ -127,15 +127,17 @@ def _writer_schema_names(schemas):
     return {s["function"]["name"] for s in schemas}
 
 
-def test_apply_armed_facts_curated_writer_surface_has_no_raw_subagent():
+def test_apply_armed_facts_curated_writer_surface_carries_both_after_arm4():
     """Sanity: cortex's curated (``writer``) surface holds the purpose tools
-    and, post-t5, neither raw delegation tool — the case this test module
-    otherwise never exercises via the raw :data:`SCHEMAS` constant."""
+    and — since arm 4 (plan t11) reversed #443's "replace, don't add" on the
+    ACTING seat — the raw delegation tools too. Before arm 4 this test
+    asserted neither raw name was present; the expectation is changed, not
+    relaxed. ``web`` is still replaced by ``web_survey``."""
     from colleague.tools import curate_schemas
 
     names = _writer_schema_names(curate_schemas("writer"))
-    assert "subagent" not in names
-    assert "subagents" not in names
+    assert {"subagent", "subagents"} <= names
+    assert "web" not in names
     assert {"web_survey", "code_survey", "handover_to_colleague"} <= names  # surface has all three
 
 
@@ -151,16 +153,17 @@ def test_apply_armed_facts_splices_onto_web_survey_code_survey_handover():
     for entry in result:
         name = entry["function"]["name"]
         desc = entry["function"]["description"]
-        if name in ("web_survey", "code_survey"):
+        if name in ("web_survey", "code_survey", "subagent", "subagents"):
             assert desc == before[name] + " " + sentence
             assert desc.count(sentence) == 1
             changed.add(name)
         else:
             assert desc == before[name]
-    assert changed == {
-        "web_survey",
-        "code_survey",
-    }  # handover child is a cortex writer: no scout sentence
+    # Arm 4 (plan t11): the raw subagent/subagents are back on the writer
+    # surface, and ``apply_armed_facts`` has always targeted those two names
+    # too — so the armed-facts sentence now lands on four descriptions, not
+    # two. The handover child is a cortex writer: still no scout sentence.
+    assert changed == {"web_survey", "code_survey", "subagent", "subagents"}
 
 
 def test_apply_armed_facts_curated_writer_surface_unarmed_returns_same_list():

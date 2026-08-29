@@ -138,10 +138,11 @@ def test_no_role_offers_full_surface(git_repo):
     full = {s["function"]["name"] for s in SCHEMAS}
     assert {s["function"]["name"] for s in curate_schemas(None)} == full
     # t5 (operator decisions q9/q10): an EXPLICIT "writer" role differs from the
-    # raw full surface — cortex delegates BY PURPOSE, so the writer's curated
-    # schema drops web/subagent/subagents and gains the six purpose tools.
+    # raw full surface — cortex reaches the web BY PURPOSE, so the writer's
+    # curated schema drops web and gains the six purpose tools. Arm 4 (plan
+    # t11) restored the raw subagent/subagents, so only web stays dropped.
     writer_offered = {s["function"]["name"] for s in curate_schemas("writer")}
-    dropped = {"web", "subagent", "subagents"}
+    dropped = {"web"}
     assert writer_offered == (full - dropped) | set(PURPOSE_TOOL_NAMES)
     # d14 fix: resolve_role no longer returns None for the bare TOP-LEVEL acting
     # seat (config.role unset, agents mode unarmed, depth 0) — it now resolves to

@@ -120,8 +120,12 @@ def test_unset_knob_child_surfaces_byte_identical(
         config = EngineConfig(role=name)
         setattr(config, "child_depth", 1)
         role = resolve_role(config, str(git_repo))
-        # A depth-1 child is the role's surface minus any purpose-tool names.
-        assert _offered(role) == _offered(actingsurface.strip_purpose_tools(BUILTIN_ROLES[name]))
+        # A depth-1 child is the role's surface minus the never-inheritable
+        # names: the purpose tools (q9) and, since arm 4 (plan t11), the raw
+        # subagent/subagents the ACTING seat regained.
+        assert _offered(role) == _offered(
+            actingsurface.strip_child_forbidden_tools(BUILTIN_ROLES[name])
+        )
 
 
 # ---------------------------------------------------------------------------

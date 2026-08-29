@@ -132,9 +132,12 @@ class TestWriterRole:
         # "deepthink" (plan t4) is a curated tool available to every built-in
         # role that is NOT part of the base SCHEMAS list — offered only via
         # curate_schemas(role, deepthink=True) (test_deepthink_tool.py). t5
-        # (q9/q10): the writer additionally loses web/subagent/subagents
-        # (replaced BY PURPOSE) and gains the six purpose tools.
-        dropped = {"web", "subagent", "subagents"}
+        # (q9/q10): the writer loses web (replaced BY PURPOSE by web_survey)
+        # and gains the six purpose tools. ARM 4 (plan t11) reverses the
+        # subagent/subagents half of that swap on the ACTING seat: the raw
+        # delegation tools are back ALONGSIDE the purposes, so `dropped` is
+        # {"web"} alone. Children never see them (test_actingsurface.py).
+        dropped = {"web"}
         assert writer_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
 
     def test_writer_allowlist_stays_in_sync(self) -> None:
@@ -144,7 +147,8 @@ class TestWriterRole:
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         writer_names = set(BUILTIN_ROLES["writer"].tool_allowlist)
-        dropped = {"web", "subagent", "subagents"}
+        # Arm 4 (plan t11) restored subagent/subagents; only web stays dropped.
+        dropped = {"web"}
         # Every schema tool NOT deliberately dropped (t5, q9/q10) must be in the
         # writer allowlist.
         assert (schema_names - dropped).issubset(writer_names)
@@ -299,8 +303,9 @@ class TestDefaultRole:
         default_names = set(default_role().tool_allowlist)
         # See TestWriterRole.test_writer_allowlist_equals_schemas: "deepthink"
         # (plan t4) and the six purpose tools (plan t5) are deliberate curated
-        # extras outside base SCHEMAS; web/subagent/subagents are dropped (t5).
-        dropped = {"web", "subagent", "subagents"}
+        # extras outside base SCHEMAS; only web stays dropped — arm 4 (plan
+        # t11) put the raw subagent/subagents back on the acting seat.
+        dropped = {"web"}
         assert default_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
 
     def test_default_skill_subset_is_none(self) -> None:

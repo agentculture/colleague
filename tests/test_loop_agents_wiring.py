@@ -146,13 +146,15 @@ def test_worker_purpose_is_narrowed_on_both_halves(tmp_path: Path) -> None:
     with pytest.raises(tools.ToolError, match="not allowed"):
         executor.execute("write_file", {"path": "x.txt", "content": "no"})
     assert not (repo / "x.txt").exists()
-    # t5 (q9/q10): thinker_coder no longer equals TOOL_NAMES (it loses
-    # web/subagent/subagents and gains the six purposes), so it narrows too.
+    # t5 (q9/q10): thinker_coder no longer equals TOOL_NAMES (it loses web and
+    # gains the six purposes), so it narrows too. Arm 4 (plan t11) restored the
+    # raw subagent/subagents on this acting-seat surface — only web is gone.
     setattr(cfg, "agents_profile", "thinker_coder")
     thinker_role = loop.resolve_role(cfg, str(repo))
     assert thinker_role is not None
     thinker_names = set(thinker_role.tool_allowlist)
-    assert {"web", "subagent", "subagents"}.isdisjoint(thinker_names)
+    assert "web" not in thinker_names
+    assert {"subagent", "subagents"} <= thinker_names
     assert "code_survey" in thinker_names
     assert "write_file" in thinker_names
 

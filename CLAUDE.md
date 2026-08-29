@@ -86,13 +86,27 @@ minds. The architecture, part by part:
   operator-installed WebGlass CLI (hidden when absent / `COLLEAGUE_WEB=0`,
   byte-identical off-state); the scout seat gains the tool, never a router.
   Doc: `web-scout.md`. **Purpose tools (#443)** — cortex/worker no longer hold
-  raw `web`/`subagent`/`subagents`; they hold six typed tools — `web_survey`/
+  raw `web`; they hold six typed tools — `web_survey`/
   `code_survey` (a scout child, on the associate seat when armed), `review`/
   `validate`/`plan` (reviewer/validator/planner children on cortex) and
   `handover_to_colleague` (a writer child on cortex) — each a FIXED purpose →
   fixed role → fixed seat + rung (`PURPOSE_TABLE`, never leaked from the
   parent), called explicitly: the deepthink precedent (increment 1) applied by
-  purpose, never a router. Doc: `purpose-tools.md`.
+  purpose, never a router. **Arm 4 (plan t11) reverses the delegation half of
+  #443's "replace, don't add", UNDER TEST** — the raw `subagent`/`subagents`
+  are back on the ACTING seat alongside the typed purposes (raw `web` stays
+  replaced), because the two live-testing rows say different things: **row 50**
+  justified replace-don't-add (with raw `web` absent, cortex fired `web_survey`
+  ×3 in its first turn and never shelled out — the row's own verdict is "MISS on
+  the bar, mechanism proven", so it shows the purpose FORM gets called, not that
+  the outcome improved), while **row 49** overturns it for delegation (with raw
+  `subagent`/`subagents` absent, the branch made **0/3 purpose calls** and
+  `sub_results` 0 on a decomposable brief — removing the raw tools produced no
+  delegation at all, though the row also reads that brief as one cortex could
+  rationally do itself, and its 0/3 is itself under re-validation by plan t13).
+  The restoration is CONFINED to depth 0: `actingsurface.CHILD_FORBIDDEN_TOOLS`
+  keeps every spawned child the bounded 15-tool writer it already was. A
+  measured hypothesis, never a settled improvement. Doc: `purpose-tools.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
