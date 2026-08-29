@@ -10,9 +10,12 @@ that keeps *dripping* — a byte at a time, never a newline — which resets any
 idle watchdog forever (qwen-code issue #8597 burned hours that way). Two
 independent guards close that:
 
-- ``COLLEAGUE_STREAM_IDLE_TIMEOUT`` (default 240s) — seconds with NO bytes
-  arriving. The request timeout already bounds each read, so this guard only
-  fires when it is the NEARER bound; the request timeout keeps its meaning.
+- ``COLLEAGUE_STREAM_IDLE_TIMEOUT`` (default 240s) — seconds with NO non-comment
+  payload line arriving. SSE comment lines (a ``:`` prefix — vLLM/OpenAI use
+  these for keepalives) do NOT restart the idle clock: a gateway relaying
+  keepalives over a dead upstream must not look alive (#438 guidance 4). The
+  request timeout already bounds each read, so this guard only fires when it is
+  the NEARER bound; the request timeout keeps its meaning.
 - ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 900s) — seconds since the stream
   opened, regardless of activity.
 
@@ -99,7 +102,10 @@ class StreamGuards:
         return cls(idle, lifetime, current, current, base_timeout)
 
     def saw_bytes(self, now: Optional[float] = None) -> None:
-        """Bytes arrived: restart the idle clock (the lifetime clock never restarts)."""
+        """A non-comment payload line arrived: restart the idle clock (the lifetime
+        clock never restarts). SSE comment lines (keepalives) do NOT call this —
+        a gateway relaying keepalives over a dead upstream must not look alive
+        (#438 guidance 4)."""
         self.last_bytes = time.monotonic() if now is None else now
 
     def _deadlines(self, now: float) -> list[tuple[float, str, float, float]]:
@@ -133,7 +139,8 @@ def _guarded_line_fallback(response: Any, guards: StreamGuards) -> Iterator[byte
     """Per-line guard checks for a response with no ``read1`` (a test
     double) — the degrade path ``guarded_lines`` falls back to."""
     for raw_line in response:
-        guards.saw_bytes()
+        if not _is_comment_line(raw_line):
+            guards.saw_bytes()
         guards.check()
         yield raw_line
 
@@ -173,6 +180,13 @@ def _drain_complete_lines(buffer: bytearray) -> Iterator[bytes]:
         del buffer[: newline + 1]
 
 
+def _is_comment_line(line: bytes) -> bool:
+    """True for an SSE comment line (a ``:`` prefix after any leading
+    whitespace) — the keepalives vLLM/OpenAI gateways relay. A comment line
+    carries no payload, so it must NOT restart the idle clock (#438 guidance 4)."""
+    return line.lstrip().startswith(b":")
+
+
 def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
     """Yield *response*'s lines one socket READ at a time, consulting *guards*
     before and after every read.
@@ -210,10 +224,12 @@ def guarded_lines(response: Any, guards: StreamGuards) -> Iterator[bytes]:
             if buffer:
                 yield bytes(buffer)
             return
-        guards.saw_bytes()
-        guards.check()
         buffer.extend(chunk)
-        yield from _drain_complete_lines(buffer)
+        for line in _drain_complete_lines(buffer):
+            if not _is_comment_line(line):
+                guards.saw_bytes()
+            guards.check()
+            yield line
 
 
 def stall_notice(guard: str, seconds: float, bound: float) -> str:
