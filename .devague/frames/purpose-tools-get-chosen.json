@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-29T12:04:09Z",
-  "updated": "2026-08-29T13:28:58Z",
+  "updated": "2026-08-29T13:42:08Z",
   "claims": [
     {
       "id": "c1",
@@ -675,7 +675,7 @@
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "assert tests/snapshots/prompttext_v1.txt is unchanged across the whole arc: git diff on that file is empty at PR time",
+      "instruction": "assert tests/snapshots/prompttext_v1.txt is unchanged by the PROSE ARM's instruments: the three overlays and the unification touch it not at all (git diff empty across t5/t12). The separate stale-section repair (t9, claim c2) regenerates it deliberately with COLLEAGUE_UPDATE_SNAPSHOTS=1 and says so in the PR - that is a different task with a different claim behind it.",
       "revisions": []
     },
     {
@@ -852,6 +852,87 @@
       "hard_questions": [],
       "links": [],
       "instruction": "verified by ask-colleague explore f01e0d3fdfe4 (read-only, cited contract.py line numbers); after the change, two runs under different overlays show different prompt digests and the row cites the digest, not the file it believes was in place",
+      "revisions": []
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "The overlay instrument does NOT reach a bare run, and the reason is a second prompt/surface drift. Engine.system_prompt (engine.py:140-204) reads config.role by NAME (:184) and only then composes the role fragment (:190); a bare 'colleague work' leaves config.role None, so the composed system prompt is EMPTY from the engine and the loop falls back to the roleless default. Probed live with a real .colleague/agents/writer.md: role=None -> overlay_reached=False, len=0; role='writer' -> overlay_reached=True, len=4059. Meanwhile actingsurface.curate_for_depth already substitutes the writer role for the SURFACE at depth 0. So the seat has the writer's tools and nobody's prompt - the same drift the arc exists to fix, in a second place.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h37",
+          "text": "After the fix, a bare run and an explicit --role writer run compose an IDENTICAL system prompt and an identical tool surface - rendered and compared, not asserted; and the overlay reaches the bare run (the probe that returned False returns True).",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the fix is to make the depth-0 writer substitution flow into the prompt as well as the surface, so one resolution feeds both halves; then a bare run and --role writer compose the same prompt AND the same surface, provable by rendering both",
+      "revisions": []
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "A dropped tool call is currently indistinguishable from a refusal to delegate, which threatens the validity of every zero-delegation row including row 49's 0/3. #360 (OPEN) measured the cortex emitting Hermes/Qwen tool-call markup as assistant TEXT on large-prompt turns - artifact 'steps: []', 'stopped_without_finish: true' - and states it outright: 'the failure is silent and looks exactly like the model ignored the tools'. colleague recovers literal markup ONLY for finish (loop.py:255-270, matching 'function=finish') and for the forced-synthesis turn (:274-296); markup naming any OTHER function, code_survey included, is neither recovered nor counted. The arc must detect and COUNT tool-call-shaped markup for any function name so a zero-delegation result can be told apart from a dropped one.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h38",
+          "text": "A run in which the model emitted tool-call markup as text shows a nonzero markup counter on its artifact; a zero-delegation row states the markup count beside the delegation count, and a row with markup>0 is reported as inconclusive on delegation rather than as a refusal.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "add a counter for markup-shaped tool calls in assistant content (any function name) onto the artifact; every arm row reports it, and a row with a nonzero count is not read as a refusal to delegate",
+      "revisions": []
+    },
+    {
+      "id": "c52",
+      "kind": "requirement",
+      "text": "The armed-facts sentence may be DISCOURAGING delegation rather than enabling it, and P2 must test the opposite framing. The shipped sentence (delegation_text.py:44-52) describes the scout as running 'considerably quicker', 'cannot write to the repository' and 'carries its reasoning switched off' - an accurate description that reads as a WEAKER helper, which is a reason for a careful model to keep the work itself. The P2 rung therefore tests capability-equal framing: that the child runs the SAME model family on a peer seat, that a second independent pass is worth having on its own (the diversity argument), and that the digest returns for review before anything is done with it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h39",
+          "text": "The P1 and P2 overlays differ ONLY in the capability framing (diffing them shows no other change), so a delegation-rate difference between them is attributable to that framing and nothing else.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "P1 keeps the shipped descriptive sentence verbatim; P2 replaces the weaker-helper framing with the same-model / second-pass framing, and the two overlay files differ ONLY in that framing so the comparison isolates it",
+      "revisions": []
+    },
+    {
+      "id": "c53",
+      "kind": "decision",
+      "text": "c50 is fixed by UNIFYING the two halves: the depth-0 writer substitution that actingsurface.curate_for_depth already applies to the tool surface must also feed the prompt, so one role resolution drives both and a bare run composes the same prompt AND surface as an explicit --role writer run. This is the arc's own thesis applied to the arc's own instrument.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c54",
+      "kind": "decision",
+      "text": "c51 lands as a COUNTER (markup-shaped tool calls for any function name, on the artifact), and row 49 is then RE-RUN as a validity check before the four levers are measured - the arc verifies its own motivating evidence rather than building on it. Recovering/executing dropped markup is explicitly NOT done in this arc: changing loop behaviour mid-experiment would confound every arm.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the row-49 re-run uses the same brief and n=3; if the markup counter is nonzero the original 0/3 is reported as inconclusive and the arc's framing is corrected in the docs",
       "revisions": []
     }
   ],
@@ -1117,6 +1198,30 @@
       "surface": "challenge pass / operations lens: docs/live-testing.md rows 41-50 run history + #438 stall record (5 hangs in 15 runs)",
       "finding": "Examined the rig-operations surface: no migration, deployment or on-call dimension exists in this arc - the arms run as local processes against an existing rig - but run-completion is itself the operational hazard, already carried by c7/c34/c45 and the #438-first decision. Recorded as examined with no new finding beyond those.",
       "seeds": []
+    },
+    {
+      "id": "s30",
+      "surface": "challenge pass / adjacent-systems lens (round 2): colleague/engine.py:140-204 (system_prompt reads config.role by name) + colleague/layers.py:744-751 + colleague/roles.py:368,373 + colleague/subagents.py:666 + colleague/oilcheck/three_tier.py:260 + colleague/purpose_schemas.py:66,494 + live probe with a real .colleague/agents/writer.md (explored via ask-colleague explore 57ef951d4fdf, probe re-run directly)",
+      "finding": "One composition seam (Engine.system_prompt -> compose_role_prompt) and it keys on config.role BY NAME. Spawned subagent children do get their role's fragment; the three-tier worker seat and the agents-mode lobes seats do not (config.role unset); a handover_to_colleague child DOES (role='writer'). And a bare top-level run does NOT - so the depth-0 writer substitution reaches the surface but never the prompt. Probed: role=None overlay_reached=False len=0 vs role='writer' True len=4059.",
+      "seeds": [
+        "c50"
+      ]
+    },
+    {
+      "id": "s31",
+      "surface": "challenge pass / measurement-validity lens: github issue #360 (OPEN) + colleague/loop.py:232-296 (_parse_literal_finish matches 'function=finish' only; _TOOL_MARKUP_MARKERS used for the synthesis guard)",
+      "finding": "Literal tool-call markup is recovered for finish and guarded for the synthesis turn, but markup naming any other function is silently discarded and never counted - so #360's measured failure mode ('looks exactly like the model ignored the tools') is indistinguishable from a genuine refusal to delegate in every row this arc will produce, and retroactively in row 49.",
+      "seeds": [
+        "c51"
+      ]
+    },
+    {
+      "id": "s32",
+      "surface": "challenge pass / counter-evidence lens: colleague/delegation_text.py:44-52 (the shipped armed-facts sentence)",
+      "finding": "The sentence's accurate description - quicker seat, cannot write, reasoning switched off - reads as a weaker helper, giving a careful model a reason NOT to delegate. The frame had assumed the sentence was neutral-to-positive; it may be net negative, which makes capability framing a variable worth isolating rather than a wording detail.",
+      "seeds": [
+        "c52"
+      ]
     }
   ],
   "lapses": []
