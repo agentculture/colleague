@@ -1,0 +1,877 @@
+{
+  "slug": "purpose-tools-get-chosen",
+  "title": "purpose-tools-get-chosen",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-08-29T12:04:09Z",
+  "updated": "2026-08-29T12:57:33Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague's cortex chooses its purpose tools: the prompt no longer advertises delegation tools the acting seat does not hold, the raw alternatives that crowd the typed purposes out are removed where measurement says they should be, and every change lands as a pre-registered arm whose delegation rate is a tracked number",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "On the armed rig, rendering the acting seat's prompt and surface together shows no tool named in the prompt that is absent from the surface, and no purpose tool absent from the prompt; and docs/live-testing.md carries at least one completed row whose delegation-rate cell was computed by scripts/compare_arms.py, with a miss recorded as a miss.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verified by two artefacts: (1) a rendered pair - the acting seat's prompt and its offered tool list, showing no absent tool named and no offered purpose unnamed; (2) at least one completed docs/live-testing.md row whose delegation cell came from scripts/compare_arms.py, miss recorded as miss",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "Option 1 (the stale-section fix): colleague/prompttext.py's V1_DEFAULT_SYSTEM and the adopted variant both carry a 174-word 'Subagents (optional)' section instructing the model to call subagent/subagents \u2014 two tools the top-level acting seat no longer holds after the t5 writer-allowlist swap. Rendering the real surface (loop.resolve_role -> role 'writer'; loop.curated_schemas) offers web_survey/code_survey/review/validate/plan/handover_to_colleague and NEITHER subagent nor subagents; the prompt names none of the six. The section must stop naming absent tools.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "After the edit, rendering the bare acting seat shows the prompt naming exactly the tools the surface offers: 'subagent' and 'subagents' appear nowhere in the default prompt, and each of web_survey / code_survey / review / validate / plan / handover_to_colleague appears at least once.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verified by rendering: uv run python -c \"from colleague import loop,prompttext; ...\" prints offered names + 'prompt mentions subagent: True' and False for all six purpose names",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "boundary",
+      "text": "Delegation is never forced: #435 (CLOSED) records the operator intent verbatim \u2014 'do not force delegation; document it and adjust' \u2014 and the purpose-tool arc kept it (#443: 'nothing forces delegation; the choice costs one call'). Every option here changes what the model is TOLD or OFFERED, never what the runtime decides for it.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "No code path added by this arc makes a delegation decision on the model's behalf: the six purposes stay fixed purpose -> fixed role -> fixed seat + rung, and the AST guards in tests/test_purpose_tools_boundary.py and tests/test_thinking_effort_boundary.py still pass unchanged.",
+          "status": "rejected",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "No new DEFAULT prompt text: #437 (OPEN) measured the adopted prompt at 2.30x wall / 1.38x turns on game-benchmark and 1.70x/1.60x on the repo task versus main, with ~3x reasoning chars, which is why COLLEAGUE_PROMPT_VARIANT defaults to v1. #437's own guidance is to re-introduce sections ONE AT A TIME, each behind a measured arm. Any purpose-tool prose therefore lands opt-in (COLLEAGUE_PROMPT_SECTIONS) or as a net-zero-word edit, never as default-on additive text.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The default prompt's word count does not increase: the edited Subagents paragraph is the same length or shorter than the 174 words it replaces, measured on the regenerated snapshot, and no new section joins the default join.",
+          "status": "rejected",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Every option lands as a PRE-REGISTERED arm in docs/live-testing.md written before any run, in the rows 47-50 shape: a verbatim brief file under docs/live-testing/briefs/, a pass bar committed up front (delegation-rate clause + turns <= 1.0x / wall <= 1.2x computed by scripts/compare_arms.py --bar-wall 1.2 --bar-turns 1.0 from artifact stats, never from prose), n=3 on each arm with the main baseline RE-RUN at the current tip, and a miss written as a miss.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The row exists in docs/live-testing.md with 'result: pending' and its brief file committed under docs/live-testing/briefs/ BEFORE the first run of that arm - provable by the commit order in git log - and the completed row pastes compare_arms.py output rather than prose.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the row exists with 'result: pending' before the first run; compare_arms output pasted, not prose",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "The row-49 brief is a confound and must be re-authored: docs/live-testing/briefs/row49-purpose.md tells the model 'hand one or more of the read-only surveys to scout children (subagent / subagents)' while the branch arm's surface offers NEITHER tool - the brief advertises the same absent tools the stale prompt section does. A delegation arm must name the offered purpose tools or name no tool at all.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The new brief contains no tool name that the arm's surface does not offer: grep for 'subagent' and 'subagents' in the branch-arm brief returns nothing.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "diff the new brief against row49-purpose.md; the words subagent/subagents appear nowhere in the branch-arm brief",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "assumption",
+      "text": "Measurement is currently rate-limited by the rig, not by the design: row 50 proved the mechanism (cortex fired web_survey x3 in its first turn) but MISSED its bar because cortex step-stalled at step 7 on the 900 s stream-lifetime guard with no final answer - the #438 (OPEN) stall gap. Any arm long enough to show delegation is exposed to the same stall, so the arm design must either bound the brief below the stall window or record stalls as a first-class column.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "The arm's stall exposure is stated as a number, not a caveat: every run in every arm records whether a stream guard tripped, and a row whose runs stalled reports the delegation rate over completed runs AND the stall count, never the rate alone.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the arm's row records stalls-cut / stalls-escaped per #438 guidance 5, alongside wall and turns",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "non_goal",
+      "text": "Thinking continuity on the associate scout stays OUT (#446, OPEN): colleague never re-sends a prior turn's reasoning (loop.py:345-356), so truncate_history_thinking is a request-side no-op; carrying the scout's own reasoning_content back is a wire-shape change with its own unknowns (whether Nemotron 3.5 honours the kwarg; the context cost) and does not affect whether cortex CHOOSES a purpose tool.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "non_goal",
+      "text": "No routing policy, in any option: the runtime never picks a model, a role or a seat per turn. Each purpose stays fixed purpose -> fixed role -> fixed seat + rung (PURPOSE_TABLE), called explicitly by the model. Removing a raw alternative from the acting surface narrows what the model may call; it never decides for it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "non_goal",
+      "text": "Not the #408 full tool-use audit: #408 (OPEN) asks for the complete action-surface audit - usage mining across every artifact, schema token overhead, batching reality, missing primitives, per-tool verdicts. This arc borrows only #408's item 5 (description tuning for reasoning minds, the edit_file precedent) for the tools it already ships; the mining sweep stays #408's.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Option 2 (surface removal): the row-50 mechanism generalized - a purpose tool is chosen when the raw tool that does the same job is absent from the acting seat. Cortex today still holds read_file, list_dir, grep_search, glob and run_command, every one of which does code_survey's job in-seat, which is exactly why row 49 measured 0/3. The option is to remove or narrow a NAMED set of those on the acting seat only (children keep them), behind a knob, and measure.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "The surface-only arm changes nothing but the environment variable: git diff between the baseline tip and the arm tip is empty, and the row records the two rendered tool lists showing grep_search and glob present in one and absent in the other.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the arm's branch surface is printed from loop.curated_schemas and pasted into the row; children's surfaces are unchanged (actingsurface strips purpose tools at depth>=1, never read tools)",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Option 3 (measured prose): a purpose-tools prompt section joins SECTION_TABLE as an _OPT_IN_SECTIONS member (the HANDOVER_EXAMPLE precedent, prompttext.py:220-222), reachable only via COLLEAGUE_PROMPT_SECTIONS or a named variant, so the default prompt stays byte-identical and #437's per-section re-adoption discipline is honoured. It ships with its own arm; it is kept only if turns and reasoning chars do not rise on the write-heavy brief.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "No new prompt-section mechanism is built: SECTION_TABLE, _OPT_IN_SECTIONS and COLLEAGUE_PROMPT_SECTIONS behave exactly as they do on main, and tests/test_prompttext_handover_example.py's opt-in coverage passes unchanged.",
+          "status": "rejected",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "contradiction with c24?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "OPERATOR (2026-08-29): the contradiction is removed by changing the mechanism rather than dropping the claim - default_system is made to compose _OPT_IN_SECTIONS onto the v1 text (c30), so a purpose-tools section IS reachable under the default variant and c12's shape becomes buildable. c24 stands as the finding that forced the mechanism change; c29's merged-edit alternative was rejected."
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "after_state",
+      "text": "After: a bare 'colleague work' prompt never names a tool the seat does not hold (option 1); the delegation rate for each option is a number in docs/live-testing.md rows 51+ with its brief committed beforehand and a miss written as a miss; the three levers are separable - prose-only, surface-only, and both - so the arm attributes the change to a cause instead of to the release.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Each of the three levers is separately attributable: the prose-only arm and the surface-only arm differ from the baseline in exactly ONE variable each (the two prompt literals + snapshot, or COLLEAGUE_TOOLS_LEGACY=1), and the both arm is their union. If any arm changes more than its named variable the row says so.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the arm matrix in docs/live-testing.md has one row per lever with its own instrument cited (overlay sha256, env var, or allow-list diff), one shared brief, and one baseline; no row bundles two levers",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "The pass bar per arm: purpose calls >= 1 on >= 2 of 3 runs AND turns <= 1.0x / wall <= 1.2x vs the main baseline re-run at the current tip, computed by scripts/compare_arms.py --bar-wall 1.2 --bar-turns 1.0 from artifact stats. A prose-only arm that raises reasoning chars without raising the delegation rate is a fail, not a draw - that is #437's lesson applied.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The bar is committed before the first run and computed by scripts/compare_arms.py --bar-wall 1.2 --bar-turns 1.0 from artifact stats; a prose arm that raises reasoning chars without raising the delegation rate is written as a fail, never as a draw or as 'directionally positive'.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "run scripts/compare_arms.py --bar-wall 1.2 --bar-turns 1.0 over the arm's artifact ids and paste its output into the row; the delegations column is the delegation-rate cell",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "why_it_matters",
+      "text": "13-plus measured runs across rows 41-50 show cortex doing every survey itself; the associate seat is armed and idle. The one time it delegated (row 50) the raw alternative was gone. If prose cannot move the rate and surface composition can, that is a finding worth having as a number - it decides whether colleague's delegation design is a prompt problem or a surface problem, and #435's 'do not force it' means measurement is the only way to settle it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "The arc answers 'prompt problem or surface problem' with a number, not a preference: if the prose arm and the surface arm both miss, that is recorded as a miss for both and the honest conclusion is that neither lever moves this model on these briefs.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the arc's closing doc names which lever moved the number and by how much, or states that none did - never 'inconclusive, needs more work' without the measured ratios beside it",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "Option 2 has a ZERO-CODE arm available today: COLLEAGUE_TOOLS_LEGACY=1 (colleague/search_schemas.py:51 LEGACY_ENV, consulted by curate_schemas at tools.py:618) hides grep_search and glob from schema AND dispatch. Verified live: with it set, cortex's offered surface is read_file, view_media, write_file, edit_file, list_dir, run_command, culture, devague, check_test_integrity, run_tests, memory, finish + the six purposes - no grep_search, no glob. That is the row-50 mechanism (remove the raw alternative) applied to code_survey with no code change and no test edits.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the arm's row pastes the offered list from loop.curated_schemas under both arms; branch arm = same tip + COLLEAGUE_TOOLS_LEGACY=1",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "assumption",
+      "text": "Removing a raw tool from cortex PERMANENTLY (rather than behind a knob for one arm) costs four exact-set test edits: tests/test_roles.py:126-138 (test_writer_allowlist_equals_schemas, exact set equality), :140-155 (two-sided sync), :294-304 (default_role), tests/test_purpose_tools_byte_identical.py:88-100 (the e589451 delta pin - every non-dropped tool must survive), and tests/test_agents_tools.py:89-92 (THINKER_CODER_TOOLS/ASSOCIATE_TOOLS mirror). tests/test_actingsurface.py's pins are disjointness-only and would survive.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "If the arc ships a permanent narrowing, the four exact-set pins are updated in the same commit as the allow-list change, with the changed expectation visible in the diff - never by relaxing an assertion to a subset check.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "boundary",
+      "text": "Docs move with the code or not at all: docs/features/purpose-tools.md (Honest limits + Knobs table), docs/features/adopt-from-qwen-code.md (prompt-variant section), CLAUDE.md's purpose-tools bullet and docs/live-testing.md must state the measured delegation rate honestly, including a miss. The repo's doc-test-alignment discipline applies - no claim of encouragement the prompt does not carry.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "docs/features/purpose-tools.md, docs/features/adopt-from-qwen-code.md (the prompt-variant knobs table and the ':257 delegation is never chosen' claim), CLAUDE.md's purpose-tools bullet and docs/live-testing.md are each updated in the same PR as the behaviour they describe, and none claims encouragement the shipped prompt does not carry.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "run the doc-test-alignment skill before the PR; docs/features/purpose-tools.md, docs/features/adopt-from-qwen-code.md, CLAUDE.md and docs/live-testing.md are all in the same diff as the behaviour change",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "The measurement instrument already counts the right thing and needs no change for options 1 and 3: scripts/compare_arms.py's DELEGATION_TOOLS (:76-78) is the union of (subagent, subagents) and PURPOSE_TOOL_NAMES, imported live from colleague.purpose_schemas (:68), so _count_delegations (:199-201, from steps[].tool) already reports purpose calls; _count_associate_calls (:229-258) reads associate.served_model, steps[].served_model, steps[].arguments.served_model and sub_results[].role. Pass-bar flags are --bar-wall (default 0.7) and --bar-turns (default 0.8) and an arm passes when wall_ratio <= bar_wall AND turns_ratio <= bar_turns (:315) - rows 49/50 override to 1.2/1.0 explicitly.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "scripts/compare_arms.py is not modified by this arc: git diff on that file across the arc is empty, and its delegations column is shown counting a purpose step on a real artifact.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verified by ask-colleague explore d40fed8ef720 (read-only, cited scripts/compare_arms.py line numbers); re-verify the line numbers before writing the row",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "before_state",
+      "text": "Before: the default prompt spends 174 words instructing the model to call subagent/subagents, which the acting seat does not hold, and 0 words on the six tools it does hold; the six purpose descriptions total 145 words, four carrying no steer and three carrying a steer-away clause; the only purpose prose that exists is a 49-word non-imperative armed-facts sentence on two of the six. Measured result: 0 purpose calls in 3 pre-registered runs plus 1 unregistered smoke (row 49), and delegation only where the raw alternative was removed (row 50).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The before-state numbers are re-derivable at any time: the 174-word section, the 145 words of purpose descriptions, the 49-word armed-facts sentence and the 0-of-3 delegation rate can each be recomputed from colleague/prompttext.py, colleague/purpose_schemas.py, colleague/delegation_text.py and docs/live-testing.md row 49 without consulting this spec.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "recompute each number from source before writing the spec: word counts from colleague/prompttext.py and colleague/purpose_schemas.py, the delegation rate from docs/live-testing.md row 49",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "audience",
+      "text": "The operator running cortex (Qwen3.8-27B) on the lobes-armed rig with COLLEAGUE_ASSOCIATE_MODEL=lobes and webglass on PATH, who shipped six purpose tools in v1.66.0 and has watched the model decline to call five of them across every measured run - and who has already decided (#435) that forcing delegation is not on the table, so the only remaining levers are what the model is told, what it is offered, and what the numbers say.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The audience is named by ROLE and by measurement, not by aspiration: the operator can point at rows 41-50 for the zero-delegation history and at the row this arc adds for what changed. No claim is made about operators on rigs this arc never measured.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the spec names cortex/associate/scout by ROLE; no served model id appears in config code (the existing zero-model-ids boundary test still passes)",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "assumption",
+      "text": "The SUBAGENTS paragraph is DUPLICATED: it is inlined inside the V1_DEFAULT_SYSTEM literal (colleague/prompttext.py:69-82) AND kept as the separate _SUBAGENTS constant (:124-139) used by the qwen variant and SECTION_TABLE. Editing it means editing both literals, regenerating tests/snapshots/prompttext_v1.txt (COLLEAGUE_UPDATE_SNAPSHOTS=1) and accepting that two pins named 'byte-identical to the v1.64.0 fixture' now describe a NEW fixture - tests/test_prompttext.py:141-146 and tests/test_prompttext_handover_example.py:38-44 - plus tests/test_prompttext.py:71-74, which asserts every V1 paragraph is a verbatim substring of the qwen prompt.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "Both Subagents literals stay in sync after the edit: tests/test_prompttext.py:71-74 (every V1 paragraph is a verbatim substring of the qwen prompt) passes without modification to the test itself.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verified directly: sed -n on all four test sites; the assertions are as cited",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "assumption",
+      "text": "A surface-aware prompt (composing the delegation section from the tools actually offered) collides with two existing properties: default_system is built ONCE per run and prefix-stable (prompttext.py:508-528 'callers build it at run start and never per turn'), while colleague/resident/webtrust.py:153-196 narrows the offered surface PER TURN for a mesh turn. A prompt that mirrors the surface would either vary per turn (losing prefix stability and its cache) or describe the wrong surface on a narrowed turn.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The chosen fix does not make the prompt vary per turn: default_system is still built once per run, and no call site rebuilds it inside the loop.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "if this option is chosen, the arm must record whether the prompt is rebuilt per turn and what it costs in cached-prefix terms",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "BLOCKER for option 3 as specced: COLLEAGUE_PROMPT_SECTIONS has no effect under the v1 variant. default_system returns V1_DEFAULT_SYSTEM before it ever reads sections (colleague/prompttext.py:530-539), and docs/features/adopt-from-qwen-code.md:335 states it outright - 'has no effect under COLLEAGUE_PROMPT_VARIANT=v1'. Since v1 IS the default since rows 43-44, an opt-in section can only be measured by also paying the whole adopted prompt (2.30x wall / 1.38x turns). Either sections must be made composable onto v1, or option 3's text lands inside the v1 literal - which is exactly the q2 move, merging options 1 and 3 into one edit.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The claim that COLLEAGUE_PROMPT_SECTIONS cannot reach the v1 default is demonstrated, not asserted: setting COLLEAGUE_PROMPT_SECTIONS=HANDOVER_EXAMPLE with the variant unset yields a prompt byte-identical to V1_DEFAULT_SYSTEM.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verified in code and doc: prompttext.py:530-534 returns before the sections branch; adopt-from-qwen-code.md:335",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "q1: the option-2 arm removes grep_search and glob from cortex via COLLEAGUE_TOOLS_LEGACY=1 (search_schemas.py:51, consulted by curate_schemas at tools.py:618) - a knob-scoped arm, zero code and zero test edits, reversible. Permanence in _writer_allowlist is decided AFTER the number, never before.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the arm's row pastes the offered tool list rendered from loop.curated_schemas under both arms; the branch arm differs from the baseline by that one env var and nothing else",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "decision",
+      "text": "q2: the stale-section fix edits BOTH literals - the inlined Subagents paragraph in V1_DEFAULT_SYSTEM (prompttext.py:69-82) and the _SUBAGENTS constant (:124-139) - so the section names the six purpose tools instead of subagent/subagents, and regenerates tests/snapshots/prompttext_v1.txt with COLLEAGUE_UPDATE_SNAPSHOTS=1. Net-zero words. The PR states the fixture identity change explicitly.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "after the edit: uv run pytest tests/test_prompttext.py tests/test_prompttext_handover_example.py tests/test_knobs_byte_identical.py tests/test_search_schemas.py passes, and the regenerated snapshot is in the diff",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "decision",
+      "text": "q3: the purpose-tools prose promotes to default-on when it passes its arm, on a rule pre-committed before the run - delegation rate up AND turns/reasoning chars not up (#437 guidance 2). Because COLLEAGUE_PROMPT_SECTIONS has no effect under variant v1, the prose lands inside the v1 literal itself (the q2 edit), so 'promote' means KEEP the edit and 'fail' means REVERT it - no new section mechanism is built.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the promotion rule is written into the live-testing row before the first run; the revert path is a single commit reverting the two literals + snapshot",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "decision",
+      "text": "q4: #438 stall recovery lands FIRST, before any delegation arm runs - guidance 1-4 (bound the blocking-fallback / raised-timeout path with the same guards, COLLEAGUE_STALL_RETRY default 1, disable backpressure's timeout self-raise when stream guards are armed, treat SSE keepalive lines as non-activity) - so an arm can complete instead of repeating row 50's MISS-with-mechanism-proven.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "a real-socket drip-feed test covers the blocking-fallback path; the arm rows record stalls-cut / stalls-escaped per run",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "Options 1 and 3 are ONE edit, not two: because COLLEAGUE_PROMPT_SECTIONS cannot reach the v1 default (c24), the purpose-tools prose IS the corrected Subagents paragraph inside the v1 literal. The arc therefore ships two independent levers, not three - a prose lever (the two literals + regenerated snapshot) and a surface lever (COLLEAGUE_TOOLS_LEGACY=1) - and the promotion rule of c27 reduces to keep-the-edit on a pass, revert-the-edit on a fail.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "The arc builds no new prompt-section mechanism and no new surface-narrowing mechanism: the only files changed for the two levers are colleague/prompttext.py and tests/snapshots/prompttext_v1.txt, plus the docs and the live-testing row; the surface lever changes no file at all.",
+          "status": "rejected",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the plan has no task that adds a SECTION_TABLE member or touches _OPT_IN_SECTIONS; the arm matrix has exactly three rows - prose, surface, both - against one baseline",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "The prose lever is measured behind a knob, not baked into the default: default_system is changed (~10 lines) so _OPT_IN_SECTIONS compose onto the v1 text too, instead of returning early - so a PURPOSE_TOOLS section is reachable via COLLEAGUE_PROMPT_SECTIONS with COLLEAGUE_PROMPT_VARIANT still v1. Both arms then run ONE binary with the env var on/off; the default prompt stays byte-identical; a pass promotes the text into the v1 literal as a follow-up commit (c27's rule unchanged). This supersedes the merged-edit shape of c29.",
+      "origin": "user",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "with the section unset, default_system() is byte-identical to tests/snapshots/prompttext_v1.txt; with COLLEAGUE_PROMPT_SECTIONS=PURPOSE_TOOLS and the variant unset, the v1 text plus exactly that section is returned",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "decision",
+      "text": "A per-role prompt is a BETTER home for the purpose-tool prose than a global section, and it needs no mechanism change at all: BUILTIN_ROLES['writer'] carries an 18-word prompt_fragment (roles.py:199-207) that composes after the AGENTS layers (layers.compose_role_prompt, fixed order at layers.py:695-699), and the writer role IS the resolved acting seat for a bare run. Because the prose then travels with the role that HOLDS the six tools, prompt and surface can never drift apart - the defect this whole arc exists to fix cannot recur by construction.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "The composed prompt for the acting seat names exactly the tools that seat is offered, and a spawned child's composed prompt does not name the purpose tools it cannot call - demonstrated by rendering both, not asserted.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "render the composed prompt for role 'writer' and for a child role and show the purpose prose present only where the purpose tools are offered",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "decision",
+      "text": "The prose arm needs NO code change and NO snapshot regeneration: an operator role overlay at .colleague/agents/writer.md replaces the writer role's prompt_fragment verbatim (roles.py:279-300 resolves it, :368 applies it; a per-model overlay .colleague/<model>/agents/writer.md takes precedence). Dropping that one file IS the branch arm and deleting it IS the baseline - one binary, one tip, byte-identical default prompt, and the overlay text is committed with the row as the arm's instrument. Caveat: the overlay REPLACES the built-in fragment rather than appending, so the file must carry the writer sentence too.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "With no overlay file present the composed acting-seat prompt is byte-identical to the pre-arc composition, and tests/snapshots/prompttext_v1.txt is unchanged by the whole prose arm.",
+          "status": "rejected",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the arm's row cites the overlay file's sha256; the baseline run asserts no .colleague/agents/writer.md exists",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Restoring subagent/subagents to the acting seat is now an ALLOWED fourth lever (operator, 2026-08-29) but it REVERSES a recorded design constraint and must be recorded as such, never slipped in: #443's 'Design constraint (from row 48): replace, don't add' and the measured basis for it (row 48: adding surface cost 3.31x wall / 1.41x turns with 2x reasoning chars and bought zero delegations). If restored, the existing 174-word prompt section becomes CORRECT with no prompt edit at all - which makes 'restore the tools' and 'fix the prompt' two alternative repairs of the same defect, and they must be measured as separate arms, never bundled.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "A restore-subagents arm and a fix-the-prompt arm are never run as one branch: each row names exactly one of the two repairs, and if both eventually ship the doc states which one the delegation number is attributable to.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "if this lever is taken, CLAUDE.md's scope line and docs/features/purpose-tools.md record the reversal of 'replace, don't add' with the row that justified it and the row that overturned it",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "assumption",
+      "text": "#438 is four small, separable changes, not a rewrite: bound the blocking fallback with the same StreamGuards (vllm_openai.py:719,782-783), gate backpressure's timeout doubling on guards-armed (loop.py:1928-1931), treat SSE keepalive lines as non-activity in the idle guard (streamguards.py:107-110), and extend runcounts.finalize to tally stream-guard trips alongside loop-guard trips (runcounts.py:76-85) so stalls-cut/stalls-escaped becomes an artifact number the arm rows can cite.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "After the #438 work, a stalled turn on the blocking-fallback path trips a guard within its bound (demonstrated by a real-socket drip-feed test, not a mock), and the artifact carries a stream-guard trip counter that a live-testing row can cite without reading the warnings array.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "each of the four lands with its own test; the blocking-fallback one needs the real-socket drip-feed test #438 guidance 1 asks for",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "decision",
+      "text": "The prose lever lives on the ROLE, not in a global section: the purpose-tool prose is the writer role's prompt_fragment, delivered for the arm as an operator overlay .colleague/agents/writer.md (roles.py:279-300,:368) and composed by layers.compose_role_prompt after the AGENTS layers. No change to default_system, no new SECTION_TABLE member, no snapshot regeneration - the pinned v1 default is untouched by the prose arm. This supersedes the composable-sections decision (c30, rejected).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "baseline run asserts no .colleague/agents/writer.md exists; branch arm cites the overlay file's sha256; both arms run the same tip",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "decision",
+      "text": "subagent/subagents restoration is a FOURTH arm in this arc, not a shipped default: the two tools return to the acting seat with the prompt left untouched (the existing 174-word section becomes correct by itself), and its delegation rate is measured against the prose and surface arms on the same brief. Row 48's 'replace, don't add' constraint gets a fair retest under purpose-tool conditions rather than being reversed on assertion.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the restore arm changes only roles._writer_allowlist's dropped set (and the four exact-set pins per c17); no prompt file changes in that arm",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Encouragement STRENGTH is an experimental variable, not a fixed doctrine. The prose arm runs three rungs on the same overlay mechanism, same tip, same binary: P0 = no overlay (today's 18-word writer fragment); P1 = descriptive-corrected (names the six purpose tools, no imperative verb - the current armed-facts register); P2 = actively encouraging (imperative guidance plus a worked hand-over -> review -> collect example written with code_survey, the HANDOVER_EXAMPLE shape but naming tools the seat actually holds). This is the first time active encouragement is tested at all: HANDOVER_EXAMPLE exists but is opt-in AND names subagent, a tool the acting seat does not have.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "The three rungs differ only in the overlay text: same tip, same env, same brief, and the row prints each overlay's sha256 alongside its delegation rate so P0/P1/P2 are attributable. If P2 raises turns without raising the delegation rate, that is recorded as delegation-for-its-own-sake and P2 fails.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "three overlay files committed with the row, each cited by sha256; the arm reports the delegation rate at P0, P1 and P2 so the answer is a gradient, not a single point",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "boundary",
+      "text": "FORCE and ENCOURAGE are different lines, and only force is excluded. #435's doctrine ('do not force delegation') is about the RUNTIME deciding - no automatic task-to-model routing, no harness-chosen child, the model still calls the tool explicitly. Imperative prose that recommends a purpose tool is not forcing: the model remains free to ignore it, and a wasted purpose call costs one step and a readable line (the purpose-tools h30 refusal-as-result rule). The descriptive-only register of delegation_text.armed_facts (previous frame c42/c44) was chosen for the RAW subagent surface and is not inherited by the typed purposes - it is superseded here for the overlay text specifically, and the reversal is recorded.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "No arm in this arc changes what the runtime decides: every purpose call in every artifact is a model-emitted tool call, and the fixed purpose -> role -> seat -> rung table is unchanged.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the runtime is unchanged in every arm: the AST guards in tests/test_purpose_tools_boundary.py and tests/test_thinking_effort_boundary.py pass, and no arm adds a code path that calls a purpose tool on the model's behalf",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "boundary",
+      "text": "The DEFAULT prompt still gains no words in this arc: all three prose rungs are delivered as operator role overlays (.colleague/agents/writer.md), so tests/snapshots/prompttext_v1.txt and default_system are untouched no matter how strongly P2 is worded. #437's cost lesson is honoured by keeping the text OUT of the default until a number justifies promoting it - which is c27's rule.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "With no overlay present, the composed acting-seat prompt is byte-identical to the pre-arc composition in every arm - demonstrated by rendering, not asserted.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "assert tests/snapshots/prompttext_v1.txt is unchanged across the whole arc: git diff on that file is empty at PR time",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "decision",
+      "text": "Promotion target: a winning prose rung moves into BUILTIN_ROLES['writer'].prompt_fragment (colleague/roles.py:199-207), not into the global v1 literal. The text then ships for every operator without an overlay file, stays PER-ROLE so it never reaches a seat that lacks the purpose tools, and leaves tests/snapshots/prompttext_v1.txt untouched. This supersedes the q2/c26 plan of editing the v1 literal for the purpose-tool prose; the stale-SUBAGENTS repair is a separate question decided by the fourth arm.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "on promotion: the writer fragment carries the winning text verbatim, tests/test_roles.py's writer-role coverage is updated, and the v1 snapshot is NOT regenerated",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether option 1 alone moves the delegation rate at all is unknown: no arm has ever run with the prompt naming the tools the seat actually holds. Rows 41-50 all ran with the stale SUBAGENTS section, so 'prose does not work' has never been tested with CORRECT prose.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Whether removing grep_search/glob (option 2's knob arm) makes cortex reach for code_survey or simply fall back to read_file+list_dir walks is unknown - the pre-arc surface was the norm for every run before v1.64.0 and no purpose tool existed then to compete with it.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "colleague/prompttext.py (V1_DEFAULT_SYSTEM lines 52-105; _SUBAGENTS lines 126-137; SECTION_TABLE lines 211-218; default_system lines 500-551)",
+      "finding": "The v1 default (660 words) and the adopted variant (1622 words) both contain the 174-word SUBAGENTS section naming subagent/subagents; neither mentions any of the six purpose tools. default_system returns V1_DEFAULT_SYSTEM for any variant outside {qwen,adopted,qwen-handover}, so the stale section ships on every default run. Editing text inside V1_DEFAULT_SYSTEM touches the byte-identical floor pinned by tests/snapshots/prompttext_v1.txt.",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "colleague/delegation_text.py:26-60 (armed_facts / apply_armed_facts)",
+      "finding": "The only purpose-tool prose that exists is one 49-word armed-facts sentence spliced onto web_survey/code_survey descriptions when the associate seat is armed; its docstring states the intent explicitly - 'it never tells the model to delegate, only describes the seat's nature' - with no imperative verb (decisions c42/c44). Confirms boundary c3: prose describes, never instructs.",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "github issue #437 (OPEN) 'Prompt text is the cost'",
+      "finding": "Measured arms: adopted prompt 2.30x wall / 1.38x turns (game) and 1.70x/1.60x (repo) vs main, ~3x reasoning chars; guidance 2 is to re-introduce adopted sections one at a time behind a measured arm on the same two briefs. This issue is the home for option 3 and the reason option 3 cannot be default-on.",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "github issues #435 and #443 (both CLOSED, merged as PR #447 / v1.66.0)",
+      "finding": "#435 records the operator's standing doctrine 'do not force delegation - document it and adjust' and its candidate adjustment 1 is literally 'a short when-to-delegate section in colleague/prompttext.py, measured on a survey-first brief'. #443 restates it: 'nothing forces delegation; the choice costs one call'. Both closed issues remain the doctrine of record for this arc.",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "docs/live-testing.md rows 49 and 50 (lines 113-114) + docs/live-testing/briefs/row49-purpose.md",
+      "finding": "Row 49: purpose calls 0/3, sub_results 0 - MISS; recorded reading 'on a three-small-file brief cortex reads the files itself; the purpose form does not lower the ask enough to be chosen'. Row 50: cortex fired web_survey x3 in its FIRST turn when the raw web tool was absent from its seat - delegation happened exactly where the alternative was removed - but MISSED the bar on a step-stall at step 7. The two rows are the empirical split between option 2 (works) and option 1/3 (untested).",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "docs/live-testing/briefs/row49-purpose.md (the brief text, section 'The brief')",
+      "finding": "The pre-registered brief names 'subagent / subagents' verbatim as the delegation affordance while the branch arm offers neither - the same absent-tool advertisement as the stale prompt section, inside the measurement instrument itself. Row 49's 0/3 result therefore cannot separate 'purpose form is unattractive' from 'the brief pointed at tools that were not there'.",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "github issue #438 (OPEN) 'Stall recovery' + docs/live-testing.md row 50 result",
+      "finding": "#438 documents 5 hangs in 15 game-benchmark runs, the 900 s stream-lifetime guard cutting 2 of 4, and two escaping via the blocking-fallback / raised-timeout path; its guidance 2 (retry-or-resume on a guard trip, knob COLLEAGUE_STALL_RETRY default 1) and guidance 5 (stalls-cut/stalls-escaped counter on the artifact) are exactly what row 50 needed and did not have.",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "github issue #446 (OPEN) + colleague/loop.py:345-356",
+      "finding": "Thinking continuity is a wire-shape change on the scout's own history and is orthogonal to tool CHOICE; #446 already carves it out of the purpose-tools arc as frame decision q8 / non-goal c41. Confirms it stays out here.",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "github issue #408 (OPEN) 'Tool-use overview', item 5 (description tuning for reasoning minds)",
+      "finding": "#408 records that edit_file's description 'actively routes traffic away from write_file and it works' and asks for the same intent applied to every description. That is the cheapest lever available to option 1/3 - the six purpose descriptions total 145 words today, four of the six carry no steer at all and three carry a steer-AWAY clause (use it for multi-file, and read_file for a single file).",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "colleague/purpose_schemas.py:60-95 (the six _DESC constants) + colleague/tools.py:582-631 (curate_schemas) + colleague/actingsurface.py:1-80",
+      "finding": "Purpose descriptions total 145 words (web_survey 28, code_survey 34, review 18, validate 17, plan 20, handover_to_colleague 28) against the prompt's 174-word SUBAGENTS section pointed at absent tools; purpose schemas are appended by curate_schemas only when a concrete role resolves (allow is not None), and actingsurface.curate_for_depth substitutes BUILTIN_ROLES['writer'] for a bare None at depth 0 so a bare run and --role writer offer the identical surface.",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "colleague/roles.py:133-146 (_writer_allowlist) + colleague/search_schemas.py:51,122-133 + live render of loop.curated_schemas under COLLEAGUE_TOOLS_LEGACY=1",
+      "finding": "The t5 swap dropped exactly {web, subagent, subagents}; every raw local-work alternative survives on cortex - read_file, list_dir, grep_search, glob, run_command, run_tests, check_test_integrity, write_file, edit_file - so code_survey competes with grep_search+read_file, validate competes with run_tests and review competes with read_file. COLLEAGUE_TOOLS_LEGACY=1 already removes the grep_search/glob pair uniformly, giving option 2 a knob-only arm.",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "tests/test_roles.py:126-155,294-304,352-367 + tests/test_purpose_tools_byte_identical.py:88-100,148,172,194-200 + tests/test_agents_tools.py:52,84,89-92 + tests/test_actingsurface.py:54-93,168,207,222",
+      "finding": "Four files carry exact-set pins on the acting allow-list and one (test_actingsurface.py) carries disjointness pins only; a knob-scoped arm touches none of them, a permanent removal touches all four. This is the concrete cost difference between measuring option 2 and shipping it.",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "colleague/agents/tools.py:138-170 (PURPOSE_TOOLS profiles) + colleague/tools.py:634-687 (narrow_role_by_tool_set) + colleague/configlifecycle.py:104,173",
+      "finding": "A second no-new-mechanism lever exists: agents mode's WORKER_TOOLS profile (COLLEAGUE_AGENTS + agents_profile='worker') already drops write_file/edit_file/grep_search/glob/culture/devague/check_test_integrity while keeping the six purposes; and EpisodeConfigSnapshot.tool_set threads an applied worker.tools narrowing through the SAME composed value that feeds both curate_schemas and ToolExecutor's refusal half. THINKER_CODER_TOOLS/ASSOCIATE_TOOLS are identical to the writer surface, so arming agents with those narrows nothing.",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "scripts/compare_arms.py:66-78,199-201,229-258,315,351-363 (explored via ask-colleague explore d40fed8ef720, read-only)",
+      "finding": "delegations counts steps[].tool membership in DELEGATION_TOOLS = (subagent,subagents) + PURPOSE_TOOL_NAMES imported from colleague.purpose_schemas; associate_calls reads four served-model/role locations; the bar is two flags with defaults 0.7/0.8 that the purpose rows override to 1.2/1.0. No harness change is needed to measure any of the three options - only the row and the brief are new.",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "github issue #421 (OPEN, pre-registered thinking-effort arm) + #417 (cortex requests run at xhigh by default)",
+      "finding": "A parallel pre-registered arm design already exists in the tracker (3 brief shapes x {off,medium,xhigh} x n=5) and #417 records that cortex runs at xhigh by default with low/medium not reliably cheaper - so effort is a live confound for any delegation arm: the same brief at a different rung may change whether cortex bothers to delegate. The arm must pin the rung explicitly rather than inherit it.",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "tests/test_prompttext.py:71-74,141-146 + tests/test_prompttext_handover_example.py:38-44 + tests/test_knobs_byte_identical.py:305-316 + tests/test_search_schemas.py:232-238 + tests/snapshots/prompttext_v1.txt (explored via ask-colleague explore 0182179b8abb, citations re-verified directly)",
+      "finding": "Two byte-for-byte pins guard the default prompt and a third asserts each V1 paragraph is a verbatim substring of the qwen prompt; a fourth asserts 'grep_search' never appears in V1_DEFAULT_SYSTEM. Any edit to the Subagents paragraph breaks all three prompt pins and requires a deliberate snapshot regeneration - the cost is a changed fixture identity, not a hidden break.",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "colleague/prompttext.py:530-539 (default_system early return) + docs/features/adopt-from-qwen-code.md:229-234,257,272,333-336",
+      "finding": "The knobs table says COLLEAGUE_PROMPT_SECTIONS 'has no effect under COLLEAGUE_PROMPT_VARIANT=v1' and the code confirms it (the v1 early return precedes the sections read). adopt-from-qwen-code.md:257 also carries the standing delegation claim - 'Delegation is never chosen by the model on these briefs ... how much prompt guidance or role shaping that needs is a follow-up to adjust against these numbers' - which this arc is that follow-up to, and which must be updated with the measured rate.",
+      "seeds": [
+        "c24"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "docs/features/purpose-tools.md:46 + docs/features/adopt-from-qwen-code.md:39,222,229-234,257 (inventory partially delegated to ask-colleague explore de7f8d20b41a, which returned a meta-summary with the content dropped - re-done directly by grep)",
+      "finding": "The docs make three claim families this arc must update: the prompt-variant default and its measured cost (adopt-from-qwen-code.md:222,229-234,333), the standing 'delegation is never chosen ... a follow-up to adjust against these numbers' claim (:257), and purpose-tools.md:46's note that cortex added unprompted grep_search/glob turns while the associate seat idled. No doc currently claims the model is encouraged to call a purpose tool - the docs are honest today and must stay so.",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "colleague/roles.py:196-215 (writer prompt_fragment), :279-300 (_resolve_role_prompt), :355-375 (overlay applied) + colleague/layers.py:674-704 (compose_role_prompt fixed order)",
+      "finding": "Per-role prompts are a shipped, composed-per-role mechanism the arc can use instead of changing default_system: the writer fragment is 18 words, composes after AGENTS layers and before skills, and an operator file .colleague/agents/writer.md (or a per-model overlay) replaces it with no code change and no effect on the pinned v1 default. This is a strictly cheaper and better-targeted instrument than composable global sections.",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "colleague/streamguards.py:90-99,107-114,141-150 + colleague/engines/vllm_openai.py:53,360,574,719,782-783,1079 + colleague/loop.py:1722,1820-1841,1928-1931,3472-3510 + colleague/runcounts.py:41,76-85 (explored via ask-colleague explore 9a11eb6ccdcd, read-only)",
+      "finding": "#438's four guidance points map to four concrete sites: guards are armed only inside _post_json_stream (vllm_openai.py:574) from COLLEAGUE_STREAM_IDLE_TIMEOUT (240s) / COLLEAGUE_STREAM_MAX_LIFETIME (900s); the blocking fallback _stream_or_blocking (:719) falls back to a plain _post_json (:53) that never touches streamguards, so the guards genuinely do NOT bound it - bounded only by the urlopen request timeout; backpressure's _escalate_request_timeout (loop.py:1931 via _make_timeout_escalator :3472-3510) doubles config.timeout once and is NOT conditional on the guards being armed; and runcounts.finalize (:76-85) tallies only kind=='loop-guard' trips, so a StreamGuardTripped step-stall warning (loop.py:1820-1841) reaches the artifact as a warning but never as a counter.",
+      "seeds": [
+        "c28"
+      ]
+    }
+  ],
+  "lapses": []
+}
