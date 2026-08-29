@@ -64,6 +64,7 @@ from colleague import salvage, stallguard, streamguards
 from colleague import tae_loop as _tae
 from colleague import testintegrity as _testintegrity
 from colleague import toolbatch_loop as _toolbatch_loop
+from colleague import toolmarkup as _toolmarkup
 from colleague import turnbudget as _turnbudget
 from colleague import webbudget
 from colleague.agents import runtime as _agents_runtime
@@ -2199,6 +2200,11 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     tracks the last non-empty ``resp.content`` across ALL turns (including
     tool-call turns) — the t2 candidate ``run`` falls back to for the summary —
     via the mutable proxy so the frozen ``_Work`` binding stays intact.
+
+    Also COUNTS (never executes) tool calls the turn emitted as literal markup
+    text in its content (#360 / t6, :mod:`colleague.toolmarkup`): the harness
+    drops that text, which looks exactly like "the model ignored the tools", so
+    the count is what tells the two apart on the artifact.
     """
     ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
     ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
@@ -2207,6 +2213,7 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
     if resp.content:
         ctx._last_substantive[:] = [resp.content]
+        _runcounts.bump(ctx.result, "markup_tool_calls", _toolmarkup.count(resp.content))
     # Track the LAST turn's raw finish_reason (t1, c4/h4) — unconditional
     # (even a "" value overwrites), matching the wire's own semantics of "the
     # last completion's own reason", not merely the last non-empty one.

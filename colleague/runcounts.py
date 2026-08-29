@@ -1,6 +1,6 @@
 """Exact per-run harness counters on the artifact (plan t20, spec c43/h32).
 
-Six integers land on ``WorkStats.counts`` — the adopt-from-qwen-code
+Seven integers land on ``WorkStats.counts`` — the adopt-from-qwen-code
 mechanisms' own scoreboard, every one an exact count incremented by the code
 path that did the work (never estimated):
 
@@ -19,12 +19,16 @@ path that did the work (never estimated):
   (:mod:`colleague.streamguards`, #438 guidance 5 — derived from the
   ``step-stall`` warnings the loop records when a
   :class:`colleague.streamguards.StreamGuardTripped` rides its stall path,
-  naming ``stream-idle`` or ``stream-lifetime``).
+  naming ``stream-idle`` or ``stream-lifetime``);
+* ``markup_tool_calls`` — tool calls a turn emitted as literal markup TEXT in
+  its content instead of on the wire (:mod:`colleague.toolmarkup`, plan t6 /
+  #360 — bumped live per turn by ``loop._account_turn``). A **count only**: no
+  markup is ever executed or converted into a tool call.
 
 Shape rule (all-engines, c19/h14): ``WorkStats.to_dict`` emits the ``counts``
 block ONLY when at least one counter is non-zero, so a run that never touched
 a mechanism — every ``mock`` run today — keeps the pre-arc 14-key stats
-block byte-for-byte. :func:`counts_of` gives readers the full six-key view
+block byte-for-byte. :func:`counts_of` gives readers the full seven-key view
 with zeros filled in.
 """
 
@@ -32,7 +36,7 @@ from __future__ import annotations
 
 from typing import Any
 
-#: The six counter keys, in artifact order.
+#: The seven counter keys, in artifact order.
 KEYS: tuple[str, ...] = (
     "batches_run",
     "calls_parallelised",
@@ -40,6 +44,7 @@ KEYS: tuple[str, ...] = (
     "outputs_spilled",
     "guard_trips",
     "stream_guard_trips",
+    "markup_tool_calls",
 )
 
 #: Warning kinds whose records the finalizer folds into a counter.
@@ -64,7 +69,7 @@ def bump(result: Any, key: str, n: int = 1) -> None:
 
 
 def counts_of(result: Any) -> dict[str, int]:
-    """The six counters with zeros filled in — the reader-side view."""
+    """The seven counters with zeros filled in — the reader-side view."""
     counts = getattr(getattr(result, "stats", None), "counts", None) or {}
     return {key: int(counts.get(key, 0)) for key in KEYS}
 
