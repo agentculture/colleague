@@ -25,7 +25,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -90,6 +90,16 @@ class _Server:
 
 def _stream(url: str, timeout: float) -> ModelResponse:
     return vllm_openai._post_json_stream(
+        url,
+        {"model": "m", "messages": [], "stream": True},
+        api_key="k",
+        timeout=timeout,
+        on_delta=lambda _s: None,
+    )
+
+
+def _stream_or_blocking(url: str, timeout: float) -> ModelResponse:
+    return vllm_openai._stream_or_blocking(
         url,
         {"model": "m", "messages": [], "stream": True},
         api_key="k",
@@ -214,6 +224,133 @@ def test_drip_feed_trips_the_lifetime_guard(monkeypatch) -> None:
     assert excinfo.value.guard == "stream-lifetime"
     assert excinfo.value.bound == pytest.approx(0.6)
     assert 0.6 <= elapsed < 3.0, elapsed
+
+
+# --- the blocking fallback is bounded by the SAME guards (#438) --------------
+
+
+def test_fallback_drip_feed_trips_the_idle_guard(monkeypatch) -> None:
+    """The non-streaming fallback of ``_stream_or_blocking`` must be bounded by
+    the SAME StreamGuards the streaming reader gets — not a plain
+    ``response.read()`` that hangs until the request timeout.
+
+    Real socket, never a mock: the first request is an SSE stream that closes
+    with no terminal frame (``_StreamIncomplete`` — a fallback-eligible
+    failure), so the turn degrades to ONE blocking POST. That blocking POST
+    drips a JSON body one byte at a time, never a newline — the exact shape a
+    fake iterable stream hides (the fake-streams-hide-blocking-reader-bugs
+    lesson). The idle guard must trip within its bound, promptly, instead of
+    the turn sitting out the full 10s request timeout.
+    """
+    monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "0.4")
+    monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "30")
+
+    body = json.dumps(
+        {
+            "choices": [
+                {"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}
+            ]
+        }
+    ).encode()
+
+    def script(write, request_no):
+        if request_no == 1:
+            # Streaming attempt: one real frame, then the connection closes
+            # with NO terminal frame -> _StreamIncomplete -> fallback.
+            write(_frame("partial"))
+            return
+        # Blocking fallback: drip the JSON body byte by byte, never a newline.
+        for b in body:
+            write(bytes([b]))
+            time.sleep(0.01)
+
+    # _Server's Handler closes over ``outer.script``; wrap it to count calls.
+    request_no = 0
+
+    def counting_script(write):
+        nonlocal request_no
+        request_no += 1
+        script(write, request_no)
+
+    with _Server(counting_script) as url:
+        start = time.monotonic()
+        with pytest.raises(streamguards.StreamGuardTripped) as excinfo:
+            _stream_or_blocking(url, timeout=10.0)  # request timeout is LARGER than the idle bound
+        elapsed = time.monotonic() - start
+    assert excinfo.value.guard == "stream-idle"
+    assert excinfo.value.bound == pytest.approx(0.4)
+    # Tripped at the idle bound on the fallback's drip, not at the 10s request timeout.
+    assert 0.4 <= elapsed < 3.0, elapsed
+
+
+def test_fallback_shares_the_streaming_guards_object(monkeypatch) -> None:
+    """``_stream_or_blocking`` builds ONE guard object per turn and hands the
+    SAME one to the streaming reader and the blocking fallback — the fallback
+    is not unguarded, and the turn does not re-read the knobs a second time.
+    """
+    # A generous idle bound: this test asserts object SHARING, not a trip —
+    # the fallback's JSON body carries no newline, so the idle clock (which
+    # only restarts on a non-comment payload LINE) would otherwise be a
+    # flaky source of trips on slow CI.
+    monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "30")
+    monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "30")
+
+    from_env_calls: list[Any] = []
+    real_from_env = streamguards.StreamGuards.from_env  # bound classmethod: no cls needed
+
+    def counting_from_env(cls: Any, *args: Any, **kwargs: Any) -> Any:
+        guards = real_from_env(*args, **kwargs)
+        from_env_calls.append(guards)
+        return guards
+
+    monkeypatch.setattr(streamguards.StreamGuards, "from_env", classmethod(counting_from_env))
+
+    stream_guards: list[Any] = []
+    real_post_json_stream = vllm_openai._post_json_stream
+
+    def capturing_post_json_stream(url, payload, **kwargs):
+        stream_guards.append(kwargs.get("guards"))
+        return real_post_json_stream(url, payload, **kwargs)
+
+    monkeypatch.setattr(vllm_openai, "_post_json_stream", capturing_post_json_stream)
+
+    fallback_guards: list[Any] = []
+    real_post_json = vllm_openai._post_json  # capture BEFORE patching: the autouse
+    # _sse_bridge_over_blocking_stubs fixture dispatches through the module-level
+    # _post_json, so a wrapper that re-reads it would recurse.
+
+    def capturing_post_json(url, payload, **kwargs):
+        fallback_guards.append(kwargs.get("guards"))
+        return real_post_json(url, payload, **kwargs)
+
+    monkeypatch.setattr(vllm_openai, "_post_json", capturing_post_json)
+
+    body = json.dumps(
+        {
+            "choices": [
+                {"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}
+            ]
+        }
+    ).encode()
+    request_no = 0
+
+    def script(write):
+        nonlocal request_no
+        request_no += 1
+        if request_no == 1:
+            write(_frame("partial"))  # no terminal frame -> fallback
+            return
+        write(body)
+
+    with _Server(script) as url:
+        _stream_or_blocking(url, timeout=10.0)
+    # Exactly ONE guard object per turn, and BOTH paths got that SAME object.
+    assert len(from_env_calls) == 1
+    assert from_env_calls[0].idle == 30.0
+    assert len(stream_guards) == 1
+    assert stream_guards[0] is from_env_calls[0]
+    assert len(fallback_guards) == 1
+    assert fallback_guards[0] is from_env_calls[0]
 
 
 def test_guards_disabled_drip_completes_and_timeout_semantics_unchanged(monkeypatch) -> None:
