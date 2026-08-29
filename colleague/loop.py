@@ -1922,10 +1922,12 @@ def _record_turn_latency(ctx: _Work, seconds: float) -> None:
         existing = ctx.result.capacity_warning
         ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
         _emit_phase(ctx, note)
-        # #268 ask 2: the harness saw the timeout coming — raise the per-turn
-        # timeout NOW (bounded, once) instead of pushing "raise COLLEAGUE_TIMEOUT"
-        # to the caller after the work is lost.
-        _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
+        # #268 ask 2 / #438 guidance 3: raise the per-turn timeout NOW (bounded,
+        # once) — suppressed while the stream guards are armed; the reactive
+        # turn-timeout raise is unchanged.
+        if streamguards.StreamGuards.from_env() is None:
+            _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
+            _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
 
 
 def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
