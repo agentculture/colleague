@@ -51,12 +51,25 @@ _CONTENT_TYPE_JSON = "application/json"
 
 
 def _post_json(
-    url: str, payload: dict[str, Any], *, api_key: str, timeout: float
+    url: str,
+    payload: dict[str, Any],
+    *,
+    api_key: str,
+    timeout: float,
+    guards: Any = None,
 ) -> dict[str, Any]:
     """POST ``payload`` as JSON and parse the JSON response (OpenAI wire format).
 
     Isolated at module scope so tests monkeypatch it to drive the loop without a
     live server.
+
+    *guards* (c12, #438): when given, the response body is read through
+    ``streamguards.guarded_lines`` — the SAME idle/lifetime watchdogs the
+    streaming reader gets — so a drip-feeding server on the blocking path
+    (the ``_stream_or_blocking`` fallback) trips a guard within its bound
+    instead of hanging until the request timeout. ``None`` (the default, and
+    every call site that does not share a turn's guards) reads the body
+    exactly as before.
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -69,7 +82,9 @@ def _post_json(
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
-            return json.loads(response.read().decode("utf-8"))
+            if guards is None:
+                return json.loads(response.read().decode("utf-8"))
+            return json.loads(b"".join(streamguards.guarded_lines(response, guards)).decode("utf-8"))
     except TimeoutError as exc:
         _raise_legible_timeout(url, timeout, exc)
     except urllib.error.HTTPError as exc:
@@ -533,6 +548,7 @@ def _post_json_stream(
     api_key: str,
     timeout: float,
     on_delta: Callable[[str], None],
+    guards: Any = None,
 ) -> ModelResponse:
     """POST *payload* (already carrying ``stream``/``stream_options``) and
     incrementally assemble a :class:`ModelResponse` from Server-Sent Events,
@@ -557,6 +573,11 @@ def _post_json_stream(
     already does for a response with no ``usage`` key (:func:`_parse_response`,
     ``ModelResponse.prompt_tokens``/``completion_tokens`` are plain ``int``
     fields, not ``Optional``) — never an estimate.
+
+    *guards* (c12, #438): the turn's :class:`streamguards.StreamGuards`, when
+    the caller (:func:`_stream_or_blocking`) wants the SAME object shared with
+    the blocking fallback; ``None`` (the default, and every direct call)
+    builds one from the environment exactly as before.
     """
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -571,7 +592,8 @@ def _post_json_stream(
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
-            guards = streamguards.StreamGuards.from_env(base_timeout=timeout)  # c12
+            if guards is None:
+                guards = streamguards.StreamGuards.from_env(base_timeout=timeout)  # c12
             for frame in _iter_sse_frames(response, terminal=terminal_marker, guards=guards):
                 _apply_stream_frame(frame, acc, on_delta)
             if not terminal_marker[0] and not acc.saw_finish_reason:
@@ -769,9 +791,20 @@ def _stream_or_blocking(
     A failing blocking attempt propagates ITS OWN error unchanged (already
     legible via :func:`_post_json`'s own wrapping) — the loop's existing
     degradation path handles it exactly as it does today.
+
+    The turn's :class:`streamguards.StreamGuards` (c12, #438) is built ONCE
+    here and shared by BOTH paths: the streaming reader and the blocking
+    fallback read through the same guard object, so a drip-feeding server on
+    the fallback trips the idle/lifetime bound within the turn's own clock
+    instead of hanging until the request timeout. The lifetime clock starts
+    at the turn, not at the fallback — a turn that already spent time on the
+    stream attempt does not get a fresh lifetime window for the retry.
     """
+    guards = streamguards.StreamGuards.from_env(base_timeout=timeout)
     try:
-        return _post_json_stream(url, payload, api_key=api_key, timeout=timeout, on_delta=on_delta)
+        return _post_json_stream(
+            url, payload, api_key=api_key, timeout=timeout, on_delta=on_delta, guards=guards
+        )
     except urllib.error.HTTPError as exc:
         if not _is_stream_unsupported_http_error(exc):
             raise
@@ -779,7 +812,9 @@ def _stream_or_blocking(
     except _STREAM_FALLBACK_ERRORS as exc:
         _emit_stream_fallback_notice(f"{type(exc).__name__}: {exc}")
 
-    data = _post_json(url, _blocking_payload(payload), api_key=api_key, timeout=timeout)
+    data = _post_json(
+        url, _blocking_payload(payload), api_key=api_key, timeout=timeout, guards=guards
+    )
     return _parse_response(data)
 
 
