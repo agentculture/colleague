@@ -246,11 +246,7 @@ def test_fallback_drip_feed_trips_the_idle_guard(monkeypatch) -> None:
     monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "30")
 
     body = json.dumps(
-        {
-            "choices": [
-                {"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}
-            ]
-        }
+        {"choices": [{"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}]}
     ).encode()
 
     def script(write, request_no):
