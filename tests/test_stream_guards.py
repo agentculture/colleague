@@ -6,7 +6,7 @@ watchdog (openaiContentGenerator/constants.ts:1-68, pipeline.ts:412-530)
 adds two independent guards; these tests pin colleague's port:
 
 - ``COLLEAGUE_STREAM_IDLE_TIMEOUT`` (default 240s) and
-  ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 900s) are read in the stream
+  ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 1800s) are read in the stream
   reader; ``0`` disables either;
 - a trip raises the existing :class:`stallguard.TurnStalled` path and the
   run's ``TaskResult.warnings`` names WHICH guard tripped;
@@ -106,7 +106,7 @@ def test_defaults_and_zero_disables(monkeypatch) -> None:
     monkeypatch.delenv("COLLEAGUE_STREAM_MAX_LIFETIME", raising=False)
     guards = streamguards.StreamGuards.from_env()
     assert guards.idle == 240.0
-    assert guards.lifetime == 900.0
+    assert guards.lifetime == 1800.0
     monkeypatch.setenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", "0")
     monkeypatch.setenv("COLLEAGUE_STREAM_MAX_LIFETIME", "0")
     assert streamguards.StreamGuards.from_env() is None

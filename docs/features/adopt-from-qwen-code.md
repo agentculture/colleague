@@ -118,7 +118,8 @@ edited net-zero under the file-length ratchet (`tests/test_file_length_ratchet.p
   adapted-from `services/microcompaction/microcompact.ts:14,40-64`,
   `services/chatCompressionService.ts:109-124`.
 - **Stream guards (c12, `colleague/streamguards.py`).** `COLLEAGUE_STREAM_IDLE_TIMEOUT`
-  (240 s) and `COLLEAGUE_STREAM_MAX_LIFETIME` (900 s) beside the request
+  (240 s) and `COLLEAGUE_STREAM_MAX_LIFETIME` (1800 s, raised from 900 s after
+  the purpose-tools-get-chosen wave-1 runs were cut mid-build) beside the request
   timeout; 0 disables; a trip surfaces as the existing `TurnStalled` path with
   the guard named on `TaskResult.warnings`; stallguard's 6×-mean scaling is
   retired for the fixed floor. adapted-from

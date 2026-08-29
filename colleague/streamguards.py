@@ -13,7 +13,7 @@ independent guards close that:
 - ``COLLEAGUE_STREAM_IDLE_TIMEOUT`` (default 240s) — seconds with NO bytes
   arriving. The request timeout already bounds each read, so this guard only
   fires when it is the NEARER bound; the request timeout keeps its meaning.
-- ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 900s) — seconds since the stream
+- ``COLLEAGUE_STREAM_MAX_LIFETIME`` (default 1800s) — seconds since the stream
   opened, regardless of activity.
 
 ``0``, a negative, a non-finite (``inf``/``nan``), or an unparsable value
@@ -42,7 +42,7 @@ __all__ = ["StreamGuards", "StreamGuardTripped", "guarded_lines", "stall_notice"
 IDLE_ENV = "COLLEAGUE_STREAM_IDLE_TIMEOUT"
 LIFETIME_ENV = "COLLEAGUE_STREAM_MAX_LIFETIME"
 IDLE_DEFAULT = 240.0
-LIFETIME_DEFAULT = 900.0
+LIFETIME_DEFAULT = 1800.0
 _KNOB = {"stream-idle": IDLE_ENV, "stream-lifetime": LIFETIME_ENV}
 
 

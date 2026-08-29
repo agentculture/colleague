@@ -276,7 +276,7 @@ def test_stream_guards_on_arms_watchdog(monkeypatch: pytest.MonkeyPatch) -> None
     assert streamguards.StreamGuards.from_env() is None
 
     monkeypatch.delenv("COLLEAGUE_STREAM_IDLE_TIMEOUT", raising=False)  # on: default 240s
-    monkeypatch.delenv("COLLEAGUE_STREAM_MAX_LIFETIME", raising=False)  # on: default 900s
+    monkeypatch.delenv("COLLEAGUE_STREAM_MAX_LIFETIME", raising=False)  # on: default 1800s
     guards = streamguards.StreamGuards.from_env()
     assert guards is not None
     assert guards.idle == streamguards.IDLE_DEFAULT
