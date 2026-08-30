@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.71.0] - 2026-08-31
+
+### Added
+
+- The hire increment (t9-t18/t20, the twelfth sanctioned surface): `hire_colleague`/`assign_to_colleague` behind `COLLEAGUE_HIRE` (default OFF, byte-identical unset) — Hire/Roster (cap 4) with a prompt-never-grants hired role, a bounded two-round tools-off negotiation, one child per assignment, `TaskResult.hires` (omit-when-empty), a refs-not-payloads ledger event, hires dead at every continuation cut; confinement: children, agents-mode sets and the batch pool never hold the pair. Evidence-trail digests on the survey purposes (path:start-end + <=5-line excerpt + commands run; parent-side uncited marker). compare_arms hires/assignments columns. Rows 64c + 65 pre-registered, run and recorded: the digest shape PASSES its ranged rule 3/3 (26/28 ranged post-digest reads vs row 63 zero); the hire arm records hires 0/3 with the armed surface inside both cost bars — COLLEAGUE_HIRE stays default-OFF on that evidence.
+
+### Fixed
+
+- _CITATION_RE accepts table/en-dash citation formats (row 64c: 10/12 real digests were format false-negatives).
+
 ## [1.70.0] - 2026-08-30
 
 ### Added

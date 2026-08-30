@@ -57,14 +57,36 @@ tools before it.
 |---|---|---|
 | `COLLEAGUE_HIRE` / config.json `hire` (bare bool or `{"enabled": …}`) | OFF | offer the two tools + the one prompt sentence; unset = byte-identical |
 
-## Measurement (row 65 — PENDING)
+## Measurement (row 65 — recorded 2026-08-31)
 
-Pre-registered in `docs/live-testing.md` row 65: arm H (`COLLEAGUE_HIRE=1`)
-vs control on the repeated-sub-tasks brief, n=3 each, numeric bars on
-hires/assignments, accept/amend/decline counts per hire as a cell, 0/3
-declared publishable. This section gains the measured counts and the honest
-limits (the two challenge parks: self-negotiation theatre, A7 generality)
-when t17 records the row — nothing here claims a result before it exists.
+Arm H (`COLLEAGUE_HIRE=1`) vs control, n=3 each, interleaved, on the
+repeated-sub-tasks brief (eight identical-shape package audits):
+
+- **hires 0/3, assignments 0/3** — cortex never called the lane; no
+  negotiation ever started (accept/amend/decline: n/a). Pre-declared
+  publishable; recorded as the finding.
+- Task success 6/6 `ok`, **8/8 contradictions vs the answer key in every
+  run**, one docstring fixed each; the armed surface cost nothing
+  measurable (wall_ratio 1.117, turns_ratio 0.939 — both bars pass).
+- Validity: the armed/unarmed prompt-digest pair (`b348c6ff…`/`b7491476…`)
+  reproduced exactly through the composition path; controls never saw the
+  tool names.
+
+The decision this supports: `COLLEAGUE_HIRE` stays **default-OFF**. The
+amortisation hypothesis is untested above the in-seat capacity ceiling —
+the brief fits in one seat (~49.6k tokens), and rows 51–58 already showed
+a brief cortex can hold produces zero delegation of ANY form; a
+larger-than-seat repeated-shape brief is the parked follow-up.
+
+## Honest limits (measurement)
+
+- **Self-negotiation theatre is unobserved, not refuted** (challenge park):
+  no negotiation ran outside the mock tests, so the accept/amend/decline
+  dynamics on a live model are unmeasured.
+- The zero is a FLOOR on this brief shape, not "the tool is never chosen"
+  — the same limit rows 51–58 recorded for the purpose tools.
+- One H attempt was VOIDED for a runner env bug (`hire=unset`), caught by
+  the log's per-run env echo and re-run; details in row 65.
 
 ## Honest limits (build-time)
 
