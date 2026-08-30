@@ -19,6 +19,7 @@ LAZILY inside functions for the shared helpers (``_pick``, ``_try_int``,
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,7 +47,104 @@ _ASSOCIATE_DEFAULT_WINDOW = 131072
 ASSOCIATE_WIRE_MODEL = "associate"
 
 # Recognised keys inside the NESTED "associate" section of .colleague/config.json (t18).
-_ASSOCIATE_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget"})
+_ASSOCIATE_CONFIG_KEYS = frozenset(
+    {
+        "model",
+        "base_url",
+        "api_key",
+        "context_budget",
+        "profile",
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "thinking",
+    }
+)
+
+
+@dataclass(frozen=True)
+class AssociateProfile:
+    """The sampling/thinking profile an associate seat sends (t23, decisions
+    c49/c50 — the operator's MEASURED contract for the Nemotron lane).
+
+    ``max_tokens`` ``None`` = the key is OMITTED from the payload (a small cap
+    with thinking on returned empty content under HTTP 200); ``enable_thinking``
+    is Nemotron's boolean template toggle, sent instead of the Qwen ladder key.
+    """
+
+    name: str
+    temperature: float
+    top_p: float
+    enable_thinking: bool
+    max_tokens: "int | None"
+
+
+#: The FIXED profile table. ``depth`` (research, survey, code location — every
+#: colleague associate lane, since they all need reasoning) is the default;
+#: ``triage`` (a bounded answer, thinking off, temperature 0.2) is reachable
+#: only through an explicit operator override — never a colleague default and
+#: never a per-turn choice.
+ASSOCIATE_PROFILES: "dict[str, AssociateProfile]" = {
+    "depth": AssociateProfile(
+        "depth", temperature=0.6, top_p=0.95, enable_thinking=True, max_tokens=None
+    ),
+    "triage": AssociateProfile(
+        "triage", temperature=0.2, top_p=0.95, enable_thinking=False, max_tokens=2048
+    ),
+}
+DEFAULT_ASSOCIATE_PROFILE = "depth"
+
+
+def resolve_associate_profile(file_associate: "dict[str, str]") -> AssociateProfile:
+    """The seat's profile: ``COLLEAGUE_ASSOCIATE_PROFILE`` > config.json
+    ``associate.profile`` > ``depth``; then per-value overrides
+    (``COLLEAGUE_ASSOCIATE_TEMPERATURE`` / ``_TOP_P`` / ``_MAX_TOKENS`` /
+    ``_THINKING``, or the same keys in the section) replace single fields. An
+    unknown profile name or an unparseable value is ignored (the default
+    stands) — a misspelt knob never refuses a run.
+    """
+    from colleague import config as _cfg  # lazy: config imports this module
+
+    name = _cfg._pick(
+        None, "COLLEAGUE_ASSOCIATE_PROFILE", default=file_associate.get("profile", "")
+    )
+    name = (name or "").strip().lower() or DEFAULT_ASSOCIATE_PROFILE
+    profile = ASSOCIATE_PROFILES.get(name, ASSOCIATE_PROFILES[DEFAULT_ASSOCIATE_PROFILE])
+    raw_t = _cfg._pick(
+        None, "COLLEAGUE_ASSOCIATE_TEMPERATURE", default=file_associate.get("temperature", "")
+    )
+    raw_p = _cfg._pick(None, "COLLEAGUE_ASSOCIATE_TOP_P", default=file_associate.get("top_p", ""))
+    raw_m = _cfg._pick(
+        None, "COLLEAGUE_ASSOCIATE_MAX_TOKENS", default=file_associate.get("max_tokens", "")
+    )
+    raw_k = _cfg._pick(
+        None, "COLLEAGUE_ASSOCIATE_THINKING", default=file_associate.get("thinking", "")
+    )
+    kwargs: dict = {}
+    for key, raw, cast_ in (("temperature", raw_t, float), ("top_p", raw_p, float)):
+        try:
+            if str(raw).strip():
+                kwargs[key] = cast_(str(raw).strip())
+        except ValueError:
+            pass
+    if str(raw_m).strip():
+        try:
+            value = int(str(raw_m).strip())
+            kwargs["max_tokens"] = value if value > 0 else None
+        except ValueError:
+            pass
+    if str(raw_k).strip():
+        kwargs["enable_thinking"] = str(raw_k).strip().lower() in ("1", "true", "yes", "on")
+    return dataclasses.replace(profile, **kwargs) if kwargs else profile
+
+
+def _with_profile(
+    resolved: "AssociateConfig | None", file_associate: "dict[str, str]"
+) -> "AssociateConfig | None":
+    """Stamp the resolved profile (t23) onto a resolved seat; ``None`` passes through."""
+    if resolved is None:
+        return None
+    return dataclasses.replace(resolved, profile=resolve_associate_profile(file_associate))
 
 
 @dataclass(frozen=True)
@@ -71,6 +169,8 @@ class AssociateConfig:
     api_key: str
     context_budget: int
     wire_model: str = ASSOCIATE_WIRE_MODEL
+    #: The sampling/thinking profile the seat sends (t23); ``depth`` by default.
+    profile: AssociateProfile = ASSOCIATE_PROFILES["depth"]
 
     @property
     def addressed_as_role(self) -> bool:
@@ -250,4 +350,4 @@ def resolve_associate_seat(
         resolved = associate_lobes_fallback(
             lobes_roles, lobes_gateway_url, main_base_url, main_api_key, file_associate
         )
-    return resolved
+    return _with_profile(resolved, file_associate)

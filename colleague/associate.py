@@ -56,6 +56,7 @@ ROLE_WIRE_ALIASES = frozenset({ASSOCIATE_WIRE_MODEL})
 # Like ``reasoning_effort_seat``, ``dataclasses.replace`` drops them — a copy
 # that never set them is not an associate seat.
 _SERVED_MODEL_ATTR = "associate_served_model"
+_PROFILE_ATTR = "associate_profile"
 _WIRE_FALLBACK_ATTR = "associate_wire_fallback_model"
 
 
@@ -150,6 +151,9 @@ def associate_engine_config(
         )
     setattr(seat, "reasoning_effort_seat", rung)
     setattr(seat, _SERVED_MODEL_ATTR, assoc.model)
+    # t23: the seat carries its sampling/thinking profile; the payload builder
+    # and the turn budget read it (cortex carries none — byte-identical).
+    setattr(seat, _PROFILE_ATTR, assoc.profile)
     # The one-shot wire fallback exists only for a role-name-addressed seat.
     setattr(seat, _WIRE_FALLBACK_ATTR, assoc.model if assoc.addressed_as_role else None)
     return seat
@@ -160,6 +164,12 @@ def recorded_model(configured: str, served: str) -> str:
     was configured with a role-name alias (``associate``), else the configured
     id — a real model id is never overwritten by a served-model observation."""
     return served if (served and configured in ROLE_WIRE_ALIASES) else configured
+
+
+def seat_profile(config: object):
+    """The :class:`~colleague.associate_config.AssociateProfile` an associate seat
+    carries (t23), or ``None`` for every other seat."""
+    return getattr(config, _PROFILE_ATTR, None)
 
 
 def served_model_expected(config: object) -> Optional[str]:

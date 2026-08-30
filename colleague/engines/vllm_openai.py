@@ -1090,10 +1090,26 @@ class VllmOpenAIEngine(Engine):
         # None) — a vLLM/OpenAI-only extension key (CLAUDE.md's documented "vLLM
         # adapter only touches the OpenAI surface" carve-out), so a non-vLLM server
         # ignoring unknown keys behaves as today; nothing set = pre-#416 body.
-        effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
-        if effort_fragment:
-            payload["chat_template_kwargs"] = effort_fragment
+        profile = associate.seat_profile(config)  # t23: an associate seat's measured contract
+        if profile is not None:
+            # Nemotron's template takes the boolean toggle, not the Qwen ladder key;
+            # temperature/top_p come from the profile, never from cortex's config.
+            payload["temperature"] = profile.temperature
+            payload["top_p"] = profile.top_p
+            payload["chat_template_kwargs"] = {"enable_thinking": profile.enable_thinking}
+        else:
+            effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
+            if effort_fragment:
+                payload["chat_template_kwargs"] = effort_fragment
         limit = turnbudget.max_tokens_for(config, messages)  # t16 clamp; None = omit
+        if profile is not None:
+            # DEPTH omits max_tokens (a small cap returned empty content under 200);
+            # a profile cap is honoured only where the window clamp allows it.
+            limit = (
+                None
+                if profile.max_tokens is None
+                else (profile.max_tokens if limit is None else min(profile.max_tokens, limit))
+            )
         if limit is not None:
             payload["max_tokens"] = limit
         streaming = config.on_delta is not None or _headless_streaming_enabled()
