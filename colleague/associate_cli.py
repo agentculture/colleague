@@ -25,13 +25,14 @@ def config_show_lines(lines: list[str], cfg: object) -> dict[str, Any]:
         return {}
     how = "addressed as role name via proxy" if assoc.addressed_as_role else "explicit model id"
     prof = getattr(assoc, "profile", None)
-    prof_text = (
-        f"; profile {prof.name}: temperature {prof.temperature}, top_p {prof.top_p}, "
-        f"thinking {'on' if prof.enable_thinking else 'off'}, "
-        f"max_tokens {prof.max_tokens if prof.max_tokens is not None else 'omitted'}"
-        if prof is not None
-        else ""
-    )
+    prof_text = ""
+    if prof is not None:
+        thinking = "on" if prof.enable_thinking else "off"
+        max_tokens = "omitted" if prof.max_tokens is None else prof.max_tokens
+        prof_text = (
+            f"; profile {prof.name}: temperature {prof.temperature}, top_p {prof.top_p}, "
+            f"thinking {thinking}, max_tokens {max_tokens}"
+        )
     lines.append(f"associate → {assoc.model} ({how}{prof_text})")
     data: dict[str, Any] = {
         "served_model": assoc.model,

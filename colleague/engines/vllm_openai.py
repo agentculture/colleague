@@ -26,7 +26,15 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
 import colleague.turnbudget as turnbudget
-from colleague import associate, associate_seats, effort, stallguard, streamguards, tokenestimate
+from colleague import (
+    associate,
+    associate_config,
+    associate_seats,
+    effort,
+    stallguard,
+    streamguards,
+    tokenestimate,
+)
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult, prompt_digest_for
@@ -921,6 +929,31 @@ def _refreshed_model_id(
     return _same_role_call_time_refresh(config, role_name, exc)
 
 
+def _apply_associate_profile(
+    payload: "dict[str, Any]",
+    profile: "associate_config.AssociateProfile",
+    limit: "int | None",
+) -> "int | None":
+    """Write an associate seat's sampling contract (t23) onto *payload*.
+
+    Nemotron's template takes the boolean toggle, not the Qwen ladder key;
+    temperature/top_p come from the profile, never from cortex's config.
+    Returns the ``max_tokens`` limit to send: DEPTH omits it (a small cap
+    returned empty content under 200); a profile cap is honoured only where the
+    window clamp *limit* allows it. Extracted from
+    :meth:`VllmOpenAIEngine._build_chat_payload` (SonarCloud S3776/S3358);
+    byte-identical payloads in every case.
+    """
+    payload["temperature"] = profile.temperature
+    payload["top_p"] = profile.top_p
+    payload["chat_template_kwargs"] = {"enable_thinking": profile.enable_thinking}
+    if profile.max_tokens is None:
+        return None
+    if limit is None:
+        return profile.max_tokens
+    return min(profile.max_tokens, limit)
+
+
 def _effort_for(config: EngineConfig) -> "str | None":
     """The thinking-effort rung THIS completion's payload should carry (#416 t3).
 
@@ -1091,25 +1124,13 @@ class VllmOpenAIEngine(Engine):
         # adapter only touches the OpenAI surface" carve-out), so a non-vLLM server
         # ignoring unknown keys behaves as today; nothing set = pre-#416 body.
         profile = associate.seat_profile(config)  # t23: an associate seat's measured contract
+        limit = turnbudget.max_tokens_for(config, messages)  # t16 clamp; None = omit
         if profile is not None:
-            # Nemotron's template takes the boolean toggle, not the Qwen ladder key;
-            # temperature/top_p come from the profile, never from cortex's config.
-            payload["temperature"] = profile.temperature
-            payload["top_p"] = profile.top_p
-            payload["chat_template_kwargs"] = {"enable_thinking": profile.enable_thinking}
+            limit = _apply_associate_profile(payload, profile, limit)
         else:
             effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
             if effort_fragment:
                 payload["chat_template_kwargs"] = effort_fragment
-        limit = turnbudget.max_tokens_for(config, messages)  # t16 clamp; None = omit
-        if profile is not None:
-            # DEPTH omits max_tokens (a small cap returned empty content under 200);
-            # a profile cap is honoured only where the window clamp allows it.
-            limit = (
-                None
-                if profile.max_tokens is None
-                else (profile.max_tokens if limit is None else min(profile.max_tokens, limit))
-            )
         if limit is not None:
             payload["max_tokens"] = limit
         streaming = config.on_delta is not None or _headless_streaming_enabled()
