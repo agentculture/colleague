@@ -403,11 +403,11 @@ typed attributable messages, the append-only task ledger + per-agent
 reconstruction, an INDEPENDENT opt-in (`agents` / `COLLEAGUE_AGENTS`; arming it
 with either sibling mode REFUSES), byte-identical when unarmed; model switching
 ONLY through an explicit ledgered delegation — the runtime never picks a model
-per turn (pinned by an AST guard). `three_tier` is superseded by this increment
+per turn (pinned by an AST guard); (12) **the hire increment** (plan delegation-follow-ups-a7-p3-hire, D43/D44): `hire_colleague`/`assign_to_colleague` behind `COLLEAGUE_HIRE` (default OFF, byte-identical) — a run-scoped, roster-capped employee on a FIXED builtin base role whose authored prompt can never widen a surface; presentation + explicit calls, NEVER dispatch — the runtime never picks a hire, a model, or a moment; hires die at every continuation cut. Doc: `hire-colleague.md`. `three_tier` is superseded by this increment
 and kept as the benchmark baseline. NEVER an automatic task-to-model routing
 policy.
 
-Anything beyond those eleven is still the excluded router; document the distinction
+Anything beyond those twelve is still the excluded router; document the distinction
 honestly. **Still explicitly OUT**, each parked pending its own re-spec: the
 **retrieval-consumption lane of #277** (`embedder`/`reranker` roles are
 discoverable in the lobes `/capabilities` contract but colleague consumes only
