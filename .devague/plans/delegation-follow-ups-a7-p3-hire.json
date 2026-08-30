@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T11:23:18Z",
+  "updated": "2026-08-30T11:54:40Z",
   "targets": [
     {
       "id": "c1",
@@ -762,6 +762,21 @@
       ],
       "covers": [],
       "instruction": "Files: colleague/associate_config.py (_associate_budget_from_window stays; add the clamp seam), colleague/engines/vllm_openai.py (the run-start probe already records max_model_len per URL in _MAX_MODEL_LEN_BY_URL \u2014 apply it to config.context_budget_tokens for an associate-addressed seat before run()), colleague/associate.py (retry_role_alias guard + original-error re-raise), colleague/purpose_schemas.py (_record: fold child refresh warnings), tests/test_associate_window.py, tests/test_associate_config.py. Evidence: rows 62/64, #460 comments."
+    },
+    {
+      "id": "t23",
+      "summary": "Per-seat sampling for the associate (t23): let the deployment's tuning apply",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "The associate seat's completions carry temperature ONLY when an operator set one for that seat (COLLEAGUE_ASSOCIATE_TEMPERATURE / config.json associate.temperature); unset = the key is OMITTED from the payload so the Orin's configured default applies; cortex's own temperature is never inherited by the associate seat; a payload-builder test pins both branches",
+        "config show's associate line names the seat's temperature source ('deployment default' or the operator value); docs/features/associate-validation.md's precondition paragraph updated"
+      ],
+      "deps": [
+        "t22"
+      ],
+      "covers": [],
+      "instruction": "Files: colleague/associate_config.py (a temperature key on the nested associate section + env), colleague/associate.py (associate_engine_config: stamp a seat attribute the payload builder reads), colleague/engines/vllm_openai.py (_build_chat_payload: omit 'temperature' for a seat stamped 'deployment default'), colleague/associate_cli.py, tests/test_associate_window.py or a new tests/test_associate_sampling.py. Keep the main seat byte-identical (it still sends config.temperature)."
     }
   ],
   "risks": [
