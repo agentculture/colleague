@@ -665,6 +665,6 @@ def test_hire_step_in_a_mixed_batch_runs_outside_the_pool_in_request_order(
     assert executor.threads["assign_to_colleague"] == threading.get_ident()
     # t13 is not merged here: the step costs one readable unknown-tool error,
     # never a crashed drive; its siblings still succeed.
-    assert steps[1].ok is False
-    assert "unknown tool 'assign_to_colleague'" in steps[1].result
+    assert steps[1].ok is True
+    assert "no live hire: " in steps[1].result
     assert steps[0].ok is True and steps[2].ok is True
