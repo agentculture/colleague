@@ -66,6 +66,11 @@ _PRE_SENSES_TASKRESULT_KEYS = {
     "command",
     "not_finished",
     "stopped_without_finish",
+    # prompt_digest (plan task t7): the sha256 of the composed system
+    # prompt is UNCONDITIONAL observability — every run that composes a
+    # prompt carries it, so a live-testing row can attribute its prose
+    # arm. Omitted only when the backend composed no prompt at all.
+    "prompt_digest",
 }
 
 

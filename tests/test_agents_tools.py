@@ -88,6 +88,8 @@ def test_talker_is_empty_thinker_is_full_associate_is_coder_class() -> None:
     assert TALKER_TOOLS == frozenset()
     # t5: THINKER_CODER_TOOLS is the registry surface minus web/subagent/subagents
     # (replaced BY PURPOSE, operator decisions q9/q10), plus the six purposes.
+    # ARM 4 (plan t11) briefly restored the raw pair here; the arm matrix
+    # measured zero raw-pair calls in 21 runs, so the reversal was rejected.
     assert THINKER_CODER_TOOLS == frozenset(_FULL - {"web", "subagent", "subagents"}) | _PURPOSES
     assert ASSOCIATE_TOOLS == THINKER_CODER_TOOLS
     assert set(PURPOSE_TOOLS) == set(PURPOSES)

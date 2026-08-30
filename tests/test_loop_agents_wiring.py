@@ -148,6 +148,7 @@ def test_worker_purpose_is_narrowed_on_both_halves(tmp_path: Path) -> None:
     assert not (repo / "x.txt").exists()
     # t5 (q9/q10): thinker_coder no longer equals TOOL_NAMES (it loses
     # web/subagent/subagents and gains the six purposes), so it narrows too.
+    # Arm 4 (plan t11) restored the raw pair and was rejected on evidence.
     setattr(cfg, "agents_profile", "thinker_coder")
     thinker_role = loop.resolve_role(cfg, str(repo))
     assert thinker_role is not None

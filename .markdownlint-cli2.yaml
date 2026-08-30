@@ -37,6 +37,13 @@ ignores:
   # .convertible/ path is kept for the back-compat window.
   - ".colleague/**"
   - ".convertible/**"
+  # The prose-arm role overlays (plan t12) are staged copies of exactly that
+  # kind of payload: each is destined for `<repo>/.colleague/agents/writer.md`,
+  # its first line is the `effort: <rung>` frontmatter colleague/roles.py
+  # consumes, and every remaining byte is prompt text sent to the model. A
+  # leading H1 (MD041) would go on the wire and would break the arm's
+  # verbatim-body invariant — same category as `.colleague/**` above.
+  - "docs/live-testing/overlays/**"
   # tools/tui_sim recordings are generated verbatim by `python -m tools.tui_sim`
   # (asciinema casts + storyboards + snapshot-quad Markdown). The snapshot `.md`
   # is render_markdown() output carrying the live slash-help (`/engine <name>` →

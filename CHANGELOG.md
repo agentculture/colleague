@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.68.0] - 2026-08-30
+
+### Added
+
+- Prompt/surface unification (t5): one role resolution feeds both the composed system prompt and the curated tool surface, so an operator overlay at .colleague/agents/writer.md now reaches a bare run
+- markup_tool_calls run counter (t6) via the new colleague/toolmarkup.py — detection only, never execution, making #360 dropped-markup visible
+- TaskResult.prompt_digest (t7): a sha256 of the composed system prompt beside config_digest, omitted-when-None, so a prose arm is attributable from the artifact
+- actingsurface.strip_child_forbidden_tools / CHILD_FORBIDDEN_TOOLS (t11): a spawned child never inherits the raw subagent/subagents, independently of what the acting seat's allow-list carries — kept as defence in depth after arm 4 itself was rejected (see Changed)
+- The P0/P1/P2 prose overlays under docs/live-testing/overlays/ (t12) as staged experiment instruments, not shipped defaults
+- Live-testing rows 51-58: the row-49 validity re-run and the pre-registered 21-run arm matrix with its measured results
+
+### Changed
+
+- The default prompt now names the six typed purpose tools instead of subagent/subagents (t9, 174 -> 165 words); tests/snapshots/prompttext_v1.txt regenerated under deviation d1
+- docs/features/purpose-tools.md, docs/features/adopt-from-qwen-code.md and CLAUDE.md record the arc conclusion: neither the prose nor the surface lever moved the delegation rate; task shape did
+- Corrected two stale figures that reported allow-list name counts as rendered tool surfaces
+- Arm 4 (t11) REVERTED on its own evidence (Qodo 3888125915): the raw subagent/subagents are off the acting seat again and cortex/worker hold only the six typed purposes, because A4 measured 0/3 delegation with them present and no subagent/subagents call occurred in any of the 21 matrix runs; docs/features/purpose-tools.md and CLAUDE.md record the arm as tested-and-rejected rather than deleting it, and docs/live-testing.md rows 49-58 keep every measured figure
+
+### Fixed
+
+- COLLEAGUE_UPDATE_SNAPSHOTS=1 was a silent no-op because conftest scrubs COLLEAGUE_* before each test; the flag is now read at import time (#454)
+
 ## [1.67.0] - 2026-08-29
 
 ### Added

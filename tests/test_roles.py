@@ -133,7 +133,10 @@ class TestWriterRole:
         # role that is NOT part of the base SCHEMAS list — offered only via
         # curate_schemas(role, deepthink=True) (test_deepthink_tool.py). t5
         # (q9/q10): the writer additionally loses web/subagent/subagents
-        # (replaced BY PURPOSE) and gains the six purpose tools.
+        # (replaced BY PURPOSE) and gains the six purpose tools. ARM 4 (plan
+        # t11) briefly restored the raw delegation pair here; the arm matrix
+        # measured zero raw-pair calls in 21 runs (A4: 0/3 delegation), so the
+        # reversal was rejected and `dropped` is the #443 set again.
         dropped = {"web", "subagent", "subagents"}
         assert writer_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
 
@@ -144,6 +147,8 @@ class TestWriterRole:
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         writer_names = set(BUILTIN_ROLES["writer"].tool_allowlist)
+        # Arm 4 (plan t11) restored subagent/subagents and was rejected on
+        # measured evidence; the #443 purpose-only drop set stands.
         dropped = {"web", "subagent", "subagents"}
         # Every schema tool NOT deliberately dropped (t5, q9/q10) must be in the
         # writer allowlist.
@@ -300,6 +305,7 @@ class TestDefaultRole:
         # See TestWriterRole.test_writer_allowlist_equals_schemas: "deepthink"
         # (plan t4) and the six purpose tools (plan t5) are deliberate curated
         # extras outside base SCHEMAS; web/subagent/subagents are dropped (t5).
+        # Arm 4 (plan t11) restored the raw pair and was rejected on evidence.
         dropped = {"web", "subagent", "subagents"}
         assert default_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
 

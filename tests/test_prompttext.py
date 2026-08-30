@@ -28,10 +28,15 @@ from colleague.tools import SCHEMAS
 
 SNAP = Path(__file__).parent / "snapshots"
 
+#: Read at IMPORT time on purpose: conftest's autouse ``_isolate_provider_env``
+#: fixture deletes every ``COLLEAGUE_*`` var before each test, so reading this
+#: inside ``_snapshot`` would make the documented regeneration workflow a no-op.
+_UPDATE_SNAPSHOTS = bool(os.environ.get("COLLEAGUE_UPDATE_SNAPSHOTS"))
+
 
 def _snapshot(name: str, actual: str) -> None:
     path = SNAP / f"prompttext_{name}.txt"
-    if os.environ.get("COLLEAGUE_UPDATE_SNAPSHOTS"):
+    if _UPDATE_SNAPSHOTS:
         path.write_text(actual)
     assert path.read_text() == actual, f"snapshot drift: {path.name}"
 
@@ -139,6 +144,10 @@ def test_interactive_variant_keeps_no_ask_tool(monkeypatch):
 
 
 def test_v1_variant_is_the_pre_arc_prompt_byte_for_byte(monkeypatch):
+    # t9 regenerated this fixture deliberately (approved deviation d1): the
+    # section it pins stopped naming subagent/subagents. Regenerate it the same
+    # way as every other snapshot here — COLLEAGUE_UPDATE_SNAPSHOTS=1.
+    _snapshot("v1", V1_DEFAULT_SYSTEM)
     pinned = (SNAP / "prompttext_v1.txt").read_text()
     assert V1_DEFAULT_SYSTEM == pinned
     monkeypatch.setenv("COLLEAGUE_PROMPT_VARIANT", "v1")
@@ -174,3 +183,91 @@ def test_prompt_is_built_once_per_run(monkeypatch, tmp_path):
     result = engine.work(task, config)  # the mock recipe: write_file + finish = 2 turns
     assert result.status == "ok"
     assert calls == [config.model], "the prompt must be built once per run, not per turn"
+
+
+# --- t9: the delegation section names the tools the acting seat holds ---------
+#
+# Plan t9, spec c2/h10 (the prompt must not advertise absent tools) and c24/h16
+# (COLLEAGUE_PROMPT_SECTIONS must not be able to change the default text).
+
+
+PURPOSE_TOOL_NAMES = (
+    "web_survey",
+    "code_survey",
+    "review",
+    "validate",
+    "plan",
+    "handover_to_colleague",
+)
+
+
+def _acting_seat_prompt(repo: Path) -> str:
+    """The prompt an acting seat actually composes on a bare run.
+
+    Goes through ``Engine.system_prompt`` (post-t5 unification) rather than
+    ``default_system`` alone, so a role fragment that re-introduced the old
+    names would be caught too.
+    """
+    from colleague.config import EngineConfig
+    from colleague.contract import Task
+    from colleague.engines.mock import MockEngine
+
+    task = Task(id="t9", instruction="probe", repo_path=repo)
+    composed = MockEngine().system_prompt(task, EngineConfig(model="any"))
+    return composed if composed is not None else default_system("any")
+
+
+@pytest.mark.parametrize("name", PURPOSE_TOOL_NAMES)
+def test_default_prompt_names_every_purpose_tool(monkeypatch, tmp_path, name):
+    monkeypatch.delenv("COLLEAGUE_PROMPT_VARIANT", raising=False)
+    monkeypatch.delenv("COLLEAGUE_PROMPT_SECTIONS", raising=False)
+    assert name in _acting_seat_prompt(tmp_path)
+    assert name in default_system("any")
+
+
+def test_default_prompt_never_names_the_raw_delegation_tools(monkeypatch, tmp_path):
+    """c2/h10: subagent/subagents are on the seat again as arm 4 (t11), but the
+    baseline arm drops them (COLLEAGUE_ACTING_DROP_TOOLS) — so prose must name
+    neither. A present-but-undescribed tool is honest in BOTH arm states."""
+    monkeypatch.delenv("COLLEAGUE_PROMPT_VARIANT", raising=False)
+    monkeypatch.delenv("COLLEAGUE_PROMPT_SECTIONS", raising=False)
+    for prompt in (_acting_seat_prompt(tmp_path), default_system("any"), V1_DEFAULT_SYSTEM):
+        assert "subagent" not in prompt  # also covers the plural
+    # The qwen variant shares the section (both literals were repaired).
+    qwen = default_system("x", variant="qwen")
+    assert "subagent" not in qwen
+    for name in PURPOSE_TOOL_NAMES:
+        assert name in qwen
+
+
+def test_repaired_section_is_no_longer_than_the_174_words_it_replaced():
+    assert len(prompttext._PURPOSE_TOOLS.split()) <= 174
+
+
+@pytest.mark.parametrize(
+    "sections",
+    ["", "HANDOVER_EXAMPLE", "handover_example", "BOGUS", "HANDOVER_EXAMPLE,BOGUS"],
+)
+def test_prompt_sections_cannot_change_the_default_prompt(monkeypatch, sections):
+    """c24 PROVEN, not asserted.
+
+    ``default_system`` returns ``V1_DEFAULT_SYSTEM`` at the variant guard
+    BEFORE it ever reads ``sections`` — so with the variant unset, no value of
+    ``COLLEAGUE_PROMPT_SECTIONS`` (nor the explicit keyword) can reach the
+    default text. Demonstrated over the env var, the keyword, and a value that
+    DOES change the adopted text, which is what makes the comparison mean
+    something.
+    """
+    monkeypatch.delenv("COLLEAGUE_PROMPT_VARIANT", raising=False)
+    monkeypatch.setenv("COLLEAGUE_PROMPT_SECTIONS", sections)
+    assert default_system("any") == V1_DEFAULT_SYSTEM
+    monkeypatch.delenv("COLLEAGUE_PROMPT_SECTIONS", raising=False)
+    assert default_system("any", sections=sections) == V1_DEFAULT_SYSTEM
+
+
+def test_prompt_sections_control_is_live_on_the_adopted_text(monkeypatch):
+    """The control arm for the test above: the same env value DOES move the
+    adopted variant, so the byte-identity above is the v1 guard at work and not
+    an inert knob."""
+    monkeypatch.setenv("COLLEAGUE_PROMPT_SECTIONS", "HANDOVER_EXAMPLE")
+    assert default_system("x", variant="qwen") != default_system("x", variant="qwen", sections="")

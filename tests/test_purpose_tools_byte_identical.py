@@ -25,7 +25,9 @@ arc's older ``ff7331e`` baseline — see ``tests/fixtures/e589451_baseline/*.jso
    ``colleague.actingsurface.is_top_level``) when ``config.role`` is unset —
    it now substitutes ``colleague.roles.BUILTIN_ROLES['writer']`` (the SAME
    role an explicit ``--role writer`` run already resolved to, t5's swap:
-   drop ``web``/``subagent``/``subagents``, gain the six purpose tools). The
+   drop ``web``/``subagent``/``subagents``, gain the six purpose tools — arm 4
+   (plan t11) restored the raw pair on the acting seat and was REJECTED on
+   measured evidence, so the swap stands). The
    mock scenario's captured shape stays TRULY byte-identical (mock never
    sends tools over the wire, and its ``schemas`` key is a fixed
    ``curate_schemas(None)`` probe untouched by this fix);
@@ -61,6 +63,8 @@ from tests.test_knobs_byte_identical import (
     _SCENARIO_ENV,
     _WEB_OFF_ENV,
     OFF_ENV,
+    _assert_acting_seat_prompt_carveout,
+    _assert_default_prompt_section_carveout,
     _resync_loop_default_system,
 )
 
@@ -88,7 +92,14 @@ def _load_fixture(name: str) -> "dict[str, Any]":
 def _assert_purpose_tool_carveout(captured_names: "set[str]", expected_names: "set[str]") -> None:
     """The ONE documented swap: subagent/subagents dropped, five purpose tools
     gained (web_survey stays hidden together with web under this suite's
-    COLLEAGUE_WEB=0 off-knob — the SAME hidden-state rule as web itself)."""
+    COLLEAGUE_WEB=0 off-knob — the SAME hidden-state rule as web itself).
+
+    #443 dropped ``subagent``/``subagents`` from the acting seat ("replace,
+    don't add"). Arm 4 (plan t11) put them BACK alongside the typed purposes
+    to measure whether their absence was what suppressed delegation; the
+    21-run arm matrix called the raw pair ZERO times (A4: 0/3 delegation), so
+    the reversal was rejected and the #443 drop stands. The expectation is
+    changed back here rather than relaxed to a subset check."""
     from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 
     dropped = expected_names - captured_names
@@ -119,6 +130,12 @@ def test_bare_run_is_byte_identical_to_e589451_mock(
     repo = scenario.make_repo(tmp_path / "mock")
     captured = scenario.capture_mock_scenario(repo)
     expected = _load_fixture("mock_scenario.json")
+    # Plan t9's ONE named prompt carve-out (spec c2/h10, operator deviation
+    # d1): the base prompt's stale Subagents paragraph became the PURPOSE_TOOLS
+    # section. Named here, not normalized away — nothing else may move.
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
 
 
@@ -130,9 +147,14 @@ def test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm(
     top-level acting seat's bare case) drops subagent/subagents and gains
     five purpose tools on every turn's payload — the SAME swap
     ``test_writer_role_surface_carves_out_the_purpose_tool_swap`` names on the
-    writer role directly. Every other captured field (status, steps, the
-    ``schemas`` probe, system prompt, tokenize/chat counts, and every OTHER
-    payload key) is untouched."""
+    writer role directly.
+
+    Plan t5 (``docs/plans/2026-08-29-purpose-tools-get-chosen.md``) adds the
+    matching PROMPT carve-out: the same bare run's wire system message now
+    also carries the writer role's prompt fragment, because both halves read
+    one resolution (``actingsurface.acting_role_name``). Every other captured
+    field (status, steps, the ``schemas`` probe, the ``system_prompt`` base
+    probe, tokenize/chat counts, and every OTHER payload key) is untouched."""
     _apply_off_knobs(monkeypatch)
     repo = scenario.make_repo(tmp_path / "vllm")
     captured = scenario.capture_vllm_scenario(repo)
@@ -140,12 +162,16 @@ def test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm(
 
     captured_payloads = captured.pop("payloads")
     expected_payloads = expected.pop("payloads")
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
     assert len(captured_payloads) == len(expected_payloads)
     for cp, ep in zip(captured_payloads, expected_payloads):
         c_tools = {t["function"]["name"] for t in cp.pop("tools", [])}
         e_tools = {t["function"]["name"] for t in ep.pop("tools", [])}
         _assert_purpose_tool_carveout(c_tools, e_tools)
+        _assert_acting_seat_prompt_carveout(cp.pop("messages", []), ep.pop("messages", []))
         assert cp == ep
 
 
@@ -163,7 +189,8 @@ def test_writer_role_surface_carves_out_the_purpose_tool_swap(
     ``role='writer'`` (colleague's full-access acting role, referred to as
     'cortex' in the spec's own language) is offered — drops
     ``web``/``subagent``/``subagents`` and gains the six purpose tools,
-    relative to e589451's full unfiltered schema-name list."""
+    relative to e589451's full unfiltered schema-name list (arm 4 / plan t11
+    restored the raw pair and was rejected on measured evidence)."""
     from colleague.roles import BUILTIN_ROLES
     from colleague.tools import curate_schemas
 

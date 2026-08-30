@@ -154,6 +154,10 @@ WORKER_TOOLS: frozenset[str] = frozenset(
 
 #: The thinker/coder: the registry surface minus web/subagent/subagents plus the
 #: six purpose tools (plan t5, q9/q10) — cortex delegates BY PURPOSE, never raw.
+#: Mirrors :func:`colleague.roles._writer_allowlist`. Arm 4 (t11) briefly
+#: restored the raw pair here; the 21-run matrix measured ZERO raw-pair calls
+#: (A4: 0/3), so it was rejected on evidence and this is #443's purpose-only
+#: surface again (``actingsurface.strip_child_forbidden_tools`` KEPT anyway).
 THINKER_CODER_TOOLS: frozenset[str] = (
     frozenset(TOOL_NAMES) - {"web", "subagent", "subagents"}
 ) | frozenset(PURPOSE_TOOL_NAMES)

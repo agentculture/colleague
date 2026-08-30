@@ -410,6 +410,11 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         "command",
         "not_finished",
         "stopped_without_finish",
+        # prompt_digest (plan task t7): the sha256 of the composed system
+        # prompt is UNCONDITIONAL observability — every run that composes a
+        # prompt carries it, so a live-testing row can attribute its prose
+        # arm. Omitted only when the backend composed no prompt at all.
+        "prompt_digest",
     }
 
 
@@ -454,6 +459,11 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
         "command",
         "not_finished",
         "stopped_without_finish",
+        # prompt_digest (plan task t7): the sha256 of the composed system
+        # prompt is UNCONDITIONAL observability — every run that composes a
+        # prompt carries it, so a live-testing row can attribute its prose
+        # arm. Omitted only when the backend composed no prompt at all.
+        "prompt_digest",
     }
     assert set(serialized.keys()) == expected_keys
 
@@ -523,6 +533,11 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
         "command",
         "not_finished",
         "stopped_without_finish",
+        # prompt_digest (plan task t7): the sha256 of the composed system
+        # prompt is UNCONDITIONAL observability — every run that composes a
+        # prompt carries it, so a live-testing row can attribute its prose
+        # arm. Omitted only when the backend composed no prompt at all.
+        "prompt_digest",
     }
     assert (
         set(dict_a.keys()) == expected_keys

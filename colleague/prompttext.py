@@ -6,7 +6,7 @@ default base prompt. Attribution retained per Apache-2.0 §4(c):
     adapted-from: qwen-code core/prompts.ts:278-440 —
     Copyright 2025 Google LLC, Copyright 2026 Qwen Team, Apache-2.0
 
-colleague-owned sections (Destination, Subagents, Culture tools, Test integrity,
+colleague-owned sections (Destination, Purpose tools, Culture tools, Test integrity,
 AgentFront surface) are carried over verbatim from the pre-arc prompt.
 
 Two knobs, both read at BUILD time (the prompt is built once per run and never
@@ -66,20 +66,20 @@ V1_DEFAULT_SYSTEM = (
     "moves the tool does not offer). Authoritative convergence belongs to the "
     "operator, not to you. When the work reaches the goal, declare arrival by "
     "passing destination (the frame slug) and announcement (the goal-frame's arrival "
-    "announcement) to the finish tool.\n\nSubagents (optional). When a task naturally "
-    "splits into independent, well-scoped pieces, you MAY delegate them to nested "
-    "child work items. Use the subagent tool to hand ONE scoped piece to a child "
-    "(optionally on a different engine/model — for example a mechanical chunk a "
-    "cheaper model can do). Use the subagents tool to fan out a BATCH of independent "
-    "pieces that run in PARALLEL, each isolated in its own git worktree, with a "
-    "final merge child that integrates their branches and surfaces any conflict "
-    "(never force-merging). A good fit: a task that asks for two or more changes in "
-    "separate files that do not depend on each other — fan them out with subagents. "
-    "Each child runs the same bounded tool-loop (no git handoff); its result summary "
-    "returns to you and any files it writes are merged into your changed set. This "
-    "is advisory and entirely your own judgement: a simple, single-file task needs "
-    "none, so never delegate just to delegate. Delegation is bounded (a capped depth "
-    "and per-work-item fan-out), so it always terminates.\n\nCulture tools (optional). "
+    "announcement) to the finish tool.\n\nPurpose tools (optional). When a task "
+    "naturally splits into independent, well-scoped pieces, you MAY delegate a "
+    "piece to a nested child work item through one of six typed tools, each with a "
+    "single fixed purpose. Use web_survey for a multi-page web survey and "
+    "code_survey for a multi-file read of the repo; review for candid findings on a "
+    "diff; validate to run the tests and report pass/fail with the evidence; plan "
+    "for an ordered plan with acceptance criteria; and handover_to_colleague to "
+    "hand a scoped implementation task to a writer child that commits what it "
+    "changes. Each child runs its own bounded tool-loop (no git handoff); its "
+    "digest comes back to you as the tool result, to read before you act on it, and "
+    "any files it writes are merged into your changed set. This is advisory and "
+    "entirely your own judgement: a simple, single-file task needs none, so never "
+    "delegate just to delegate. Delegation is bounded (a capped depth and "
+    "per-work-item fan-out), so it always terminates.\n\nCulture tools (optional). "
     "Two operator-installed AgentCulture CLIs are reachable through the culture "
     "tool, with your agent identity auto-injected and the working directory pinned "
     "at the repo root. Use cli='agtag' to READ the mesh issue tracker (e.g. fetch "
@@ -121,21 +121,27 @@ _DESTINATION = (
     "(the goal-frame's arrival announcement) to the finish tool."
 )
 
-_SUBAGENTS = (
-    "Subagents (optional). When a task naturally splits into independent, "
-    "well-scoped pieces, you MAY delegate them to nested child work items. Use the "
-    "subagent tool to hand ONE scoped piece to a child (optionally on a different "
-    "engine/model — for example a mechanical chunk a cheaper model can do). Use the "
-    "subagents tool to fan out a BATCH of independent pieces that run in PARALLEL, "
-    "each isolated in its own git worktree, with a final merge child that integrates "
-    "their branches and surfaces any conflict (never force-merging). A good fit: a "
-    "task that asks for two or more changes in separate files that do not depend on "
-    "each other — fan them out with subagents. Each child runs the same bounded "
-    "tool-loop (no git handoff); its result summary returns to you and any files it "
-    "writes are merged into your changed set. This is advisory and entirely your own "
-    "judgement: a simple, single-file task needs none, so never delegate just to "
-    "delegate. Delegation is bounded (a capped depth and per-work-item fan-out), so "
-    "it always terminates."
+#: The acting seat's delegation section (t9). It describes the SIX typed
+#: purpose tools the seat actually holds (:mod:`colleague.purpose_schemas`)
+#: and deliberately names neither ``subagent`` nor ``subagents``: those two
+#: are back on the seat's tool surface as arm 4 (t11), but a tool that is
+#: present and undescribed is safe in BOTH arm states, whereas prose naming
+#: them is a lie in the baseline arm that drops them
+#: (``COLLEAGUE_ACTING_DROP_TOOLS``, t8). Do not "fix" them back in.
+_PURPOSE_TOOLS = (
+    "Purpose tools (optional). When a task naturally splits into independent, "
+    "well-scoped pieces, you MAY delegate a piece to a nested child work item "
+    "through one of six typed tools, each with a single fixed purpose. Use "
+    "web_survey for a multi-page web survey and code_survey for a multi-file read "
+    "of the repo; review for candid findings on a diff; validate to run the tests "
+    "and report pass/fail with the evidence; plan for an ordered plan with "
+    "acceptance criteria; and handover_to_colleague to hand a scoped implementation "
+    "task to a writer child that commits what it changes. Each child runs its own "
+    "bounded tool-loop (no git handoff); its digest comes back to you as the tool "
+    "result, to read before you act on it, and any files it writes are merged into "
+    "your changed set. This is advisory and entirely your own judgement: a simple, "
+    "single-file task needs none, so never delegate just to delegate. Delegation is "
+    "bounded (a capped depth and per-work-item fan-out), so it always terminates."
 )
 
 _CULTURE = (
@@ -211,7 +217,7 @@ HANDOVER_EXAMPLE = (
 #: :func:`default_system`, not by this table's membership.
 SECTION_TABLE: dict[str, str] = {
     "DESTINATION": _DESTINATION,
-    "SUBAGENTS": _SUBAGENTS,
+    "PURPOSE_TOOLS": _PURPOSE_TOOLS,
     "CULTURE": _CULTURE,
     "TEST_INTEGRITY": _TEST_INTEGRITY,
     "AGENTFRONT": _AGENTFRONT,
@@ -483,7 +489,7 @@ def _adopted_system(
         _USING_TOOLS + "\n- " + questions,
         _CARE,
         _DESTINATION,
-        _SUBAGENTS,
+        _PURPOSE_TOOLS,
         _CULTURE,
         _TEST_INTEGRITY,
         _AGENTFRONT,

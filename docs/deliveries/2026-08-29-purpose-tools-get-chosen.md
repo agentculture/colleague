@@ -1,21 +1,23 @@
 # Delivery Summary — purpose-tools-get-chosen
 
-plan: `purpose-tools-get-chosen` · run: `partial` · date: `2026-08-29`
+plan: `purpose-tools-get-chosen` · run: `complete` · date: `2026-08-29`
 baseline: `devague summary skeleton`
 
 ## Intent
 
-Make colleague's cortex actually choose the six purpose tools it has held since
-v1.66.0 — and settle, with a number, whether non-delegation is a *prompt*
-problem or a *surface* problem. The plan is 16 tasks in 7 waves: four #438
-stall-recovery fixes and three instrumentation fixes first, then four measured
-levers (prose at three encouragement rungs, an acting-seat surface narrowing,
-both, and restoring `subagent`/`subagents`), then a pre-registered arm matrix.
+Make colleague's cortex actually choose the six typed purpose tools it has held
+since #443, by fixing the defects that made delegation unmeasurable and then
+measuring three separable levers as pre-registered arms. The arc executed the
+16-task plan `docs/plans/2026-08-29-purpose-tools-get-chosen.md` across seven
+waves: wave 1 landed the #438 stall-recovery fixes and the surface lever's
+instrument (merged as PR #450, v1.67.0); waves 2-7 landed the prompt/surface
+unification, the two measurement instruments, the arm-4 restoration, the prose
+overlays, and then ran and recorded the 21-run arm matrix.
 
-**This run executed wave 1 only** (6 tasks), with **colleague as the main
-developer** — dogfooding and live-testing the harness against its own arc.
-Waves 2–7 were not started; that was the approved scope of the fan-out
-(operator: "Approved — wave 1 only, then reassess").
+**The arc refuted its own founding hypothesis.** It set out to make cortex
+choose its purpose tools more often; it found that cortex was already choosing
+correctly, and that the premise — that #443's removal of raw
+`subagent`/`subagents` is what suppressed delegation — is false.
 
 ## Planned Work
 
@@ -40,158 +42,127 @@ Quoted verbatim from the `devague summary` skeleton:
 
 ## Actual Delivery
 
+All 16 tasks delivered. Wave 1 (`t1`-`t4`, `t8`, `t10`) merged to `main` as
+PR #450 / `ede7d7f` (v1.67.0); waves 2-7 sit on `spec/purpose-tools-get-chosen-w2`.
+
 | Plan task | Status | What actually landed |
 |-----------|--------|----------------------|
-| `t1` | delivered | Guards built once per turn in `_stream_or_blocking` and shared with the blocking fallback; merged `73546bf`, integration fixes `4a17e67` |
-| `t2` | delivered | Proactive backpressure timeout raise suppressed while guards are armed; merged `0924f9f`, defect fix `909bc41` |
-| `t3` | delivered | SSE comment lines no longer restart the idle clock, both read paths; merged `3e355e9` |
-| `t4` | delivered | `stream_guard_trips` counter on `WorkStats.counts`; merged `a0d46b6` |
-| `t5` | not started | wave 2 — outside this run's approved scope |
-| `t6` | not started | wave 3 |
-| `t7` | not started | wave 3 |
-| `t8` | delivered | `COLLEAGUE_ACTING_DROP_TOOLS`, depth-0 only; merged `a811661` |
-| `t9` | not started | wave 3 |
-| `t10` | delivered | Both briefs authored and merged (`d2160a8`); criterion 2 discharged by a three-attempt operator pilot recorded in the brief, with the deterministic fixture generator committed (`8af3ee6`) |
-| `t11` | not started | wave 3 |
-| `t12` | not started | wave 3 |
-| `t13` | not started | wave 4 |
-| `t14` | not started | wave 5 |
-| `t15` | not started | wave 7 |
-| `t16` | not started | wave 6 |
-
-Six of sixteen tasks delivered. Ten not started — wave 1 was the approved
-scope; the remaining waves are unblocked and unattempted, not failed.
+| `t1` | delivered | `_stream_or_blocking` builds ONE `StreamGuards` shared by the streaming reader and the blocking fallback; real-socket drip-feed test. PR #450 |
+| `t2` | delivered | proactive timeout raise suppressed while guards are armed. PR #450. **Later corrected** — see `t2`/`t3` drift and `c77a269` |
+| `t3` | delivered | `_is_comment_line`: SSE keepalives no longer refresh the idle clock. PR #450. **Later corrected** — see drift and `a745521` |
+| `t4` | delivered | `stream_guard_trips`, the 6th key in `colleague/runcounts.py`, folded from `step-stall` warnings naming a stream guard. PR #450 |
+| `t5` | delivered | `actingsurface.substitute_bare_role` + `acting_role_name`: one resolution feeds prompt AND surface. Bare run and `--role writer` now compose an identical prompt (4076 chars each; was 0 vs 4076). Commit `956e49c` |
+| `t6` | delivered | new `colleague/toolmarkup.py` (detection only) + `markup_tool_calls`, the 7th run counter, bumped per turn in `_account_turn`. Commit `1f36616` |
+| `t7` | delivered | `TaskResult.prompt_digest` (sha256 of the composed prompt), beside `config_digest`, omitted-when-None, set by both engines. Commit `929bb20` |
+| `t8` | delivered | `COLLEAGUE_ACTING_DROP_TOOLS` drop-set threaded through `narrow_role_by_tool_set`, depth-0 only. PR #450. **Later corrected** — see drift and `7562fbf` |
+| `t9` | delivered | both duplicated literals repaired: `_SUBAGENTS` → `_PURPOSE_TOOLS`, 174 → 165 words; snapshot regenerated under `d1`. Commit `95c921b` |
+| `t10` | delivered | `arm-decomposable-neutral.md` + `arm-large-surface.md`; the large-surface pilot returned a NEGATIVE result recorded as such. PR #450. Fixture generator later corrected — see drift |
+| `t11` | delivered, then reverted (`d4`) | arm 4 built and measured (`ab76f74`); the raw-pair restoration is REVERTED as the shipped default in `f12a0d9` after it delegated 0/3 and drew zero raw-pair calls in 21 runs. `strip_purpose_tools` → `strip_child_forbidden_tools` and the depth ≥1 strip are KEPT. Four exact-set pins moved twice, never relaxed |
+| `t12` | delivered | P0/P1/P2 overlays staged under `docs/live-testing/overlays/`, identical `effort: medium` line; `diff P1 P2` is exactly one paragraph. Commit `847ef9d` |
+| `t13` | delivered | row 51: row-49 brief re-run n=3, **delegation 0/3, markup 0/3** — the 0/3 is real behaviour, not dropped markup. Commit `25a8c63` |
+| `t14` | delivered | rows 52-58 pre-registered with `result: pending` and their bars, committed 01:31:56 before the matrix started 01:33:36. Commit `3b59d24` |
+| `t15` | delivered | closing record; before-state recomputed from source, correcting two stale doc figures. Commit `26c9a3a` |
+| `t16` | delivered | 21/21 runs, all `ok`, all digests matched, zero voids; rows 52-58 filled. Commit `412992d` |
 
 ## Mid-work Decisions
 
-No `devague deviate` records exist for this run (`devague deviate --list` →
-"no deviations recorded yet"). The decisions below were made and approved in
-session but were **not** routed through `/deviate` at the time — a process
-miss recorded here rather than retrofitted into the delivery store.
-
-- **`t10` criterion 2 narrowed, then the task reassigned.** The criterion
-  demanded "evidenced by a recorded pilot run"; colleague spent all 15 steps
-  probing the rig (`curl /v1/models`, `config show`, `env`) and produced no
-  files. The criterion was mis-specified for a doc-authoring seat. Narrowed so
-  the briefs *specify* what the pilot must demonstrate and which artifact
-  fields evidence it, with the pilot itself becoming operator work; the task
-  was reassigned to an opus subagent, which delivered.
-- **Brief 1 names no tool at all.** The plan allowed either the purpose-tool
-  names or none. The subagent chose none, on a constraint the plan had not
-  articulated: the same brief runs across arms whose *surfaces differ*
-  (`t11`'s restore arm holds `subagent`/`subagents`; the purpose arms do not),
-  so any tool name is a steer one arm cannot act on. The row-48/49 invitation
-  sentence survives; only the advertisement was removed.
-- **Stream max-lifetime default raised 900 s → 1800 s** (`b581b2c`), outside
-  the plan. Operator call, made against this run's own evidence: `t3` died at
-  exactly 900 s with its implementation unwritten. Historical measurement
-  records citing the 900 s bound were deliberately left unchanged.
-- **`COLLEAGUE_TOOLS_LEGACY` rejected as the surface-arm instrument.** Found
-  during the challenge pass to be role-blind — it strips `grep_search`/`glob`
-  from the scout child too (8 tools → 6), degrading the delegate the arm exists
-  to make attractive. `t8` was respecified as a depth-0-scoped drop knob.
-- **Two file-length ratchet baselines raised by hand**, not by
-  `FILE_LENGTH_BASELINE_UPDATE=1` — the bulk path also reaps stale entries and
-  would have masked other growth. `colleague/tools.py` 1508 → 1526 (the drop-set
-  feature); `colleague/engines/vllm_openai.py` 1324 → 1358 (the shared-guards
-  feature). `colleague/loop.py` was trimmed back to its 5281 baseline exactly
-  rather than raised.
-- **The large-surface pilot was discharged as a NEGATIVE finding, not
-  engineered around.** Three attempts (`eeb7f261f87d` `ok` with no limit hit;
-  `75b0c4a23087` VOID on a 1800 s stall with `stream_guard_trips == 1`;
-  `b7b2c91748f9` SIGTERM'd at 5 steps under external GPU contention) showed
-  the acting seat never uses `read_file` for a survey — it builds a symbol
-  index with one `grep -nE '^(def |class |import |from )'` and then reads
-  ranges with `sed -n`. Two fixture flaws found en route were mine, not the
-  model's: shared pair doclines, and every algorithm sitting in the first ~36
-  lines so one uniform slice surfaced all twelve. Scattering the algorithms to
-  per-module offsets did not defeat the strategy — the grep index hands the
-  model the offsets.
-- **"Small briefs only" accepted as the matrix's reported scope** (spec `c55`,
-  operator). The alternative — dropping `run_command` from the acting seat to
-  force the cannot-fit condition — was rejected as a larger surface change
-  than the arc measures. This takes h35's "reported as measuring small briefs
-  only" branch, which spec c47 authorises explicitly.
-- **`t1` salvaged from an orphaned worktree.** A machine restart killed the run;
-  a hard kill fires no #222 WIP-on-stop commit, so the work survived only as
-  178 uncommitted insertions on disk.
+- `d1` (approved) — t9 regenerates `tests/snapshots/prompttext_v1.txt`; c39's
+  no-change guarantee is scoped to the prose arms' instruments (the P0/P1/P2
+  overlays), not the base v1 snapshot. Plan risk r3 named a conflict between
+  two confirmed claims: c39/h28 promise the v1 snapshot is unchanged across the
+  whole arc, while c2/h10 require the default prompt to stop naming
+  subagent/subagents, which the acting seat no longer holds. Operator ruled r3
+  in favour of c2/h10 with c39 narrowed. Consequence carried into t16: every arm
+  run must execute on the post-t9 tip so no arm compares across a prompt change.
+- `d2` (approved) — t5 lets the three-tier worker seat's composed prompt gain
+  the writer fragment. The worker IS the depth-0 acting seat with no
+  `config.role`, so `curate_for_depth` has offered it the writer's tool surface
+  since d14; excluding it would require a second condition the surface half does
+  not have. No pre-existing test pinned that seat's prompt. Operator accepted the
+  consequent shift of the `three_tier` benchmark baseline.
+- `d3` (approved) — t12 was built by a Claude subagent, not by colleague, after
+  two consecutive colleague dispatches produced no files (attempt 1 exited 0 with
+  zero output; attempt 2 stalled past 10 minutes). Neither run left a salvageable
+  partial.
+- `d4` (approved) — t11's arm-4 restoration is REVERTED as the shipped default
+  after the matrix measured it: `_writer_allowlist` returns to the purpose-only
+  surface, while t11's depth>=1 child-confinement hardening is KEPT. Raised by
+  Qodo finding 3888125915 on PR #455. Normally an intended, spec'd behaviour
+  change would be a PUSHBACK, but arm 4 had by then been measured and failed:
+  A4 delegated 0/3, and across all 21 runs no `subagent`/`subagents` call
+  occurred once. The restoration bought nothing measurable while reintroducing a
+  path around the fixed `PURPOSE_TABLE` mappings, so the evidence supports the
+  reviewer.
+- **Build split by task shape** (operator ruling, no `dN` record) — Claude
+  subagents for large-file cross-module work (t5, t6, t7, t11, t14, t15, t16),
+  colleague for authoring. Taken after wave 1's evidence: all 6 colleague runs
+  finished INCOMPLETE, every one salvaged only by the #222 WIP-on-stop sweep.
+- **t9-vs-t11 conflict resolved without escalation** — t9's acceptance
+  ("`subagent`/`subagents` appear nowhere in the composed prompt") and t11's
+  restoration of those tools appear to contradict. They do not: the defect
+  c2/h10 targets is advertising tools the seat does NOT hold. A present but
+  undescribed tool is safe in both arm states, because the baseline arm removes
+  the pair again via t8's drop knob. Recorded in `95c921b`'s message so a later
+  reader does not "fix" it back.
+- **The matrix was restarted** — the first launch began 33 seconds BEFORE t14's
+  pre-registration commit, breaking the one guarantee pre-registration exists to
+  give. Two of 21 runs were affected; the run directory was wiped and the matrix
+  restarted from the pre-registration commit.
 
 ## Drift From Plan
 
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
-| `t10` | Acceptance criterion 2 (pilot run) was mis-specified for a doc-authoring seat; narrowed to specification-of-the-pilot and executed by the operator instead. Task reassigned from colleague to an opus subagent. Criterion 2 is now discharged — as a negative finding, which spec c47 explicitly authorises. | acceptable |
-| `t1` | Delivered work broke nine existing tests (doubles of the `_post_json` signature it changed) and its own new test recursed against conftest's autouse SSE bridge, so it never ran green as delivered. Integrator wrote a degrade path and rewrote the test as a socket-free unit test. | acceptable |
-| `t2` | Delivered with two self-reported defects — a duplicated `_escalate_request_timeout` call and +2 over the file-length ratchet — fixed by the integrator in `909bc41`. | acceptable |
-| `t8` | Merged without `test_file_length_ratchet.py` in its affected-test set, so `tools.py` growth surfaced two merges later. Operator gate gap, not a defect in delegated work. | acceptable |
-| `t5`–`t7`, `t9`, `t11`–`t16` | Not started — wave 1 was the approved fan-out scope. | acceptable |
+| `t9` (`d1`) | c39/h28's whole-arc snapshot guarantee conflicts with c2/h10's requirement that the default prompt stop naming absent tools; operator narrowed c39 to the prose-arm instruments | acceptable |
+| `t5` (`d2`) | the three-tier worker seat's composed prompt gains the writer fragment, so acceptance 3's "compose exactly as before" is NOT met for that one seat; the `three_tier` benchmark baseline shifts with it | acceptable |
+| `t12` (`d3`) | built by a Claude subagent rather than colleague after two colleague dispatches produced no files; the fallback preserved the wave rather than blocking the arc | acceptable |
+| `t11` (`d4`) | arm 4 was measured and rejected: A4 delegated 0/3 and no raw-pair call occurred in any of the 21 runs, so the shipped default reverts to the purpose-only surface; the child-confinement hardening is kept as defence in depth | acceptable |
+| `t2`, `t3`, `t8`, `t10` | all four shipped defects that PR #450's review caught and that were fixed on the same PR: `t2`/`t3` gated escalation on the ENV rather than the active transport and refreshed the idle clock only per newline-terminated line; `t8` ignored `drop` when `tool_set` was also given; `t10`'s fixture generated one 8-way duplicate rather than four distinct pairs, over-many public functions, and only one of two call edges. All fixed pre-merge | acceptable |
+| `t16` | the arm matrix answers the arc's question in the NEGATIVE: neither declared lever moved the delegation rate. The task was executed exactly as specified; the plan's implicit expectation that a lever would move it was not met | acceptable |
+| `t10` | the large-surface brief's acceptance required a "non-delegating baseline [that] provably hits a budget or context limit". The pilot showed the acting seat greps a symbol index and does ranged reads rather than `read_file`, so no such limit is hit; recorded as a negative result rather than forced. The brief still worked — arms A5/A6 delegated — but for a different reason than the acceptance assumed | needs-follow-up |
 
 ## Evidence
 
-- tests: full suite `uv run pytest -n auto` — **10400 passed, 26 skipped**
-- tests: `tests/test_stream_guards.py` — 16 passed (incl. the rewritten
-  `test_fallback_shares_the_streaming_guards_object`)
-- tests: `tests/test_acting_drop_knob.py` — 13 passed
-- tests: `tests/test_runcounts.py`, `tests/test_file_length_ratchet.py` — pass
-- lint: `uv run black --check colleague tests` · `isort --check-only` ·
-  `flake8 colleague tests` — all clean
-- security: `uv run bandit -c pyproject.toml -r colleague` — 0 medium, 0 high
-- commits: `origin/main..HEAD` (18 commits), merges `a0d46b6` `a811661`
-  `3e355e9` `d2160a8` `0924f9f` `73546bf`
-- probe: `COLLEAGUE_ACTING_DROP_TOOLS=grep_search,glob` → acting seat lacks
-  both, scout child retains both
-- pilot: `eeb7f261f87d` (`ok`, 18 steps, no limit) · `75b0c4a23087` (VOID,
-  `stats.counts.stream_guard_trips == 1`) · `b7b2c91748f9` (SIGTERM, 5 steps)
-- fixture: `scripts/make_large_surface_fixture.py` — 12 modules, 17,996 lines,
-  708,496 chars, deterministic
-- issues: #438 (four guidance points addressed), #435, #437, #443, #360, #399,
-  #413
+- tests: full suite `uv run pytest -n auto -q` — **10402 passed, 51 skipped, 0 failed**
+- tests: `tests/test_toolmarkup_count.py` — 13 passed (validates t13's measured zero)
+- tests: `tests/test_prompt_surface_unification.py` — 18 nodes (t5)
+- tests: `tests/test_prose_overlays.py` — 22 nodes (t12)
+- tests: `tests/test_contract_prompt_digest.py` — 14 nodes (t7)
+- lint: `black --check` / `isort --check-only` / `flake8` over `colleague tests scripts` — clean
+- security: `bandit -c pyproject.toml -r colleague` — 0 High / 0 Medium / 0 Low
+- markdown: `markdownlint-cli2` on every changed file — 0 errors
+- alignment: `doc-test-alignment` — `aligned: true` (1413 advisory warnings, all pre-existing)
+- commits (waves 2-7): `956e49c..26c9a3a` (10 commits)
+- commits (wave 1): merged as `ede7d7f`
+- PRs: #450 (merged, v1.67.0)
+- issues raised by this arc: #451, #452, #453, #454
+- live matrix: 21 artifacts, ids listed in `docs/live-testing.md` rows 52-58
 
 ## Delivery Claims
 
 | Claim | Confidence | Evidence |
 |-------|------------|----------|
-| The blocking fallback is bounded by the same guards as the streaming path, sharing one guard object per turn | high | commit `73546bf` · test `tests/test_stream_guards.py::test_fallback_shares_the_streaming_guards_object` |
-| Backpressure no longer raises the request timeout while stream guards are armed | high | commit `0924f9f` · file `tests/test_backpressure_guard_suppression.py` |
-| SSE keepalive comment lines no longer restart the idle clock, on both read paths | high | commit `3e355e9` · test `tests/test_stream_guards.py::test_keepalive_comment_lines_do_not_reset_the_idle_clock` |
-| Stream-guard trips are countable from the artifact without parsing warnings | high | commit `a0d46b6` · test `tests/test_runcounts.py::test_finalize_tallies_stream_guard_trips` |
-| The acting seat can drop named tools while children keep them | high | commit `a811661` · test file `tests/test_acting_drop_knob.py` · live probe recorded above |
-| Two arm briefs exist, neither naming a tool its arm does not offer | high | commit `d2160a8` · `grep -rn subagent docs/live-testing/briefs/arm-*.md` exits 1 |
-| The 1800 s guard default is safer for real test-first tasks on this rig | medium | commit `b581b2c` · `t3` died at exactly 900 s; n=1 |
-| The large-surface brief's baseline provably hits a budget limit | **refuted** | pilot `eeb7f261f87d` finished `ok` in 18 steps with no limit hit; recorded in the brief |
-| The acting seat surveys via a shell symbol index rather than `read_file`, so `read_file` paging never binds | high | pilot steps 2-3 of `eeb7f261f87d` and `b7b2c91748f9` (`grep -nE '^(def \|class \|import \|from )'` then `sed -n`) |
-| `t4`'s stream-guard counter works against a real stall | high | pilot `75b0c4a23087` artifact: `stats.counts.stream_guard_trips == 1` |
-| Arm results will be reported as measuring small briefs only | high | operator decision recorded as spec `c55`; the underlying refutation is the negative pilot above (one fixture size tested; size-independence argued, not measured) |
-| #438's stall class is closed | unverified | four guidance points implemented, but no post-fix live run has exercised them against a stalling gateway |
-| Purpose tools are more likely to be chosen after these changes | unverified | no arm has run — that is waves 4–6 |
+| A bare run and an explicit `--role writer` run compose an identical system prompt and tool surface | high | commit `956e49c` · test `tests/test_prompt_surface_unification.py::test_bare_run_and_explicit_writer_compose_identical_prompt` |
+| An operator overlay at `.colleague/agents/writer.md` reaches a bare run (was unreachable) | high | commit `956e49c` · measured 0 → 8003 chars · test `…::test_operator_writer_overlay_reaches_a_bare_run` |
+| The default prompt no longer names `subagent`/`subagents`, and names all six purpose tools | high | commit `95c921b` · test `tests/test_prompttext.py::test_default_prompt_never_names_the_raw_delegation_tools` |
+| Markup-shaped tool calls are counted for any function name, and never executed | high | commit `1f36616` · test `tests/test_toolmarkup_count.py::test_markup_naming_a_real_tool_never_runs_it` |
+| A prose arm is attributable: the artifact carries a sha256 digest of the prompt that actually ran | high | commit `929bb20` · verified live — the composer's no-overlay digest `b7491476a61238a4` matched all 9 no-overlay run artifacts |
+| Row 49's 0/3 delegation is real behaviour, not dropped markup | high | `docs/live-testing.md` row 51 · commit `25a8c63` · markup 0 on 3/3 runs with the counter proven live |
+| Neither the prose lever nor the surface lever moved the delegation rate | high | rows 53-56 · A1/A2/A3/A4 all 0/3 · ratios 0.560/0.826, 0.908/0.913, 0.866/0.783, 0.522/0.783 |
+| No `subagent`/`subagents` call occurred anywhere in the 21-run matrix, including the arm where both were on the seat | high | row 56 · commit `412992d` · tool breakdown across all 21 artifacts |
+| Task shape moved delegation: 0 of 15 small-brief runs vs 5 of 6 large-surface runs | high | rows 57-58 · every delegation was `code_survey` (A5: 6, A6: 12) |
+| Delegating runs succeeded equally often as non-delegating ones (5/5 vs 16/16 `ok`) | high | rows 52-58 · all 21 runs `status: ok`, each changed exactly one module |
+| Cortex substitutes the parallel read-only tool batch for delegation | medium | rows 51, 57 · A5-r1 delegated 3 with `batches_run` 0; A5-r2 delegated 0 with `batches_run` 3 / `calls_parallelised` 10. Consistent across arms but not an isolated experiment |
+| The P2 (capability-equal) framing raises delegation on a large surface | low | row 58 · 6 → 12 `code_survey` calls, turns 0.762×. **Confounded** — no P0 control on the large brief, so it conflates the paragraph with the fragment replacement. Explicitly does NOT promote |
+| A prose effect is undetectable on the small brief | high | rows 53-55 · all five small-brief arms sat at exactly 0/3 — a floor, which is NOT evidence that prose has no effect |
+| #438's stall class is closed | unverified | the four guidance points landed (PR #450) but no run in this arc reproduced the original stall class to confirm it — not claimed |
+| The large-surface baseline provably hits a budget or context limit | unverified | t10's pilot REFUTED this: the seat greps a symbol index and does ranged reads, so no limit is hit — recorded as a negative result |
 
 ## Remaining Work / Follow-up
 
-- **Scope of the matrix — DECIDED, no longer open.** The operator accepted
-  "small briefs only" as the reported scope of every arm (spec `c55`); the
-  acting seat is not narrowed further. Plan `t14` must carry the scope line
-  verbatim on every row, and `t15`'s closing record must repeat it.
-- **`t5`** (wave 2, the linchpin) — prompt/surface unification. Blocks every
-  prose arm: the overlay instrument does not reach a bare run until it lands.
-- **`t6`, `t7`, `t9`, `t11`, `t12`** (wave 3) — markup counter, prompt digest,
-  stale-section repair, arm 4, the three overlays.
-- **`t13`** (wave 4) — row-49 validity re-run. Until this runs, the arc's
-  motivating evidence (0 purpose calls in 3 runs) is unverified against #360's
-  silent markup-drop failure mode.
-- **`t14`, `t16`, `t15`** (waves 5–7) — pre-register, run the matrix, close.
-- **Version bump** — `pyproject.toml` still reads `1.66.0`; the PR needs a bump
-  or CI's `version-check` job blocks the merge.
-- **File an issue: the step budget has no headroom for the commit.** Five of
-  five completed colleague runs finished the engineering and exhausted their
-  budget before `git commit`; all five survived only via the #222 WIP-on-stop
-  commit, and two named their leftovers precisely. The brief asks for a commit
-  the budget does not allow.
-- **File an issue: `work --continue` re-bases on HEAD**, discarding the
-  interrupted run's WIP branch. Episode chaining bases on the prior
-  `colleague/<id>` tip; continuation does not. Cost here: one rebuilt test file
-  (`4daeee92674b` reported "the prior partial edit (2126 bytes) was lost").
-- **Record: a hard kill leaves no WIP commit.** The #222 mechanism needs a
-  cooperative signal; a machine restart leaves only the on-disk worktree, which
-  `colleague clean` would eventually reap.
-- **Process: route mid-run departures through `/deviate`.** This run produced
-  six recordable decisions and zero `dN` records.
+- **All four deviations (`d1`-`d4`) are operator-approved.** None is outstanding.
+- **`t10`'s unmet acceptance clause** — no brief was found whose non-delegating baseline provably hits a budget or context limit, because the acting seat surveys by grep + ranged reads rather than `read_file`. The arms still worked, so this is a follow-up, not a blocker: either re-spec the clause around the real survey strategy, or drop it.
+- **The 2026-08-29 large-surface pilot ran against the superseded fixture generator** — the generator was corrected during PR #450 review (four distinct pair algorithms, 8-12 public functions per module, both call edges). The pilot's *finding* concerns the tool surface, not fixture internals, so it is unaffected — but a re-pilot on the corrected fixture is the honest re-confirmation, and none was run.
+- **A clean prose test remains undone** — the isolated prose contrast (A3-vs-A1) sat at a floor, and the only contrast that moved (A6-vs-A5) is confounded. A clean test needs a P0-control arm on a brief that is not already at zero. Until then P2 does not promote into `BUILTIN_ROLES['writer'].prompt_fragment`.
+- **Issues filed, unresolved:** #451 (a stalled authoring run leaves no partial, no artifact, and can exit 0 silently), #452 (the step budget has no headroom for the finishing commit — 5 of 5 runs), #453 (`work --continue` re-bases on HEAD, discarding what #222 saved), #454 (`COLLEAGUE_UPDATE_SNAPSHOTS=1` was a silent no-op; fixed in `95c921b`, but the general hazard of test-time `COLLEAGUE_*` reads remains).
+- **`three_tier` benchmark rows before `956e49c` are not comparable** (`d2`) — the worker seat's prompt changed. Re-running the #346 benchmark on the new tip was offered and not taken.

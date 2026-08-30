@@ -143,6 +143,40 @@ def _normalize_capture(capture: "dict[str, Any]") -> "dict[str, Any]":
 # ---------------------------------------------------------------------------
 
 
+#: The THIRD documented, deliberate exception, added by plan t9 of
+#: ``docs/plans/2026-08-29-purpose-tools-get-chosen.md`` (spec c2/h10, operator
+#: deviation d1): the default system prompt's delegation paragraph named
+#: ``subagent``/``subagents``, tools the acting seat's baseline arm does not
+#: hold. It was replaced by the ``PURPOSE_TOOLS`` section naming the six typed
+#: purpose tools. This is the one paragraph of the base prompt that moved;
+#: named here rather than regenerating the historical baseline fixture, which
+#: would erase what the fixture is FOR.
+_MAIN_DELEGATION_SECTION_HEAD = "Subagents (optional)."
+
+
+def _assert_default_prompt_section_carveout(captured: str, expected: str) -> None:
+    """*captured* is *expected* with exactly one paragraph swapped: the stale
+    Subagents paragraph → :data:`colleague.prompttext._PURPOSE_TOOLS`.
+
+    Compares paragraph-by-paragraph so a second, undocumented prompt edit
+    anywhere else in the base text still fails this suite.
+    """
+    from colleague.prompttext import _PURPOSE_TOOLS
+
+    captured_paras = captured.split("\n\n")
+    expected_paras = expected.split("\n\n")
+    assert len(captured_paras) == len(expected_paras)
+    swapped = 0
+    for cp, ep in zip(captured_paras, expected_paras):
+        if cp == ep:
+            continue
+        assert ep.startswith(_MAIN_DELEGATION_SECTION_HEAD), ep[:60]
+        assert cp == _PURPOSE_TOOLS
+        swapped += 1
+    assert swapped == 1
+    assert "subagent" not in captured
+
+
 def test_mock_scenario_byte_identical_to_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -150,6 +184,9 @@ def test_mock_scenario_byte_identical_to_main(
     repo = scenario.make_repo(tmp_path / "mock")
     captured = _normalize_capture(scenario.capture_mock_scenario(repo))
     expected = _normalize_capture(_load_fixture("mock_scenario.json"))
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
 
 
@@ -160,6 +197,11 @@ def test_mock_scenario_byte_identical_to_main(
 #: subagent/subagents, gain the six purpose tools) now reaches the WIRE
 #: ``tools`` payload of a bare run too, not just an explicit --role writer
 #: run. Named explicitly here rather than silently normalized away.
+#: ARM 4 (plan t11) briefly reversed the DROP half (the raw pair back on the
+#: acting seat, so nothing was dropped relative to main); the 21-run arm
+#: matrix measured ZERO raw-pair calls, the reversal was rejected on that
+#: evidence, and the drop set is the #443 pair again — changed, never relaxed
+#: to a subset check.
 _PURPOSE_TOOL_CARVEOUT_DROPPED = {"subagent", "subagents"}
 
 
@@ -175,14 +217,49 @@ def _assert_purpose_tool_carveout(captured_tools: "list[str]", expected_tools: "
     assert added == set(PURPOSE_TOOL_NAMES) - {"web_survey"}, added
 
 
+#: The SECOND documented, deliberate exception, added by plan t5 of
+#: ``docs/plans/2026-08-29-purpose-tools-get-chosen.md`` (prompt/surface
+#: unification): the carve-out above changed what the bare acting seat is
+#: OFFERED without changing what it is TOLD. ``Engine.system_prompt`` now reads
+#: the SAME resolution the surface does (``actingsurface.acting_role_name`` →
+#: ``loop.resolve_role`` → ``curate_for_depth``), so a bare run's WIRE system
+#: message is main's text plus the writer role's prompt fragment — the exact
+#: text an explicit ``--role writer`` run already sent. Named here rather than
+#: normalized away; nothing else about the message list may move.
+_ACTING_SEAT_PROMPT_SEPARATOR = "\n\n"
+
+
+def _assert_acting_seat_prompt_carveout(
+    captured_messages: "list[dict[str, Any]]", expected_messages: "list[dict[str, Any]]"
+) -> None:
+    from colleague.roles import BUILTIN_ROLES
+
+    fragment = BUILTIN_ROLES["writer"].prompt_fragment
+    assert len(captured_messages) == len(expected_messages)
+    for cm, em in zip(captured_messages, expected_messages):
+        if em.get("role") == "system":
+            assert cm.get("role") == "system"
+            suffix = _ACTING_SEAT_PROMPT_SEPARATOR + fragment
+            assert cm["content"].endswith(suffix)
+            # …and the base underneath it is main's, modulo the ONE t9 section
+            # swap named by ``_assert_default_prompt_section_carveout``.
+            _assert_default_prompt_section_carveout(cm["content"][: -len(suffix)], em["content"])
+            assert set(cm) == set(em)
+        else:
+            assert cm == em
+
+
 def test_vllm_scenario_byte_identical_to_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Byte-identical EXCEPT the one documented purpose-tools-associate-seat
-    carve-out on the wire tool surface (deviation d14 fix, see
-    ``_PURPOSE_TOOL_CARVEOUT_DROPPED`` above): every payload's ``tools`` name
-    list swaps subagent/subagents for five purpose tools; every OTHER
-    captured field — status, steps, the schemas probe, system prompt,
+    """Byte-identical EXCEPT the two documented carve-outs: (1) the
+    purpose-tools-associate-seat swap on the wire tool surface (deviation d14
+    fix, see ``_PURPOSE_TOOL_CARVEOUT_DROPPED`` above) — every payload's
+    ``tools`` name list swaps subagent/subagents for five purpose tools; and
+    (2) the plan-t5 prompt/surface unification (see
+    ``_assert_acting_seat_prompt_carveout``) — every payload's system message
+    gains the writer role's prompt fragment. Every OTHER captured field —
+    status, steps, the schemas probe, the ``system_prompt`` base probe,
     tokenize/chat counts, and every other payload key — is untouched."""
     _apply_off_knobs(monkeypatch)
     repo = scenario.make_repo(tmp_path / "vllm")
@@ -191,10 +268,14 @@ def test_vllm_scenario_byte_identical_to_main(
 
     captured_payloads = captured.pop("payloads")
     expected_payloads = expected.pop("payloads")
+    _assert_default_prompt_section_carveout(
+        captured.pop("system_prompt"), expected.pop("system_prompt")
+    )
     assert captured == expected
     assert len(captured_payloads) == len(expected_payloads)
     for cp, ep in zip(captured_payloads, expected_payloads):
         _assert_purpose_tool_carveout(cp.pop("tools", []), ep.pop("tools", []))
+        _assert_acting_seat_prompt_carveout(cp.pop("messages", []), ep.pop("messages", []))
         assert cp == ep
 
 

@@ -130,12 +130,15 @@ def _writer_schema_names(schemas):
 def test_apply_armed_facts_curated_writer_surface_has_no_raw_subagent():
     """Sanity: cortex's curated (``writer``) surface holds the purpose tools
     and, post-t5, neither raw delegation tool — the case this test module
-    otherwise never exercises via the raw :data:`SCHEMAS` constant."""
+    otherwise never exercises via the raw :data:`SCHEMAS` constant. Arm 4
+    (plan t11) briefly restored the raw pair here and was rejected on measured
+    evidence, so the expectation is changed back, never relaxed."""
     from colleague.tools import curate_schemas
 
     names = _writer_schema_names(curate_schemas("writer"))
     assert "subagent" not in names
     assert "subagents" not in names
+    assert "web" not in names
     assert {"web_survey", "code_survey", "handover_to_colleague"} <= names  # surface has all three
 
 
@@ -157,10 +160,11 @@ def test_apply_armed_facts_splices_onto_web_survey_code_survey_handover():
             changed.add(name)
         else:
             assert desc == before[name]
-    assert changed == {
-        "web_survey",
-        "code_survey",
-    }  # handover child is a cortex writer: no scout sentence
+    # ``apply_armed_facts`` also targets the raw subagent/subagents, but they
+    # are absent from the curated writer surface again (arm 4 / plan t11 was
+    # rejected on measured evidence), so the sentence lands on two
+    # descriptions. The handover child is a cortex writer: no scout sentence.
+    assert changed == {"web_survey", "code_survey"}
 
 
 def test_apply_armed_facts_curated_writer_surface_unarmed_returns_same_list():

@@ -29,7 +29,7 @@ import colleague.turnbudget as turnbudget
 from colleague import associate, associate_seats, effort, stallguard, streamguards, tokenestimate
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
-from colleague.contract import Task, TaskResult
+from colleague.contract import Task, TaskResult, prompt_digest_for
 from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
 from colleague.loop import (
@@ -1334,11 +1334,16 @@ class VllmOpenAIEngine(Engine):
             if config.worker is not None or getattr(config, "thought_action_evaluation", False)
             else "cortex"
         )
+        # Prompt digest (plan task t7, covers c49/h36): hoist the composed
+        # prompt into a local so the artifact can attest to the string that
+        # ACTUALLY went on the wire — including any operator overlay — rather
+        # than a re-derivation. Byte-identical to the previous inline call.
+        composed_system_prompt = self.system_prompt(task, config)
         result = run(
             self._make_complete(config, tools=offered_tools),
             task,
             max_steps=config.max_steps,
-            system_prompt=self.system_prompt(task, config),
+            system_prompt=composed_system_prompt,
             model=config.model,
             progress=config.progress,
             seat=seat,
@@ -1372,6 +1377,14 @@ class VllmOpenAIEngine(Engine):
                 associate_complete=associate_seats.make_associate_complete(config, self.name),
             ),
         )
+        # Prompt digest (t7): the loop stamps this the moment its TaskResult
+        # exists (so an aborted / salvaged run still attests to its arm); this
+        # line is the floor for a caller that swapped ``run()`` out — it FILLS
+        # a still-unset field on EVERY backend (all-engines rule), never
+        # clobbers the loop's stamp, and omits the key when no prompt was
+        # composed (byte-identical).
+        if result.prompt_digest is None:
+            result.prompt_digest = prompt_digest_for(composed_system_prompt)
         # Model-bound agents (#411, t13): an ARMED config always returns the
         # versioned ``agents`` block with the SAME shape on every backend
         # (all-engines rule) — the fold only fills a still-``None`` field, so

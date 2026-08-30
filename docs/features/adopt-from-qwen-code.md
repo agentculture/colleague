@@ -134,7 +134,12 @@ edited net-zero under the file-length ratchet (`tests/test_file_length_ratchet.p
   Reminder structure with per-model tool-call example families
   (`general` / `qwen-coder` / `qwen-vl`; no `gemma4` family — the
   qwen-direct-no-gemma guard forbids the literal) and a headless variant;
-  colleague's own Destination/Subagents/Culture/Test-integrity sections stay.
+  colleague's own Destination/Purpose-tools/Culture/Test-integrity sections stay
+  (the `SUBAGENTS` section was replaced by `PURPOSE_TOOLS` in the
+  `purpose-tools-get-chosen` arc — 174 words → 165 — so the default prompt
+  names the six tools the acting seat actually holds and no longer names
+  `subagent`/`subagents`; the section still says "never delegate just to
+  delegate" and carries no encouragement to delegate).
   `COLLEAGUE_PROMPT_VARIANT` unset or `v1` (the default since the measurement) is the pre-arc text byte-for-byte; `qwen` opts into the adopted text. The marker
   keeps both copyright holders. adapted-from `core/prompts.ts:278-440,
   1131-1171`.
@@ -256,6 +261,7 @@ wording and thinking effort** (#421), not the ported mechanics.
 ## Honest limits
 
 - **Delegation is never chosen by the model on these briefs.** Every measured run so far (main and branch game-benchmark arms, the three dogfood runs) shows zero `subagent`/`subagents` calls and no `sub-<id>` worktrees — cortex did all the work itself even with delegation on the offered surface. So the associate arm exercises associate only where the *harness* routes to it (the rung-2 distill seat; compact/synthesis when a run crosses the fill-line), not the scout child. Recorded, not forced (operator, 2026-08-27): the intended shape is cortex **handing over** scoped tasks to scouts/workers, **reviewing** what comes back and **collecting** the results — how much prompt guidance or role shaping that needs is a follow-up to adjust against these numbers.
+  - **Follow-up, now measured (2026-08-30, `purpose-tools-get-chosen`, `docs/live-testing.md` rows 51–58).** The follow-up above ran as a pre-registered 21-run matrix and the answer is: **prompt guidance did not move it, and neither did the tool surface.** Three prose rungs delivered as operator role overlays gave 0/3 delegating runs each on the small decomposable brief (wall/turns vs baseline 0.560/0.826, 0.908/0.913, 0.866/0.783), and restoring the raw `subagent`/`subagents` pair to the acting seat also gave 0/3 (0.522/0.783) — indeed **no `subagent`/`subagents` call occurred anywhere in the 21 runs**, so the sentence above extends unchanged to the current tip. What did move delegation was **task shape**: 0 of 15 small-brief runs versus 5 of 6 large-surface runs, every one of them a typed `code_survey` call. The mechanism is that cortex substitutes the parallel read-only tool batch (`batches_run` 1–2, `calls_parallelised` 3–7 on the small brief) for delegation, and prefers that cheaper form until the surface is genuinely too large. Task success was **equal** either way: 5/5 `ok` delegating, 16/16 `ok` non-delegating. Two limits: the small-brief result is a delegation **floor**, not a null (all five small-brief arms sat at exactly zero, so the brief cannot detect a prose effect), and the one arm that did meet the promotion numbers is **confounded** (no P0 control on the large-surface brief) and was not promoted. The imperative prose tested here lives only in staged overlays under `docs/live-testing/overlays/`; **no encouragement was added to the shipped prompt**.
 - **The c28 ratios are not yet measured** — every after-state clause about
   fewer turns / less wall-clock rests on the two dogfood runs above until t24
   lands its rows.
@@ -333,7 +339,7 @@ pin for the on-state; see the row's note.
 | `COLLEAGUE_SHELL_MAX_CHARS` | n/a — value override | `run_command`'s char budget override (default 30000); same ceiling rule as the row above. | `colleague/truncation.py` |
 | `COLLEAGUE_PROMPT_VARIANT` | unset / `v1` (the default) | The pre-arc `_DEFAULT_SYSTEM` text byte-for-byte is the DEFAULT since the measurement (rows 43–44); `qwen` (or `adopted`) opts into the qwen-code-structured prompt. | `colleague/prompttext.py` |
 | `COLLEAGUE_PROMPT_INTERACTIVE` | n/a — value override | Selects the interactive vs. headless identity/Questions guidance inside the ADOPTED prompt; has no effect under `COLLEAGUE_PROMPT_VARIANT=v1` (the v1 text is fixed). | `colleague/prompttext.py` |
-| `COLLEAGUE_PROMPT_SECTIONS` | unset (t8) | Comma-separated opt-in into named ADOPTED-prompt sections beyond the fixed core list — currently only `HANDOVER_EXAMPLE` (a worked hand-over → review → collect example); has no effect under `COLLEAGUE_PROMPT_VARIANT=v1`. The `qwen-handover` named variant opts into the same section without the env var. | `colleague/prompttext.py` |
+| `COLLEAGUE_PROMPT_SECTIONS` | unset (t8) | Comma-separated opt-in into named ADOPTED-prompt sections beyond the fixed core list — currently only `HANDOVER_EXAMPLE` (a worked hand-over → review → collect example, which still names the raw `subagent` tool and is therefore never spliced into the default prompt); has no effect under `COLLEAGUE_PROMPT_VARIANT=v1` (proven, not asserted, by the t9 tests: `default_system` returns V1 at the variant guard before it reads `sections`). The `qwen-handover` named variant opts into the same section without the env var. | `colleague/prompttext.py` |
 | `COLLEAGUE_TOOL_CALL_STYLE` | n/a — value override | Forces one tool-call example family (`qwen-coder` / `qwen-vl` / `general`) inside the ADOPTED prompt instead of the model-id-keyed default; has no effect under `COLLEAGUE_PROMPT_VARIANT=v1`. | `colleague/prompttext.py` |
 | `COLLEAGUE_TOOLS_LEGACY` | `1` | Hides `grep_search`/`glob` from both the offered tool schemas and dispatch — `curate_schemas` offers exactly the pre-arc surface. | `colleague/search_schemas.py` |
 | `COLLEAGUE_ASSOCIATE_MODEL` | unset | No associate seat is resolved (`EngineConfig.associate` stays `None`) — the pre-arc config shape, absent this arc's t18 seat entirely. | `colleague/associate_config.py` |

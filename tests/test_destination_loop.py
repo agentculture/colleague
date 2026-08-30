@@ -99,7 +99,10 @@ def test_default_system_advertises_culture_tools() -> None:
     # The destination + subagents guidance is untouched (the new paragraph is additive).
     assert "destination" in lower
     assert "announcement" in lower
-    assert "subagent" in lower
+    # The delegation paragraph is still there — but naming the six typed
+    # purpose tools, never subagent/subagents (plan t9, spec c2/h10).
+    assert "purpose tools" in lower
+    assert "subagent" not in lower
 
 
 # ---------------------------------------------------------------------------
@@ -110,19 +113,24 @@ def test_default_system_advertises_culture_tools() -> None:
 def test_both_engines_inherit_destination_guidance_via_default_system(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """When no AGENTS/skills layers exist, both engines pass system_prompt=None,
-    and the loop falls back to _DEFAULT_SYSTEM — so the guidance lives there.
-    We assert both engines produce identical (None) system_prompt to confirm the
-    base is _DEFAULT_SYSTEM (the loop fallback) and the guidance is inside it."""
+    """When no AGENTS/skills layers exist, both engines compose the SAME prompt
+    on top of _DEFAULT_SYSTEM — so the guidance rides along either way.
+
+    Plan t5 (prompt/surface unification) changed this from ``system_prompt=None``
+    on both engines to the acting seat's composed writer prompt, whose BASE is
+    ``_DEFAULT_SYSTEM``; the guidance the test is really about is unchanged and
+    still asserted, both in the base and in what the engines inject."""
     repo = tmp_path / "repo"
     repo.mkdir()
 
     captured = _capture_both(monkeypatch, repo, "Qwen/Qwen3-32B")
-    # No layers → both engines return None (loop uses _DEFAULT_SYSTEM as fallback).
-    assert captured["mock"] is None
-    assert captured["vllm"] is None
-    # _DEFAULT_SYSTEM is the fallback, so guidance lives where the loop uses it.
+    # No layers → both engines compose the identical acting-seat prompt.
+    assert captured["mock"] == captured["vllm"]
+    assert captured["mock"] is not None
+    assert captured["mock"].startswith(_DEFAULT_SYSTEM)
+    # The guidance lives in _DEFAULT_SYSTEM, which is that prompt's base.
     assert "destination" in _DEFAULT_SYSTEM.lower()
+    assert "destination" in captured["mock"].lower()
 
 
 def test_both_engines_inherit_destination_guidance_via_layered_prompt(

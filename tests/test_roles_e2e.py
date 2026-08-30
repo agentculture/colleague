@@ -140,6 +140,7 @@ def test_no_role_offers_full_surface(git_repo):
     # t5 (operator decisions q9/q10): an EXPLICIT "writer" role differs from the
     # raw full surface — cortex delegates BY PURPOSE, so the writer's curated
     # schema drops web/subagent/subagents and gains the six purpose tools.
+    # Arm 4 (plan t11) restored the raw pair and was rejected on evidence.
     writer_offered = {s["function"]["name"] for s in curate_schemas("writer")}
     dropped = {"web", "subagent", "subagents"}
     assert writer_offered == (full - dropped) | set(PURPOSE_TOOL_NAMES)

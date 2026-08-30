@@ -33,7 +33,7 @@ _PRE_ARC_STATS_KEYS = {
 }
 
 
-def test_keys_are_the_six_exact_counters() -> None:
+def test_keys_are_the_exact_counters() -> None:
     assert runcounts.KEYS == (
         "batches_run",
         "calls_parallelised",
@@ -41,6 +41,7 @@ def test_keys_are_the_six_exact_counters() -> None:
         "outputs_spilled",
         "guard_trips",
         "stream_guard_trips",
+        "markup_tool_calls",
     )
 
 
@@ -57,6 +58,7 @@ def test_bump_and_counts_of() -> None:
         "outputs_spilled": 0,
         "guard_trips": 0,
         "stream_guard_trips": 0,
+        "markup_tool_calls": 0,
     }
     with pytest.raises(KeyError):
         runcounts.bump(result, "not_a_counter")
@@ -93,6 +95,7 @@ def test_finalize_derives_blanked_trips_and_spills() -> None:
         "outputs_spilled": 2,
         "guard_trips": 1,
         "stream_guard_trips": 0,
+        "markup_tool_calls": 0,
     }
     # Idempotent: a second finalize recomputes, never accumulates.
     runcounts.finalize(result, _Executor())

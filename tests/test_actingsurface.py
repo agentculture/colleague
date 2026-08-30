@@ -12,6 +12,16 @@ at the ONE seam ``resolve_role`` applies last: the top-level acting seat
 resolves to the writer role's already-swapped surface, and any spawned child
 (depth >= 1) is stripped of every purpose-tool name (q9), regardless of which
 role/purpose named it.
+
+**Arm 4 (plan t11) reversed half the swap on the ACTING seat and was
+REJECTED on measured evidence:** the raw ``subagent``/``subagents`` went back
+to depth 0 alongside the typed purposes to test whether their ABSENCE, not the
+typed form, suppressed delegation. The 21-run arm matrix called the raw pair
+ZERO times (A4: 0/3 delegation; every delegation that occurred was
+``code_survey``), so the acting seat is purpose-only again. The depth >= 1
+strip the arm widened (:data:`colleague.actingsurface.CHILD_FORBIDDEN_TOOLS`)
+is KEPT as defence in depth: a child can never hold the raw pair, whatever the
+seat's allow-list later carries.
 """
 
 from __future__ import annotations
@@ -47,7 +57,9 @@ def git_repo(tmp_path: Path) -> Path:
 
 # ---------------------------------------------------------------------------
 # (a) A bare unarmed run on mock: offered names carry the six purposes and
-#     none of web/subagent/subagents — the schema half of the fix.
+#     none of web/subagent/subagents — the schema half of the fix. Arm 4 (t11)
+#     restored the raw pair HERE and was rejected on measured evidence, so
+#     they are absent again.
 # ---------------------------------------------------------------------------
 
 
@@ -59,6 +71,7 @@ def test_bare_unarmed_run_offers_purpose_tools_not_raw_delegation(git_repo: Path
     # web itself is hidden without webglass/COLLEAGUE_WEB=0 regardless — the
     # DROP this fix proves is subagent/subagents, always, and web whenever
     # it would otherwise be offered.
+    assert "web" not in offered
 
 
 def test_bare_unarmed_mock_run_end_to_end_never_sees_subagent(git_repo: Path) -> None:
@@ -72,7 +85,9 @@ def test_bare_unarmed_mock_run_end_to_end_never_sees_subagent(git_repo: Path) ->
 
 # ---------------------------------------------------------------------------
 # (b) The bare seat's ToolExecutor REFUSES web/subagent/subagents by
-#     allowlist — the refusal half, symmetric with the schema half.
+#     allowlist — the refusal half, symmetric with the schema half. Arm 4
+#     (t11) briefly allow-listed the raw pair on the acting seat; the arm was
+#     rejected on measured evidence, so all three are refused again.
 # ---------------------------------------------------------------------------
 
 
@@ -135,7 +150,9 @@ def test_handover_writer_child_at_depth_one_is_a_bounded_writer(git_repo: Path) 
     """A ``handover_to_colleague``-shaped child (role='writer', depth 1) keeps
     the writer allow-list's t5 swap (no web/subagent/subagents) but never the
     purpose tools themselves (q9) — narrower than the top-level acting seat,
-    which the same role name DOES offer purposes to."""
+    which the same role name DOES offer purposes to. The raw pair is stripped
+    here by :data:`colleague.actingsurface.CHILD_FORBIDDEN_TOOLS` (plan t11,
+    KEPT) independently of the seat's own allow-list."""
 
     class _Capture:
         def work(self, task, config):
@@ -243,9 +260,35 @@ def test_child_depth_reads_the_stamped_attribute() -> None:
     assert not actingsurface.is_top_level(config)
 
 
-def test_strip_purpose_tools_is_a_noop_without_purposes() -> None:
+def test_strip_child_forbidden_tools_is_a_noop_without_them() -> None:
     from colleague import actingsurface
 
     role = BUILTIN_ROLES["scout"]
-    assert actingsurface.strip_purpose_tools(role) is role
-    assert actingsurface.strip_purpose_tools(None) is None
+    assert actingsurface.strip_child_forbidden_tools(role) is role
+    assert actingsurface.strip_child_forbidden_tools(None) is None
+
+
+def test_strip_child_forbidden_tools_removes_the_restored_raw_delegation() -> None:
+    """Arm 4's confinement (plan t11), KEPT after the arm itself was rejected
+    on measured evidence: whatever the ACTING seat's allow-list carries, the
+    depth >= 1 strip removes the raw ``subagent``/``subagents`` along with the
+    purpose tools. Arm 4 put the raw pair on the writer role and this strip is
+    what stopped it leaking down the tree; the seat is purpose-only again, so
+    the guarantee is pinned here against a role that DOES carry the raw pair —
+    the allow-list-independent confinement, not an artefact of today's writer.
+    """
+    from dataclasses import replace
+
+    from colleague import actingsurface
+
+    writer = BUILTIN_ROLES["writer"]
+    # Today's writer no longer carries the raw pair (arm 4 rejected)...
+    assert set(writer.tool_allowlist).isdisjoint(actingsurface.CHILD_FORBIDDEN_TOOLS)
+    # ...so pin the confinement against a seat that does.
+    armed = replace(
+        writer,
+        tool_allowlist=writer.tool_allowlist + actingsurface.CHILD_FORBIDDEN_TOOLS,
+    )
+    stripped = actingsurface.strip_child_forbidden_tools(armed)
+    assert set(stripped.tool_allowlist).isdisjoint(_RAW_DELEGATION_TOOLS)
+    assert set(stripped.tool_allowlist).isdisjoint(set(PURPOSE_TOOL_NAMES))
