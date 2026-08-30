@@ -151,12 +151,17 @@ def _writer_allowlist() -> tuple[str, ...]:
     names stripped by :func:`colleague.actingsurface`\
     ``.strip_child_forbidden_tools`` — even if this allow-list changes again.
     """
+    from colleague.hire_schemas import HIRE_TOOL_NAMES
     from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
     from colleague.tools import DEEPTHINK, SCHEMAS
 
     dropped = {"web", "subagent", "subagents"}
     names = tuple(s["function"]["name"] for s in SCHEMAS if s["function"]["name"] not in dropped)
-    return names + (DEEPTHINK,) + PURPOSE_TOOL_NAMES
+    # Hire tools (delegation-follow-ups t10, c17/h8): on the allow-list
+    # unconditionally — like ``web_survey``, the HIDDEN-state rule
+    # (``hire_schemas.hidden_names``: both names hidden unless the resolved
+    # ``config.hire`` is armed) is what actually gates offering them.
+    return names + (DEEPTHINK,) + PURPOSE_TOOL_NAMES + HIRE_TOOL_NAMES
 
 
 BUILTIN_ROLES: dict[str, Role] = {

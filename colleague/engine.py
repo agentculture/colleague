@@ -206,14 +206,17 @@ class Engine(abc.ABC):
                     role,
                     task.repo_path,
                     config.model,
-                    base=default_system(config.model),
+                    # hire (delegation-follow-ups t10): thread the RESOLVED
+                    # config.hire flag so the armed-only sentence renders from
+                    # the same resolution the tool surface reads (c17/h8).
+                    base=default_system(config.model, hire=bool(getattr(config, "hire", False))),
                     evaluator_section=evaluator_section,
                     evaluator_seat=EVALUATOR_SEAT_WORKER,
                 )
         return system_prompt_for(
             task.repo_path,
             config.model,
-            base=default_system(config.model),
+            base=default_system(config.model, hire=bool(getattr(config, "hire", False))),
             evaluator_section=evaluator_section,
             evaluator_seat=EVALUATOR_SEAT_WORKER,
         )
