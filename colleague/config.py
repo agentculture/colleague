@@ -3219,6 +3219,11 @@ class EngineConfig:
     # role-composed prompt from it (t8). A runtime field, not env-resolved, so it is
     # excluded from eq/repr/to_dict like the spawn callbacks above.
     role: Optional[str] = field(default=None, compare=False, repr=False)
+    # The run's ``--mode`` (explore/review/work/…), stamped by the CLI front
+    # beside ``role`` so the acting seat's effort can apply the read-only-mode
+    # rung (:data:`colleague.effort.TOP_LEVEL_MODE_TABLE`). Runtime-only, like
+    # ``role``: excluded from eq/repr/to_dict.
+    mode: Optional[str] = field(default=None, compare=False, repr=False)
 
     # Memory root (spec R1 / plan t2): the OPERATOR repo the memory store lives
     # in. An isolated run works in a throwaway worktree, so a lesson written to
@@ -3316,6 +3321,7 @@ class EngineConfig:
             seats=self.reasoning_effort_seats,
             global_value=self.reasoning_effort,
             role=self.role,
+            mode=self.mode,
         )
 
     @classmethod

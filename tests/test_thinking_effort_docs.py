@@ -55,6 +55,7 @@ def _table_rows() -> list[tuple[str, str]]:
         effort.SEAT_TABLE,
         effort.ROLE_TABLE,
         effort.TOP_LEVEL_ROLE_TABLE,
+        effort.TOP_LEVEL_MODE_TABLE,
         effort.DESIGN_SITE_TABLE,
     ):
         for key, rung in table.items():
