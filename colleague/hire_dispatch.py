@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import copy
 import re
+from contextlib import suppress
 from typing import Any, Callable, Optional
 
 from colleague import effort, hire, hire_schemas
@@ -163,6 +164,42 @@ def _candidate_complete(executor: Any, config: Any, base_role: str) -> Callable[
         if fallback is None:
             raise
         return fallback(seat_config)
+
+
+def _emit_hire_event(config: Any, minted: hire.Hire) -> None:
+    """Refs-not-payloads (plan t14, c38): append ONE ``hire`` task-ledger
+    event when the agents runtime is armed.
+
+    The seam is the ``agents_ledger_path`` attribute
+    :meth:`colleague.agents.runtime.AgentsRun._begin` sets on the resolved
+    config ("visible to every spawn closure / senses call that captured this
+    config") — read here off the SAME ``executor._spawn.parent_config`` handle
+    this module already uses, so no loop wiring is added. Unarmed (no
+    attribute, or ``None``) appends nothing. The event carries the prompt/when
+    DIGESTS and an ``artifact_ref`` to the run artifact's hires block — never
+    the authored text (the artifact carries the text; the ledger only refs) —
+    so it always fits :data:`~colleague.agents.state.ledger.MAX_EVENT_BYTES`.
+    Best-effort: a ledger defect never un-mints the hire (the AgentsRun
+    never-lose-the-work-item stance).
+    """
+    path = getattr(config, "agents_ledger_path", None)
+    if not path:
+        return
+    from colleague.agents.state.ledger import TaskLedger  # lazy: armed runs only
+    from colleague.contract import prompt_digest_for
+
+    with suppress(Exception):
+        TaskLedger(path).append(
+            "hire",
+            {
+                "agent_id": minted.agent_id,
+                "hirer_id": minted.hirer_id,
+                "base_role": minted.base_role,
+                "prompt_digest": minted.prompt_digest,
+                "when_digest": prompt_digest_for(minted.when),
+                "artifact_ref": f"artifact:{minted.task_id}#hires[{minted.agent_id}]",
+            },
+        )
 
 
 def _roster(executor: Any) -> hire.Roster:
@@ -294,6 +331,7 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
             roster.add(minted)
         except hire.HireError as exc:  # e.g. an over-cap AMENDED when clause
             return _result(f"not hired: {exc}")
+        _emit_hire_event(config, minted)  # t14: armed agents mode ledgers the hire
         return _result(
             f"hired: {agent_id} (base_role={base_role}, "
             f"{completions} negotiation completion(s))\n"

@@ -76,6 +76,10 @@ EVENT_KINDS: tuple[str, ...] = (
     "return",
     "invocation",
     "snapshot",
+    # Additive bump (delegation-follow-ups t14): one run-scoped hire minted by
+    # ``hire_colleague`` — refs only (prompt/when DIGESTS + an artifact_ref,
+    # never the authored text); replay ignores it (no snapshot collection).
+    "hire",
 )
 
 #: Hard cap on one serialized event line. Events carry refs, never payloads.

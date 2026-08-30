@@ -293,6 +293,12 @@ def resolve_chain_seed(
     a corrupt one each end the chain cleanly with the error text as
     ``detail``.
 
+    Hires are dead at the cut (decision D43, plan t14): the prior episode's
+    hires arrive on the seed marked ``expired`` — ``resolve_continuation``
+    marks them as it loads the artifact — and a chained episode never
+    rehydrates one as live (``assign_to_colleague`` on a prior id returns
+    ``no live hire``).
+
     ``agents_armed`` (the chain driver's resolved ``agents`` mode flag) and
     ``warnings`` are threaded through to :func:`resolve_continuation` so a
     chained episode rehydrates from the task ledger when agents mode is armed
