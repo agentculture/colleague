@@ -542,6 +542,8 @@ _PRE_FEATURE_ARTIFACT_KEYS = frozenset(
         # prompt carries it, so a live-testing row can attribute its prose
         # arm. Omitted only when the backend composed no prompt at all.
         "prompt_digest",
+        # offered_tools (delegation-follow-ups t2): rendered tool names, omit-when-None.
+        "offered_tools",
     }
 )
 

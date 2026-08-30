@@ -116,7 +116,9 @@ def test_top_level_explorer_role_off_selectable_via_seat_override() -> None:
     assert config.reasoning_effort_effective == "off"
 
 
-@pytest.mark.parametrize("role_name", ["reviewer", "validator", "writer", "planner"])
+# reviewer moved to TOP_LEVEL_ROLE_TABLE (low) on 2026-08-30 — see
+# tests/test_effort_top_level_mode.py.
+@pytest.mark.parametrize("role_name", ["validator", "writer", "planner"])
 def test_top_level_other_roles_keep_acting_seat_medium(role_name: str) -> None:
     config = _config(role=role_name)
     assert config.reasoning_effort_effective == "medium"

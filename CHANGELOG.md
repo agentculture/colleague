@@ -20,6 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - A top-level `--role reviewer` and the read-only modes `--mode explore|review` now reason at `low` on the acting seat (`effort.TOP_LEVEL_ROLE_TABLE` gains `reviewer`, new `TOP_LEVEL_MODE_TABLE`; `EngineConfig.mode` is a runtime-only field stamped by the work front) — the operator's rule: the associate is the fast reviewer, and whenever it is not taken cortex at `medium` is slow (a 20 KB diff review overflowed its synthesis turn at 274k reasoning chars). Kill-switch, per-seat/global knobs and an explicit `--role` still win; unset runs are byte-identical.
+- Test pins updated for the artifact's `offered_tools` key (chain e2e, result fidelity, senses all-engines, three-tier gates, deepthink guards) and the file-length ratchet baseline moved with its sanctioned command for the modules this arc grew (the per-arc convention since v1.65); the three associate per-value override knobs are now rows in the adopt-from-qwen-code knob table.
 - `docs/features/purpose-tools.md` + CLAUDE.md record the `delegation-follow-ups` arc: #456's two gaps closed negatively, the purpose child's step cap found unapplied (#458), the seat-per-lane decision rule deferred to measurement (#459).
 - The associate seat is clamped to the SERVED window: ONE `/tokenize` probe per (url, wire model) discovers `max_model_len` (128,000 on the reference rig vs a 1,048,576 advert) and `context_budget_tokens = min(budget, served − output margin)`; the served-window map is keyed by (url, model) (t22).
 
