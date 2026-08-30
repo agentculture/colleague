@@ -65,34 +65,50 @@ def _read_name(text: str, start: int) -> str | None:
     return text[start:end] or None
 
 
-def _function_shape_names(content: str) -> list[str]:
-    """Names from line-anchored ``function=<name>`` markup."""
-    names: list[str] = []
+def _function_shape_hits(content: str) -> list[tuple[int, str]]:
+    """``(offset, name)`` for every line-anchored ``function=<name>`` marker.
+
+    The offset is what makes the JSON de-duplication in :func:`names_in` exact:
+    a segment is skipped only when a function marker was *recognised* inside it,
+    never because the raw substring ``function=`` happened to sit in an argument
+    value (Qodo 3888125919 — that under-reported the very drops this counts).
+    """
+    hits: list[tuple[int, str]] = []
     idx = content.find(_FUNCTION_MARKER)
     while idx != -1:
         if _line_anchored(content, idx):
             name = _read_name(content, idx + len(_FUNCTION_MARKER))
             if name:
-                names.append(name)
+                hits.append((idx, name))
         idx = content.find(_FUNCTION_MARKER, idx + 1)
-    return names
+    return hits
 
 
-def _tool_call_segments(content: str) -> list[str]:
-    """Each line-anchored ``<tool_call`` block's text (to its close, or the next)."""
-    segments: list[str] = []
+def _tool_call_spans(content: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of each line-anchored ``<tool_call`` block, in order.
+
+    A block runs to its close tag or to the next opener, whichever comes first
+    (an unterminated block still gets a bounded segment). The close-tag cursor
+    only ever moves *forward*, so a response full of unterminated openers costs
+    a single linear pass rather than one full-suffix rescan per opener (Qodo
+    3888125923).
+    """
+    spans: list[tuple[int, int]] = []
     idx = content.find(_TOOL_CALL_OPEN)
+    close = content.find(_TOOL_CALL_CLOSE)
     while idx != -1:
         nxt = content.find(_TOOL_CALL_OPEN, idx + 1)
-        if _line_anchored(content, idx):
+        if close != -1 and close < idx:
+            # Never re-scan from the start: resume where this opener begins.
             close = content.find(_TOOL_CALL_CLOSE, idx)
+        if _line_anchored(content, idx):
             end = len(content)
             for candidate in (close, nxt):
                 if candidate != -1:
                     end = min(end, candidate)
-            segments.append(content[idx:end])
+            spans.append((idx, end))
         idx = nxt
-    return segments
+    return spans
 
 
 def _json_shape_name(segment: str) -> str | None:
@@ -119,11 +135,17 @@ def names_in(content: str | None) -> list[str]:
     """
     if not content:
         return []
-    names = _function_shape_names(content)
-    for segment in _tool_call_segments(content):
-        if _FUNCTION_MARKER in segment:
+    hits = _function_shape_hits(content)
+    names = [name for _, name in hits]
+    # Both sequences are strictly increasing and the spans never overlap, so one
+    # shared cursor decides "was a function marker recognised in this block?".
+    cursor = 0
+    for start, end in _tool_call_spans(content):
+        while cursor < len(hits) and hits[cursor][0] < start:
+            cursor += 1
+        if cursor < len(hits) and hits[cursor][0] < end:
             continue  # already counted by the ``function=`` shape
-        name = _json_shape_name(segment)
+        name = _json_shape_name(content[start:end])
         if name:
             names.append(name)
     return names

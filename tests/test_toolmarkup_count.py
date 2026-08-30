@@ -87,6 +87,68 @@ def test_a_nameless_block_counts_zero() -> None:
     assert toolmarkup.count("<tool_call>\nno function here\n</tool_call>") == 0
 
 
+def test_argument_text_naming_function_does_not_hide_the_json_call() -> None:
+    """Qodo 3888125919: ``function=`` inside an argument VALUE is not a marker.
+
+    De-duplication keys off a *recognised* line-anchored marker, not the raw
+    substring — otherwise a genuine JSON call whose arguments merely mention
+    ``function=`` counts zero, under-reporting the exact drop this counter
+    exists to detect.
+    """
+    markup = (
+        "<tool_call>\n"
+        '{"name": "code_survey", "arguments": {"note": "function=example"}}\n'
+        "</tool_call>"
+    )
+    assert toolmarkup.names_in(markup) == ["code_survey"]
+    assert toolmarkup.count(markup) == 1
+
+
+def test_a_genuine_function_block_is_counted_exactly_once() -> None:
+    """The de-dup still holds: one block naming ``function=`` is not double-counted."""
+    assert toolmarkup.names_in(_SURVEY_MARKUP) == ["web_survey"]
+    assert toolmarkup.names_in(_FINISH_MARKUP) == ["finish"]
+    # A block carrying BOTH shapes still counts once (the ``function=`` name).
+    both = (
+        "<tool_call>\n"
+        "<function=web_survey>\n"
+        '{"name": "code_survey"}\n'
+        "</function>\n"
+        "</tool_call>"
+    )
+    assert toolmarkup.names_in(both) == ["web_survey"]
+
+
+class _ScanCountingStr(str):
+    """A ``str`` that records how many characters each :meth:`find` scanned."""
+
+    def __new__(cls, value: str) -> "_ScanCountingStr":
+        obj = super().__new__(cls, value)
+        obj.scanned = 0  # type: ignore[attr-defined]
+        return obj
+
+    def find(self, sub: str, start: int = 0, end: int | None = None) -> int:  # type: ignore[override]  # noqa: E501
+        base = str(self)
+        idx = base.find(sub, start) if end is None else base.find(sub, start, end)
+        stop = len(base) if idx == -1 else idx
+        self.scanned += max(0, stop - start)  # type: ignore[attr-defined]
+        return idx
+
+
+def test_many_unterminated_openers_stay_linear() -> None:
+    """Qodo 3888125923: block segmentation must not rescan the suffix per opener.
+
+    Counted work, not wall-clock — deterministic and fast. The old
+    implementation searched the whole remaining response for a close tag once
+    per opener, i.e. ``O(n^2)``; here the bound is a small multiple of the
+    response length.
+    """
+    content = _ScanCountingStr("<tool_call\n" * 2000)
+    assert toolmarkup.count(content) == 0
+    # Linear pass: a handful of sweeps over the text, never ~2000 of them.
+    assert content.scanned <= 4 * len(content)
+
+
 # ------------------------------------------------------- the artifact-visible count
 
 
