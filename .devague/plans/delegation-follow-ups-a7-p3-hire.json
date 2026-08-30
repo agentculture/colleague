@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T12:03:09Z",
+  "updated": "2026-08-30T12:04:08Z",
   "targets": [
     {
       "id": "c1",
@@ -767,7 +767,7 @@
       "id": "t23",
       "summary": "Per-seat sampling for the associate (t23): let the deployment's tuning apply",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "The associate seat's completions carry temperature ONLY when an operator set one for that seat (COLLEAGUE_ASSOCIATE_TEMPERATURE / config.json associate.temperature); unset = the key is OMITTED from the payload so the Orin's configured default applies; cortex's own temperature is never inherited by the associate seat; a payload-builder test pins both branches",
         "config show's associate line names the seat's temperature source ('deployment default' or the operator value); docs/features/associate-validation.md's precondition paragraph updated",
