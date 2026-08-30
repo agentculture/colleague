@@ -125,7 +125,11 @@ minds. The architecture, part by part:
   shipped default prompt carries no encouragement to delegate** — the t9
   section names the six purpose tools and says "never delegate just to
   delegate"; the imperative prose tested here lives only in staged overlays
-  under `docs/live-testing/overlays/`. Doc: `purpose-tools.md`.
+  under `docs/live-testing/overlays/`. **The `delegation-follow-ups` arc
+  (rows 59–62) closed #456's two gaps negatively — the raw-vs-purpose fair
+  fight A7 delegated 0/3 by either form (unanswered, not lost), the size
+  trigger P3 0/3 against a clean P2-0 control and does not promote — and
+  found the purpose child's step cap unapplied (#458).** Doc: `purpose-tools.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,

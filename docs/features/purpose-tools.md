@@ -388,6 +388,61 @@ pair; depth 1 = **14**, unchanged, with `depth-0 minus depth-1` exactly the six
 purpose names. The A4-vs-A0 comparison the matrix ran is therefore unaffected:
 A0 already measured the surface the default now carries.
 
+## The `delegation-follow-ups` arc (2026-08-30) — the two gaps #456 named, closed
+
+Spec/plan `2026-08-30-delegation-follow-ups-a7-p3-hire`. Rows **59–62** of
+`docs/live-testing.md` carry the evidence (nine runs on the large-surface
+brief, all `ok`, zero voided, every artifact carrying the `prompt_digest` its
+row pre-registered AND — new in this arc — an `offered_tools` list, the
+depth-0 curated surface read off the artifact rather than from the shell that
+launched the run). Both arms close an inference gap; neither fixes a defect,
+and both results are negative:
+
+- **Gap 1 — the raw-vs-purpose fair fight (A7, row 59) is UNANSWERED, not
+  lost.** With both the raw `subagent`/`subagents` pair and the six purpose
+  tools on the acting seat (the `COLLEAGUE_ACTING_ADD_TOOLS` knob — an ADD
+  instrument, because since arm 4's revert the writer allow-list drops the
+  raw pair unconditionally and unsetting the drop knob restores nothing),
+  cortex delegated **0/3** by EITHER form: no raw call, no purpose call, no
+  parallel batch — it surveyed in-seat (grep index + ranged `run_command`
+  reads) every time. A5, with the identical prompt digest and a purpose-only
+  surface, had delegated 2/3 the day before; but the control arm below also
+  fell from 3/3 (A6, P2) to 1/3 (P2-0) across the same two days, so the
+  brief's delegation rate is volatile day to day and n=3 cannot separate a
+  surface effect from that variance. The row's reading is the qualified one
+  (h20): with the raw pair offered but undescribed in prose, cortex used
+  neither — the preference question needs a matrix where the raw pair is
+  also described, and a brief that delegates reliably.
+- **Gap 2 — the size trigger (P3, row 61) does not promote.** Against the
+  large brief's first clean control (P2-0, row 60: P2's truthful first
+  paragraph alone, 1/3 delegating — only the GPU-contended run), P2-0 plus
+  ONE explicit trigger sentence ("when the survey does not fit in one pass,
+  hand parts of it to `code_survey` …") delegated **0/3**, cost turns
+  (ratio 1.286) and reasoning (mean 123k chars vs 9.8k, one 310k-char
+  truncated reasoning turn; 19.8k vs 9.8k without it). All three q3 clauses
+  fail; `prompttext._PURPOSE_TOOLS` and the writer fragment are untouched
+  and the overlay stays a staged instrument under
+  `docs/live-testing/overlays/P3/`.
+- **The seat the children ran on (row 60, deviations d2/d3).** Every
+  `code_survey` child in rows 59–61 ran on cortex (`sub_results[].model` =
+  the Qwen3.8 id): the lobes `associate` role (Nemotron 3.5 Lightning) is
+  proxied to the Orin and advertised `ready:false`, and the associate seat
+  was opt-in. The operator's intended topology is the associate on every
+  non-writer seat **by default** — landed as plan task t19 (decisions
+  c45/c46) — and a nemotron arm (row 62, `COLLEAGUE_ASSOCIATE_MODEL=lobes`,
+  the P0 overlay whose seat description is true for that seat) was
+  pre-registered and run behind the matrix; its cells are on that row.
+- **Unplanned finding — the purpose child's step cap is not applied
+  (#458).** Row 60 run 1's four `code_survey` children ran 23–29 steps
+  against `PURPOSE_STEPS['code_survey']` = 12 and 240k–425k tokens each. The
+  arms ran on that behaviour and say so; the fix is #458, not this arc.
+
+What survives unchanged: claim c46 — every run in both arcs succeeded whether
+or not it delegated (rows 59–61: 9/9 `ok`, one module changed each, public
+interface stable), and the in-seat mechanism remains cheaper than four
+~300k-token children, which is the rational choice the numbers keep showing.
+The shipped default prompt still carries no encouragement to delegate.
+
 ## Provenance
 
 - Spec: `docs/specs/2026-08-28-purpose-tools-associate-seat.md` (decisions
