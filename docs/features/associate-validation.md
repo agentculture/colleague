@@ -87,8 +87,8 @@ on 8 of 12 tasks (it looks like success). If a client insists on a cap, use
 ~4× faster and never truncates, at a real cost: terse and shallower — 11
 durable facts where depth got 25, 3/5 relevant files where depth found 5/5,
 missed the decisive line depth quoted verbatim, and it ignores output-format
-instructions more often ("answer with one line: COUNT: <integer>", "quote the
-document").
+instructions more often (`answer with one line: COUNT: <integer>`, `quote the
+document`).
 
 Rules for any caller: address the lane as `model: "associate"` — the role
 name, never the raw checkpoint id (it resolves to a different local backend
