@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T11:54:40Z",
+  "updated": "2026-08-30T12:02:45Z",
   "targets": [
     {
       "id": "c1",
@@ -770,13 +770,15 @@
       "status": "proposed",
       "acceptance_criteria": [
         "The associate seat's completions carry temperature ONLY when an operator set one for that seat (COLLEAGUE_ASSOCIATE_TEMPERATURE / config.json associate.temperature); unset = the key is OMITTED from the payload so the Orin's configured default applies; cortex's own temperature is never inherited by the associate seat; a payload-builder test pins both branches",
-        "config show's associate line names the seat's temperature source ('deployment default' or the operator value); docs/features/associate-validation.md's precondition paragraph updated"
+        "config show's associate line names the seat's temperature source ('deployment default' or the operator value); docs/features/associate-validation.md's precondition paragraph updated",
+        "The associate seat carries a NAMED PROFILE (decision c49): DEPTH (the default for scout/code_survey/web_survey/memory-distill/synthesis) sends temperature 0.6, top_p 0.95, chat_template_kwargs {enable_thinking: true} and OMITS max_tokens (or sends >= 8192 when an operator forces a cap); TRIAGE (compact/digest sub-seats and any explicitly bounded call) sends temperature 0.6, top_p 0.95, max_tokens 2048, enable_thinking false. Each value is operator-overridable per seat (COLLEAGUE_ASSOCIATE_TEMPERATURE / _TOP_P / _MAX_TOKENS / _THINKING, config.json associate.*); the profile\u2192sub-seat map is a fixed table, never a per-turn choice; cortex's payload is byte-identical",
+        "A payload-builder test pins, for a seat stamped with each profile, exactly the keys sent and omitted (max_tokens absent on DEPTH; enable_thinking true/false; top_p present only on the associate); PURPOSE_TABLE's cortex rungs are untouched \u2014 the associate profile is what a purpose child gets ONLY when it runs on the associate seat"
       ],
       "deps": [
         "t22"
       ],
       "covers": [],
-      "instruction": "Files: colleague/associate_config.py (a temperature key on the nested associate section + env), colleague/associate.py (associate_engine_config: stamp a seat attribute the payload builder reads), colleague/engines/vllm_openai.py (_build_chat_payload: omit 'temperature' for a seat stamped 'deployment default'), colleague/associate_cli.py, tests/test_associate_window.py or a new tests/test_associate_sampling.py. Keep the main seat byte-identical (it still sends config.temperature)."
+      "instruction": "Files: colleague/associate_config.py (AssociateProfile dataclass + the fixed sub-seat\u2192profile table + env/config.json overrides), colleague/associate.py (associate_engine_config stamps the profile on the seat; the payload builder reads it), colleague/engines/vllm_openai.py (_build_chat_payload: when a seat carries a profile, send its temperature/top_p/enable_thinking and omit or raise max_tokens accordingly \u2014 Nemotron's template takes the boolean enable_thinking, NOT the Qwen reasoning_effort ladder key, so bypass effort.to_chat_template_kwargs for a profiled seat), colleague/turnbudget.py (max_tokens_for: None for a DEPTH-profiled seat unless an operator cap is set), colleague/associate_cli.py (config show names the profile per sub-seat), docs/features/associate-validation.md \u00a70b, tests/test_associate_sampling.py. Source of the numbers: the operator's measured contract, decision c49."
     }
   ],
   "risks": [
