@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-30T04:09:25Z",
-  "updated": "2026-08-30T06:16:29Z",
+  "updated": "2026-08-30T06:31:37Z",
   "claims": [
     {
       "id": "c1",
@@ -677,7 +677,7 @@
       "kind": "requirement",
       "text": "COLLEAGUE_HIRE and COLLEAGUE_ACTING_ADD_TOOLS appear in colleague config show and as config events on the artifact (contract.config_digest_for), so a byte-identical or arm claim is attestable from the artifact rather than from the shell that launched the run",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h26",
@@ -688,7 +688,7 @@
         {
           "id": "h27",
           "text": "h26 as amended by deviation d1: config show --json lists both knobs (value or unset); two otherwise-identical bare runs that differ only in COLLEAGUE_HIRE (or the add-set) differ on the artifact in offered_tools \u2014 the hire pair present vs absent, the added names present vs absent \u2014 since a bare artifact carries no config_digest (that digest is the change-content lifecycle's event stream)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],

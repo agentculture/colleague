@@ -66,8 +66,10 @@
   - instruction: verify: tests/`test_agents_tools.py` additions
   - honesty: Under `COLLEAGUE_AGENTS`=1 `COLLEAGUE_HIRE`=1 the `thinker_coder` effective surface contains both names; under `COLLEAGUE_AGENTS`=1 alone it contains neither; a talker profile with either name is refused by `validate_profile_tools`
 - `COLLEAGUE_HIRE` and `COLLEAGUE_ACTING_ADD_TOOLS` appear in colleague config show and as config events on the artifact (contract.`config_digest_for`), so a byte-identical or arm claim is attestable from the artifact rather than from the shell that launched the run
-  - instruction: verify: tests/`test_config_show` + a digest inequality test
+  - instruction: verify: tests/`test_config_hire_knobs.py` (config show) + an `offered_tools` inequality test once t10 lands the hire schemas
+  - ⚠ contested by `d1` (acceptable): discovered while implementing t4: the digest named in h26 does not exist on the artifacts the arm rows read
   - honesty: config show --json lists both knobs (value or unset) and two artifacts that differ only in `COLLEAGUE_HIRE` differ in `config_digest`
+  - honesty: h26 as amended by deviation d1: config show --json lists both knobs (value or unset); two otherwise-identical bare runs that differ only in `COLLEAGUE_HIRE` (or the add-set) differ on the artifact in `offered_tools` — the hire pair present vs absent, the added names present vs absent — since a bare artifact carries no `config_digest` (that digest is the change-content lifecycle's event stream)
 
 ## Honesty conditions
 
@@ -201,6 +203,8 @@
 - Negotiation is at most 2 candidate rounds, each one tools-off completion on the cortex model; unresolved after round 2 = the tool result 'not hired', no roster entry (q6)
 - A cut run's hires are DEAD at the cut: work --continue / --until-done episodes mark hires\[\].status = expired and `assign_to_colleague` refuses 'no live hire'; rehydrating a roster belongs to the persistence follow-up (q7)
 - The hire arm is counted by extending scripts/`compare_arms.py` with hires/assignments columns in a versioned change landed BEFORE the hire row is pre-registered; `PURPOSE_TOOL_NAMES` stays six (q8)
+- Associate default-ON (2026-08-30): a READY lobes associate role fills the read-only purpose seats (scout: `code_survey`/`web_survey`; reviewer/validator/planner children) by default — a fixed resolution rung, recorded cortex fallback when absent/not-ready, `COLLEAGUE_ASSOCIATE_MODEL`=off opts out; the writer purpose and the acting seat stay on cortex. Amends qwen-direct convention change (5) for the associate seat only; senses/muse stay opt-in.
+- Associate default-ON extends to MEMORY and every associate sub-seat (2026-08-30): the five `ASSOCIATE_SEAT_TABLE` lanes — scout, compact, synthesis, digest, distill (the rung-2 memory distill child) — all resolve to a READY lobes associate role by default, with the same recorded cortex fallback and the same `COLLEAGUE_ASSOCIATE_MODEL`=off opt-out; the writer purpose and the acting seat stay on cortex.
 
 ## Open parks
 
