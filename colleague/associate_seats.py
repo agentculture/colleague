@@ -54,6 +54,7 @@ from colleague import effort as _effort
 from colleague import efforttables as _efforttables
 from colleague.associate import associate_engine_config
 from colleague.config import EngineConfig
+from colleague.context import window_messages
 
 __all__ = [
     "ASSOCIATE_SEATS",
@@ -66,6 +67,7 @@ __all__ = [
     "make_associate_complete",
     "resolve_associate_seat_config",
     "scout_child_config",
+    "window_to_seat",
 ]
 
 #: The FIXED, ENUMERATED set of associate-eligible seats (c33/h22). Adding a
@@ -82,8 +84,10 @@ FALLBACK_EFFORT = "low"
 #: ``messages -> ModelResponse`` (the loop's own ``CompleteFn`` shape, left
 #: untyped here to avoid importing the loop).
 CompleteFn = Callable[[list[dict[str, Any]]], Any]
-#: ``(seat, warn) -> CompleteFn | None`` — see :func:`make_associate_complete`.
-SeatCompleteFactory = Callable[[str, Callable[[str], None]], Optional[CompleteFn]]
+#: ``(seat, warn, *, count_tokens=None, lane_budget=None) -> CompleteFn | None``
+#: — see :func:`make_associate_complete` (the two keyword-only knobs feed
+#: :func:`window_to_seat`; ``Callable`` cannot spell keyword-only parameters).
+SeatCompleteFactory = Callable[..., Optional[CompleteFn]]
 
 
 def _check_seat(seat: str) -> None:
@@ -136,6 +140,36 @@ def fallback_warning(seat: str, reason: str) -> str:
     )
 
 
+def window_to_seat(
+    messages: list[dict[str, Any]],
+    seat_config: object,
+    *,
+    count_tokens: Optional[Callable[[list[dict[str, Any]]], int]] = None,
+    lane_budget: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    """Window *messages* to the SEAT's ``context_budget_tokens`` before dispatch.
+
+    The compact / synthesis lanes build their message lists against the
+    parent's ``ContextControls`` budget (the MAIN window); the associate seat's
+    own budget is clamped to its SERVED window (#460, ``served_window_budget``)
+    and can be smaller — e.g. 128,000 on the reference rig under a 200,000+
+    cortex budget. Rather than letting an overlong request fail on the wire
+    and land on the cortex@low fallback, this trims it with the loop's own
+    primitive (:func:`colleague.context.window_messages` — head + most recent
+    turns, one elision placeholder, the same *count_tokens* the lane already
+    windowed with; the chars/4 estimate when ``None``). Pass-through (the same
+    list object, byte-identical) when the seat carries no positive budget,
+    when *lane_budget* is known and the seat's budget is NOT smaller than it,
+    or when the request already fits.
+    """
+    seat_budget = getattr(seat_config, "context_budget_tokens", None)
+    if not isinstance(seat_budget, int) or isinstance(seat_budget, bool) or seat_budget <= 0:
+        return messages
+    if isinstance(lane_budget, int) and lane_budget > 0 and seat_budget >= lane_budget:
+        return messages
+    return window_messages(messages, seat_budget, count_tokens)
+
+
 def make_associate_complete(
     config: EngineConfig,
     engine_name: str,
@@ -146,16 +180,25 @@ def make_associate_complete(
 
     ``None`` when unarmed (``config.associate`` is ``None``) — the loop then
     keeps its acting ``complete`` for every seat, byte-identical to main.
-    Armed: ``factory(seat, warn)`` returns a tools-off completion on the
-    associate seat that, on ANY exception, calls ``warn(text)`` once and
-    completes the same messages on cortex@low instead; it returns ``None``
-    (after ``warn``) when the engine has no one-shot completion seam (the
-    ``mock`` engine), so the caller keeps its acting completion — the
-    all-engines rule holds: an armed mock run never crashes, it records why.
+    Armed: ``factory(seat, warn, *, count_tokens=None, lane_budget=None)``
+    returns a tools-off completion on the associate seat that, on ANY
+    exception, calls ``warn(text)`` once and completes the ORIGINAL messages
+    on cortex@low instead; it returns ``None`` (after ``warn``) when the
+    engine has no one-shot completion seam (the ``mock`` engine), so the
+    caller keeps its acting completion — the all-engines rule holds: an armed
+    mock run never crashes, it records why.
 
-    Honest limit: the loop windows a seat's request to the MAIN budget; a
-    request larger than the associate's own window fails on the wire and
-    lands on the fallback branch above.
+    Seat windowing (Qodo #464 / #460): the loop windows a lane's request to
+    the MAIN budget, which can exceed the associate's served window. Before
+    the associate dispatch the request is therefore trimmed to the SEAT's
+    ``context_budget_tokens`` via :func:`window_to_seat` — the caller's
+    *count_tokens* and *lane_budget* decide whether anything is cut; the seat
+    budget not smaller than the lane's, or a request that already fits, is a
+    pass-through of the very same list. Honest limit that remains: the count
+    is the lane's estimator (calibrated on the cortex tokenizer, or chars/4),
+    not the associate model's own tokenizer, so a request the estimate calls
+    fitting can still fail on the wire — that case still lands on the fallback
+    branch above (defence in depth), never a crash.
     """
     if config.associate is None:
         return None
@@ -163,11 +206,18 @@ def make_associate_complete(
 
     loader = engine_loader if engine_loader is not None else registry.load
 
-    def factory(seat: str, warn: Callable[[str], None]) -> Optional[CompleteFn]:
+    def factory(
+        seat: str,
+        warn: Callable[[str], None],
+        *,
+        count_tokens: Optional[Callable[[list[dict[str, Any]]], int]] = None,
+        lane_budget: Optional[int] = None,
+    ) -> Optional[CompleteFn]:
         _check_seat(seat)
         try:
             engine = loader(engine_name)
-            primary = engine.make_complete(resolve_associate_seat_config(config, seat), tools=[])
+            seat_config = resolve_associate_seat_config(config, seat)
+            primary = engine.make_complete(seat_config, tools=[])
         except NotImplementedError as exc:
             warn(fallback_warning(seat, f"engine '{engine_name}': {exc}"))
             return None
@@ -177,7 +227,10 @@ def make_associate_complete(
 
         def complete(messages: list[dict[str, Any]]) -> Any:
             try:
-                return primary(messages)
+                request = window_to_seat(
+                    messages, seat_config, count_tokens=count_tokens, lane_budget=lane_budget
+                )
+                return primary(request)
             # every failure shape falls back, recorded
             except Exception as exc:  # noqa: BLE001
                 warn(fallback_warning(seat, f"{type(exc).__name__}: {exc}"))
