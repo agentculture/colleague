@@ -49,8 +49,8 @@ carries `temperature: config.temperature` (`colleague/engines/vllm_openai.py`,
 the payload builder), and the associate seat is a `dataclasses.replace` of the
 parent config, so **the associate child runs at cortex's configured
 temperature (`COLLEAGUE_TEMPERATURE`), not at the Orin's server default** —
-the deployment's temperature only applies if colleague's value matches it (a
-per-seat override / omit-on-the-associate-seat is a follow-up, plan t23).
+the deployment's temperature only applies if colleague's value matches it (plan
+t23, shipped in v1.69.0, replaces this with the seat profile below).
 `max_tokens` is colleague's window clamp. Paste the deployment's parameters
 (the Orin's vLLM launch flags / `lobes status` there) AND colleague's
 `temperature` into the row beside the served window, and re-run the ladder
@@ -104,13 +104,13 @@ lists) — it returns confident fabrications; compute those yourself and pass
 them in. Treat any file path it returns as unverified and re-resolve it
 locally: basenames are reliable, full paths were wrong ~40 % of the time.
 
-**What colleague sends today vs this contract** (plan t23 closes the gap):
-`temperature` = cortex's `COLLEAGUE_TEMPERATURE` (default 0.0, not 0.6); no
-`top_p`; `max_tokens` = colleague's window clamp (a cap — must be ≥ 8192 or
-omitted on the depth profile); thinking per the effort ladder, where the
-purpose rungs `code_survey`/`web_survey` are `off` — the depth profile wants
-it ON for survey work, so the associate rungs need re-deciding by measurement
-(#459's rule).
+**What colleague sends since plan t23 (v1.69.0):** exactly this contract —
+the `depth` profile on every associate lane (temperature 0.6, top_p 0.95,
+`enable_thinking: true`, `max_tokens` omitted), `triage` only via
+`COLLEAGUE_ASSOCIATE_PROFILE=triage` (or per-value overrides
+`COLLEAGUE_ASSOCIATE_TEMPERATURE` / `_TOP_P` / `_MAX_TOKENS` / `_THINKING`);
+`config show` prints the profile beside the seat. Cortex still sends its own
+`COLLEAGUE_TEMPERATURE` and window clamp, byte-identical to before.
 
 ## 1. The case ladder — smallest first, each on a throwaway repo
 
