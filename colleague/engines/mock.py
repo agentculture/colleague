@@ -93,26 +93,30 @@ def _script(task: Task) -> CompleteFn:
     # value itself — a scripted engine choosing to act/finish, never truncated
     # by a token cap — so `result.finish_states` stays populated with the same
     # shape a live backend produces (test_e2e_mock.py's shape parity).
-    turns = mock_scenarios.batch_turns_or_none(task) or [
-        ModelResponse(
-            content="writing the marker file",
-            reasoning="mock reasoning: decide to write the marker file",
-            tool_calls=[
-                ToolCall("mock-1", "write_file", {"path": OUTPUT_FILE, "content": content})
-            ],
-            prompt_tokens=1,
-            completion_tokens=1,
-            finish_reason="stop",
-        ),
-        ModelResponse(
-            content="done",
-            reasoning="mock reasoning: nothing left to do, finish",
-            tool_calls=[ToolCall("mock-2", "finish", {"summary": f"mock wrote {OUTPUT_FILE}"})],
-            prompt_tokens=1,
-            completion_tokens=1,
-            finish_reason="stop",
-        ),
-    ]
+    turns = (
+        mock_scenarios.batch_turns_or_none(task)
+        or mock_scenarios.survey_turns_or_none(task)
+        or [
+            ModelResponse(
+                content="writing the marker file",
+                reasoning="mock reasoning: decide to write the marker file",
+                tool_calls=[
+                    ToolCall("mock-1", "write_file", {"path": OUTPUT_FILE, "content": content})
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+                finish_reason="stop",
+            ),
+            ModelResponse(
+                content="done",
+                reasoning="mock reasoning: nothing left to do, finish",
+                tool_calls=[ToolCall("mock-2", "finish", {"summary": f"mock wrote {OUTPUT_FILE}"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+                finish_reason="stop",
+            ),
+        ]
+    )
     state = {"i": 0}
 
     def complete(_messages: list[dict]) -> ModelResponse:
