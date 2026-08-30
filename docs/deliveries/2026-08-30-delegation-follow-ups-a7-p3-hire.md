@@ -126,6 +126,6 @@ Quoted verbatim from the `devague summary` skeleton:
 - #458 — the purpose child's 12-step cap is unapplied (children read to 460k–846k tokens); fix it, then re-run row 64 as row-64b (pre-registered condition) — the whole wall gap is child over-reading.
 - #459 — fixture-scored digest quality for `code_survey`/`web_survey`/memory, with the #461 correction folded in; decides qwen-`low` vs nemotron per lane.
 - #462 / #463 — future purpose tools; `run_command` reason + slower-warning — issues only.
-- Row 64 — the Orin's serving parameters are still to be pasted beside the row by the operator (the origin refuses without its key).
+- Row 64 — the Orin's serving parameters were read off the deployment via ssh (2026-08-30 ~22:15) and pasted into the row in this same PR: vLLM v0.27.1, `--max-model-len=128000`, DSpark speculative decoding (5 tokens), `qwen3_coder` tool parser, `nemotron_v3` reasoning parser.
 - lobes-cli#234 / #235 — advert carries the served window; `thinking_budget` on vLLM.
 - The colleague second opinion on the associate-seat diff never completed on cortex (two attempts) — a recorded miss; re-attempt on the associate seat once validated, or accept Claude's review as the second opinion.
