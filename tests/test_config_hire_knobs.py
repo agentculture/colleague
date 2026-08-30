@@ -101,3 +101,48 @@ def test_config_show_json_lists_both_knobs(tmp_path, monkeypatch):
     data = json.loads(out.stdout)
     assert data["hire"] is True
     assert data["acting_add_tools"] == ["subagent"]
+
+
+# ---------------------------------------------------------------------------
+# Review findings (colleague second opinion, 2026-08-30, task 8e658025caa2):
+# the nested config.json form silently ARMED (str(dict) -> _parse_bool True)
+# and the non-JSON config show lines were unasserted.
+# ---------------------------------------------------------------------------
+
+
+def test_nested_config_form_reads_enabled_like_agents(tmp_path, monkeypatch):
+    assert _resolve(tmp_path, monkeypatch, {"hire": {"enabled": False}}).hire is False
+    assert _resolve(tmp_path, monkeypatch, {"hire": {"enabled": True}}).hire is True
+    # the object's own presence, absent an explicit enabled=false, arms (the
+    # agents / three_tier tolerance)
+    assert _resolve(tmp_path, monkeypatch, {"hire": {}}).hire is True
+    assert _resolve(tmp_path, monkeypatch, {"hire": "off"}).hire is False
+
+
+def test_config_show_text_lines_list_both_knobs(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    repo = _repo(tmp_path)
+    env = {k: v for k, v in __import__("os").environ.items() if not k.startswith("COLLEAGUE_")}
+    env["COLLEAGUE_LOBES_URL"] = ""
+    out = subprocess.run(
+        [sys.executable, "-m", "colleague", "config", "show", "--repo", repo],
+        capture_output=True,
+        text=True,
+        cwd=_WORKTREE,
+        env=env,
+        check=False,
+    )
+    assert "hire: off" in out.stdout and "acting_add_tools: unset" in out.stdout
+    env["COLLEAGUE_HIRE"] = "1"
+    env["COLLEAGUE_ACTING_ADD_TOOLS"] = "subagent,subagents"
+    out = subprocess.run(
+        [sys.executable, "-m", "colleague", "config", "show", "--repo", repo],
+        capture_output=True,
+        text=True,
+        cwd=_WORKTREE,
+        env=env,
+        check=False,
+    )
+    assert "hire: armed" in out.stdout and "acting_add_tools: subagent,subagents" in out.stdout

@@ -2198,11 +2198,19 @@ _DEFAULT_HIRE_ENABLED = False
 
 def _load_hire_override(repo_path: str | Path) -> str | None:
     """Read the ``hire`` key from .colleague/config.json as a raw string
-    (delegation-follow-ups plan task t4). A bare boolean only; ``None`` when
-    absent; never raises. Reads via :func:`_merged_config_json`."""
+    (delegation-follow-ups plan task t4). Accepts a bare boolean or, like
+    ``agents``, a nested object (``{"hire": {"enabled": false}}`` — the
+    object's presence, absent an explicit ``"enabled": false``, arms); a
+    review found the nested form used to stringify to a dict repr that
+    ``_parse_bool`` read as ARMED. ``None`` when absent; never raises. Reads
+    via :func:`_merged_config_json`."""
     data = _merged_config_json(repo_path)
     value = data.get("hire")
-    return None if value is None else str(value)
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return str(value.get("enabled", True))
+    return str(value)
 
 
 def _resolve_hire_enabled(file_value: str | None) -> bool:

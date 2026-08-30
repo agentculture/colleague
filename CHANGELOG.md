@@ -26,6 +26,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Review findings (a colleague second opinion on the knobs/contract diff, task `8e658025caa2`, cortex at `low`): a nested config.json `{"hire": {"enabled": false}}` used to stringify to a dict repr that `_parse_bool` read as ARMED — it now reads `enabled` like `agents`; an EMPTY curated surface stamped `offered_tools: []` where the docstring promised an absent key — both engines now stamp `None` for an empty surface (byte-identical to the pre-field artifact); the vllm half of the all-engines stamp, the add-knob→`offered_tools` composition and the non-JSON `config show` lines are now pinned.
 - #460 — a purpose child on the associate seat inherited a 768k budget, hit `400 maximum context length`, and the alias→served-id retry turned it into `404 role_infeasible` with the original error lost; `retry_role_alias` now recognises a context-length 400 (no retry) and, when the served-id retry also fails, raises a folded error carrying BOTH bodies (t22).
 
 ## [1.68.0] - 2026-08-30

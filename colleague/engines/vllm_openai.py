@@ -1412,8 +1412,10 @@ class VllmOpenAIEngine(Engine):
         # offered_tools (delegation-follow-ups t2, c34/h18): the depth-0 curated
         # surface that ACTUALLY went on the wire, in schema order — same
         # fill-only-when-None discipline as prompt_digest (all-engines rule).
+        # An empty surface stays ``None`` (key absent) — byte-identical to the
+        # pre-field artifact, same as the mock (review finding 2026-08-30).
         if result.offered_tools is None:
-            result.offered_tools = [s["function"]["name"] for s in offered_tools]
+            result.offered_tools = [s["function"]["name"] for s in offered_tools] or None
         # Model-bound agents (#411, t13): an ARMED config always returns the
         # versioned ``agents`` block with the SAME shape on every backend
         # (all-engines rule) — the fold only fills a still-``None`` field, so

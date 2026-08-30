@@ -243,11 +243,14 @@ class MockEngine(Engine):
         # offered_tools (delegation-follow-ups t2, c34/h18): the mock carries no
         # wire schema, so it stamps the SAME role-curated list the live backend
         # hands its transport (all-engines rule) — computed here, never guessed.
+        # An EMPTY curated surface stays ``None`` (key absent) so a seat that
+        # offered nothing serializes byte-identically to the pre-field artifact
+        # (review finding 2026-08-30: ``[]`` was serialized).
         if result.offered_tools is None:
             result.offered_tools = [
                 s["function"]["name"]
                 for s in curated_schemas(role, config, deepthink=dt_run is not None)
-            ]
+            ] or None
         # Model-bound agents (#411, t13): an ARMED config always returns the
         # versioned ``agents`` block with the SAME shape on every backend
         # (all-engines rule) — the fold only fills a still-``None`` field, so
