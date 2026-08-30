@@ -857,7 +857,15 @@ def _tokenize_post(
 #: ``/tokenize`` URL → the reply's ``max_model_len`` (t12 window discovery); filled
 #: by :func:`_tokenize_count`, read by the run-start probe. A plain dict, never a
 #: thread primitive: the value is per endpoint, so concurrent writers agree.
-_MAX_MODEL_LEN_BY_URL: dict[str, int] = {}
+#: Keyed by ``(tokenize url, model)`` (#460): two seats behind ONE gateway (cortex
+#: and the role-addressed associate) serve different windows, so a URL-only key
+#: let one seat's probe clobber the other's.
+_MAX_MODEL_LEN_BY_URL: dict[tuple[str, str], int] = {}
+
+
+def served_max_model_len(url: str, model: str) -> "int | None":
+    """The ``/tokenize``-reported ``max_model_len`` for *(url, model)* once probed."""
+    return _MAX_MODEL_LEN_BY_URL.get((url, model))
 
 
 def _tokenize_count(
@@ -878,7 +886,7 @@ def _tokenize_count(
     except Exception:  # nosec B110 - any tokenize failure falls back to the char estimate
         return None
     if isinstance(data.get("max_model_len"), int):
-        _MAX_MODEL_LEN_BY_URL[url] = data["max_model_len"]
+        _MAX_MODEL_LEN_BY_URL[(url, model)] = data["max_model_len"]
     count = data.get("count")
     if isinstance(count, bool) or not isinstance(count, int):
         return None
@@ -1044,8 +1052,8 @@ class VllmOpenAIEngine(Engine):
                 api_key=config.api_key,
                 timeout=config.timeout,
             )
-            if url in _MAX_MODEL_LEN_BY_URL:
-                reply["max_model_len"] = _MAX_MODEL_LEN_BY_URL[url]
+            if (url, config.model) in _MAX_MODEL_LEN_BY_URL:
+                reply["max_model_len"] = _MAX_MODEL_LEN_BY_URL[(url, config.model)]
             return count
 
         return tokenestimate.attach(config, exact)
