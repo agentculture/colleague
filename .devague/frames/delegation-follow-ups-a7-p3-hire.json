@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-30T04:09:25Z",
-  "updated": "2026-08-30T12:03:08Z",
+  "updated": "2026-08-30T12:41:25Z",
   "claims": [
     {
       "id": "c1",
@@ -785,6 +785,18 @@
       "id": "c50",
       "kind": "decision",
       "text": "Correction to c49 (operator, 2026-08-30): the FAST-TRIAGE profile uses temperature 0.2 (not 0.6); and for colleague's use case every associate lane needs reasoning, so DEPTH (thinking ON, temperature 0.6, top_p 0.95, no small max_tokens) is the profile for ALL associate sub-seats \u2014 TRIAGE is available only as an explicit operator override, never a colleague default.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c51",
+      "kind": "decision",
+      "text": "Correction to c49 (operator-measured, #461 second comment, 2026-08-30): the fabrication/path-error findings were thinking-OFF numbers. Thinking ON: exact path 75 % (basename 92 %, definition line 100 %), exact counts on trap-free corpora to 40 items / 42,826 tokens, degrading on large ambiguous corpora (3/3 at 46k to 1/3 at 91k+); thinking OFF cannot aggregate at any size. The code-semantic escalation is conditional on the seat's reasoning budget, except design/implement a change (unconditional). Measured rule: a 64K cap does not make counting correct at 91K, it makes 91K requests impossible \u2014 reduce the working set before counting is caller-side policy, so colleague keeps the served 128K clamp and owns the reduction. Guide \u00a70b/\u00a74 carry the figures.",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],

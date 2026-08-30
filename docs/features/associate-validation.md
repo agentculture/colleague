@@ -98,11 +98,55 @@ document`).
 Rules for any caller: address the lane as `model: "associate"` — the role
 name, never the raw checkpoint id (it resolves to a different local backend
 and 404s `role_infeasible` on a box that proxies the role); served window
-128,000; `/v1/*` needs the bearer key, `/capabilities` is open. Never ask this
-lane for a fact about the corpus as a whole (counts, inventories, exhaustive
-lists) — it returns confident fabrications; compute those yourself and pass
-them in. Treat any file path it returns as unverified and re-resolve it
-locally: basenames are reliable, full paths were wrong ~40 % of the time.
+128,000; `/v1/*` needs the bearer key, `/capabilities` is open.
+
+**The corrected evidence (#461, lobes' second comment of 2026-08-30 correcting
+its first — the first was measured with thinking OFF, the configuration that
+is "worst at everything except speed"):**
+
+- **Reasoning budget is the lever, not the model.** Three of the four
+  "escalate to cortex" items — trace a cross-module branch, understand an
+  unfamiliar architecture, diagnose a bug from code semantics — FAIL with
+  thinking off and PASS with thinking on at an adequate budget.
+  **Design/implement a change fails at every budget** (4K/16K/32K, always
+  well-typed code solving an adjacent problem) and stays an unconditional
+  escalation. So the `code_survey` escalation rule is conditional on the
+  seat's configured reasoning budget; colleague's `depth` profile IS the
+  thinking-on configuration.
+- **Paths: verify, do not assume broken.** Thinking on (n=12): exact path
+  75 %, basename 92 %, definition line 100 % (thinking off, n=36: 56 / 78 /
+  92 %). One misattribution reproduced in all four configurations —
+  `colleague/tests/test_plan_plan_stage.py` returned as
+  `culture-nodes/tests/test_plan_plan_stage.py` while the correct prefix sat
+  in the `FILE:` header it had just read: correctly retrieved content with a
+  fabricated provenance, invisible to a reviewer. Treat `file` in any digest
+  as unverified until re-resolved; the ranged-read validation is load-bearing.
+- **Counting / inventory: reduce first, then count with thinking on.**
+  Thinking OFF cannot aggregate at any size (over-counts 6 files in 167
+  tokens; wrong in 36/36 real-block samples). Thinking ON counted exactly on
+  every trap-free corpus tested (6…40 items, up to 42,826 tokens — a
+  demonstrated floor, the next size hit the 128K window) and matched a
+  defensible reading in 7/12 real blocks, falling from 3/3 at 46k to 1/3 at
+  91k and 99k. Define the predicate exactly (`path starts with X`, never
+  "comes from X"). The operator's measured caution: *"Aggregation gets worse
+  at ≥91K, but a 64K cap doesn't make counting correct at 91K — it makes 91K
+  requests impossible. The actual fix is reducing the working set before
+  counting, which is caller-side policy, not a server constraint."* So
+  colleague keeps the seat at the served 128K window (`served_window_budget`)
+  and owns the reduction itself: never ask for a count over raw ~100K
+  material, and never ask a thinking-off lane for a count at any size.
+- **Cost of depth (same 12 tasks, identical prompts):** thinking on / 4K
+  budget 678 s with 9/12 truncated (the dead zone); off / 8K 174 s, 0
+  truncated; on / 32K 1,220 s, 0 truncated, 11/12 pass. Decode 54–85 tok/s
+  (52–58 at 30–40K prompts), prefill ~1,612 tok/s; definition-line recall
+  12/12 at every block size, 88 % deep into 99,674 tokens — the 16K–64K
+  working band is about prefill cost and aggregation correctness, not
+  retrieval degradation.
+- **Two client hazards:** `thinking_budget` is accepted and silently ignored
+  by vLLM (lobes-cli#235) — the only levers are `enable_thinking` and
+  `max_tokens`; and an empty-content `finish_reason: length` turn is already a
+  NAMED truncation in colleague's loop (`colleague/loop.py`, #411 t8), never
+  an empty success.
 
 **What colleague sends since plan t23 (v1.69.0):** exactly this contract —
 the `depth` profile on every associate lane (temperature 0.6, top_p 0.95,
@@ -181,6 +225,15 @@ case 5 the `memory` counters.
 - **`/repo` paths:** Nemotron opened a child with `read_file /repo/src/…`
   (four errors) before recovering with `list_dir .` — the scout brief should
   say "paths are repo-relative".
+- **Empty HTTP 200 (`finish_reason: length`, empty content):** a low
+  `max_tokens` with thinking on — 8/12 tasks at 4,096 on 20K+ prompts. The
+  loop names it a truncation; the `depth` profile omits the cap.
+- **Provenance fabrication for correctly retrieved content:** the
+  reproducible `culture-nodes/…` misattribution in §0b — only a ranged
+  re-resolution catches it.
+- **Aggregation off thinking:** any count or exhaustive list from a
+  thinking-off lane is wrong; from a thinking-on lane it is reliable only over
+  a reduced, cleanly separable working set (§0b).
 - **`ready:false` on a live proxied role:** the flag describes the local host;
   the lane may still answer (probe it, step 0).
 
