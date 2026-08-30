@@ -2,7 +2,7 @@
   "plan_slug": "delegation-follow-ups-a7-p3-hire",
   "schema_version": 1,
   "created": "2026-08-30T04:47:21Z",
-  "updated": "2026-08-30T06:16:29Z",
+  "updated": "2026-08-30T07:56:24Z",
   "deviations": [
     {
       "id": "d1",
@@ -44,6 +44,20 @@
       "origin": "user",
       "status": "approved",
       "classification": "risky"
+    },
+    {
+      "id": "d4",
+      "what": "Operator decision 2026-08-30: add arm R \u2014 EXPLICITLY REQUESTED delegation. The brief's item 2 changes from 'you may hand parts\u2026 the choice is yours' to an instruction to call code_survey for each group of three modules and to verify only the cited lines afterwards; two conditions, n=3 each, pre-registered as rows 63 (R-cortex: associate unarmed) and 64 (R-nemotron: COLLEAGUE_ASSOCIATE_MODEL=lobes), NO overlay on either (the default writer fragment says nothing about the scout seat, so it is truthful for both; the only between-condition difference is the seat). Measures compliance, child wall per call, post-digest reads (ranged-vs-full = re-validate vs redo), wall vs the pooled in-seat median (392 s). Pass bar for 'delegation speeds up results': R-nemotron mean wall < the pooled non-delegating median AND post-digest reads are ranged; a miss is written as a miss. Not a router \u2014 the operator's task text. The hire arm moves to row 65. Also: rows 59-61 gain the pooled reading A5+A6 5/6 vs A7+P2-0+P3 1/9 (same brief, same served model) \u2014 the rate moved across a day with no credited lever.",
+      "task_ref": "t6",
+      "reason": "operator: 'can we merge A5+A6? (+ explicitly request delegation)' \u2014 the speed question needs delegation to actually happen",
+      "affects": [
+        "t6",
+        "t16",
+        "t17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
     }
   ]
 }
