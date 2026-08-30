@@ -3670,7 +3670,7 @@ def curated_schemas(role, config, *, deepthink: bool = False) -> list[dict[str, 
     from colleague.delegation_text import apply_armed_facts
     from colleague.tools import curate_schemas
 
-    return apply_armed_facts(curate_schemas(role, deepthink=deepthink), config)
+    return apply_armed_facts(curate_schemas(role, deepthink=deepthink, config=config), config)
 
 
 def _tools_off_role(purpose: str):
