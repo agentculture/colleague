@@ -72,6 +72,9 @@ _PRE_DEEPTHINK_KEYS = {
     # prompt carries it, so a live-testing row can attribute its prose
     # arm. Omitted only when the backend composed no prompt at all.
     "prompt_digest",
+    # offered_tools (delegation-follow-ups t2): the rendered tool names, so a
+    # surface arm is attributable off the artifact. Omitted when None.
+    "offered_tools",
 }
 
 

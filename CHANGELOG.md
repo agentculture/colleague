@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.0] - 2026-08-30
+
+### Added
+
+- `TaskResult.offered_tools` — the rendered tool names stamped by mock and vllm-openai identically (omit-when-None beside `prompt_digest`); the arm rows identify a surface arm off the artifact, not the prompt digest (delegation-follow-ups t2).
+- `COLLEAGUE_ACTING_ADD_TOOLS` — a depth-0 add knob on the acting surface (names restricted to `tools.SCHEMAS`, applied after the drop, children untouched); the A7 raw-vs-purpose fair-fight instrument (t1).
+- `COLLEAGUE_HIRE` / config.json `hire` (default OFF) and `acting_add_tools` on `EngineConfig` + `config show` (t4); the `hire_colleague` tool itself is Phase B (#457).
+- Live-testing overlays P2-0 (P2's first paragraph = the honest P3 control) and P3 (size-conditional delegation prose) + the requested-delegation brief `arm-large-surface-requested.md` (t3).
+- Associate seat sampling profiles (`colleague/associate_config.py`): `depth` (temperature 0.6, top_p 0.95, `enable_thinking: true`, `max_tokens` omitted) on every associate lane by default, `triage` (0.2, thinking off, 2048) only via `COLLEAGUE_ASSOCIATE_PROFILE` / per-value overrides; `config show` prints the profile (t23, #461).
+- `docs/features/associate-validation.md` — how to validate the associate/Nemotron seat with colleague on real cases: preconditions read off the rig, the operator's measured usage contract (#461, both comments — the correction wins), a five-case ladder, artifact reads, pass bars, known failure shapes (t21).
+- Live-testing rows 59–64 (A7, P2-0, P3, R-cortex, R-nemotron): the raw-vs-purpose fair fight delegated 0/3 by either form, P3 0/3 does not promote, requested delegation R-cortex 3/3 compliant at 3.2× wall with a full redo, R-nemotron run 1 all children refused (#460).
+
+### Changed
+
+- A top-level `--role reviewer` and the read-only modes `--mode explore|review` now reason at `low` on the acting seat (`effort.TOP_LEVEL_ROLE_TABLE` gains `reviewer`, new `TOP_LEVEL_MODE_TABLE`; `EngineConfig.mode` is a runtime-only field stamped by the work front) — the operator's rule: the associate is the fast reviewer, and whenever it is not taken cortex at `medium` is slow (a 20 KB diff review overflowed its synthesis turn at 274k reasoning chars). Kill-switch, per-seat/global knobs and an explicit `--role` still win; unset runs are byte-identical.
+- Test pins updated for the artifact's `offered_tools` key (chain e2e, result fidelity, senses all-engines, three-tier gates, deepthink guards) and the file-length ratchet baseline moved with its sanctioned command for the modules this arc grew (the per-arc convention since v1.65); the three associate per-value override knobs are now rows in the adopt-from-qwen-code knob table.
+- `docs/features/purpose-tools.md` + CLAUDE.md record the `delegation-follow-ups` arc: #456's two gaps closed negatively, the purpose child's step cap found unapplied (#458), the seat-per-lane decision rule deferred to measurement (#459).
+- The associate seat is clamped to the SERVED window: ONE `/tokenize` probe per (url, wire model) discovers `max_model_len` (128,000 on the reference rig vs a 1,048,576 advert) and `context_budget_tokens = min(budget, served − output margin)`; the served-window map is keyed by (url, model) (t22).
+
+### Fixed
+
+- Review findings (a colleague second opinion on the knobs/contract diff, task `8e658025caa2`, cortex at `low`): a nested config.json `{"hire": {"enabled": false}}` used to stringify to a dict repr that `_parse_bool` read as ARMED — it now reads `enabled` like `agents`; an EMPTY curated surface stamped `offered_tools: []` where the docstring promised an absent key — both engines now stamp `None` for an empty surface (byte-identical to the pre-field artifact); the vllm half of the all-engines stamp, the add-knob→`offered_tools` composition and the non-JSON `config show` lines are now pinned.
+- PR #464 review round (Qodo 4/5/6/7 + 13 SonarCloud smells): failed `/tokenize` probes are memoised per `(url, model)` and the miss→probe→store sequence runs under one lock (never a repeat 10 s probe, never two probes from a concurrent batch); `COLLEAGUE_ASSOCIATE_THINKING` accepts explicit true/false spellings only and IGNORES a typo (the profile's value stands) instead of silently disabling thinking; the associate compact/synthesis lanes now window their request to the SEAT's served-window budget before dispatch (`associate_seats.window_to_seat`, through `loop._seat_complete`) instead of failing on the wire and falling back; `_build_chat_payload`'s associate branch extracted to `_apply_associate_profile` (byte-identical payloads) and the composite test assertions split.
+- #460 — a purpose child on the associate seat inherited a 768k budget, hit `400 maximum context length`, and the alias→served-id retry turned it into `404 role_infeasible` with the original error lost; `retry_role_alias` now recognises a context-length 400 (no retry) and, when the served-id retry also fails, raises a folded error carrying BOTH bodies (t22).
+
 ## [1.68.0] - 2026-08-30
 
 ### Added

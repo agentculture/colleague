@@ -26,7 +26,15 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterator
 
 import colleague.turnbudget as turnbudget
-from colleague import associate, associate_seats, effort, stallguard, streamguards, tokenestimate
+from colleague import (
+    associate,
+    associate_config,
+    associate_seats,
+    effort,
+    stallguard,
+    streamguards,
+    tokenestimate,
+)
 from colleague.agents.artifact_block import fold_agents_block
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult, prompt_digest_for
@@ -857,7 +865,15 @@ def _tokenize_post(
 #: ``/tokenize`` URL → the reply's ``max_model_len`` (t12 window discovery); filled
 #: by :func:`_tokenize_count`, read by the run-start probe. A plain dict, never a
 #: thread primitive: the value is per endpoint, so concurrent writers agree.
-_MAX_MODEL_LEN_BY_URL: dict[str, int] = {}
+#: Keyed by ``(tokenize url, model)`` (#460): two seats behind ONE gateway (cortex
+#: and the role-addressed associate) serve different windows, so a URL-only key
+#: let one seat's probe clobber the other's.
+_MAX_MODEL_LEN_BY_URL: dict[tuple[str, str], int] = {}
+
+
+def served_max_model_len(url: str, model: str) -> "int | None":
+    """The ``/tokenize``-reported ``max_model_len`` for *(url, model)* once probed."""
+    return _MAX_MODEL_LEN_BY_URL.get((url, model))
 
 
 def _tokenize_count(
@@ -878,7 +894,7 @@ def _tokenize_count(
     except Exception:  # nosec B110 - any tokenize failure falls back to the char estimate
         return None
     if isinstance(data.get("max_model_len"), int):
-        _MAX_MODEL_LEN_BY_URL[url] = data["max_model_len"]
+        _MAX_MODEL_LEN_BY_URL[(url, model)] = data["max_model_len"]
     count = data.get("count")
     if isinstance(count, bool) or not isinstance(count, int):
         return None
@@ -911,6 +927,31 @@ def _refreshed_model_id(
     if config.refresh_seat is None:
         return None
     return _same_role_call_time_refresh(config, role_name, exc)
+
+
+def _apply_associate_profile(
+    payload: "dict[str, Any]",
+    profile: "associate_config.AssociateProfile",
+    limit: "int | None",
+) -> "int | None":
+    """Write an associate seat's sampling contract (t23) onto *payload*.
+
+    Nemotron's template takes the boolean toggle, not the Qwen ladder key;
+    temperature/top_p come from the profile, never from cortex's config.
+    Returns the ``max_tokens`` limit to send: DEPTH omits it (a small cap
+    returned empty content under 200); a profile cap is honoured only where the
+    window clamp *limit* allows it. Extracted from
+    :meth:`VllmOpenAIEngine._build_chat_payload` (SonarCloud S3776/S3358);
+    byte-identical payloads in every case.
+    """
+    payload["temperature"] = profile.temperature
+    payload["top_p"] = profile.top_p
+    payload["chat_template_kwargs"] = {"enable_thinking": profile.enable_thinking}
+    if profile.max_tokens is None:
+        return None
+    if limit is None:
+        return profile.max_tokens
+    return min(profile.max_tokens, limit)
 
 
 def _effort_for(config: EngineConfig) -> "str | None":
@@ -1044,8 +1085,8 @@ class VllmOpenAIEngine(Engine):
                 api_key=config.api_key,
                 timeout=config.timeout,
             )
-            if url in _MAX_MODEL_LEN_BY_URL:
-                reply["max_model_len"] = _MAX_MODEL_LEN_BY_URL[url]
+            if (url, config.model) in _MAX_MODEL_LEN_BY_URL:
+                reply["max_model_len"] = _MAX_MODEL_LEN_BY_URL[(url, config.model)]
             return count
 
         return tokenestimate.attach(config, exact)
@@ -1082,10 +1123,14 @@ class VllmOpenAIEngine(Engine):
         # None) — a vLLM/OpenAI-only extension key (CLAUDE.md's documented "vLLM
         # adapter only touches the OpenAI surface" carve-out), so a non-vLLM server
         # ignoring unknown keys behaves as today; nothing set = pre-#416 body.
-        effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
-        if effort_fragment:
-            payload["chat_template_kwargs"] = effort_fragment
+        profile = associate.seat_profile(config)  # t23: an associate seat's measured contract
         limit = turnbudget.max_tokens_for(config, messages)  # t16 clamp; None = omit
+        if profile is not None:
+            limit = _apply_associate_profile(payload, profile, limit)
+        else:
+            effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
+            if effort_fragment:
+                payload["chat_template_kwargs"] = effort_fragment
         if limit is not None:
             payload["max_tokens"] = limit
         streaming = config.on_delta is not None or _headless_streaming_enabled()
@@ -1385,6 +1430,13 @@ class VllmOpenAIEngine(Engine):
         # composed (byte-identical).
         if result.prompt_digest is None:
             result.prompt_digest = prompt_digest_for(composed_system_prompt)
+        # offered_tools (delegation-follow-ups t2, c34/h18): the depth-0 curated
+        # surface that ACTUALLY went on the wire, in schema order — same
+        # fill-only-when-None discipline as prompt_digest (all-engines rule).
+        # An empty surface stays ``None`` (key absent) — byte-identical to the
+        # pre-field artifact, same as the mock (review finding 2026-08-30).
+        if result.offered_tools is None:
+            result.offered_tools = [s["function"]["name"] for s in offered_tools] or None
         # Model-bound agents (#411, t13): an ARMED config always returns the
         # versioned ``agents`` block with the SAME shape on every backend
         # (all-engines rule) — the fold only fills a still-``None`` field, so

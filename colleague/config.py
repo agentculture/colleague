@@ -2193,6 +2193,64 @@ def _resolve_agents_enabled(file_value: str | None) -> bool:
     return _DEFAULT_AGENTS_ENABLED
 
 
+_DEFAULT_HIRE_ENABLED = False
+
+
+def _load_hire_override(repo_path: str | Path) -> str | None:
+    """Read the ``hire`` key from .colleague/config.json as a raw string
+    (delegation-follow-ups plan task t4). Accepts a bare boolean or, like
+    ``agents``, a nested object (``{"hire": {"enabled": false}}`` — the
+    object's presence, absent an explicit ``"enabled": false``, arms); a
+    review found the nested form used to stringify to a dict repr that
+    ``_parse_bool`` read as ARMED. ``None`` when absent; never raises. Reads
+    via :func:`_merged_config_json`."""
+    data = _merged_config_json(repo_path)
+    value = data.get("hire")
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return str(value.get("enabled", True))
+    return str(value)
+
+
+def _resolve_hire_enabled(file_value: str | None) -> bool:
+    """Resolve the hire_colleague arming flag: env ``COLLEAGUE_HIRE`` >
+    config.json ``hire`` > default-OFF (delegation-follow-ups t4, spec c17/D5).
+
+    RESOLUTION ONLY: this flag arms nothing by itself — the hire tools read
+    it in later tasks. Default-OFF, never ambient; independent of every
+    execution mode (it refuses nothing and is refused by nothing).
+    """
+    env = os.environ.get("COLLEAGUE_HIRE")
+    if env is not None and env.strip() != "":
+        return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_HIRE_ENABLED
+
+
+def _resolve_acting_add_tools() -> tuple[str, ...]:
+    """The acting seat's ADD-set as resolved for attestation (t4): the same
+    comma-separated, whitespace-tolerant, order-preserving, de-duplicated
+    reading :func:`colleague.actingsurface.acting_add_set` applies (t1);
+    imported when present so the two can never disagree, else parsed here
+    identically. Unset/blank = ``()`` (omitted from the snapshot)."""
+    from colleague import actingsurface
+
+    reader = getattr(actingsurface, "acting_add_set", None)
+    if callable(reader):
+        return tuple(reader())
+    raw = os.environ.get("COLLEAGUE_ACTING_ADD_TOOLS", "")
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in raw.split(","):
+        name = part.strip()
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return tuple(out)
+
+
 def _resolve_distiller_checkpoint(file_value: str | None) -> str | None:
     """Resolve the DECLARED distiller checkpoint id: env
     ``COLLEAGUE_DISTILLER_MODEL`` > config.json ``distiller`` > absent
@@ -3069,6 +3127,14 @@ class EngineConfig:
     # A THIRD independent opt-in: arming it with either sibling mode refuses.
     # See :func:`_resolve_agents_enabled`.
     agents: bool = False
+    # hire_colleague arming (delegation-follow-ups t4, spec c17/D5): env
+    # ``COLLEAGUE_HIRE`` > config.json ``hire`` > OFF. ``False`` = key omitted
+    # from ``to_dict()`` (byte-identical). Resolution only — the tools land
+    # in later tasks and read this flag.
+    hire: bool = False
+    # The acting seat's ADD-set (t4 attestation of t1's knob): the tool names
+    # ``COLLEAGUE_ACTING_ADD_TOOLS`` adds at depth 0; ``()`` = key omitted.
+    acting_add_tools: tuple[str, ...] = ()
     # The mode's three resolved seats (front/worker/evaluator), each resolved
     # BY ROLE NAME from the lobes /capabilities contract. ``None`` = the mode
     # is not armed, byte-identical to today. RESOLUTION ONLY when present: an
@@ -3161,6 +3227,11 @@ class EngineConfig:
     # role-composed prompt from it (t8). A runtime field, not env-resolved, so it is
     # excluded from eq/repr/to_dict like the spawn callbacks above.
     role: Optional[str] = field(default=None, compare=False, repr=False)
+    # The run's ``--mode`` (explore/review/work/…), stamped by the CLI front
+    # beside ``role`` so the acting seat's effort can apply the read-only-mode
+    # rung (:data:`colleague.effort.TOP_LEVEL_MODE_TABLE`). Runtime-only, like
+    # ``role``: excluded from eq/repr/to_dict.
+    mode: Optional[str] = field(default=None, compare=False, repr=False)
 
     # Memory root (spec R1 / plan t2): the OPERATOR repo the memory store lives
     # in. An isolated run works in a throwaway worktree, so a lesson written to
@@ -3258,6 +3329,7 @@ class EngineConfig:
             seats=self.reasoning_effort_seats,
             global_value=self.reasoning_effort,
             role=self.role,
+            mode=self.mode,
         )
 
     @classmethod
@@ -3329,6 +3401,7 @@ class EngineConfig:
         file_worker: dict[str, str] = {}
         file_tae: str | None = None
         file_agents: str | None = None
+        file_hire: str | None = None
         file_distiller: str | None = None
         file_seats: dict[str, dict[str, str]] = {}
         file_reasoning_effort: str | None = None
@@ -3362,6 +3435,7 @@ class EngineConfig:
             # exclusive, so there is nothing to disambiguate.
             file_tae = _load_thought_action_evaluation_override(repo_path)
             file_agents = _load_agents_override(repo_path)
+            file_hire = _load_hire_override(repo_path)
             file_distiller = _load_distiller_override(repo_path)
             file_seats = {
                 "front": _load_seat_overrides(repo_path, "front"),
@@ -3497,6 +3571,9 @@ class EngineConfig:
         # Model-bound agents (#411 t7): the THIRD independent opt-in; any two
         # armed modes refuse together, naming both.
         resolved_agents = _resolve_agents_enabled(file_agents)
+        # hire_colleague arming (t4): independent of every execution mode.
+        resolved_hire = _resolve_hire_enabled(file_hire)
+        resolved_acting_add = _resolve_acting_add_tools()
         _refuse_conflicting_execution_modes(resolved_three_tier, resolved_tae, resolved_agents)
         resolved_seats = _resolve_evaluation_seats(
             resolved_tae,
@@ -3902,6 +3979,8 @@ class EngineConfig:
             # `COLLEAGUE_AGENTS` > config.json `agents` > default-OFF; a third
             # independent opt-in; omitted from to_dict() when unarmed.
             agents=resolved_agents,
+            hire=resolved_hire,
+            acting_add_tools=resolved_acting_add,
             # The mode's three seats (front/worker/evaluator), each resolved BY
             # ROLE NAME from lobes /capabilities — None when the mode is not
             # armed (byte-identical); when armed, resolution above already
@@ -3977,6 +4056,12 @@ class EngineConfig:
         # snapshot is byte-identical (omit-when-unarmed, the TAE convention).
         if self.agents:
             data["agents"] = True
+        # hire (t4): present ONLY when armed; the add-set ONLY when non-empty —
+        # the artifact snapshot attests both knobs, byte-identical when unset.
+        if self.hire:
+            data["hire"] = True
+        if self.acting_add_tools:
+            data["acting_add_tools"] = list(self.acting_add_tools)
         # Dual-model deepthink (t1): present ONLY when configured, so a
         # single-model snapshot is byte-identical to today (omit-when-None,
         # the destination/lint_report/capacity_decision convention). The

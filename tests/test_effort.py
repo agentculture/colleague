@@ -70,7 +70,8 @@ def test_table_sizes_exact():
         "explorer",
         "scout",  # adopt-from-qwen-code t19: the unarmed scout = read-only, thinking off
     }
-    assert set(effort.TOP_LEVEL_ROLE_TABLE) == {"explorer"}
+    assert set(effort.TOP_LEVEL_ROLE_TABLE) == {"explorer", "reviewer"}
+    assert set(effort.TOP_LEVEL_MODE_TABLE) == {"explore", "review"}
     assert set(effort.DESIGN_SITE_TABLE) == {
         "plan.spec_stage",
         "plan.plan_stage",

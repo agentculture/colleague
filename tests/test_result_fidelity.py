@@ -254,6 +254,7 @@ class TestNoFinishResultFidelity:
             "config_events",  # append-only config event stream (plan task t7, c9/h9)
             "config_digest",  # deterministic digest over config_events (plan task t7)
             "prompt_digest",  # sha256 of the composed system prompt (plan task t7, c49/h36)
+            "offered_tools",  # rendered tool names on the artifact (delegation-follow-ups t2)
             "tip_sha",  # handoff-produced branch tip commit SHA (plan task t5, c5)
             "evaluation_ledger",  # thought->action->evaluation chain (#397, plan task t11, c24/h17)
             "agents",  # model-bound-agents artifact block (#411, plan task t13, c17/h24)

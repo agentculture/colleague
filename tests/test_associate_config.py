@@ -326,7 +326,12 @@ def test_seat_sends_the_role_name_on_the_wire_and_streams_like_cortex(
     )
     # The seat's own effort rung: thinking OFF (Nemotron spends its first
     # tokens thinking; the scout seat must not).
-    assert seat_payload["chat_template_kwargs"] == {"enable_thinking": False}
+    # t23: the associate seat sends its PROFILE (depth: thinking on, temperature 0.6,
+    # top_p 0.95, no max_tokens) instead of the scout rung / cortex temperature.
+    assert seat_payload["chat_template_kwargs"] == {"enable_thinking": True}
+    assert seat_payload["temperature"] == 0.6
+    assert seat_payload["top_p"] == 0.95
+    assert "max_tokens" not in seat_payload
     assert cortex_payload.get("chat_template_kwargs") != {"enable_thinking": False}
 
 
@@ -479,16 +484,21 @@ def test_config_show_prints_not_consumed_then_armed_line(
         monkeypatch.setenv("COLLEAGUE_ASSOCIATE_MODEL", "lobes")
         assert main(["config", "show", "--repo", str(tmp_path)]) == 0
         armed = capsys.readouterr().out
-        assert f"associate → {_ASSOCIATE_MODEL} (addressed as role name via proxy)" in armed
+        assert (
+            f"associate → {_ASSOCIATE_MODEL} (addressed as role name via proxy; profile depth:"
+            in armed
+        )
         assert "not consumed (opt-in): associate" not in armed
 
         assert main(["config", "show", "--repo", str(tmp_path), "--json"]) == 0
         data = json.loads(capsys.readouterr().out)
-        assert data["lobes"]["associate"] == {
+        assoc = data["lobes"]["associate"]
+        assert {k: assoc[k] for k in ("served_model", "wire_model", "addressed_as_role")} == {
             "served_model": _ASSOCIATE_MODEL,
             "wire_model": "associate",
             "addressed_as_role": True,
         }
+        assert assoc["profile"]["name"] == "depth"  # t23
         assert "associate" not in data["lobes"]["not_consumed"]
 
 
@@ -500,7 +510,7 @@ def test_config_show_explicit_id_line_names_the_id(
         monkeypatch.setenv("COLLEAGUE_ASSOCIATE_MODEL", "some/explicit")
         assert main(["config", "show", "--repo", str(tmp_path)]) == 0
     out = capsys.readouterr().out
-    assert "associate → some/explicit (explicit model id)" in out
+    assert "associate → some/explicit (explicit model id; profile depth:" in out
 
 
 def test_lobes_show_lists_the_associate_role(
@@ -538,7 +548,7 @@ def test_config_show_renders_an_explicit_associate_without_any_gateway(
     monkeypatch.setenv("COLLEAGUE_ASSOCIATE_API_KEY", "assoc-key")
     assert main(["config", "show", "--repo", str(tmp_path)]) == 0
     out = capsys.readouterr().out
-    assert "associate → some/explicit (explicit model id)" in out
+    assert "associate → some/explicit (explicit model id; profile depth:" in out
     assert "lobes: armed" not in out
     assert main(["config", "show", "--repo", str(tmp_path), "--json"]) == 0
     data = json.loads(capsys.readouterr().out)

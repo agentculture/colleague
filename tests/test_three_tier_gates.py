@@ -131,7 +131,8 @@ _SANCTIONED_FINISH_ADDITIONS = {"finish_states"}
 # prompt's sha256 is likewise unconditional observability for ALL runs — the
 # instrument that lets a live-testing row attribute its prose arm to the
 # prompt that actually ran. Additive and independent of three-tier config.
-_SANCTIONED_PROMPT_DIGEST_ADDITION = {"prompt_digest"}
+# offered_tools (delegation-follow-ups t2): the rendered tool names beside it.
+_SANCTIONED_PROMPT_DIGEST_ADDITION = {"prompt_digest", "offered_tools"}
 
 _EXPECTED_NOCONFIG_TASKRESULT_KEYS = (
     _PRE_ARC_TASKRESULT_KEYS | _SANCTIONED_FINISH_ADDITIONS | _SANCTIONED_PROMPT_DIGEST_ADDITION

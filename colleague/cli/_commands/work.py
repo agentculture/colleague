@@ -669,7 +669,12 @@ def _moded_config(config: EngineConfig, mode: str | None, repo: Path) -> EngineC
     """
     if not mode:
         return config
-    return apply_mode_profile(config, mode, explicit=config.explicit_knobs, repo_path=repo)
+    moded = apply_mode_profile(config, mode, explicit=config.explicit_knobs, repo_path=repo)
+    # Stamp the mode beside ``role`` so the acting seat's effort resolution can
+    # apply the read-only-mode rung (``effort.TOP_LEVEL_MODE_TABLE``); a
+    # runtime-only field, never serialized.
+    moded.mode = mode
+    return moded
 
 
 def _announce_flight(task: Task, repo: Path, progress_sink: "CockpitProgressSink | None") -> None:

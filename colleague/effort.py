@@ -83,6 +83,22 @@ ROLE_TABLE = {
 # (not as a subagent child).
 TOP_LEVEL_ROLE_TABLE = {
     "explorer": "low",
+    # A top-level review on the acting seat (cortex fallback for the diff
+    # review) reasons at ``low``: the associate seat is the fast reviewer, and
+    # when it is not taken cortex at ``medium`` overflows its synthesis turn
+    # (2026-08-30: a 274k-char truncated turn on a 20 KB diff). ``off`` stays
+    # selectable via an explicit override.
+    "reviewer": "low",
+}
+
+# Mode overrides for the ACTING seat when no top-level role is given: the
+# read-only modes (``colleague work --mode explore|review``) reason at ``low``
+# for the same reason as the top-level roles above. Consulted ONLY when no
+# explicit override exists — the kill-switch and every per-seat/global knob
+# still win, so an unset run is byte-identical.
+TOP_LEVEL_MODE_TABLE = {
+    "explore": "low",
+    "review": "low",
 }
 
 # One-shot design/planning call sites (v3, c36/c40).
@@ -157,6 +173,7 @@ def resolve_acting_effort(
     seats: dict,
     global_value: Optional[str],
     role: Optional[str],
+    mode: Optional[str] = None,
 ) -> Optional[str]:
     """Resolve the ACTING seat's effective thinking-effort rung (#416 t2, c26/h17).
 
@@ -164,10 +181,12 @@ def resolve_acting_effort(
     seat is resolved), else ``"cortex"`` — colleague's acting-dial rule.
     Precedence: the global kill-switch (``global_value == DEFAULT_SENTINEL``)
     > an explicit override (``seats[seat]``, else ``global_value`` unless it
-    IS the sentinel) > the top-level ``--role explorer`` rule
-    (:data:`TOP_LEVEL_ROLE_TABLE`, "low" — "off" stays selectable via an
-    explicit override) > the seat table default ("medium" for cortex/worker
-    alike). Pure function over already-resolved config state — the caller
+    IS the sentinel) > the top-level ``--role`` rule
+    (:data:`TOP_LEVEL_ROLE_TABLE`: explorer/reviewer "low" — "off" stays
+    selectable via an explicit override) > the read-only ``--mode`` rule
+    (:data:`TOP_LEVEL_MODE_TABLE`: explore/review "low", consulted only when
+    no top-level role applied) > the seat table default ("medium" for
+    cortex/worker alike). Pure function over already-resolved config state — the caller
     (``EngineConfig.reasoning_effort_effective``) supplies ``role`` because it
     is set by the CLI AFTER ``resolve()`` returns.
     """
@@ -175,8 +194,10 @@ def resolve_acting_effort(
     override = seats.get(seat)
     if override is None and global_value not in (None, DEFAULT_SENTINEL):
         override = global_value
-    if override is None and role == "explorer":
-        override = TOP_LEVEL_ROLE_TABLE["explorer"]
+    if override is None and role in TOP_LEVEL_ROLE_TABLE:
+        override = TOP_LEVEL_ROLE_TABLE[role]
+    if override is None and mode in TOP_LEVEL_MODE_TABLE:
+        override = TOP_LEVEL_MODE_TABLE[mode]
     return resolve_effort(
         kill_switch=global_value == DEFAULT_SENTINEL, seat_override=override, seat=seat
     )

@@ -415,6 +415,7 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         # prompt carries it, so a live-testing row can attribute its prose
         # arm. Omitted only when the backend composed no prompt at all.
         "prompt_digest",
+        "offered_tools",
     }
 
 
@@ -464,6 +465,7 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
         # prompt carries it, so a live-testing row can attribute its prose
         # arm. Omitted only when the backend composed no prompt at all.
         "prompt_digest",
+        "offered_tools",
     }
     assert set(serialized.keys()) == expected_keys
 
@@ -538,6 +540,7 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
         # prompt carries it, so a live-testing row can attribute its prose
         # arm. Omitted only when the backend composed no prompt at all.
         "prompt_digest",
+        "offered_tools",
     }
     assert (
         set(dict_a.keys()) == expected_keys

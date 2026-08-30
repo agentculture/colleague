@@ -1,0 +1,77 @@
+{
+  "plan_slug": "delegation-follow-ups-a7-p3-hire",
+  "schema_version": 1,
+  "created": "2026-08-30T04:47:21Z",
+  "updated": "2026-08-30T10:26:35Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "h26's config_digest clause cannot hold on a bare run: config_digest is the change-content lifecycle's EVENT-stream digest (configlifecycle/configevents), absent from every bare artifact (test_e2e_mock pins its key set without it), and EngineConfig.to_dict() reaches only config show/telemetry, never the artifact. t4 therefore attests both knobs via (a) config show --json (hire, acting_add_tools \u2014 always present) and (b) the EngineConfig snapshot (omit-when-unset keys), and the ARTIFACT-side attestation is t2's offered_tools (the add-set shows up as offered names now; the hire pair once t10 lands). h26's wording 'two artifacts differing only in COLLEAGUE_HIRE differ in config_digest' should read '...differ in offered_tools'.",
+      "task_ref": "t4",
+      "reason": "discovered while implementing t4: the digest named in h26 does not exist on the artifacts the arm rows read",
+      "affects": [
+        "h26",
+        "c42"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "Operator decision 2026-08-30 (mid-t6): the scout/code_survey seat is intended to be the associate role (nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4), but the rig advertises it ready:false and the session does not consume it, so every purpose child in the 9-run matrix runs on cortex (Qwen3.8-27B) \u2014 exactly as rows 60/61 pre-registered. Decision: FINISH the 9 runs as-is AND ADD a nemotron arm \u2014 3 extra runs with the associate armed (COLLEAGUE_ASSOCIATE_MODEL=lobes) once the role is ready, pre-registered as row 62 (the hire arm moves to row 63), giving scout-seat statistics without invalidating the matrix; the overlay for that arm must be the one whose seat description is TRUE for nemotron (P0's 'quicker seat, reasoning off'), so it is a SEAT comparison against row 60, never a prose comparison.",
+      "task_ref": "t6",
+      "reason": "operator: 'scout (code_survey) is nemotron 3.5 lightning' \u2014 the intended topology differs from what the rig served",
+      "affects": [
+        "t6",
+        "t16",
+        "t17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "Operator decision 2026-08-30: nemotron (the lobes associate role) as the NON-WRITER seat \u2014 code_survey, web_survey and the other read-only purpose children \u2014 should be ON BY DEFAULT, not opt-in. This amends the qwen-direct convention change (5): associate discovery stays a fixed resolution rung (a READY advertised associate role fills the scout/read-only purpose seats; absent or not-ready = a RECORDED cortex fallback, byte-identical; COLLEAGUE_ASSOCIATE_MODEL=off opts out) \u2014 the deepthink-from-muse precedent (sanctioned increment 6), never a router. The writer purpose (handover_to_colleague) and the acting seat stay on cortex. Lands as new plan task t19 in Phase A before the nemotron arm (row 62) so that arm measures the shipped default.",
+      "task_ref": "t6",
+      "reason": "operator: 'nemotron as the non-writer (code-survey, web-survey, etc.) should be on by default'",
+      "affects": [
+        "t6",
+        "t8",
+        "t16"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky"
+    },
+    {
+      "id": "d4",
+      "what": "Operator decision 2026-08-30: add arm R \u2014 EXPLICITLY REQUESTED delegation. The brief's item 2 changes from 'you may hand parts\u2026 the choice is yours' to an instruction to call code_survey for each group of three modules and to verify only the cited lines afterwards; two conditions, n=3 each, pre-registered as rows 63 (R-cortex: associate unarmed) and 64 (R-nemotron: COLLEAGUE_ASSOCIATE_MODEL=lobes), NO overlay on either (the default writer fragment says nothing about the scout seat, so it is truthful for both; the only between-condition difference is the seat). Measures compliance, child wall per call, post-digest reads (ranged-vs-full = re-validate vs redo), wall vs the pooled in-seat median (392 s). Pass bar for 'delegation speeds up results': R-nemotron mean wall < the pooled non-delegating median AND post-digest reads are ranged; a miss is written as a miss. Not a router \u2014 the operator's task text. The hire arm moves to row 65. Also: rows 59-61 gain the pooled reading A5+A6 5/6 vs A7+P2-0+P3 1/9 (same brief, same served model) \u2014 the rate moved across a day with no credited lever.",
+      "task_ref": "t6",
+      "reason": "operator: 'can we merge A5+A6? (+ explicitly request delegation)' \u2014 the speed question needs delegation to actually happen",
+      "affects": [
+        "t6",
+        "t16",
+        "t17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "Operator decision 2026-08-30 13:20: the nemotron/associate seat is NOT validated \u2014 its children die on this rig (advert context 1,048,576 \u2192 a 768k child budget vs the Orin's served max_model_len 128,000 \u2192 HTTP 400 \u2192 the role-alias retry \u2192 404 role_infeasible; #460). Rn-2/Rn-3 are SKIPPED; row 64 re-runs on the tip that fixes #460. Until the associate is validated on real cases, the read-only purpose seats stay on cortex Qwen with thinking OFF or LOW (PURPOSE_TABLE code_survey/web_survey = off, review/validate = low \u2014 already the shipped rungs), so t19's default-ON does NOT ship in the arms PR: it stays built on agent/t19 for a later PR gated on (a) #460 fixed, (b) a lobes-cli issue on the associate advert/proxy (context window, ready flag, served-id trap) and (c) a documented procedure for testing the associate/Nemotron with colleague on real cases beyond context size.",
+      "task_ref": "t19",
+      "reason": "operator: skip Rn-2/Rn-3; open a lobes-cli issue; add instructions for testing associate/Nemotron on real cases; until then use qwen with none/low thinking",
+      "affects": [
+        "t19",
+        "t8",
+        "t16"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky"
+    }
+  ]
+}

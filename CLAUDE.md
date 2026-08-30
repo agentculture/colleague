@@ -80,6 +80,8 @@ minds. The architecture, part by part:
   tolerant `edit_file` + prior-read rule, spill-to-disk truncation, rule-based
   microcompaction, stream + loop guards, adopted prompt text, and the opt-in
   `associate` seat (`COLLEAGUE_ASSOCIATE_MODEL=lobes`, addressed by role name)
+  — validate it on real cases with `docs/features/associate-validation.md`
+  before making it a default (#460, lobes-cli#234)
   — each with one off-knob that is byte-identical to main; credit in `NOTICE`
   and `docs/adopted-from.md`. Doc: `adopt-from-qwen-code.md`.
 - **Web scout (#436/#435)** — a curated read-only `web` tool over the
@@ -125,7 +127,11 @@ minds. The architecture, part by part:
   shipped default prompt carries no encouragement to delegate** — the t9
   section names the six purpose tools and says "never delegate just to
   delegate"; the imperative prose tested here lives only in staged overlays
-  under `docs/live-testing/overlays/`. Doc: `purpose-tools.md`.
+  under `docs/live-testing/overlays/`. **The `delegation-follow-ups` arc
+  (rows 59–62) closed #456's two gaps negatively — the raw-vs-purpose fair
+  fight A7 delegated 0/3 by either form (unanswered, not lost), the size
+  trigger P3 0/3 against a clean P2-0 control and does not promote — and
+  found the purpose child's step cap unapplied (#458).** Doc: `purpose-tools.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
@@ -468,7 +474,9 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   `colleague/subagents.py`, `colleague/cli/_commands/_input_line.py` (the
   session's colour-TTY reader thread; any failure degrades to cooked-mode),
   `colleague/realtime.py`, and `colleague/toolbatch.py` (the read-only tool-batch
-  pool behind `run_batch`, convention change (6)). Every
+  pool behind `run_batch`, convention change (6)); `colleague/associate.py`
+  imports `threading` for ONE lock around the once-per-process `/tokenize`
+  probe — no thread. Every
   shell-out targets an operator-installed CLI via explicit allow-listing; none opens
   a socket or forks a daemon. `worktrees.py`'s admin mutations are serialized by an
   advisory `fcntl` lock (#239).

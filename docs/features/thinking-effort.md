@@ -109,15 +109,33 @@ reviewer child; a purpose child does not inherit it.
 
 A typed role is *also* a top-level `colleague work --role` flag, not only a
 subagent child. The role table above applies to **children**; at the top level
-only `explorer` is overridden (the ask-colleague explore path):
+two roles are overridden — the ask-colleague explore path and the diff review:
 
 | Role | Top-level rung |
 |------|----------------|
 | `explorer` | `low` |
+| `reviewer` | `low` |
 
 (off is selectable via a per-seat / parent override.)
 
-Every other top-level role keeps the **acting seat's** rung (medium).
+### Read-only mode overrides (`TOP_LEVEL_MODE_TABLE`)
+
+When no top-level role is given, the run's `--mode` applies the same rung to
+the acting seat for the two read-only modes (`colleague work --mode
+explore|review`, the mode the ask-colleague verbs select). The operator's rule
+(2026-08-30): the associate seat is the fast reviewer, and whenever it is not
+taken, cortex at `medium` is slow — a 20 KB diff review overflowed its
+synthesis turn at 274k reasoning chars and closed `incomplete`. Consulted only
+when no explicit override exists: the kill-switch, every per-seat / global
+knob, and a `--role` with its own top-level rung still win, so an unset run
+is byte-identical.
+
+| Mode | Acting-seat rung |
+|------|------------------|
+| `explore` | `low` |
+| `review` | `low` |
+
+Every other top-level role and mode keeps the **acting seat's** rung (medium).
 
 ### Design call-sites (`DESIGN_SITE_TABLE`)
 

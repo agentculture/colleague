@@ -76,6 +76,16 @@ CHILD_DEPTH_ATTR = "child_depth"
 #: is byte-identical to today.
 ACTING_DROP_ENV = "COLLEAGUE_ACTING_DROP_TOOLS"
 
+#: The acting-seat-scoped tool ADD knob (the surface lever's arm instrument,
+#: spec c3/D3). The mirror of :data:`ACTING_DROP_ENV`: a comma-separated list
+#: of tool names the TOP-LEVEL acting seat (depth 0 only) should GAIN — e.g.
+#: ``web``. Applied at the SAME depth-0 seam, AFTER the drop knob, and only
+#: for names that exist in :data:`colleague.tools.SCHEMAS`: an unknown name is
+#: ignored and recorded nowhere (the knob is an arm instrument, never a gate).
+#: Unset/empty means "no add" — every rendered surface is byte-identical to
+#: today.
+ACTING_ADD_ENV = "COLLEAGUE_ACTING_ADD_TOOLS"
+
 #: The built-in role a seat with NO resolved role acts as — the ONE name the
 #: bare-run substitution (deviation d14) names, referenced by
 #: :func:`substitute_bare_role` and nowhere else.
@@ -91,6 +101,26 @@ def acting_drop_set() -> tuple[str, ...]:
     byte-identical to today.
     """
     raw = os.environ.get(ACTING_DROP_ENV, "")
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in raw.split(","):
+        name = part.strip()
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return tuple(out)
+
+
+def acting_add_set() -> tuple[str, ...]:
+    """The acting seat's named add-set, read ONCE from ``ACTING_ADD_ENV``.
+
+    Comma-separated tool names, whitespace-tolerant, order-preserving,
+    de-duplicated. Unset or blank returns ``()`` — the "no add" sentinel, so
+    an unarmed run is byte-identical to today. (The SCHEMAS-existence filter
+    is applied at the depth-0 seam, not here: this reader is the raw knob
+    value, mirroring :func:`acting_drop_set`.)
+    """
+    raw = os.environ.get(ACTING_ADD_ENV, "")
     seen: set[str] = set()
     out: list[str] = []
     for part in raw.split(","):
@@ -212,7 +242,12 @@ def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
     spawned child keeps them. The drop is applied at depth 0 ONLY — this is
     the ONE seam that already knows the depth, which is exactly why
     ``COLLEAGUE_TOOLS_LEGACY`` (role-blind, consulted for every role) was
-    rejected as the instrument.
+    rejected as the instrument. The acting-seat-scoped ADD knob
+    (``COLLEAGUE_ACTING_ADD_TOOLS``, the surface lever's arm instrument, spec
+    c3/D3) is applied at depth 0 AFTER the drop: only names that exist in
+    :data:`colleague.tools.SCHEMAS` are added (an unknown name is ignored and
+    recorded nowhere), so the acting seat gains the named tools while a
+    spawned child never does.
 
     Depth >= 1 (a spawned child): a roleless spawn is ALSO defaulted to the
     writer role first (today's byte-identical default), then every resolved
@@ -230,5 +265,13 @@ def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
             from colleague.tools import narrow_role_by_tool_set
 
             role = narrow_role_by_tool_set(role, drop=drop)
+        add = acting_add_set()
+        if add:
+            from colleague.tools import SCHEMAS
+
+            known = {s["function"]["name"] for s in SCHEMAS}
+            new = tuple(n for n in add if n in known and n not in role.tool_allowlist)
+            if new:
+                role = replace(role, tool_allowlist=role.tool_allowlist + new)
         return role
     return strip_child_forbidden_tools(substitute_bare_role(role))
