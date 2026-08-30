@@ -117,6 +117,7 @@
   "colleague/harness_cli.py": 43,
   "colleague/heal.py": 99,
   "colleague/hire.py": 255,
+  "colleague/hire_assign.py": 190,
   "colleague/hire_schemas.py": 173,
   "colleague/hooks.py": 469,
   "colleague/icons.py": 131,
