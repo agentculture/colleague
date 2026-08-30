@@ -626,6 +626,9 @@ def test_boundary_sanctioned_lists_unchanged() -> None:
             "colleague/cli/_commands/_input_line.py",
             "colleague/realtime.py",
             "colleague/toolbatch.py",
+            # PR #464 (Qodo 4/7): a threading.Lock around the one-per-process
+            # associate /tokenize probe — a lock only, no thread is started.
+            "colleague/associate.py",
         }
     )
 
