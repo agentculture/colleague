@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.1] - 2026-08-30
+
+### Added
+
+- `docs/deliveries/2026-08-30-delegation-follow-ups-a7-p3-hire.md` — the delivery summary for PR #464 (Phase A of the delegation-follow-ups plan): planned-vs-actual for t1–t23, the five approved deviations, drift, evidence and claims (row 64 re-run: 14/14 Nemotron children, ranged verification 3/3, wall miss 1.626), and the remaining work (Phase B hire increment, t19 parked, #458/#459).
+
 ## [1.69.0] - 2026-08-30
 
 ### Added
