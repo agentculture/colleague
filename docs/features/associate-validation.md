@@ -32,11 +32,14 @@ curl -s -H "Authorization: Bearer $GK" -H 'Content-Type: application/json' \
   -d '{"model":"associate","messages":[{"role":"user","content":"Reply OK."}],"max_tokens":8}' | python3 -c "import sys,json; print(json.load(sys.stdin)['model'])"
 ```
 
-**Until #460 lands**, clamp the child's budget below the served window or every
-child that reads more than a few large files dies (400 → alias retry → 404):
+Since plan t22 (#460 fixed, v1.69.0) colleague clamps the associate child's
+budget to the SERVED window itself (one `/tokenize` probe per seat per process)
+and the alias retry no longer hides a context-length 400; the operator override
+still wins when smaller:
 
 ```bash
-export COLLEAGUE_ASSOCIATE_MODEL=lobes COLLEAGUE_ASSOCIATE_CONTEXT_BUDGET=100000
+export COLLEAGUE_ASSOCIATE_MODEL=lobes            # opt-in until the ladder below is green
+# optional, tighter than the served window: COLLEAGUE_ASSOCIATE_CONTEXT_BUDGET=100000
 ```
 
 ## 1. The case ladder — smallest first, each on a throwaway repo
@@ -97,10 +100,12 @@ case 5 the `memory` counters.
 
 ## 4. Known failure shapes (as of 2026-08-30)
 
-- **Budget vs served window (#460, lobes-cli#234):** 768k child budget from a
-  1,048,576 advert against a served 128,000 window → `400 maximum context
-  length` → colleague's alias→served-id retry → `404 role_infeasible`; the
-  original 400 is lost. Workaround: `COLLEAGUE_ASSOCIATE_CONTEXT_BUDGET=100000`.
+- **Budget vs served window (#460, lobes-cli#234) — FIXED in v1.69.0 (plan t22):**
+  before it, a 768k child budget from a 1,048,576 advert against a served
+  128,000 window → `400 maximum context length` → the alias→served-id retry →
+  `404 role_infeasible` with the original 400 lost. Now the seat is clamped to
+  the served window and a failed retry reports both bodies; lobes-cli#234 asks
+  the advert to carry the served window too.
 - **Unapplied child cap (#458):** children run 23–37 steps against a 12-step
   cap and 150k–1.1M tokens.
 - **`/repo` paths:** Nemotron opened a child with `read_file /repo/src/…`

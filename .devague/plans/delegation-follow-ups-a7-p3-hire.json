@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T11:16:11Z",
+  "updated": "2026-08-30T11:23:18Z",
   "targets": [
     {
       "id": "c1",
@@ -751,7 +751,7 @@
       "id": "t22",
       "summary": "#460 fixes (t22): clamp the associate window to the served max_model_len and never let the alias retry hide a context-length 400",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "The associate child's context budget is clamped to the served window: min(advert-derived budget, tokenize max_model_len - output reserve) once the run-start /tokenize probe (through the alias) reports max_model_len; a unit test with a 1,048,576 advert and a 128,000 probe asserts the child budget <= 128,000 minus the reserve; with no probe result the advert-derived budget stands (byte-identical)",
         "associate.retry_role_alias does NOT fire when the 4xx body is a context-length error (vLLM's 'maximum context length' shape) and, when the served-id dispatch itself fails, re-raises the ORIGINAL error with both bodies folded into the message; the child's ModelRefreshWarning is folded onto the parent TaskResult.warnings when the child dies before producing a result; tests cover all three",
