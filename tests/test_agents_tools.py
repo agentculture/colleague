@@ -86,11 +86,11 @@ def test_worker_profile_has_no_generic_code_authoring_tools() -> None:
 
 def test_talker_is_empty_thinker_is_full_associate_is_coder_class() -> None:
     assert TALKER_TOOLS == frozenset()
-    # t5: THINKER_CODER_TOOLS is the registry surface minus web (replaced BY
-    # PURPOSE by web_survey, operator decisions q9/q10), plus the six purposes.
-    # ARM 4 (plan t11): the raw subagent/subagents are back on this acting-seat
-    # surface alongside the purposes — the reversal under test.
-    assert THINKER_CODER_TOOLS == frozenset(_FULL - {"web"}) | _PURPOSES
+    # t5: THINKER_CODER_TOOLS is the registry surface minus web/subagent/subagents
+    # (replaced BY PURPOSE, operator decisions q9/q10), plus the six purposes.
+    # ARM 4 (plan t11) briefly restored the raw pair here; the arm matrix
+    # measured zero raw-pair calls in 21 runs, so the reversal was rejected.
+    assert THINKER_CODER_TOOLS == frozenset(_FULL - {"web", "subagent", "subagents"}) | _PURPOSES
     assert ASSOCIATE_TOOLS == THINKER_CODER_TOOLS
     assert set(PURPOSE_TOOLS) == set(PURPOSES)
     assert tools_for_purpose("worker") is WORKER_TOOLS

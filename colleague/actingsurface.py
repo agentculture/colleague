@@ -36,11 +36,15 @@ express cleanly on its own before this module existed:
    ``subagent``/``subagents`` names — including a ``writer`` child
    (``handover_to_colleague``, or a manual roleless spawn that would
    otherwise default to the bare-run writer substitution above): it keeps
-   the writer allow-list's ``web`` drop but never the purpose tools or the
-   raw delegation tools, so a writer child can neither fetch the web nor
-   delegate further — a BOUNDED writer, deliberately narrower than the
-   top-level acting seat (which regains ``subagent``/``subagents`` under
-   arm 4, plan t11). A read-only child role
+   the writer allow-list's t5 swap (no ``web``/``subagent``/``subagents``)
+   but never the purpose tools themselves, so a writer child can neither
+   fetch the web nor delegate further — a BOUNDED writer, deliberately
+   narrower than the top-level acting seat. The raw-delegation half of this
+   strip is DEFENCE IN DEPTH: arm 4 (plan t11) briefly restored
+   ``subagent``/``subagents`` on the acting seat and the arm matrix rejected
+   that reversal on evidence, but the strip stays so a child can never hold
+   the raw pair even if the seat's allow-list changes again. A read-only
+   child role
    (explorer/planner/reviewer/validator/scout) never held a purpose-tool
    name in the first place (they are absent from ``_READONLY_TOOLS``/
    ``_SCOUT_TOOLS``), so the strip is a no-op for them — they keep ``web``
@@ -109,12 +113,14 @@ def is_top_level(config: Any) -> bool:
 
 
 #: The raw delegation tools a spawned child never inherits, no matter what the
-#: acting seat holds (plan t11 / arm 4). Before arm 4 these two names were
-#: absent from every role's allow-list, so the depth >= 1 strip only had to
-#: remove the six purpose names; arm 4 puts them back on the ACTING seat
-#: (:func:`colleague.roles._writer_allowlist`), and without this set the
-#: restoration would leak down the whole tree and a depth-1 child would stop
-#: being the bounded writer it is today.
+#: acting seat holds (plan t11 / arm 4, KEPT after the arm was rejected).
+#: Arm 4 restored these two names on the ACTING seat
+#: (:func:`colleague.roles._writer_allowlist`) and this set is what kept the
+#: restoration from leaking down the whole tree. The measured matrix rejected
+#: arm 4 (zero raw-pair calls in 21 runs) and the seat is purpose-only again,
+#: so the strip is now redundant with the allow-list — deliberately so: it is
+#: the standing, allow-list-independent guarantee that a depth >= 1 child is
+#: the bounded writer, whatever the seat later holds.
 CHILD_FORBIDDEN_TOOLS: tuple[str, ...] = ("subagent", "subagents")
 
 
@@ -122,8 +128,8 @@ def strip_child_forbidden_tools(role: "Optional[Any]") -> "Optional[Any]":
     """Drop every never-inheritable name from *role*'s allow-list: the six
     purpose tools (q9 — a child never holds a purpose tool, no matter which
     role/purpose named it) and :data:`CHILD_FORBIDDEN_TOOLS` (plan t11 — a
-    child never holds the raw ``subagent``/``subagents`` tools either, so
-    arm 4's acting-seat restoration cannot leak down the tree).
+    child never holds the raw ``subagent``/``subagents`` tools either; kept as
+    defence in depth now that the acting seat is purpose-only again).
 
     ``None`` (no role at all) passes through unchanged; a role whose
     allow-list holds none of those names is returned unchanged (never a
@@ -213,9 +219,9 @@ def curate_for_depth(role: "Optional[Any]", config: Any) -> "Optional[Any]":
     role — including that default — has its purpose-tool names AND the raw
     ``subagent``/``subagents`` names stripped
     (:func:`strip_child_forbidden_tools`, q9 + plan t11): children never hold
-    a purpose tool, and never regain the raw delegation tools arm 4 restored
-    on the acting seat. The drop knob does NOT reach a child (depth >= 1
-    returns before it).
+    a purpose tool, and never hold the raw delegation tools — independently of
+    what the acting seat's allow-list happens to carry. The drop knob does NOT
+    reach a child (depth >= 1 returns before it).
     """
     if is_top_level(config):
         role = substitute_bare_role(role)

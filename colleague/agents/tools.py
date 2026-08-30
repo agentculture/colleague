@@ -152,15 +152,15 @@ WORKER_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-#: The thinker/coder: the registry surface minus ``web`` (still replaced by
-#: ``web_survey``, plan t5 / q9/q10) plus the six purpose tools — and, under
-#: arm 4 (plan t11), the raw ``subagent``/``subagents`` tools BACK alongside
-#: them, mirroring :func:`colleague.roles._writer_allowlist`: the arm measures
-#: whether the raw alternatives crowd the typed purposes out. Children still
-#: never inherit them (``colleague.actingsurface.strip_child_forbidden_tools``).
-THINKER_CODER_TOOLS: frozenset[str] = (frozenset(TOOL_NAMES) - {"web"}) | frozenset(
-    PURPOSE_TOOL_NAMES
-)
+#: The thinker/coder: the registry surface minus web/subagent/subagents plus the
+#: six purpose tools (plan t5, q9/q10) — cortex delegates BY PURPOSE, never raw.
+#: Mirrors :func:`colleague.roles._writer_allowlist`. Arm 4 (t11) briefly
+#: restored the raw pair here; the 21-run matrix measured ZERO raw-pair calls
+#: (A4: 0/3), so it was rejected on evidence and this is #443's purpose-only
+#: surface again (``actingsurface.strip_child_forbidden_tools`` KEPT anyway).
+THINKER_CODER_TOOLS: frozenset[str] = (
+    frozenset(TOOL_NAMES) - {"web", "subagent", "subagents"}
+) | frozenset(PURPOSE_TOOL_NAMES)
 
 #: The reserved fast coder (deviation d3): the coder-class surface.
 ASSOCIATE_TOOLS: frozenset[str] = THINKER_CODER_TOOLS

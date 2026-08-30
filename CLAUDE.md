@@ -86,24 +86,32 @@ minds. The architecture, part by part:
   operator-installed WebGlass CLI (hidden when absent / `COLLEAGUE_WEB=0`,
   byte-identical off-state); the scout seat gains the tool, never a router.
   Doc: `web-scout.md`. **Purpose tools (#443)** — cortex/worker no longer hold
-  raw `web`; they hold six typed tools — `web_survey`/
+  raw `web`/`subagent`/`subagents`; they hold six typed tools — `web_survey`/
   `code_survey` (a scout child, on the associate seat when armed), `review`/
   `validate`/`plan` (reviewer/validator/planner children on cortex) and
   `handover_to_colleague` (a writer child on cortex) — each a FIXED purpose →
   fixed role → fixed seat + rung (`PURPOSE_TABLE`, never leaked from the
   parent), called explicitly: the deepthink precedent (increment 1) applied by
-  purpose, never a router. **Arm 4 (plan t11) reverses the delegation half of
-  #443's "replace, don't add"** — the raw `subagent`/`subagents` are back on
-  the ACTING seat alongside the typed purposes (raw `web` stays replaced). The
-  restoration is CONFINED to depth 0: `actingsurface.CHILD_FORBIDDEN_TOOLS`
-  keeps every spawned child the bounded writer it already was (15 allow-list
-  names, 14 rendered tools). **MEASURED, and the result is negative
+  purpose, never a router. **Arm 4 (plan t11) reversed the delegation half of
+  #443's "replace, don't add" as a pre-registered test — and the matrix
+  REJECTED it, so the default reverted** (Qodo `3888125915`): the raw
+  `subagent`/`subagents` went back on the ACTING seat to test whether their
+  ABSENCE, not the typed form, was what suppressed delegation; they are gone
+  again because it was not. The arm's child confinement is KEPT as defence in
+  depth: `actingsurface.CHILD_FORBIDDEN_TOOLS` strips the raw pair at
+  depth >= 1 regardless of what the seat's allow-list carries, so a spawned
+  child stays the bounded writer it already was (15 allow-list names, 14
+  rendered tools). **MEASURED, and the result is negative
   (`purpose-tools-get-chosen`, `docs/live-testing.md` rows 51–58, 21 runs, zero
   voided, `markup_tool_calls` 0 on all 21):** neither declared lever moved the
   delegation rate — prose A1/A2/A3 all 0/3 (wall/turns vs baseline
   0.560/0.826, 0.908/0.913, 0.866/0.783), surface A4 0/3 (0.522/0.783) — and
-  **no `subagent`/`subagents` call occurred anywhere in the matrix**, so #443's
-  removal of the raw pair was NOT what suppressed delegation. What moved it was
+  **no `subagent`/`subagents` call occurred anywhere in the matrix, A4
+  included** — so #443's removal of the raw pair was NOT what suppressed
+  delegation, the restoration bought nothing measurable, and leaving it in
+  place would only have reopened a path around the fixed `PURPOSE_TABLE`
+  mappings. Tested and rejected on evidence, never quietly undone;
+  `docs/live-testing.md` rows 49-58 keep every measured figure. What moved it was
   **task shape**: 0 delegating runs of 15 on the small brief, 5 of 6 on the
   large-surface brief, every delegation a typed `code_survey`; cortex
   substitutes the parallel read-only tool batch for delegation and prefers that

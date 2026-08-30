@@ -131,30 +131,30 @@ _VALIDATOR_SKILL_PATTERNS: tuple[str, ...] = _INVESTIGATION_SKILL_PATTERNS + ("r
 
 
 def _writer_allowlist() -> tuple[str, ...]:
-    """The SCHEMAS-derived surface minus ``web`` (still replaced by
-    ``web_survey``, plan t5 / operator decisions q9/q10) plus ``deepthink``
-    (plan t4) and the six purpose tools.
+    """The SCHEMAS-derived surface minus ``web``/``subagent``/``subagents``
+    (replaced by purpose tools, plan t5, operator decisions q9/q10) plus
+    ``deepthink`` (plan t4) and the six purpose tools — cortex delegates BY
+    PURPOSE, never via the raw delegation/web tools it used to hold.
 
-    **Arm 4 (plan t11) — the reversal under test.** #443 REPLACED the raw
-    ``subagent``/``subagents`` tools with the typed purposes ("replace, don't
-    add"). Those two names are back on the ACTING seat here: the arm measures
-    whether the raw alternatives crowd the typed purposes out, or whether
-    their absence is what suppressed delegation entirely (live-testing rows
-    49/50, ``docs/features/purpose-tools.md`` § *Arm 4*). This is a MEASURED
-    hypothesis, not a settled improvement.
-
-    ``web`` stays dropped — row 50 is the row that justified "replace, don't
-    add" and it concerns the web surface, so nothing here disturbs it.
-
-    The restoration is confined to the acting seat: a spawned child (depth
-    >= 1) has both names stripped again by
-    :func:`colleague.actingsurface.strip_child_forbidden_tools`, so a child
-    stays the BOUNDED 15-tool writer it is today.
+    **Arm 4 (plan t11) was the reversal under test, and it was REJECTED on
+    evidence.** Arm 4 put the raw pair back on the ACTING seat as a
+    pre-registered hypothesis — that their ABSENCE, not the typed form, was
+    what suppressed delegation. The 21-run arm matrix measured it: arm A4 (raw
+    pair on the seat, no drop knob) delegated **0/3**, and across ALL 21 runs
+    — A4 included — ``subagent``/``subagents`` were called **exactly zero
+    times**; every delegation that did occur (A5: 6, A6: 12) was the typed
+    ``code_survey``. The restoration bought nothing measurable and
+    reintroduced a path around the fixed ``PURPOSE_TABLE`` mappings, so the
+    default returns to #443's purpose-only surface (``purpose-tools.md``
+    § *Arm 4*, ``docs/live-testing.md`` rows 49-58). The confinement hardening
+    arm 4 shipped is KEPT: a spawned child (depth >= 1) still has both raw
+    names stripped by :func:`colleague.actingsurface`\
+    ``.strip_child_forbidden_tools`` — even if this allow-list changes again.
     """
     from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
     from colleague.tools import DEEPTHINK, SCHEMAS
 
-    dropped = {"web"}
+    dropped = {"web", "subagent", "subagents"}
     names = tuple(s["function"]["name"] for s in SCHEMAS if s["function"]["name"] not in dropped)
     return names + (DEEPTHINK,) + PURPOSE_TOOL_NAMES
 

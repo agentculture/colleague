@@ -14,15 +14,16 @@ from colleague.tools import SCHEMAS, ToolError, ToolExecutor, curate_schemas
 
 
 class TestCurateSchemas:
-    def test_writer_offers_purposes_and_drops_web(self) -> None:
-        # t5 (operator decisions q9/q10): cortex reaches the web BY PURPOSE —
-        # the writer's curated surface loses the raw web tool (still present in
-        # SCHEMAS itself) and gains the six purpose schemas. Arm 4 (plan t11)
-        # put the raw subagent/subagents BACK, so only web stays dropped.
+    def test_writer_offers_purposes_and_drops_web_subagent_subagents(self) -> None:
+        # t5 (operator decisions q9/q10): cortex delegates BY PURPOSE now — the
+        # writer's curated surface loses the raw web/subagent/subagents tools
+        # (still present in SCHEMAS itself) and gains the six purpose schemas.
+        # Arm 4 (plan t11) put the raw pair back and was rejected on measured
+        # evidence (zero raw-pair calls in 21 runs), so all three stay dropped.
         writer = BUILTIN_ROLES["writer"]
         curated_names = [s["function"]["name"] for s in curate_schemas(writer)]
         schema_names = [s["function"]["name"] for s in SCHEMAS]
-        dropped = {"web"}
+        dropped = {"web", "subagent", "subagents"}
         assert curated_names == [n for n in schema_names if n not in dropped] + list(
             PURPOSE_TOOL_NAMES
         )

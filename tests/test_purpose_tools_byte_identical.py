@@ -25,8 +25,9 @@ arc's older ``ff7331e`` baseline — see ``tests/fixtures/e589451_baseline/*.jso
    ``colleague.actingsurface.is_top_level``) when ``config.role`` is unset —
    it now substitutes ``colleague.roles.BUILTIN_ROLES['writer']`` (the SAME
    role an explicit ``--role writer`` run already resolved to, t5's swap:
-   drop ``web``, gain the six purpose tools — arm 4 (plan t11) restored the
-   raw ``subagent``/``subagents`` on the acting seat). The
+   drop ``web``/``subagent``/``subagents``, gain the six purpose tools — arm 4
+   (plan t11) restored the raw pair on the acting seat and was REJECTED on
+   measured evidence, so the swap stands). The
    mock scenario's captured shape stays TRULY byte-identical (mock never
    sends tools over the wire, and its ``schemas`` key is a fixed
    ``curate_schemas(None)`` probe untouched by this fix);
@@ -34,15 +35,15 @@ arc's older ``ff7331e`` baseline — see ``tests/fixtures/e589451_baseline/*.jso
    carve-out. The vllm scenario's WIRE ``tools`` payload DOES change — this
    is the real, intended effect of the fix — so
    ``test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm`` names
-   the swap explicitly (the same nothing-dropped/five-added shape as test 2
+   the swap explicitly (the same three-dropped/five-added shape as test 2
    below) and asserts every OTHER captured field (status, steps, the
    ``schemas`` probe, system prompt, tokenize/chat counts, every other
    payload key) stays equal.
 
 2. **The SAME carve-out lives on the ``writer`` ROLE's curated surface
    directly** (``colleague.roles.BUILTIN_ROLES["writer"]``, plan task t5):
-   ``curate_schemas(BUILTIN_ROLES["writer"])`` drops ``web`` and gains the
-   six purpose tool names (arm 4 / plan t11 kept ``subagent``/``subagents``).
+   ``curate_schemas(BUILTIN_ROLES["writer"])`` drops
+   ``web``/``subagent``/``subagents`` and gains the six purpose tool names.
    ``test_writer_role_surface_carves_out_the_purpose_tool_swap`` names this
    explicitly, and ``test_bare_top_level_run_resolves_to_the_writer_carveout``
    proves ``resolve_role`` now hands the top-level acting seat EXACTLY this
@@ -89,22 +90,21 @@ def _load_fixture(name: str) -> "dict[str, Any]":
 
 
 def _assert_purpose_tool_carveout(captured_names: "set[str]", expected_names: "set[str]") -> None:
-    """The documented swap, as ARM 4 (plan t11) leaves it: NOTHING is dropped
-    relative to e589451 any more and five purpose tools are gained (web_survey
-    stays hidden together with web under this suite's COLLEAGUE_WEB=0 off-knob
-    — the SAME hidden-state rule as web itself; ``web`` is therefore absent
-    from ``expected_names`` too, so its own #443 drop cannot show up here).
+    """The ONE documented swap: subagent/subagents dropped, five purpose tools
+    gained (web_survey stays hidden together with web under this suite's
+    COLLEAGUE_WEB=0 off-knob — the SAME hidden-state rule as web itself).
 
     #443 dropped ``subagent``/``subagents`` from the acting seat ("replace,
-    don't add"); arm 4 puts them BACK alongside the typed purposes to measure
-    whether their absence is what suppressed delegation. The expectation is
-    changed here rather than relaxed to a subset check: the acting seat is now
-    a STRICT superset of e589451's surface."""
+    don't add"). Arm 4 (plan t11) put them BACK alongside the typed purposes
+    to measure whether their absence was what suppressed delegation; the
+    21-run arm matrix called the raw pair ZERO times (A4: 0/3 delegation), so
+    the reversal was rejected and the #443 drop stands. The expectation is
+    changed back here rather than relaxed to a subset check."""
     from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 
     dropped = expected_names - captured_names
     added = captured_names - expected_names
-    assert dropped == set(), dropped
+    assert dropped == {"subagent", "subagents"}, dropped
     assert added == set(PURPOSE_TOOL_NAMES) - {"web_survey"}, added
     # Everything else (read_file, write_file, edit_file, run_command, ...) is
     # untouched by the swap.
@@ -187,9 +187,10 @@ def test_writer_role_surface_carves_out_the_purpose_tool_swap(
     """THE named exception to 'byte-identical' (per the brief's own
     instruction): the writer role's curated tool surface — what
     ``role='writer'`` (colleague's full-access acting role, referred to as
-    'cortex' in the spec's own language) is offered — drops ``web`` and gains
-    the six purpose tools, relative to e589451's full unfiltered schema-name
-    list; arm 4 (plan t11) restored ``subagent``/``subagents``."""
+    'cortex' in the spec's own language) is offered — drops
+    ``web``/``subagent``/``subagents`` and gains the six purpose tools,
+    relative to e589451's full unfiltered schema-name list (arm 4 / plan t11
+    restored the raw pair and was rejected on measured evidence)."""
     from colleague.roles import BUILTIN_ROLES
     from colleague.tools import curate_schemas
 

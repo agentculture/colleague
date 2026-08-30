@@ -184,9 +184,10 @@ the spec at line 59 (raised as `s8`, line 151).
 
 **Replace-don't-add** means cortex GIVES UP the raw `web` tool so that the
 scout child becomes its only holder. (The *delegation* half of that principle
-— cortex giving up raw `subagent`/`subagents` — is reversed under test by
-arm 4; see the section below. The `web` half, which is what this exemption
-turns on, still stands.) Applying the subset rule here would make
+— cortex giving up raw `subagent`/`subagents` — was reversed under test by
+arm 4 and restored when the matrix rejected that reversal; see the section
+below. The `web` half, which is what this exemption turns on, never moved.)
+Applying the subset rule here would make
 the design impossible: the parent by construction no longer holds what the
 child needs, so every `web_survey` call would refuse. The ⊆ rule assumes a
 parent that *delegates a portion of its own surface*; a purpose tool instead
@@ -209,21 +210,54 @@ The predecessor honesty condition (`docs/features/web-scout.md` line 33, "the
 scout receives `web` only when the parent's surface contains it") is superseded
 by exactly this decision, and its pinning test was rewritten to the new rule.
 
-## Arm 4 (plan t11) — the replace-don't-add reversal, under test
+## Arm 4 (plan t11) — the replace-don't-add reversal, TESTED AND REJECTED
 
-**This is a measured hypothesis, not a settled improvement.** #443 deliberately
-REPLACED the raw `subagent`/`subagents` tools on cortex with the six typed
+**Status: the reversal was measured and it failed; the default is #443's
+purpose-only surface again.** This section is kept in full — the hypothesis,
+what it predicted, what the matrix found, and why the default moved back — so
+that a later reader can see arm 4 was *tested and rejected on evidence*, not
+quietly undone. What survives from the arm is its child-confinement hardening
+(`CHILD_FORBIDDEN_TOOLS`), which is kept deliberately.
+
+Issue #443 REPLACED the raw `subagent`/`subagents` tools on cortex with the six typed
 purposes ("replace, don't add"). Arm 4 of the `purpose-tools-get-chosen` arc
-(spec/plan `2026-08-29-purpose-tools-get-chosen`, task t11) puts the two raw
-names BACK on the acting seat **alongside** the purpose tools, to separate two
-explanations of the delegation numbers that row 49 cannot tell apart:
+(spec/plan `2026-08-29-purpose-tools-get-chosen`, task t11) put the two raw
+names BACK on the acting seat **alongside** the purpose tools, as a
+pre-registered arm, to separate two explanations of the delegation numbers that
+row 49 could not tell apart:
 
 - **H1 — crowding.** The raw alternatives are easier to reach for, so offering
   them suppresses the typed purposes.
 - **H2 — suppression.** Removing the familiar delegation tools removed
   delegation *itself*, and the typed purposes never replaced it.
 
-### The two rows, and what each actually showed
+### The verdict (live-testing row 56, recorded 2026-08-30)
+
+- **A4 — the raw pair ON the acting seat, drop knob absent: delegation 0/3**,
+  calls per run `[0,0,0]`, `markup_tool_calls` 0 on all three runs (so the zero
+  is real behaviour, not a #360 dropped call), 3/3 `ok`, turns 0.783× and wall
+  0.522× vs A0. **VERDICT: MISS**, decided by the delegation clause.
+- **Across the ENTIRE 21-run matrix — arm A4 included, the one arm where both
+  raw tools were on the seat — `subagent` and `subagents` were called exactly
+  ZERO times.** Every delegation that did occur was `code_survey`, a typed
+  purpose: A5 6 calls over 2/3 runs, A6 12 calls over 3/3 runs.
+- **H2 (suppression by removal) is refuted**: #443's removal of the raw pair
+  was not what suppressed delegation — the suppression predates the removal and
+  survived its reversal. **H1 (crowding) has nothing left to explain.** Task
+  shape, not surface, is what moved the delegation rate (0 of 15 delegating
+  runs on the small decomposable brief; 5 of 6 on the large-surface brief).
+
+**Therefore the default reverted** (Qodo comment `3888125915`): the restoration
+produced no measured benefit and reintroduced a delegation path that bypasses
+the fixed purpose → role → seat mappings of `PURPOSE_TABLE`.
+`_writer_allowlist` drops `web`/`subagent`/`subagents` again, and
+`THINKER_CODER_TOOLS`/`ASSOCIATE_TOOLS` mirror it. **The child-confinement half
+is KEPT**: `actingsurface.strip_child_forbidden_tools` still strips
+`CHILD_FORBIDDEN_TOOLS = ("subagent", "subagents")` at depth >= 1, so a child
+can never hold the raw pair *independently of* what the seat's allow-list
+carries — defence in depth against this allow-list changing again.
+
+### The two rows the hypothesis was built on, and what each actually showed
 
 | Row | What it did | What it actually showed |
 | --- | --- | --- |
@@ -243,31 +277,47 @@ Two honest limits on that reading:
   artifact. The framing needed no correction — but see the closing record
   below, which reports what arm 4 actually measured.
 
-### What changed in code
+### What the arm changed in code, and what the revert put back
 
-- `colleague/roles.py`'s `_writer_allowlist` now drops only `{"web"}` — the
-  acting seat holds `subagent`/`subagents` again, plus the six purposes
-  (21 → 23 names in the allow-list; **20 → 22 rendered** offered tools on a
-  bare seat, since `deepthink` is unarmed and `web` is dropped by the role —
-  recomputed from `loop.curated_schemas` at t15, see below).
+| Surface | #443 (before arm 4) | Arm 4 (t11, measured) | Now (post-revert) |
+| --- | --- | --- | --- |
+| `_writer_allowlist` drop set | `{web, subagent, subagents}` | `{web}` | `{web, subagent, subagents}` |
+| Acting-seat allow-list names | 21 | 23 | **21** |
+| Acting-seat **rendered** tools (depth 0) | 20 | 22 | **20** |
+| Depth-1 child allow-list names | 15 | 15 | **15** |
+| Depth-1 child **rendered** tools | 14 | 14 | **14** |
+| `THINKER_CODER_TOOLS` / `ASSOCIATE_TOOLS` | 20 | 22 | **20** |
+| `strip_child_forbidden_tools` + `CHILD_FORBIDDEN_TOOLS` | (was `strip_purpose_tools`) | added | **KEPT** |
+
+- `colleague/roles.py`'s `_writer_allowlist` drops
+  `{"web", "subagent", "subagents"}` again — cortex delegates BY PURPOSE.
 - `colleague/agents/tools.py`'s `THINKER_CODER_TOOLS` (and therefore
   `ASSOCIATE_TOOLS`) mirrors it, so the #411 agents-mode acting seat matches.
-- **The restoration does not leak to children.** `strip_purpose_tools` was
-  widened into `colleague.actingsurface.strip_child_forbidden_tools`, which at
-  depth >= 1 removes the six purpose names *and*
-  `CHILD_FORBIDDEN_TOOLS = ("subagent", "subagents")`. A depth-1 child is
-  still the bounded writer it was before the arm — **15 allow-list names, 14
-  rendered offered tools** — measured before and after, unchanged.
+- **The child confinement arm 4 introduced is KEPT, on purpose.**
+  `strip_purpose_tools` was widened into
+  `colleague.actingsurface.strip_child_forbidden_tools`, which at depth >= 1
+  removes the six purpose names *and*
+  `CHILD_FORBIDDEN_TOOLS = ("subagent", "subagents")`. With the seat
+  purpose-only again the raw-pair half of that strip is redundant with the
+  allow-list — deliberately so: it is the standing, allow-list-independent
+  guarantee that a child is the bounded writer, whatever the seat later holds.
+  Pinned by `test_strip_child_forbidden_tools_removes_the_restored_raw_delegation`,
+  which asserts the guarantee against a role that *does* carry the raw pair so
+  the pin cannot rot into a tautology.
 - The four exact-set pins (`tests/test_roles.py` ×3,
   `tests/test_purpose_tools_byte_identical.py`, `tests/test_agents_tools.py`)
-  were **changed, never relaxed**: the acting seat is now a strict superset of
-  main's `e589451` surface, so
+  moved with the code both ways and are still **exact-set assertions, never
+  relaxed to subset/membership checks**:
   `tests/test_knobs_byte_identical.py`'s `_PURPOSE_TOOL_CARVEOUT_DROPPED` is
-  the empty set, stated explicitly.
-- One behavioural consequence recorded rather than normalized away:
-  `colleague/delegation_text.py`'s armed-facts sentence has always targeted
-  `subagent`/`subagents` as well as `web_survey`/`code_survey`, so on an armed
-  rig it now splices onto **four** descriptions instead of two.
+  `{"subagent", "subagents"}` again, stated explicitly rather than emptied.
+- The behavioural consequence arm 4 recorded is likewise reverted:
+  `colleague/delegation_text.py`'s armed-facts sentence targets
+  `subagent`/`subagents` as well as `web_survey`/`code_survey`, but the raw
+  pair is absent from the curated writer surface again, so on an armed rig it
+  splices onto **two** descriptions, not four.
+- **`docs/live-testing.md` rows 49–58 are untouched.** They are the historical
+  record of what ran, and arm A4 genuinely ran against the restored surface;
+  no measured figure there was edited by this revert.
 
 ## The `purpose-tools-get-chosen` arc (2026-08-30) — what the matrix measured
 
@@ -286,7 +336,8 @@ table, gaps, deviations, issues) lives there. The headline:
   included**. #443's removal of the raw pair was therefore *not* what
   suppressed delegation — H2 (suppression by removal) is refuted, and H1
   (crowding) has nothing left to explain. The reversal-under-test recorded
-  above resolves as: the restoration changed no measured behaviour.
+  above resolves as: the restoration changed no measured behaviour, and the
+  default was reverted to the purpose-only surface on that evidence.
 - **Task shape is what moved it.** 0 delegating runs of 15 on the small
   decomposable brief (A0–A4); 5 of 6 on the large-surface brief (A5 2/3 with 6
   `code_survey` calls, A6 3/3 with 12). Every delegation named `code_survey`.
@@ -324,11 +375,18 @@ this arc tested exists only in the P1/P2 overlays under
 defaults. No claim in this doc, in `CLAUDE.md` or in `adopt-from-qwen-code.md`
 asserts encouragement the shipped prompt carries.
 
-**Rendered surfaces, recomputed from source at t15** (`loop.resolve_role` →
-`loop.curated_schemas`, no `COLLEAGUE_*` set): depth 0 = **22** offered tools;
-depth 0 under the arm knob `COLLEAGUE_ACTING_DROP_TOOLS=subagent,subagents` =
-**20**; depth 1 = **14**, with `depth-0 minus depth-1` exactly the six purpose
-names plus `subagent`/`subagents`.
+**Rendered surfaces, recomputed from source at t15** — *as measured, while
+arm 4 was in effect* (`loop.resolve_role` → `loop.curated_schemas`, no
+`COLLEAGUE_*` set): depth 0 = **22** offered tools; depth 0 under the arm knob
+`COLLEAGUE_ACTING_DROP_TOOLS=subagent,subagents` = **20**; depth 1 = **14**,
+with `depth-0 minus depth-1` exactly the six purpose names plus
+`subagent`/`subagents`.
+
+**Post-revert** (arm 4 rejected, Qodo `3888125915`): depth 0 = **20** — the
+same surface the arm knob produced, since the seat no longer holds the raw
+pair; depth 1 = **14**, unchanged, with `depth-0 minus depth-1` exactly the six
+purpose names. The A4-vs-A0 comparison the matrix ran is therefore unaffected:
+A0 already measured the surface the default now carries.
 
 ## Provenance
 

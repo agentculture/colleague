@@ -193,15 +193,16 @@ def test_mock_scenario_byte_identical_to_main(
 #: The ONE documented, deliberate exception to "byte-identical" left standing
 #: after the purpose-tools-associate-seat arc's deviation-d14 fix
 #: (colleague/actingsurface.py): resolve_role no longer returns None for the
-#: bare TOP-LEVEL acting seat, so the writer role's t5 swap now reaches the
-#: WIRE ``tools`` payload of a bare run too, not just an explicit --role
-#: writer run. ARM 4 (plan t11) reversed the DROP half of that swap: the raw
-#: subagent/subagents are back on the acting seat, so nothing is dropped
-#: relative to main any more and the surface is a strict superset (web is
-#: absent from both sides under this suite's COLLEAGUE_WEB=0 off-knob).
-#: The empty set is stated explicitly rather than the assertion being
-#: relaxed to a subset check.
-_PURPOSE_TOOL_CARVEOUT_DROPPED: set[str] = set()
+#: bare TOP-LEVEL acting seat, so the writer role's t5 swap (drop
+#: subagent/subagents, gain the six purpose tools) now reaches the WIRE
+#: ``tools`` payload of a bare run too, not just an explicit --role writer
+#: run. Named explicitly here rather than silently normalized away.
+#: ARM 4 (plan t11) briefly reversed the DROP half (the raw pair back on the
+#: acting seat, so nothing was dropped relative to main); the 21-run arm
+#: matrix measured ZERO raw-pair calls, the reversal was rejected on that
+#: evidence, and the drop set is the #443 pair again — changed, never relaxed
+#: to a subset check.
+_PURPOSE_TOOL_CARVEOUT_DROPPED = {"subagent", "subagents"}
 
 
 def _assert_purpose_tool_carveout(captured_tools: "list[str]", expected_tools: "list[str]") -> None:
