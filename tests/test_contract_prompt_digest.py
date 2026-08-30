@@ -342,8 +342,14 @@ def test_an_aborted_run_with_no_composed_prompt_still_omits_the_key(
     monkeypatch.setattr(MockEngine, "system_prompt", lambda self, task, config: None)
     monkeypatch.setattr(mock_engine_mod, "_script", lambda _task: _exploding_complete)
 
+    engine = MockEngine()
+    task = Task.new(str(repo), "x", engine="mock")
+    cfg = EngineConfig(model=_MODEL)
+
+    # Only the call under test sits inside `raises` — constructing the task or
+    # config must not be able to satisfy the assertion (SonarCloud S5915).
     with pytest.raises(WorkAborted) as excinfo:
-        MockEngine().work(Task.new(str(repo), "x", engine="mock"), EngineConfig(model=_MODEL))
+        engine.work(task, cfg)
 
     partial = excinfo.value.result
     assert partial.prompt_digest is None
