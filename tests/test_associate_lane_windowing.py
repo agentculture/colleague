@@ -144,7 +144,8 @@ def test_fallback_still_receives_the_original_parent_budget_request() -> None:
     assert [m for m, _ in engine.received] == [ASSOCIATE_WIRE_MODEL, "cortex-model"]
     assert count_tokens_chars(engine.received[0][1]) <= SEAT_BUDGET  # windowed seat attempt
     assert engine.received[1][1] is history  # cortex@low gets the ORIGINAL list, untouched
-    assert len(warnings) == 1 and "compact" in warnings[0]
+    assert len(warnings) == 1
+    assert "compact" in warnings[0]
 
 
 def test_seat_budget_not_smaller_than_the_lane_passes_the_same_list_through() -> None:

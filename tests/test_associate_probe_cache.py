@@ -142,7 +142,8 @@ def test_concurrent_cache_miss_produces_exactly_one_probe(monkeypatch, outcome):
     assert len(budgets) == n_threads
     assert len(calls) == 1, f"expected exactly one probe, saw {len(calls)}"
     if outcome == "success":
-        assert len(set(budgets)) == 1 and budgets[0] < 128_000
+        assert len(set(budgets)) == 1
+        assert budgets[0] < 128_000
     else:
         assert budgets == [768_000] * n_threads
 
