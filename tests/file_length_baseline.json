@@ -1,7 +1,7 @@
 {
   "colleague/__init__.py": 13,
   "colleague/__main__.py": 10,
-  "colleague/actingsurface.py": 277,
+  "colleague/actingsurface.py": 282,
   "colleague/actionproposal.py": 295,
   "colleague/affectedtests.py": 457,
   "colleague/agents/__init__.py": 5,
@@ -15,7 +15,7 @@
   "colleague/agents/state/context.py": 778,
   "colleague/agents/state/ledger.py": 624,
   "colleague/agents/talker.py": 189,
-  "colleague/agents/tools.py": 247,
+  "colleague/agents/tools.py": 277,
   "colleague/architecture_facts.py": 69,
   "colleague/artifact.py": 385,
   "colleague/associate.py": 286,

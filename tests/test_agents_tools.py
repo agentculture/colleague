@@ -237,3 +237,75 @@ def test_module_is_pure() -> None:
         "colleague.engines",
     ):
         assert banned not in src
+
+
+# ---------------------------------------------------------------------------
+# Hire confinement (delegation-follow-ups t11, c37/h21): the hire pair joins
+# the coder-class purpose surfaces ONLY when COLLEAGUE_HIRE arms it, is never
+# inheritable, and can never sit on a talker.
+# ---------------------------------------------------------------------------
+
+
+def _hire_names() -> frozenset:
+    from colleague.hire_schemas import HIRE_TOOL_NAMES
+
+    return frozenset(HIRE_TOOL_NAMES)
+
+
+def test_hire_pair_absent_from_purpose_sets_by_default() -> None:
+    # The scrubbed default env (no COLLEAGUE_HIRE): byte-identical to #443.
+    assert THINKER_CODER_TOOLS.isdisjoint(_hire_names())
+    assert ASSOCIATE_TOOLS.isdisjoint(_hire_names())
+    assert WORKER_TOOLS.isdisjoint(_hire_names())
+    assert TALKER_TOOLS == frozenset()
+
+
+def test_hire_pair_joins_coder_sets_only_when_knob_armed(monkeypatch) -> None:
+    """COLLEAGUE_AGENTS=1 + COLLEAGUE_HIRE=1 → both names in
+    THINKER_CODER_TOOLS/ASSOCIATE_TOOLS; COLLEAGUE_AGENTS=1 alone → neither."""
+    import importlib
+
+    names = _hire_names()
+    try:
+        monkeypatch.setenv("COLLEAGUE_AGENTS", "1")
+        monkeypatch.setenv("COLLEAGUE_HIRE", "1")
+        armed = importlib.reload(agent_tools)
+        assert names <= armed.THINKER_CODER_TOOLS
+        assert names <= armed.ASSOCIATE_TOOLS
+        assert armed.ASSOCIATE_TOOLS == armed.THINKER_CODER_TOOLS
+        # Only the coder-class seats gain it — never the worker or the talker.
+        assert armed.WORKER_TOOLS.isdisjoint(names)
+        assert armed.TALKER_TOOLS == frozenset()
+
+        monkeypatch.delenv("COLLEAGUE_HIRE")
+        unarmed = importlib.reload(agent_tools)
+        assert unarmed.THINKER_CODER_TOOLS.isdisjoint(names)
+        assert unarmed.ASSOCIATE_TOOLS.isdisjoint(names)
+    finally:
+        monkeypatch.undo()
+        importlib.reload(agent_tools)
+
+
+def test_hire_pair_is_never_inheritable() -> None:
+    # Unconditional deny-list membership: armed or not, a delegated child can
+    # never inherit either name.
+    assert _hire_names() <= agent_tools._NOT_INHERITABLE
+
+
+def test_validate_profile_tools_refuses_a_talker_holding_a_hire_tool() -> None:
+    from colleague.agents.profile import AgentProfile, validate_profile_tools
+
+    profile = AgentProfile(
+        agent_id="talker-hire",
+        purpose="talker",
+        model_role="senses",
+        resolved_model="served-senses",
+        tool_profile="talker",
+        authority_profile="present",
+        parent_agent_id=None,
+        task_id="task-11",
+        fallback_from_role=None,
+    )
+    for name in sorted(_hire_names()):
+        with pytest.raises(ValueError, match="talker profile refuses"):
+            validate_profile_tools(profile, [name])

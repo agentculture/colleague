@@ -35,9 +35,11 @@ allow-list) is wired by the loop task (t15); this module only computes.
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from typing import Iterable
 
+from colleague.hire_schemas import HIRE_TOOL_NAMES
 from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 from colleague.tools import DEEPTHINK_SCHEMA, TOOL_NAMES
 
@@ -85,7 +87,12 @@ _EXTERNAL_CLASS = frozenset({"culture", "devague"})
 _APPROVAL_REQUIRED = frozenset({"run_command"})
 # A delegated child may never inherit these (authority stays with the parent);
 # the six purpose tools (t5, q9) join too: cortex/worker only, never a child.
-_NOT_INHERITABLE = frozenset({"subagent", "subagents", DEEPTHINK_TOOL, *PURPOSE_TOOL_NAMES})
+# The hire pair (delegation-follow-ups t11, c41/h25) joins UNCONDITIONALLY —
+# this is a deny-list, so listing the names while the knob is off costs
+# nothing, and an armed run can never leak them down to a child.
+_NOT_INHERITABLE = frozenset(
+    {"subagent", "subagents", DEEPTHINK_TOOL, *PURPOSE_TOOL_NAMES, *HIRE_TOOL_NAMES}
+)
 
 
 class EmptyToolSurface(ValueError):
@@ -152,15 +159,38 @@ WORKER_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+
+def _hire_pair() -> frozenset[str]:
+    """The hire pair when ``COLLEAGUE_HIRE`` arms it, else empty
+    (delegation-follow-ups t11, c37/h21 — knob-guarded, never ambient).
+
+    This static module has no repo context, so only the ENV half of the
+    hire resolution (``colleague.config._resolve_hire_enabled``: env >
+    config.json > OFF) can be read here, at import time, with the same
+    truthy parse ``_parse_bool`` applies. The actual offer/refuse gate on
+    the wire stays :func:`colleague.hire_schemas.hidden_names` over the
+    RESOLVED ``config.hire`` flag — this set only mirrors it for the
+    agents-mode (#411) purpose surfaces. Unarmed = byte-identical.
+    """
+    raw = os.environ.get("COLLEAGUE_HIRE", "")
+    if raw.strip().lower() in ("", "0", "false", "no", "off"):
+        return frozenset()
+    return frozenset(HIRE_TOOL_NAMES)
+
+
 #: The thinker/coder: the registry surface minus web/subagent/subagents plus the
 #: six purpose tools (plan t5, q9/q10) — cortex delegates BY PURPOSE, never raw.
 #: Mirrors :func:`colleague.roles._writer_allowlist`. Arm 4 (t11) briefly
 #: restored the raw pair here; the 21-run matrix measured ZERO raw-pair calls
 #: (A4: 0/3), so it was rejected on evidence and this is #443's purpose-only
 #: surface again (``actingsurface.strip_child_forbidden_tools`` KEPT anyway).
+#: The hire pair joins ONLY when ``COLLEAGUE_HIRE`` arms it (:func:`_hire_pair`,
+#: delegation-follow-ups t11) — the unarmed set is byte-identical to #443's.
 THINKER_CODER_TOOLS: frozenset[str] = (
-    frozenset(TOOL_NAMES) - {"web", "subagent", "subagents"}
-) | frozenset(PURPOSE_TOOL_NAMES)
+    (frozenset(TOOL_NAMES) - {"web", "subagent", "subagents"})
+    | frozenset(PURPOSE_TOOL_NAMES)
+    | _hire_pair()
+)
 
 #: The reserved fast coder (deviation d3): the coder-class surface.
 ASSOCIATE_TOOLS: frozenset[str] = THINKER_CODER_TOOLS
