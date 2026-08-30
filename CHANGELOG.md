@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.0] - 2026-08-30
+
+### Added
+
+- `TaskResult.offered_tools` — the rendered tool names stamped by mock and vllm-openai identically (omit-when-None beside `prompt_digest`); the arm rows identify a surface arm off the artifact, not the prompt digest (delegation-follow-ups t2).
+- `COLLEAGUE_ACTING_ADD_TOOLS` — a depth-0 add knob on the acting surface (names restricted to `tools.SCHEMAS`, applied after the drop, children untouched); the A7 raw-vs-purpose fair-fight instrument (t1).
+- `COLLEAGUE_HIRE` / config.json `hire` (default OFF) and `acting_add_tools` on `EngineConfig` + `config show` (t4); the `hire_colleague` tool itself is Phase B (#457).
+- Live-testing overlays P2-0 (P2's first paragraph = the honest P3 control) and P3 (size-conditional delegation prose) + the requested-delegation brief `arm-large-surface-requested.md` (t3).
+- Associate seat sampling profiles (`colleague/associate_config.py`): `depth` (temperature 0.6, top_p 0.95, `enable_thinking: true`, `max_tokens` omitted) on every associate lane by default, `triage` (0.2, thinking off, 2048) only via `COLLEAGUE_ASSOCIATE_PROFILE` / per-value overrides; `config show` prints the profile (t23, #461).
+- `docs/features/associate-validation.md` — how to validate the associate/Nemotron seat with colleague on real cases: preconditions read off the rig, the operator's measured usage contract (#461, both comments — the correction wins), a five-case ladder, artifact reads, pass bars, known failure shapes (t21).
+- Live-testing rows 59–64 (A7, P2-0, P3, R-cortex, R-nemotron): the raw-vs-purpose fair fight delegated 0/3 by either form, P3 0/3 does not promote, requested delegation R-cortex 3/3 compliant at 3.2× wall with a full redo, R-nemotron run 1 all children refused (#460).
+
+### Changed
+
+- `docs/features/purpose-tools.md` + CLAUDE.md record the `delegation-follow-ups` arc: #456's two gaps closed negatively, the purpose child's step cap found unapplied (#458), the seat-per-lane decision rule deferred to measurement (#459).
+- The associate seat is clamped to the SERVED window: ONE `/tokenize` probe per (url, wire model) discovers `max_model_len` (128,000 on the reference rig vs a 1,048,576 advert) and `context_budget_tokens = min(budget, served − output margin)`; the served-window map is keyed by (url, model) (t22).
+
+### Fixed
+
+- #460 — a purpose child on the associate seat inherited a 768k budget, hit `400 maximum context length`, and the alias→served-id retry turned it into `404 role_infeasible` with the original error lost; `retry_role_alias` now recognises a context-length 400 (no retry) and, when the served-id retry also fails, raises a folded error carrying BOTH bodies (t22).
+
 ## [1.68.0] - 2026-08-30
 
 ### Added
