@@ -1315,7 +1315,14 @@ def _seat_complete(ctx: _Work, seat: str, complete: CompleteFn) -> CompleteFn:
     factory = ctx.associate_complete
     if factory is None:
         return complete
-    seat_complete = factory(seat, ctx.result.warnings.append)
+    # Qodo #464 / #460: the lane's own counter + budget let the seat completion
+    # window its request to the associate's SERVED window before dispatch.
+    seat_complete = factory(
+        seat,
+        ctx.result.warnings.append,
+        count_tokens=ctx.count_tokens,
+        lane_budget=ctx.context_budget,
+    )
     return seat_complete if seat_complete is not None else complete
 
 
