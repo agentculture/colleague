@@ -44,11 +44,18 @@ export COLLEAGUE_ASSOCIATE_MODEL=lobes            # opt-in until the ladder belo
 
 **Record the deployment's serving parameters, not only its window.** The
 Orin side is tuned deliberately (operator, 2026-08-30): temperature, output
-token budget, sampling defaults. Colleague sends no `temperature` of its own on
-the associate seat, so the server's defaults ARE the seat's — paste them from
-the deployment (the Orin's vLLM launch flags / `lobes status` on the Orin) into
-the row beside the served window, and re-run the ladder whenever they change;
-a result measured under one tuning is not evidence for another.
+token budget, sampling defaults. Note what colleague sends: every completion
+carries `temperature: config.temperature` (`colleague/engines/vllm_openai.py`,
+the payload builder), and the associate seat is a `dataclasses.replace` of the
+parent config, so **the associate child runs at cortex's configured
+temperature (`COLLEAGUE_TEMPERATURE`), not at the Orin's server default** —
+the deployment's temperature only applies if colleague's value matches it (a
+per-seat override / omit-on-the-associate-seat is a follow-up, plan t23).
+`max_tokens` is colleague's window clamp. Paste the deployment's parameters
+(the Orin's vLLM launch flags / `lobes status` there) AND colleague's
+`temperature` into the row beside the served window, and re-run the ladder
+whenever either changes; a result measured under one tuning is not evidence
+for another.
 
 ## 1. The case ladder — smallest first, each on a throwaway repo
 
