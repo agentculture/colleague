@@ -862,6 +862,10 @@ def make_spawn(
     # ``reasoning_effort_purposes``/``reasoning_effort`` off it for purpose
     # children without threading a new ToolExecutor constructor kwarg.
     spawn.parent_config = parent_config
+    # Same no-wiring seam, second reader (t12): the backend name the hire
+    # negotiation's candidate completion loads (``colleague/hire_dispatch.py``
+    # reads ``executor._spawn.parent_engine`` to bind the tools-off seam).
+    spawn.parent_engine = parent_engine
     return spawn
 
 

@@ -261,3 +261,55 @@ class MockEngine(Engine):
         # the loop-authored block (when the loop wired it) wins; unarmed is a
         # strict no-op (key absent, byte-identical artifact).
         return fold_agents_block(result, config)
+
+
+# ---------------------------------------------------------------------------
+# hire_colleague candidate rule (delegation-follow-ups t12, spec c18/h9)
+# ---------------------------------------------------------------------------
+
+#: The offer's ``purpose:`` / ``when:`` lines, as rendered by
+#: :func:`colleague.hire_dispatch._offer_text`.
+_HIRE_PURPOSE_RE = re.compile(r"^purpose:\s*(.*)$", re.MULTILINE)
+_HIRE_WHEN_RE = re.compile(r"^when:\s*(.*)$", re.MULTILINE)
+
+
+def _hire_candidate_complete(_config: EngineConfig) -> CompleteFn:
+    """The mock's DETERMINISTIC hire-candidate rule (documented contract):
+
+    * **decline** when the offered purpose contains ``'decline'`` (decline
+      wins over amend when both appear);
+    * else **amend** — round 1 only — when it contains ``'amend'`` (the
+      revision is ``"<purpose> (amended)"`` with the when clause kept);
+    * else **accept**.
+
+    Round 2 is recognized by the "Round 2" marker in the offer text and
+    parses accept/decline only, exactly like a live candidate. The mock has
+    no ``make_complete`` (that stays raising — plan mode still needs a live
+    backend); :mod:`colleague.hire_dispatch` falls back to THIS scripted
+    rule via ``engine.hire_candidate_complete``, so the negotiation runs
+    end-to-end on the contract-reference engine with zero network.
+    """
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        offer = str(messages[-1].get("content", "")) if messages else ""
+        purpose_match = _HIRE_PURPOSE_RE.search(offer)
+        purpose = purpose_match.group(1) if purpose_match else ""
+        when_match = _HIRE_WHEN_RE.search(offer)
+        when = when_match.group(1) if when_match else ""
+        round2 = "round 2" in offer.lower()
+        if "decline" in purpose.lower():
+            content = "decline: mock candidate rule — the purpose contains 'decline'"
+        elif "amend" in purpose.lower() and not round2:
+            content = f"amend: purpose={purpose} (amended); when={when}"
+        else:
+            content = "accept"
+        return ModelResponse(
+            content=content, prompt_tokens=1, completion_tokens=1, finish_reason="stop"
+        )
+
+    return complete
+
+
+# Bound as a method so ``colleague.hire_dispatch`` finds it on the loaded
+# engine instance (``getattr(engine, "hire_candidate_complete", None)``).
+MockEngine.hire_candidate_complete = staticmethod(_hire_candidate_complete)
