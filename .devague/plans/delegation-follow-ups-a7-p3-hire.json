@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T06:12:11Z",
+  "updated": "2026-08-30T06:13:05Z",
   "targets": [
     {
       "id": "c1",
@@ -707,13 +707,14 @@
       "acceptance_criteria": [
         "With lobes armed and the associate role advertised READY, a bare run (no COLLEAGUE_ASSOCIATE_MODEL) resolves the associate seat to that role: a code_survey/web_survey child's sub_results[].model is the associate's served model; review/validate/plan children likewise; handover_to_colleague and the acting seat stay on cortex",
         "Associate absent or ready:false = the child runs on cortex with a RECORDED fallback (a warning or the artifact's associate block names the role and 'not ready'), byte-identical to today's artifact shape otherwise; COLLEAGUE_ASSOCIATE_MODEL=off (or config.json associate=off) restores the opt-out; the explicit-model and 'lobes' sentinel values keep working",
-        "config show reports associate as consumed (model) or 'fallback: cortex (not ready)' and no longer lists it under not_consumed when ready; CLAUDE.md convention change (5) amended for the associate seat only; docs/features/qwen-direct.md + adopt-from-qwen-code.md updated; tests pin the ready/not-ready/off matrix on mock"
+        "config show reports associate as consumed (model) or 'fallback: cortex (not ready)' and no longer lists it under not_consumed when ready; CLAUDE.md convention change (5) amended for the associate seat only; docs/features/qwen-direct.md + adopt-from-qwen-code.md updated; tests pin the ready/not-ready/off matrix on mock",
+        "Every ASSOCIATE_SEAT_TABLE lane (scout, compact, synthesis, digest, distill \u2014 the memory rung-2 distill child included) resolves to the ready associate by default; the detached distill child's artifact/doctor counters and TaskResult.memory name the served model; not-ready = recorded cortex fallback for each lane"
       ],
       "deps": [
         "t4"
       ],
       "covers": [],
-      "instruction": "Files: colleague/config.py (the associate resolution rung \u2014 grep 'associate' in config.py; flip the default from opt-in to discover-when-ready, keep 'off' as the explicit opt-out), colleague/cli/_commands/config.py (associate_cli.config_show_lines), docs/features/qwen-direct.md, docs/features/adopt-from-qwen-code.md, CLAUDE.md, tests/test_config_associate_default.py. Precedent: the muse->deepthink discovery rung (two-machines-two-minds arc). A RESOLUTION rung, never a per-turn choice; the purpose->role->seat table is unchanged."
+      "instruction": "Files: colleague/config.py (the associate resolution rung \u2014 grep 'associate' in config.py; flip the default from opt-in to discover-when-ready, keep 'off' as the explicit opt-out), colleague/efforttables.py (ASSOCIATE_SEAT_TABLE unchanged \u2014 the rungs stay; only WHO serves changes), colleague/memory.py / the distill child spawn (the memory lane must pick up the same resolved associate), colleague/cli/_commands/config.py (associate_cli.config_show_lines), docs/features/qwen-direct.md, docs/features/adopt-from-qwen-code.md, docs/features/memory.md, CLAUDE.md, tests/test_config_associate_default.py. Precedent: the muse->deepthink discovery rung (two-machines-two-minds arc). A RESOLUTION rung, never a per-turn choice; the purpose->role->seat table is unchanged. Decisions c45 + c46, deviation d3."
     }
   ],
   "risks": [

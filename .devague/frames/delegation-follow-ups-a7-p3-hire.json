@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-30T04:09:25Z",
-  "updated": "2026-08-30T06:11:49Z",
+  "updated": "2026-08-30T06:13:05Z",
   "claims": [
     {
       "id": "c1",
@@ -719,6 +719,18 @@
       "id": "c45",
       "kind": "decision",
       "text": "Associate default-ON (2026-08-30): a READY lobes associate role fills the read-only purpose seats (scout: code_survey/web_survey; reviewer/validator/planner children) by default \u2014 a fixed resolution rung, recorded cortex fallback when absent/not-ready, COLLEAGUE_ASSOCIATE_MODEL=off opts out; the writer purpose and the acting seat stay on cortex. Amends qwen-direct convention change (5) for the associate seat only; senses/muse stay opt-in.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c46",
+      "kind": "decision",
+      "text": "Associate default-ON extends to MEMORY and every associate sub-seat (2026-08-30): the five ASSOCIATE_SEAT_TABLE lanes \u2014 scout, compact, synthesis, digest, distill (the rung-2 memory distill child) \u2014 all resolve to a READY lobes associate role by default, with the same recorded cortex fallback and the same COLLEAGUE_ASSOCIATE_MODEL=off opt-out; the writer purpose and the acting seat stay on cortex.",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],
