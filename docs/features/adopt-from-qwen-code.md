@@ -353,6 +353,8 @@ pin for the on-state; see the row's note.
 | `COLLEAGUE_ASSOCIATE_BASE_URL` | n/a — value override | The associate seat's endpoint override; inert while `COLLEAGUE_ASSOCIATE_MODEL` is unset. | `colleague/associate_config.py` |
 | `COLLEAGUE_ASSOCIATE_API_KEY` | n/a — value override | The associate seat's API key override; inert while `COLLEAGUE_ASSOCIATE_MODEL` is unset. | `colleague/associate_config.py` |
 | `COLLEAGUE_ASSOCIATE_CONTEXT_BUDGET` | n/a — value override | The associate seat's windowing budget override; inert while `COLLEAGUE_ASSOCIATE_MODEL` is unset. | `colleague/associate_config.py` |
+| `COLLEAGUE_ASSOCIATE_PROFILE` | `depth` (t23) | The associate seat's sampling/thinking profile — `depth` (temperature 0.6, top_p 0.95, thinking on, `max_tokens` omitted) or `triage` (0.2, 0.95, thinking off, 2048); an unknown name falls back to `depth`. Cortex's payload is untouched. | `colleague/associate_config.py` |
+| `COLLEAGUE_ASSOCIATE_TEMPERATURE` / `_TOP_P` / `_MAX_TOKENS` / `_THINKING` | n/a — value overrides | Replace one field of the resolved profile (config.json `associate.temperature` / `top_p` / `max_tokens` / `thinking` likewise); `_MAX_TOKENS=0` omits the key. | `colleague/associate_config.py` |
 | `COLLEAGUE_PRIOR_READ` | `0` | Disables the prior-read rule: an edit proceeds without a prior `read_file` of its span, the same as `main` (which never enforced the rule). **No off-state for the REFUSAL message** — `main` never produced one to be byte-identical to, so only the on-state (edit refused unless read first) is new; the off-state's *outcome* (edit proceeds) matches `main`, not its wording (there is none to match). | `colleague/editgate.py` |
 
 ## Provenance

@@ -24,14 +24,29 @@ def config_show_lines(lines: list[str], cfg: object) -> dict[str, Any]:
     if assoc is None:
         return {}
     how = "addressed as role name via proxy" if assoc.addressed_as_role else "explicit model id"
-    lines.append(f"associate → {assoc.model} ({how})")
-    return {
-        "associate": {
-            "served_model": assoc.model,
-            "wire_model": assoc.wire_model,
-            "addressed_as_role": assoc.addressed_as_role,
-        }
+    prof = getattr(assoc, "profile", None)
+    prof_text = (
+        f"; profile {prof.name}: temperature {prof.temperature}, top_p {prof.top_p}, "
+        f"thinking {'on' if prof.enable_thinking else 'off'}, "
+        f"max_tokens {prof.max_tokens if prof.max_tokens is not None else 'omitted'}"
+        if prof is not None
+        else ""
+    )
+    lines.append(f"associate → {assoc.model} ({how}{prof_text})")
+    data: dict[str, Any] = {
+        "served_model": assoc.model,
+        "wire_model": assoc.wire_model,
+        "addressed_as_role": assoc.addressed_as_role,
     }
+    if prof is not None:
+        data["profile"] = {
+            "name": prof.name,
+            "temperature": prof.temperature,
+            "top_p": prof.top_p,
+            "enable_thinking": prof.enable_thinking,
+            "max_tokens": prof.max_tokens,
+        }
+    return {"associate": data}
 
 
 def optional_roles(roles: object) -> tuple[tuple[str, object], ...]:

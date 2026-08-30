@@ -29,11 +29,14 @@ from __future__ import annotations
 
 import dataclasses
 import urllib.error
-from typing import Any, Callable, Optional, cast
+from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 from colleague import effort
 from colleague.config import ASSOCIATE_WIRE_MODEL, EngineConfig
 from colleague.efforttables import resolve_associate_sub_seat_effort
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from colleague.associate_config import AssociateConfig
 
 __all__ = [
     "ASSOCIATE_WIRE_MODEL",
@@ -53,7 +56,44 @@ ROLE_WIRE_ALIASES = frozenset({ASSOCIATE_WIRE_MODEL})
 # Like ``reasoning_effort_seat``, ``dataclasses.replace`` drops them — a copy
 # that never set them is not an associate seat.
 _SERVED_MODEL_ATTR = "associate_served_model"
+_PROFILE_ATTR = "associate_profile"
 _WIRE_FALLBACK_ATTR = "associate_wire_fallback_model"
+
+
+def served_window_budget(assoc: "AssociateConfig") -> int:
+    """The associate seat's context budget clamped to its SERVED window (#460).
+
+    The lobes advert for a proxied associate carries the model's nominal
+    context (1,048,576 on the reference rig) while the deployment serves
+    ``max_model_len`` 128,000 — a budget derived from the advert lets the
+    child's history grow past what the server accepts (a context-length 400).
+    ONE ``/tokenize`` probe per ``(tokenize url, wire model)`` per process
+    (cached by the adapter) discovers the served window; the budget becomes
+    ``min(assoc.context_budget, served - output margin)``. No probe result
+    (a server without ``/tokenize``, a network error) leaves the configured
+    budget untouched — retargeting stays a config change.
+    """
+    from colleague import outputclamp
+    from colleague.engines import vllm_openai as _vllm  # lazy: vllm_openai imports this module
+
+    url = _vllm._tokenize_url(assoc.base_url)
+    served = _vllm.served_max_model_len(url, assoc.wire_model)
+    if served is None:
+        _vllm._tokenize_count(
+            [{"role": "user", "content": "probe"}],
+            url=url,
+            model=assoc.wire_model,
+            api_key=assoc.api_key,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+        served = _vllm.served_max_model_len(url, assoc.wire_model)
+    if not isinstance(served, int) or served <= 0:
+        return assoc.context_budget
+    return max(1, min(assoc.context_budget, served - outputclamp.output_clamp_margin(served)))
+
+
+#: The seat-build probe's timeout — a slow/absent /tokenize must not stall a run.
+_PROBE_TIMEOUT_SECONDS = 10.0
 
 
 def associate_engine_config(
@@ -85,7 +125,14 @@ def associate_engine_config(
             refresh_seat=None,
             base_url=assoc.base_url,
             api_key=assoc.api_key,
-            context_budget_tokens=assoc.context_budget,
+            # #460: the associate's budget is clamped to the SERVED window (one
+            # /tokenize probe per (url, model) per process), never the advert's
+            # nominal context; the operator's smaller value still wins.
+            context_budget_tokens=served_window_budget(assoc),
+            # The parent's lobes_context is CORTEX's advertised window — wrong
+            # for this seat; None lets the /tokenize max_model_len win the
+            # output clamp (outputclamp.resolve_window precedence).
+            lobes_context=None,
         ),
     )
     seats = config.reasoning_effort_seats
@@ -104,6 +151,9 @@ def associate_engine_config(
         )
     setattr(seat, "reasoning_effort_seat", rung)
     setattr(seat, _SERVED_MODEL_ATTR, assoc.model)
+    # t23: the seat carries its sampling/thinking profile; the payload builder
+    # and the turn budget read it (cortex carries none — byte-identical).
+    setattr(seat, _PROFILE_ATTR, assoc.profile)
     # The one-shot wire fallback exists only for a role-name-addressed seat.
     setattr(seat, _WIRE_FALLBACK_ATTR, assoc.model if assoc.addressed_as_role else None)
     return seat
@@ -116,6 +166,12 @@ def recorded_model(configured: str, served: str) -> str:
     return served if (served and configured in ROLE_WIRE_ALIASES) else configured
 
 
+def seat_profile(config: object):
+    """The :class:`~colleague.associate_config.AssociateProfile` an associate seat
+    carries (t23), or ``None`` for every other seat."""
+    return getattr(config, _PROFILE_ATTR, None)
+
+
 def served_model_expected(config: object) -> Optional[str]:
     """The served model id an associate seat config expects the reply to name."""
     return getattr(config, _SERVED_MODEL_ATTR, None)
@@ -124,6 +180,34 @@ def served_model_expected(config: object) -> Optional[str]:
 def wire_fallback_model(config: object) -> Optional[str]:
     """The id to retry with ONCE if the gateway rejects the role-name address."""
     return getattr(config, _WIRE_FALLBACK_ATTR, None)
+
+
+_CONTEXT_LENGTH_MARKERS = ("maximum context length", "context length", "context_length")
+
+
+def _http_error_body(exc: urllib.error.HTTPError) -> str:
+    """The error body text already folded onto *exc* (the adapter folds it into
+    ``exc.msg``/``exc.reason``), or ``""`` — never re-reads the stream."""
+    return " ".join(str(part) for part in (getattr(exc, "msg", ""), getattr(exc, "reason", "")))
+
+
+def _is_context_length_error(exc: urllib.error.HTTPError) -> bool:
+    """vLLM's over-long-prompt 400 shape (``This model's maximum context length
+    is N tokens…``): the seat is fine, the request is too long (#460)."""
+    body = _http_error_body(exc).lower()
+    return exc.code == 400 and any(marker in body for marker in _CONTEXT_LENGTH_MARKERS)
+
+
+def _folded_http_error(
+    original: urllib.error.HTTPError, retry: urllib.error.HTTPError
+) -> urllib.error.HTTPError:
+    """One HTTPError carrying the ORIGINAL rejection and the served-id retry's
+    failure in its message (#460): the artifact's ``refused:`` line names both."""
+    msg = (
+        f"{original.code} on the role-name address: {_http_error_body(original)[:400]} | "
+        f"served-id retry then failed with {retry.code}: {_http_error_body(retry)[:400]}"
+    )
+    return urllib.error.HTTPError(retry.url, original.code, msg, retry.hdrs, None)
 
 
 def retry_role_alias(
@@ -151,6 +235,11 @@ def retry_role_alias(
     fallback_id = wire_fallback_model(config)
     if not fallback_id or exc.code not in (400, 404, 422):
         return None
+    if _is_context_length_error(exc):
+        # #460: a context-length 400 is the MODEL's window, not the gateway
+        # rejecting the role-name address — retrying by served id can only
+        # turn it into a 404 role_infeasible and hide the real cause.
+        return None
     alias = payload.get("model")
     if alias != config.model or alias == fallback_id:
         return None
@@ -165,4 +254,10 @@ def retry_role_alias(
     config.model_refresh_warnings = config.model_refresh_warnings + (warning,)
     config.model = fallback_id
     payload["model"] = fallback_id
-    return dispatch()
+    try:
+        return dispatch()
+    except urllib.error.HTTPError as retry_exc:
+        # #460: the fallback failed too (on a proxied deployment the served id
+        # is refused as role_infeasible) — surface BOTH bodies, never just the
+        # retry's, so an artifact names the original rejection.
+        raise _folded_http_error(exc, retry_exc) from retry_exc
