@@ -458,3 +458,25 @@ The shipped default prompt still carries no encouragement to delegate.
   `docs/plans/2026-08-29-purpose-tools-get-chosen.md` — the measurement arc
   closed above. Deviations `d1`–`d3` (`devague deviate --list`); issues raised:
   #451, #452, #453, #454.
+
+## The per-purpose child context budget (#458 re-scoped, 2026-08-30)
+
+Issue #458 ("children ran 23–29 steps against a 12-step cap") was a
+steps-vs-turns misread: `max_steps` bounds MODEL TURNS
+(`loop._work_loop`), a turn's parallel read-only batch logs many `step N`
+tool calls, and the `incomplete` children in rows 63/64 are the cap FIRING
+(forced synthesis at the budget). The real cost lever is the child's
+CONTEXT budget — a survey child inherits the parent's window and re-sends a
+growing 60–120k history every turn (300–846k tokens per child in rows
+63/64), against #461's doctrine that survey work belongs in a 16K–64K band.
+
+The lever: `COLLEAGUE_<PURPOSE>_CONTEXT_BUDGET` (e.g.
+`COLLEAGUE_CODE_SURVEY_CONTEXT_BUDGET=65536`) caps that ONE purpose child's
+window via `efforttables.purpose_context_override` →
+`ChildSpec.context_budget_tokens` (explicit beats derived; the associate
+seat still takes `min(child, seat)`). Unset/invalid/`<= 0` = the child
+inherits the parent's budget — byte-identical
+(`tests/test_purpose_context_budget.py`). An opt-in EXPERIMENT instrument
+by the `COLLEAGUE_ACTING_ADD_TOOLS` precedent: row 64b measures it against
+row 64 (one changed lever, n=3) and it becomes a `PURPOSE_CONTEXT` table
+default only if the arm promotes it.

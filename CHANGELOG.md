@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.70.0] - 2026-08-30
+
+### Added
+
+- `COLLEAGUE_<PURPOSE>_CONTEXT_BUDGET` — an opt-in per-purpose child context-window cap (#458 re-scoped after the steps-vs-turns correction: the 12-turn cap was applying all along; the cost was children inheriting the parent's window and re-sending a growing history — 300–846k tokens per child in rows 63/64). Wired `efforttables.purpose_context_override` → `spawn(context_budget_tokens=…)` → `ChildSpec` (explicit beats derived; the associate seat still takes min(child, seat)); unset/invalid = byte-identical. The row-64b experiment lever, promoted to a `PURPOSE_CONTEXT` default only if the arm wins.
+
+### Fixed
+
+- #458 corrected on the record: `max_steps` bounds model turns, not tool calls; both child-config paths apply `spec.max_steps`; rows 63/64's `incomplete` children are the cap firing.
+
 ## [1.69.1] - 2026-08-30
 
 ### Added
