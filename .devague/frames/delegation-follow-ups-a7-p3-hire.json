@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-30T04:09:25Z",
-  "updated": "2026-08-30T11:16:11Z",
+  "updated": "2026-08-30T12:02:11Z",
   "claims": [
     {
       "id": "c1",
@@ -761,6 +761,18 @@
       "id": "c48",
       "kind": "decision",
       "text": "Nemotron associate = a fast 128K SURVEY / MEMORY layer with explicit code-semantic escalation (#461, operator 2026-08-30): strong/default fits \u2014 web_survey, web/document reconnaissance, document reading, conversation/history survey, memory extraction/building, file/repo inventory, grep/search/symbol discovery, evidence bundles; code_survey is LIMITED to evidence discovery (paths, symbols, definitions/references/call sites, bounded excerpts, commands run); semantic code understanding, tracing behaviour, bug diagnosis, design and code changes ESCALATE to cortex/coder. 128K is a CEILING, not a target occupancy \u2014 colleague clamps the associate window on its side (the advert over-claims 1,048,576). Measurement of prefill/context use, latency, evidence quality and the cortex redo-rate ties back to #459.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c49",
+      "kind": "decision",
+      "text": "Associate (Nemotron) usage contract, measured by the operator (2026-08-30): address the lane as model 'associate' (never the raw checkpoint id \u2014 it 404s role_infeasible on a proxying box); served window 128,000; /v1/* needs the bearer key. TWO profiles: DEPTH PASS (research, survey, code location) = temperature 0.6, top_p 0.95, chat_template_kwargs.enable_thinking TRUE, and max_tokens OMITTED (a low cap is the failure mode: max_tokens 4096 with thinking on returned empty content with HTTP 200 + finish_reason length on 8/12 tasks; if a cap is unavoidable use >= 8192 \u2014 the depth arm used up to 9,730 output tokens on a 23K prompt). FAST TRIAGE (classification, routing, a bounded answer) = temperature 0.6, top_p 0.95, max_tokens 2048, thinking OFF \u2014 ~4x faster, never truncates, but terse/shallower (11 vs 25 durable facts, 3/5 vs 5/5 relevant files, missed the decisive line depth quoted; ignores output-format instructions more often). Rules: never ask this lane for corpus-wide facts (counts, inventories, exhaustive lists \u2014 confident fabrications; compute them and pass them in); treat every returned file path as unverified and re-resolve locally (basenames reliable, full paths wrong ~40%).",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],

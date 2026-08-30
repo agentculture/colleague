@@ -57,6 +57,56 @@ per-seat override / omit-on-the-associate-seat is a follow-up, plan t23).
 whenever either changes; a result measured under one tuning is not evidence
 for another.
 
+## 0b. How to address the lane — the operator's measured contract (2026-08-30)
+
+Two profiles, because one setting does not serve both jobs:
+
+**Depth pass — research, survey, code location** (what `code_survey`/
+`web_survey`/memory extraction need):
+
+```json
+{"model": "associate", "messages": ["…"],
+ "temperature": 0.6, "top_p": 0.95,
+ "chat_template_kwargs": {"enable_thinking": true}}
+```
+
+Omit `max_tokens` entirely — the single most important line. There is no
+server-side cap, and a low one is the failure mode: `max_tokens: 4096` with
+thinking on returned an EMPTY string with HTTP 200 and `finish_reason: length`
+on 8 of 12 tasks (it looks like success). If a client insists on a cap, use
+≥ 8192; the depth arm consumed up to 9,730 output tokens on a 23K-token prompt.
+
+**Fast triage — classification, routing, a bounded answer:**
+
+```json
+{"model": "associate", "messages": ["…"],
+ "temperature": 0.6, "top_p": 0.95, "max_tokens": 2048,
+ "chat_template_kwargs": {"enable_thinking": false}}
+```
+
+~4× faster and never truncates, at a real cost: terse and shallower — 11
+durable facts where depth got 25, 3/5 relevant files where depth found 5/5,
+missed the decisive line depth quoted verbatim, and it ignores output-format
+instructions more often ("answer with one line: COUNT: <integer>", "quote the
+document").
+
+Rules for any caller: address the lane as `model: "associate"` — the role
+name, never the raw checkpoint id (it resolves to a different local backend
+and 404s `role_infeasible` on a box that proxies the role); served window
+128,000; `/v1/*` needs the bearer key, `/capabilities` is open. Never ask this
+lane for a fact about the corpus as a whole (counts, inventories, exhaustive
+lists) — it returns confident fabrications; compute those yourself and pass
+them in. Treat any file path it returns as unverified and re-resolve it
+locally: basenames are reliable, full paths were wrong ~40 % of the time.
+
+**What colleague sends today vs this contract** (plan t23 closes the gap):
+`temperature` = cortex's `COLLEAGUE_TEMPERATURE` (default 0.0, not 0.6); no
+`top_p`; `max_tokens` = colleague's window clamp (a cap — must be ≥ 8192 or
+omitted on the depth profile); thinking per the effort ladder, where the
+purpose rungs `code_survey`/`web_survey` are `off` — the depth profile wants
+it ON for survey work, so the associate rungs need re-deciding by measurement
+(#459's rule).
+
 ## 1. The case ladder — smallest first, each on a throwaway repo
 
 Run each case with `uv run colleague work "<brief>" --repo <tmp-repo> --no-pr --json`
