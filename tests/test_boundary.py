@@ -771,6 +771,11 @@ class TestNoEmbeddingsConsumption:
 #                   adopt-from-qwen-code: a standalone ThreadPoolExecutor
 #                   helper (run_batch) with no shared mutable state; width<=1
 #                   never instantiates a pool at all.
+#   associate.py — a lock around the one-per-process /tokenize probe, no
+#                   threads: ``threading.Lock`` only, guarding the served-window
+#                   cache-miss -> probe -> store sequence so concurrent seat
+#                   builds (the subagent batch) spend at most ONE probe
+#                   (PR #464, Qodo findings 4/7). Never Thread/Timer/daemon.
 # Every other colleague module must never import either primitive directly.
 _THREADS_ALLOWED: frozenset[str] = frozenset(
     {
@@ -778,6 +783,7 @@ _THREADS_ALLOWED: frozenset[str] = frozenset(
         "colleague/cli/_commands/_input_line.py",
         "colleague/realtime.py",
         "colleague/toolbatch.py",
+        "colleague/associate.py",
     }
 )
 

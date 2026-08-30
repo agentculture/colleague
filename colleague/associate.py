@@ -28,6 +28,7 @@ tuple owned by task t19; the runtime never picks a model per turn.
 from __future__ import annotations
 
 import dataclasses
+import threading
 import urllib.error
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
@@ -77,16 +78,28 @@ def served_window_budget(assoc: "AssociateConfig") -> int:
     from colleague.engines import vllm_openai as _vllm  # lazy: vllm_openai imports this module
 
     url = _vllm._tokenize_url(assoc.base_url)
-    served = _vllm.served_max_model_len(url, assoc.wire_model)
-    if served is None:
-        _vllm._tokenize_count(
-            [{"role": "user", "content": "probe"}],
-            url=url,
-            model=assoc.wire_model,
-            api_key=assoc.api_key,
-            timeout=_PROBE_TIMEOUT_SECONDS,
-        )
+    key = (url, assoc.wire_model)
+    # The miss -> probe -> store sequence runs under ONE process-wide lock (Qodo
+    # 7): concurrent seat builds (the subagent batch) would otherwise both miss
+    # the cache and both spend a probe. A lock only — no thread is started.
+    with _PROBE_LOCK:
         served = _vllm.served_max_model_len(url, assoc.wire_model)
+        if served is None and key not in _PROBE_FAILED:
+            _vllm._tokenize_count(
+                [{"role": "user", "content": "probe"}],
+                url=url,
+                model=assoc.wire_model,
+                api_key=assoc.api_key,
+                timeout=_PROBE_TIMEOUT_SECONDS,
+            )
+            served = _vllm.served_max_model_len(url, assoc.wire_model)
+            if served is None:
+                # Qodo 4: remember the FAILED probe too, so an endpoint without
+                # /tokenize costs at most one timeout per process. Only the
+                # failure is memoised here — a later successful probe through
+                # another path lands in the adapter's cache and is honoured on
+                # the next call (the cache is read before this set).
+                _PROBE_FAILED.add(key)
     if not isinstance(served, int) or served <= 0:
         return assoc.context_budget
     return max(1, min(assoc.context_budget, served - outputclamp.output_clamp_margin(served)))
@@ -94,6 +107,13 @@ def served_window_budget(assoc: "AssociateConfig") -> int:
 
 #: The seat-build probe's timeout — a slow/absent /tokenize must not stall a run.
 _PROBE_TIMEOUT_SECONDS = 10.0
+#: ``(tokenize url, wire model)`` pairs whose seat-build probe already FAILED
+#: this process (no ``max_model_len`` came back) — never probed again from
+#: here (Qodo 4). Successes live in the adapter's ``_MAX_MODEL_LEN_BY_URL``.
+_PROBE_FAILED: "set[tuple[str, str]]" = set()
+#: Guards the cache-miss -> probe -> store sequence (Qodo 7). A lock only,
+#: never a thread — ``tests/test_boundary.py`` sanctions the import for that.
+_PROBE_LOCK = threading.Lock()
 
 
 def associate_engine_config(
