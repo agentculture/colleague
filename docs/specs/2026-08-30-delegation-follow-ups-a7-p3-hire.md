@@ -23,8 +23,9 @@
 ## Requirements
 
 - A7: run docs/live-testing/briefs/arm-large-surface.md with BOTH the raw subagent/subagents pair AND the six purpose tools on the acting seat, n=3, baseline A5 (row 57, 2/3 delegating, wall mean ~586 s); the row is pre-registered before the first run and its delegation cell is broken down BY TOOL NAME, read off artifact step tool names, never prose
-  - instruction: verify: per run, paste loop.`curated_schemas`' offered names at depth 0 (the gap row 56 recorded) and the tool-name histogram over steps
+  - instruction: verify: row 59's verdict sentence contains the qualification
   - honesty: For every A7 run the artifact's offered-tools list contains both subagent/subagents AND the six purpose tools, and the delegation cell names each called tool with its count read from Step.tool; a run whose offered list lacks either half is VOIDED, not averaged
+  - honesty: A7's reading is QUALIFIED verbatim: with the raw pair undescribed in prose (c4), 0 raw calls + N `code_survey` calls supports 'cortex chose `code_survey` while subagent was offered but undescribed' — never a bare 'cortex prefers `code_survey`'; only a matrix where the raw pair is also described could support the bare form
 - P3: a NEW staged overlay docs/live-testing/overlays/P3/writer.md (the shipped-off precedent of P0/P1/P2, all 'effort: medium' + a writer `prompt_fragment` replacement) carrying an explicit size TRIGGER sentence — e.g. 'when the survey does not fit in one pass, hand parts to `code_survey` and review the digests' — run on the large-surface brief, n=3, against a NEW control arm on the SAME brief, n=3 (the large brief has no control today, which is what made A6-vs-A5 unreadable)
   - instruction: verify: diff -u overlays/P2-0/writer.md overlays/P3/writer.md shows one + line; head of P2-0 == head of P2
   - honesty: The P3 overlay diffs against P2-0 by exactly one added sentence, and P2-0 equals P2's first paragraph byte-for-byte after the effort line — so the trigger sentence is the ONLY moving contrast
@@ -49,6 +50,24 @@
 - Measurement pre-registered before the build: the hypothesised winning brief shape — repeated, similar sub-tasks across one long run, where one hire amortises over many assignments — has NO brief under docs/live-testing/briefs/ today, so a new brief + deterministic fixture generator is a prerequisite; the comparison arm is one-shot purpose tools on the same brief; hiring is strictly heavier than `code_survey` so the live risk is 0/N calls, and a null is publishable (c46)
   - instruction: verify: the three paths exist at the row's SHA; the row's pass bar contains a numeral
   - honesty: Before the first hire-arm run the tip carries: the new brief under docs/live-testing/briefs/, its deterministic fixture generator under scripts/, and a pre-registered row naming the comparison arm (one-shot purpose tools, same brief), n, and a pass bar with a delegation count
+- The arms PR records the depth-0 OFFERED tool names on TaskResult (an `offered_tools` list, omit-when-None beside `prompt_digest`) so that A7's 'both halves on the seat' condition (h2) is read from the artifact — today neither `COLLEAGUE_ACTING_DROP_TOOLS` nor the offered list is persisted anywhere (grep: no reference outside actingsurface/prompttext/tools comments; row 56 recorded the drop knob's absence by hand and a GAP for the offered lists)
+  - instruction: verify: python one-liner over .colleague/<id>.json in the row
+  - honesty: Every A7/P3/P2-0 artifact carries `offered_tools`; the A7 ones contain subagent, subagents and all six purpose names; the P3/P2-0 ones contain no raw pair — checked by a script over the 9 artifacts, pasted in the rows
+- `hire_colleague` and `assign_to_colleague` stay OUT of toolbatch.`CONCURRENCY_SAFE_TOOLS` (toolbatch.py:92) and serialize like the six purpose tools (purpose-tools.md honest limit v2); a model batch that mixes them with read-only calls runs the read-only part in the pool and the hire/assign part on the main thread, in request order
+  - instruction: verify: tests/`test_hire.py`::`test_not_batch_safe`
+  - honesty: A test asserts neither name is in `CONCURRENCY_SAFE_TOOLS` and that a mixed batch executes the hire/assign step outside the pool
+- Refs, not payloads: a hire's ledger event (when agents is armed) carries the authored prompt's digest and a ref to the artifact, never the text — the ledger refuses lines over `MAX_EVENT_BYTES` 4096 (agents/state/ledger.py:82); the text itself lives on TaskResult.hires. The tool schema caps the authored prompt (<= 2000 chars) and the when clause (<= 200 chars); over-cap = a readable refusal, no hire
+  - instruction: verify: tests/`test_hire.py`::`test_caps_and_ledger_refs`
+  - honesty: A test hires with a 2001-char prompt and asserts the readable refusal + empty roster; a test under `COLLEAGUE_AGENTS`=1 asserts the ledger line has no prompt text and is under 4096 bytes
+- All-engines: TaskResult.hires (and the negotiation) hold on mock identically to vllm-openai — the mock engine answers the candidate turn deterministically (accept unless the proposed purpose contains a 'decline' marker) so the bounded-negotiation and caps tests run rig-free, and tests/`test_e2e_mock.py`'s result-shape parity extends to the hires block
+  - instruction: verify: pytest tests/`test_e2e_mock.py` tests/`test_hire.py` without `COLLEAGUE_VLLM_E2E`
+  - honesty: `test_e2e_mock`'s shape check passes with a hires block present on both engines' artifacts; h9 runs on mock alone
+- When `COLLEAGUE_HIRE` is armed the hire pair joins agents/tools.`THINKER_CODER_TOOLS` / `ASSOCIATE_TOOLS` (agents/tools.py:161-166) — otherwise the armed-agents seat's `effective_tools` intersection silently drops them — and joins `_NOT_INHERITABLE` (:88) alongside the purpose tools; tests/`test_agents_tools.py` pins both
+  - instruction: verify: tests/`test_agents_tools.py` additions
+  - honesty: Under `COLLEAGUE_AGENTS`=1 `COLLEAGUE_HIRE`=1 the `thinker_coder` effective surface contains both names; under `COLLEAGUE_AGENTS`=1 alone it contains neither; a talker profile with either name is refused by `validate_profile_tools`
+- `COLLEAGUE_HIRE` and `COLLEAGUE_ACTING_ADD_TOOLS` appear in colleague config show and as config events on the artifact (contract.`config_digest_for`), so a byte-identical or arm claim is attestable from the artifact rather than from the shell that launched the run
+  - instruction: verify: tests/`test_config_show` + a digest inequality test
+  - honesty: config show --json lists both knobs (value or unset) and two artifacts that differ only in `COLLEAGUE_HIRE` differ in `config_digest`
 
 ## Honesty conditions
 
@@ -60,6 +79,8 @@
 - purpose-tools.md's arc section, after the arms PR, cites the new rows as closing gaps 1 and 2 of #456 and states the result whichever way it fell
 - Every number in the three rows has an artifact id beside it; a figure without one is a defect in the row, not a rounding
 - The four hire signals are each a test or a row cell: byte-identical suite, offered-list diff == 2, depth-1 surface == 0 of 2, hire arm row with a delegation count
+- The A7 row has a per-raw-call table of (role, effort, engine, model) arguments, or the line 'no raw call occurred' — never omitted
+- An assignment that fetches two urls leaves the parent's stats.`web_calls` +2 and the tool result ending with a 'urls fetched:' block — the purpose-child test pattern re-run against a hire
 
 ## Success signals
 
@@ -91,6 +112,12 @@
 - In the run-scoped first cut the when clause drives no gate: cortex hires for the task at hand, so relevance is trivially true and the whole roster (<= cap) is what exists. when is captured at hire time and recorded (data for the persistence follow-up); the pre-committed rule for that follow-up is DETERMINISTIC relevance (the frontdoor.py classifier shape: enumerated triggers, ambiguous -> SHOW, fail open on presentation), and LLM-judged relevance is excluded by name
 - Sequencing — the three join rather than compete: A7 + P3 are cheap (~1.5 h) and inform the hire spec — P3 tests a GENERIC size trigger, the when clause is a SPECIFIC per-hire trigger; if P3 promotes, when's unique value shrinks to persistence; if P3 nulls, when stays the untested specific-trigger hypothesis. Run A7+P3 first (one PR: add-knob + P3 overlay + rows, v1.69.0), then /think the hire increment with P3's result as an input
   - instruction: sequence: arms PR first (add-knob + P2-0 + P3 overlays + rows 59-61, run, record, v1.69.0), then /challenge + /spec-to-plan the hire spec with the P3 verdict cited
+- Under A7 the raw subagent schema (tools.SCHEMAS) exposes `context_mode`/effort/engine/model/profile/role — the model may pick a role, rung, engine or model per call, exactly what the purpose spec's c24/h27 removed. The A7 row records, per raw call, the role/effort/engine/model arguments the model chose; a raw call naming an engine or model is a finding in its own right, not noise
+  - instruction: verify: the table or the line is present in row 59
+- The overlays are effort-neutral: colleague.effort.`ROLE_TABLE`\['writer'\] == 'medium' and every overlay's effort line is 'medium', so P2-0/P3 versus A5/A7 differ in prose only, never in rung — a P3 result cannot be a hidden effort effect
+  - instruction: verify: assert `ROLE_TABLE`\['writer'\]=='medium' in the row's preflight and paste each overlay's first line
+- A hired scout holds web, deepthink and memory (`BUILTIN_ROLES`\['scout'\].`tool_allowlist`), so an authored prompt can direct URL fetches (the read-then-fetch channel already accepted under trusted-operator D2 for purpose children), spend deepthink, and write the shared eidetic store via memory remember. The same D2 acceptance extends to hires: an assignment's web calls fold into the parent's budget and stats.`web_calls` exactly as a purpose child's do (webbudget.`fold_child_counts`), its fetched urls list on the tool result, and a memory record written by a hire carries the hire's agent id as provenance
+  - instruction: verify: tests/`test_hire.py`::`test_web_folds_like_purpose`
 
 ## Scope exploration
 
@@ -138,6 +165,31 @@
   - seeds: `c20`
 - `s22` — `issues #456 + #457 (+ operator comment: roster starts empty, when clause, deterministic relevance)`: the three ideas join: arms first, hire spec after, with P3 as an input to the when-clause hypothesis
   - seeds: `c22`
+- `s23` — `challenge pass / adjacent-systems lens: colleague/artifact.py + contract.py (what the artifact persists)`: the acting-seat knobs and the offered-tool list are NOT on the artifact; h2 was unverifiable from artifacts as written — seeded a persistence requirement
+  - seeds: `c34`
+- `s24` — `challenge pass / unstated-assumption lens: colleague/tools.py subagent/subagents schemas`: the raw pair re-exposes model-chosen role/effort/engine/model at depth 0 under A7 — pre-registered as a recorded property of the arm
+  - seeds: `c35`
+- `s25` — `challenge pass / counter-evidence lens: docs/live-testing.md rows 52-58 verdict style + prompttext._PURPOSE_TOOLS`: a zero-raw-call A7 cannot separate preference from salience; the verdict wording is pinned by an honesty condition
+  - seeds: `c2`
+- `s26` — `challenge pass / hidden-dependency lens: colleague/effort.py ROLE_TABLE vs overlays' effort line`: both medium — overlays change prose only
+  - seeds: `c36`
+- `s27` — `challenge pass / concurrency lens: colleague/toolbatch.py CONCURRENCY_SAFE_TOOLS + toolbatch_loop.py`: purpose tools are already excluded; the hire pair must be too — seeded a requirement; the roster itself is executor-owned and touched only on the main thread
+  - seeds: `c37`
+- `s28` — `challenge pass / lifecycle lens: colleague/continuation.py + colleague/chain.py (episode chaining)`: no roster concept exists in either; a cut run's hires have no defined fate — raised as q7
+- `s29` — `challenge pass / security lens: colleague/agents/state/ledger.py (MAX_EVENT_BYTES, refs-not-payloads)`: an authored prompt would breach the ledger's payload rule unless digested — seeded R7
+  - seeds: `c38`
+- `s30` — `challenge pass / security lens: colleague/roles.py scout allow-list + docs/features/purpose-tools.md honest limits (D2 exfil channel)`: a hire widens nothing beyond what a `code_survey` child can already do, but the authored prompt is a new author of those calls — recorded as an assumption under D2
+  - seeds: `c39`
+- `s31` — `challenge pass / overlooked-actor lens: the mock engine (CLAUDE.md all-engines rule, tests/test_e2e_mock.py)`: the spec never named mock; the negotiation needs a deterministic mock rule — seeded R9
+  - seeds: `c40`
+- `s32` — `challenge pass / adjacent-systems lens: colleague/agents/tools.py purpose tool sets + _NOT_INHERITABLE`: a second allow-list the hire pair must join or vanish under agents mode — seeded R10
+  - seeds: `c41`
+- `s33` — `challenge pass / hidden-dependency lens: scripts/compare_arms.py delegations column`: the hire arm is unmeasurable by the current comparator — raised as q8
+- `s34` — `challenge pass / operations lens: colleague config show + config events (contract.config_digest_for)`: new knobs must be visible to doctor/config show and digested — seeded R13
+  - seeds: `c42`
+- `s35` — `challenge pass / observability lens: session cockpit narration (session-streaming-voice.md) + flight plane`: hire/assign steps appear as ordinary tool steps in the boundary-beat narration and the flight feed; no new surface needed; clean pass — residual: flight stop reaching a running assignment stays parked
+- `s36` — `challenge pass / reversibility lens: the add knob (env), P2-0/P3 overlays (files), P3 promotion (prompttext literal + snapshot)`: knob and overlays revert by unset/delete with no residue; promotion and the conditional depth-0 section gate are commits needing a revert commit + snapshot regen under a deviation — same shape as arc s25
+- `s37` — `challenge pass / failure-mode lens: purpose_schemas.dispatch refusal path (h30)`: a refused spawn under an assignment returns as tool-result text, never a crash — hire reuses the path; clean pass
 
 ## Decisions
 
@@ -147,9 +199,13 @@
 - A winning P3 trigger promotes into prompttext.`_PURPOSE_TOOLS`, conditional on gating that section to the top-level acting seat in the same PR (it renders for every seat today, incl. children that hold no purpose tool); if the gate is not taken, the writer `prompt_fragment` is the target (q4)
 - `hire_colleague` lives on the DEFAULT seat behind `COLLEAGUE_HIRE`=1: roster on the executor, hires + assignments on TaskResult with `prompt_digest_for`(authored); when `COLLEAGUE_AGENTS` is also armed a task-ledger event is emitted too; agents mode is never required (q5)
 - Negotiation is at most 2 candidate rounds, each one tools-off completion on the cortex model; unresolved after round 2 = the tool result 'not hired', no roster entry (q6)
+- A cut run's hires are DEAD at the cut: work --continue / --until-done episodes mark hires\[\].status = expired and `assign_to_colleague` refuses 'no live hire'; rehydrating a roster belongs to the persistence follow-up (q7)
+- The hire arm is counted by extending scripts/`compare_arms.py` with hires/assignments columns in a versioned change landed BEFORE the hire row is pre-registered; `PURPOSE_TOOL_NAMES` stays six (q8)
 
 ## Open parks
 
 - [unknown_nonblocking] Whether flight stop reaches a hire's running assignment — purpose-tools v7 left this unverified for purpose children
 - [unknown_nonblocking] Attestation: a roster-bearing seat makes `prompt_digest` vary per run once persistence lands; arm rows over such a seat need a digest-of-the-static-part or must accept per-run digests
+- [unknown_nonblocking] Whether a tools-off candidate turn on the SAME cortex model ever amends or declines a proposal from its own hirer — self-negotiation may be theatre; the hire arm records accept/amend/decline counts per hire so the bound (2 rounds) can later be cut to 1 on evidence
+- [unknown_nonblocking] Whether the A7 result generalises beyond the one brief shape where delegation occurs at all (the 757 KB large-surface fixture) — a second delegating brief shape does not exist yet
 - [follow_up] Persistence follow-up: repo-scoped .colleague/employees/, firing, roster cap + staleness when a lobes role vanishes (the c11/h8 same-role refresh analogue), deterministic when-clause gating

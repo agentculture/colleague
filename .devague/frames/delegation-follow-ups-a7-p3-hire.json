@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-30T04:09:25Z",
-  "updated": "2026-08-30T04:24:27Z",
+  "updated": "2026-08-30T04:30:36Z",
   "claims": [
     {
       "id": "c1",
@@ -37,11 +37,17 @@
           "text": "For every A7 run the artifact's offered-tools list contains both subagent/subagents AND the six purpose tools, and the delegation cell names each called tool with its count read from Step.tool; a run whose offered list lacks either half is VOIDED, not averaged",
           "status": "confirmed",
           "instruction": ""
+        },
+        {
+          "id": "h20",
+          "text": "A7's reading is QUALIFIED verbatim: with the raw pair undescribed in prose (c4), 0 raw calls + N code_survey calls supports 'cortex chose code_survey while subagent was offered but undescribed' \u2014 never a bare 'cortex prefers code_survey'; only a matrix where the raw pair is also described could support the bare form",
+          "status": "confirmed",
+          "instruction": ""
         }
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "verify: per run, paste loop.curated_schemas' offered names at depth 0 (the gap row 56 recorded) and the tool-name histogram over steps",
+      "instruction": "verify: row 59's verdict sentence contains the qualification",
       "revisions": []
     },
     {
@@ -520,6 +526,194 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "The arms PR records the depth-0 OFFERED tool names on TaskResult (an offered_tools list, omit-when-None beside prompt_digest) so that A7's 'both halves on the seat' condition (h2) is read from the artifact \u2014 today neither COLLEAGUE_ACTING_DROP_TOOLS nor the offered list is persisted anywhere (grep: no reference outside actingsurface/prompttext/tools comments; row 56 recorded the drop knob's absence by hand and a GAP for the offered lists)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "Every A7/P3/P2-0 artifact carries offered_tools; the A7 ones contain subagent, subagents and all six purpose names; the P3/P2-0 ones contain no raw pair \u2014 checked by a script over the 9 artifacts, pasted in the rows",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: python one-liner over .colleague/<id>.json in the row",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "assumption",
+      "text": "Under A7 the raw subagent schema (tools.SCHEMAS) exposes context_mode/effort/engine/model/profile/role \u2014 the model may pick a role, rung, engine or model per call, exactly what the purpose spec's c24/h27 removed. The A7 row records, per raw call, the role/effort/engine/model arguments the model chose; a raw call naming an engine or model is a finding in its own right, not noise",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "The A7 row has a per-raw-call table of (role, effort, engine, model) arguments, or the line 'no raw call occurred' \u2014 never omitted",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: the table or the line is present in row 59",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "assumption",
+      "text": "The overlays are effort-neutral: colleague.effort.ROLE_TABLE['writer'] == 'medium' and every overlay's effort line is 'medium', so P2-0/P3 versus A5/A7 differ in prose only, never in rung \u2014 a P3 result cannot be a hidden effort effect",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: assert ROLE_TABLE['writer']=='medium' in the row's preflight and paste each overlay's first line",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "hire_colleague and assign_to_colleague stay OUT of toolbatch.CONCURRENCY_SAFE_TOOLS (toolbatch.py:92) and serialize like the six purpose tools (purpose-tools.md honest limit v2); a model batch that mixes them with read-only calls runs the read-only part in the pool and the hire/assign part on the main thread, in request order",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "A test asserts neither name is in CONCURRENCY_SAFE_TOOLS and that a mixed batch executes the hire/assign step outside the pool",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: tests/test_hire.py::test_not_batch_safe",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "Refs, not payloads: a hire's ledger event (when agents is armed) carries the authored prompt's digest and a ref to the artifact, never the text \u2014 the ledger refuses lines over MAX_EVENT_BYTES 4096 (agents/state/ledger.py:82); the text itself lives on TaskResult.hires. The tool schema caps the authored prompt (<= 2000 chars) and the when clause (<= 200 chars); over-cap = a readable refusal, no hire",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "A test hires with a 2001-char prompt and asserts the readable refusal + empty roster; a test under COLLEAGUE_AGENTS=1 asserts the ledger line has no prompt text and is under 4096 bytes",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: tests/test_hire.py::test_caps_and_ledger_refs",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "assumption",
+      "text": "A hired scout holds web, deepthink and memory (BUILTIN_ROLES['scout'].tool_allowlist), so an authored prompt can direct URL fetches (the read-then-fetch channel already accepted under trusted-operator D2 for purpose children), spend deepthink, and write the shared eidetic store via memory remember. The same D2 acceptance extends to hires: an assignment's web calls fold into the parent's budget and stats.web_calls exactly as a purpose child's do (webbudget.fold_child_counts), its fetched urls list on the tool result, and a memory record written by a hire carries the hire's agent id as provenance",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "An assignment that fetches two urls leaves the parent's stats.web_calls +2 and the tool result ending with a 'urls fetched:' block \u2014 the purpose-child test pattern re-run against a hire",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: tests/test_hire.py::test_web_folds_like_purpose",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "All-engines: TaskResult.hires (and the negotiation) hold on mock identically to vllm-openai \u2014 the mock engine answers the candidate turn deterministically (accept unless the proposed purpose contains a 'decline' marker) so the bounded-negotiation and caps tests run rig-free, and tests/test_e2e_mock.py's result-shape parity extends to the hires block",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "test_e2e_mock's shape check passes with a hires block present on both engines' artifacts; h9 runs on mock alone",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: pytest tests/test_e2e_mock.py tests/test_hire.py without COLLEAGUE_VLLM_E2E",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "When COLLEAGUE_HIRE is armed the hire pair joins agents/tools.THINKER_CODER_TOOLS / ASSOCIATE_TOOLS (agents/tools.py:161-166) \u2014 otherwise the armed-agents seat's effective_tools intersection silently drops them \u2014 and joins _NOT_INHERITABLE (:88) alongside the purpose tools; tests/test_agents_tools.py pins both",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "Under COLLEAGUE_AGENTS=1 COLLEAGUE_HIRE=1 the thinker_coder effective surface contains both names; under COLLEAGUE_AGENTS=1 alone it contains neither; a talker profile with either name is refused by validate_profile_tools",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: tests/test_agents_tools.py additions",
+      "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "COLLEAGUE_HIRE and COLLEAGUE_ACTING_ADD_TOOLS appear in colleague config show and as config events on the artifact (contract.config_digest_for), so a byte-identical or arm claim is attestable from the artifact rather than from the shell that launched the run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "config show --json lists both knobs (value or unset) and two artifacts that differ only in COLLEAGUE_HIRE differ in config_digest",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify: tests/test_config_show + a digest inequality test",
+      "revisions": []
+    },
+    {
+      "id": "c43",
+      "kind": "decision",
+      "text": "A cut run's hires are DEAD at the cut: work --continue / --until-done episodes mark hires[].status = expired and assign_to_colleague refuses 'no live hire'; rehydrating a roster belongs to the persistence follow-up (q7)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c44",
+      "kind": "decision",
+      "text": "The hire arm is counted by extending scripts/compare_arms.py with hires/assignments columns in a versioned change landed BEFORE the hire row is pre-registered; PURPOSE_TOOL_NAMES stays six (q8)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -546,6 +740,24 @@
       "text": "Persistence follow-up: repo-scoped .colleague/employees/, firing, roster cap + staleness when a lobes role vanishes (the c11/h8 same-role refresh analogue), deterministic when-clause gating",
       "kind": "follow_up",
       "claim_id": "c20",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Whether a tools-off candidate turn on the SAME cortex model ever amends or declines a proposal from its own hirer \u2014 self-negotiation may be theatre; the hire arm records accept/amend/decline counts per hire so the bound (2 rounds) can later be cut to 1 on evidence",
+      "kind": "unknown_nonblocking",
+      "claim_id": "c18",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "Whether the A7 result generalises beyond the one brief shape where delegation occurs at all (the 757 KB large-surface fixture) \u2014 a second delegating brief shape does not exist yet",
+      "kind": "unknown_nonblocking",
+      "claim_id": "c2",
       "resolved": false,
       "resolution": "",
       "resolution_claim_id": null
@@ -739,6 +951,116 @@
       "seeds": [
         "c22"
       ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / adjacent-systems lens: colleague/artifact.py + contract.py (what the artifact persists)",
+      "finding": "the acting-seat knobs and the offered-tool list are NOT on the artifact; h2 was unverifiable from artifacts as written \u2014 seeded a persistence requirement",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / unstated-assumption lens: colleague/tools.py subagent/subagents schemas",
+      "finding": "the raw pair re-exposes model-chosen role/effort/engine/model at depth 0 under A7 \u2014 pre-registered as a recorded property of the arm",
+      "seeds": [
+        "c35"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / counter-evidence lens: docs/live-testing.md rows 52-58 verdict style + prompttext._PURPOSE_TOOLS",
+      "finding": "a zero-raw-call A7 cannot separate preference from salience; the verdict wording is pinned by an honesty condition",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / hidden-dependency lens: colleague/effort.py ROLE_TABLE vs overlays' effort line",
+      "finding": "both medium \u2014 overlays change prose only",
+      "seeds": [
+        "c36"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / concurrency lens: colleague/toolbatch.py CONCURRENCY_SAFE_TOOLS + toolbatch_loop.py",
+      "finding": "purpose tools are already excluded; the hire pair must be too \u2014 seeded a requirement; the roster itself is executor-owned and touched only on the main thread",
+      "seeds": [
+        "c37"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / lifecycle lens: colleague/continuation.py + colleague/chain.py (episode chaining)",
+      "finding": "no roster concept exists in either; a cut run's hires have no defined fate \u2014 raised as q7",
+      "seeds": []
+    },
+    {
+      "id": "s29",
+      "surface": "challenge pass / security lens: colleague/agents/state/ledger.py (MAX_EVENT_BYTES, refs-not-payloads)",
+      "finding": "an authored prompt would breach the ledger's payload rule unless digested \u2014 seeded R7",
+      "seeds": [
+        "c38"
+      ]
+    },
+    {
+      "id": "s30",
+      "surface": "challenge pass / security lens: colleague/roles.py scout allow-list + docs/features/purpose-tools.md honest limits (D2 exfil channel)",
+      "finding": "a hire widens nothing beyond what a code_survey child can already do, but the authored prompt is a new author of those calls \u2014 recorded as an assumption under D2",
+      "seeds": [
+        "c39"
+      ]
+    },
+    {
+      "id": "s31",
+      "surface": "challenge pass / overlooked-actor lens: the mock engine (CLAUDE.md all-engines rule, tests/test_e2e_mock.py)",
+      "finding": "the spec never named mock; the negotiation needs a deterministic mock rule \u2014 seeded R9",
+      "seeds": [
+        "c40"
+      ]
+    },
+    {
+      "id": "s32",
+      "surface": "challenge pass / adjacent-systems lens: colleague/agents/tools.py purpose tool sets + _NOT_INHERITABLE",
+      "finding": "a second allow-list the hire pair must join or vanish under agents mode \u2014 seeded R10",
+      "seeds": [
+        "c41"
+      ]
+    },
+    {
+      "id": "s33",
+      "surface": "challenge pass / hidden-dependency lens: scripts/compare_arms.py delegations column",
+      "finding": "the hire arm is unmeasurable by the current comparator \u2014 raised as q8",
+      "seeds": []
+    },
+    {
+      "id": "s34",
+      "surface": "challenge pass / operations lens: colleague config show + config events (contract.config_digest_for)",
+      "finding": "new knobs must be visible to doctor/config show and digested \u2014 seeded R13",
+      "seeds": [
+        "c42"
+      ]
+    },
+    {
+      "id": "s35",
+      "surface": "challenge pass / observability lens: session cockpit narration (session-streaming-voice.md) + flight plane",
+      "finding": "hire/assign steps appear as ordinary tool steps in the boundary-beat narration and the flight feed; no new surface needed; clean pass \u2014 residual: flight stop reaching a running assignment stays parked",
+      "seeds": []
+    },
+    {
+      "id": "s36",
+      "surface": "challenge pass / reversibility lens: the add knob (env), P2-0/P3 overlays (files), P3 promotion (prompttext literal + snapshot)",
+      "finding": "knob and overlays revert by unset/delete with no residue; promotion and the conditional depth-0 section gate are commits needing a revert commit + snapshot regen under a deviation \u2014 same shape as arc s25",
+      "seeds": []
+    },
+    {
+      "id": "s37",
+      "surface": "challenge pass / failure-mode lens: purpose_schemas.dispatch refusal path (h30)",
+      "finding": "a refused spawn under an assignment returns as tool-result text, never a crash \u2014 hire reuses the path; clean pass",
+      "seeds": []
     }
   ],
   "lapses": []
