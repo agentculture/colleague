@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T06:13:05Z",
+  "updated": "2026-08-30T06:16:29Z",
   "targets": [
     {
       "id": "c1",
@@ -703,7 +703,7 @@
       "id": "t19",
       "summary": "Associate default-ON for the non-writer purpose seats (t19, decision c45 / deviation d3)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "With lobes armed and the associate role advertised READY, a bare run (no COLLEAGUE_ASSOCIATE_MODEL) resolves the associate seat to that role: a code_survey/web_survey child's sub_results[].model is the associate's served model; review/validate/plan children likewise; handover_to_colleague and the acting seat stay on cortex",
         "Associate absent or ready:false = the child runs on cortex with a RECORDED fallback (a warning or the artifact's associate block names the role and 'not ready'), byte-identical to today's artifact shape otherwise; COLLEAGUE_ASSOCIATE_MODEL=off (or config.json associate=off) restores the opt-out; the explicit-model and 'lobes' sentinel values keep working",

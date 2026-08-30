@@ -2,7 +2,7 @@
   "plan_slug": "delegation-follow-ups-a7-p3-hire",
   "schema_version": 1,
   "created": "2026-08-30T04:47:21Z",
-  "updated": "2026-08-30T06:11:49Z",
+  "updated": "2026-08-30T06:16:29Z",
   "deviations": [
     {
       "id": "d1",
@@ -14,7 +14,7 @@
         "c42"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable"
     },
     {
