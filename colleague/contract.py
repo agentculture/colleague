@@ -1479,6 +1479,16 @@ class TaskResult:
     serialized key is OMITTED (not null) when the list is empty, so a
     no-subagent result is byte-identical to today. Cost is nested-only — the
     parent ``usage`` is NOT summed with these children's."""
+    hires: list[dict[str, Any]] = field(default_factory=list)
+    """The run's hire roster + assignments block (plan
+    delegation-follow-ups-a7-p3-hire, task t13, covers c38/h22), in roster
+    order: each entry is one Hire's ``to_dict`` — the authored prompt TEXT
+    rides here (the ledger carries only its digest) — plus an ``assignments``
+    list of ``{task_id, status, changed_files}`` per finished
+    ``assign_to_colleague`` child. Built by
+    :func:`colleague.hire_assign.hires_block`. Like ``sub_results``, the
+    serialized key is OMITTED (not an empty list) when empty, so a hire-less
+    run serializes byte-identically to today."""
     command: Optional[str] = None
     """The command-template name that originated this task, or ``None`` for
     an ad-hoc instruction (e.g. plain ``colleague work "<text>"``).
@@ -1821,6 +1831,13 @@ class TaskResult:
         # today's contract.
         if self.sub_results:
             d["sub_results"] = [s.to_dict() for s in self.sub_results]
+        # hires sits BESIDE sub_results with the same omit-when-empty treatment
+        # (t13, delegation-follow-ups): a hire-less run serializes
+        # byte-identically to today. Entries are copied one level deep (the
+        # _copy_agents_block stance) so the artifact never aliases the
+        # in-memory roster entries or their assignments lists.
+        if self.hires:
+            d["hires"] = [_copy_hire_entry(entry) for entry in self.hires]
         return d
 
     def _extra_fields_to_dict(self) -> dict[str, Any]:
@@ -1942,6 +1959,13 @@ class TaskResult:
             pr_url=data.get("pr_url"),
             hook_firings=[HookFiring.from_dict(h) for h in data.get("hook_firings", [])],
             sub_results=[SubResult.from_dict(s) for s in data.get("sub_results", [])],
+            # hires (t13): tolerant of a malformed artifact — non-dict entries
+            # are dropped, an absent key is the empty (omitted-when-empty) list.
+            hires=[
+                _copy_hire_entry(h)
+                for h in (data.get("hires") if isinstance(data.get("hires"), list) else [])
+                if isinstance(h, dict)
+            ],
             command=data.get("command"),
             destination=data.get("destination"),
             announcement=data.get("announcement"),
@@ -2016,6 +2040,22 @@ class TaskResult:
             tip_sha=data.get("tip_sha"),
             warnings=list(data.get("warnings", [])),
         )
+
+
+def _copy_hire_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """A detached copy of ONE ``TaskResult.hires`` entry: the top-level dict
+    plus one level of list/dict-entry copies (the ``_copy_agents_block``
+    stance), so serializing or re-reading an artifact never aliases the
+    in-memory roster entry or its ``assignments`` list. Tolerant of a
+    malformed artifact: a non-list/non-dict value is kept as-is, never raises.
+    """
+    out: dict[str, Any] = {}
+    for key, value in entry.items():
+        if isinstance(value, list):
+            out[key] = [dict(v) if isinstance(v, dict) else v for v in value]
+        else:
+            out[key] = value
+    return out
 
 
 def _copy_agents_block(block: dict[str, Any]) -> dict[str, Any]:
