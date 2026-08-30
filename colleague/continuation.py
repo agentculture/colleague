@@ -146,6 +146,10 @@ def resolve_continuation(
 
     request = result.stats.request
     preamble = continuation_preamble(task_id)  # t21: prior-read rule stated up front
+    # Hires are dead at the cut (decision D43, plan t14): the prior artifact's
+    # hires load as ``status=expired`` and the seed names them so — on BOTH
+    # seed bodies below — and the new episode never rehydrates one as live.
+    hires_note = _expire_hires(result)
 
     # The ledger seam (t17): only the BODY below the preamble is ever replaced,
     # and only when armed + readable. Every other outcome is the prose path.
@@ -158,13 +162,40 @@ def resolve_continuation(
             latest_input=_latest_operator_input(events),
             request_facts=_request_authority_facts(events),
         )
-        return (task_id, f"{preamble}{body}")
+        return (task_id, f"{preamble}{body}{hires_note}")
 
     # Build the seed text: preamble + continuation record + original request.
     record = build_continuation(result, result.stats)
-    seed_text = f"{preamble}{record}\n\nOriginal request:\n\n{request}"
+    seed_text = f"{preamble}{record}\n\nOriginal request:\n\n{request}{hires_note}"
 
     return (task_id, seed_text)
+
+
+def _expire_hires(result: TaskResult) -> str:
+    """Mark every loaded hire entry ``expired`` (decision D43: dead at the
+    cut) and render the seed section naming them; ``""`` when the artifact
+    carries no hires — a hire-less continuation seeds byte-identically.
+
+    Mutates the loaded (in-memory) entries only — the prior artifact on disk
+    is never rewritten. Tolerant of a malformed artifact: a non-dict entry is
+    skipped, never a crash (the ``from_dict`` hires stance).
+    """
+    entries = [e for e in result.hires if isinstance(e, dict)]
+    if not entries:
+        return ""
+    bullets = []
+    for entry in entries:
+        entry["status"] = "expired"
+        head = f"{entry.get('agent_id', '?')} (base_role: {entry.get('base_role', '?')})"
+        purpose = str(entry.get("purpose", "") or "")
+        bullets.append(f"- {head} — {purpose}" if purpose else f"- {head}")
+    return (
+        "\n\n## Prior hires (expired at the cut — D43)\n\n"
+        + "\n".join(bullets)
+        + "\n\nThese hires did not survive the cut: assign_to_colleague on any of"
+        " these ids returns 'no live hire'. Hire again with hire_colleague if"
+        " still needed."
+    )
 
 
 # ---------------------------------------------------------------------------
