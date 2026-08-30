@@ -238,4 +238,5 @@ def test_copying_an_overlay_into_place_does_reach_the_prompt(tmp_path: Path, arm
     assert role.effort == effort
     assert role.prompt_fragment == body
     prompt = _bare_prompt(tmp_path)
-    assert prompt is not None and body.strip() in prompt
+    assert prompt is not None
+    assert body.strip() in prompt

@@ -69,8 +69,13 @@ def test_prompt_digest_for_digests_an_empty_prompt() -> None:
 
 
 def test_prompt_digest_for_is_deterministic_and_collision_free_on_a_one_char_edit() -> None:
-    assert prompt_digest_for("arm A") == prompt_digest_for("arm A")
-    assert prompt_digest_for("arm A") != prompt_digest_for("arm B")
+    """Determinism is asserted against an INDEPENDENTLY computed digest, not
+    against a second call to the same function — comparing an expression with
+    itself can never fail, so it would prove nothing (SonarCloud python:S5863).
+    Pinning the literal sha256 also catches a change of hash algorithm."""
+    expected_a = hashlib.sha256(b"arm A").hexdigest()
+    assert prompt_digest_for("arm A") == expected_a
+    assert prompt_digest_for("arm B") != expected_a
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +174,8 @@ def test_prompt_digest_is_the_digest_of_the_prompt_that_actually_ran(tmp_path: P
 
     engine = MockEngine()
     composed = engine.system_prompt(_task(repo), EngineConfig(model=_MODEL))
-    assert composed is not None and _OVERLAY_MARKER in composed
+    assert composed is not None
+    assert _OVERLAY_MARKER in composed
 
     result = _run_mock(repo)
     assert result.prompt_digest == hashlib.sha256(composed.encode("utf-8")).hexdigest()
