@@ -1,0 +1,21 @@
+{
+  "plan_slug": "delegation-follow-ups-a7-p3-hire",
+  "schema_version": 1,
+  "created": "2026-08-30T04:47:21Z",
+  "updated": "2026-08-30T04:47:21Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "h26's config_digest clause cannot hold on a bare run: config_digest is the change-content lifecycle's EVENT-stream digest (configlifecycle/configevents), absent from every bare artifact (test_e2e_mock pins its key set without it), and EngineConfig.to_dict() reaches only config show/telemetry, never the artifact. t4 therefore attests both knobs via (a) config show --json (hire, acting_add_tools \u2014 always present) and (b) the EngineConfig snapshot (omit-when-unset keys), and the ARTIFACT-side attestation is t2's offered_tools (the add-set shows up as offered names now; the hire pair once t10 lands). h26's wording 'two artifacts differing only in COLLEAGUE_HIRE differ in config_digest' should read '...differ in offered_tools'.",
+      "task_ref": "t4",
+      "reason": "discovered while implementing t4: the digest named in h26 does not exist on the artifacts the arm rows read",
+      "affects": [
+        "h26",
+        "c42"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    }
+  ]
+}

@@ -107,6 +107,15 @@ def _config_show(repo: str = ".") -> object:
         data.update(associate_cli.config_show_lines(lines, cfg))
     # Model-bound agents (#411 t7): show the mode; payload key only when armed.
     lines.append(f"agents: {'armed' if getattr(cfg, 'agents', False) else 'off'}")
+    # hire_colleague + the acting add-set (delegation-follow-ups t4): both
+    # knobs always shown (value or unset) so a byte-identical claim is
+    # attestable from config show, not from the launching shell.
+    hire_armed = bool(getattr(cfg, "hire", False))
+    lines.append(f"hire: {'armed' if hire_armed else 'off'}")
+    data["hire"] = hire_armed
+    add_tools = tuple(getattr(cfg, "acting_add_tools", ()) or ())
+    lines.append(f"acting_add_tools: {','.join(add_tools) if add_tools else 'unset'}")
+    data["acting_add_tools"] = list(add_tools)
     return rendered(data, "\n".join(lines))
 
 
