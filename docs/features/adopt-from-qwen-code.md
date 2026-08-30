@@ -157,6 +157,13 @@ edited net-zero under the file-length ratchet (`tests/test_file_length_ratchet.p
 
 ## The associate seat (c32/c33/c37/c49)
 
+> **Validating the seat on real cases:** see
+> [`associate-validation.md`](associate-validation.md) — preconditions to read
+> off the rig (served window vs advertised context, alias routing), a five-case
+> ladder, what to read off each artifact, and the pass bars. The associate stays
+> opt-in until that ladder has a green live-testing row (operator decision
+> 2026-08-30; #460, lobes-cli#234).
+
 `associate` is a fourth consumed lobes role — the operator's "faster qwen for
 non-coding tasks" (Nemotron 3.5 Lightning on Orin, proxied by spark's gateway;
 measured 89.7 tok/s on a 256-token decode, 2026-08-27). It is **opt-in** like

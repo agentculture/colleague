@@ -80,6 +80,8 @@ minds. The architecture, part by part:
   tolerant `edit_file` + prior-read rule, spill-to-disk truncation, rule-based
   microcompaction, stream + loop guards, adopted prompt text, and the opt-in
   `associate` seat (`COLLEAGUE_ASSOCIATE_MODEL=lobes`, addressed by role name)
+  — validate it on real cases with `docs/features/associate-validation.md`
+  before making it a default (#460, lobes-cli#234)
   — each with one off-knob that is byte-identical to main; credit in `NOTICE`
   and `docs/adopted-from.md`. Doc: `adopt-from-qwen-code.md`.
 - **Web scout (#436/#435)** — a curated read-only `web` tool over the
