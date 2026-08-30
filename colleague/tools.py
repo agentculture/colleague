@@ -759,6 +759,16 @@ def _purpose_dispatch(executor: "ToolExecutor") -> dict[str, Callable[[dict[str,
     }
 
 
+def _hire_dispatch(executor: "ToolExecutor") -> dict[str, Callable[[dict[str, Any]], Any]]:
+    """``hire_colleague``'s handler (delegation-follow-ups t12): the bounded
+    two-round negotiation in :func:`colleague.hire_dispatch.dispatch` —
+    registered exactly like the purpose handlers above; ``assign_to_colleague``
+    registers its own line when t13 lands (:mod:`colleague.hire_assign`)."""
+    from colleague import hire_dispatch  # local: mirrors purpose_schemas' lazy tools import
+
+    return hire_dispatch.dispatch(executor)
+
+
 def _require(arguments: dict[str, Any], key: str, tool: str) -> Any:
     """Fetch a required tool argument or raise a self-correcting :class:`ToolError`.
 
@@ -931,6 +941,7 @@ class ToolExecutor:
             **web_schemas.dispatch(self),
             **_purpose_dispatch(self),
             **hire_assign.dispatch(self),
+            **_hire_dispatch(self),
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,
