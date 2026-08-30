@@ -2,7 +2,7 @@
   "plan_slug": "delegation-follow-ups-a7-p3-hire",
   "schema_version": 1,
   "created": "2026-08-30T04:47:21Z",
-  "updated": "2026-08-30T07:56:24Z",
+  "updated": "2026-08-30T10:26:35Z",
   "deviations": [
     {
       "id": "d1",
@@ -58,6 +58,20 @@
       "origin": "user",
       "status": "approved",
       "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "Operator decision 2026-08-30 13:20: the nemotron/associate seat is NOT validated \u2014 its children die on this rig (advert context 1,048,576 \u2192 a 768k child budget vs the Orin's served max_model_len 128,000 \u2192 HTTP 400 \u2192 the role-alias retry \u2192 404 role_infeasible; #460). Rn-2/Rn-3 are SKIPPED; row 64 re-runs on the tip that fixes #460. Until the associate is validated on real cases, the read-only purpose seats stay on cortex Qwen with thinking OFF or LOW (PURPOSE_TABLE code_survey/web_survey = off, review/validate = low \u2014 already the shipped rungs), so t19's default-ON does NOT ship in the arms PR: it stays built on agent/t19 for a later PR gated on (a) #460 fixed, (b) a lobes-cli issue on the associate advert/proxy (context window, ready flag, served-id trap) and (c) a documented procedure for testing the associate/Nemotron with colleague on real cases beyond context size.",
+      "task_ref": "t19",
+      "reason": "operator: skip Rn-2/Rn-3; open a lobes-cli issue; add instructions for testing associate/Nemotron on real cases; until then use qwen with none/low thinking",
+      "affects": [
+        "t19",
+        "t8",
+        "t16"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky"
     }
   ]
 }

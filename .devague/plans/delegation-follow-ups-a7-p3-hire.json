@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T08:01:14Z",
+  "updated": "2026-08-30T10:26:35Z",
   "targets": [
     {
       "id": "c1",
@@ -731,6 +731,21 @@
       ],
       "covers": [],
       "instruction": "Files: colleague/purpose_schemas.py (_brief_code_survey, _brief_web_survey, _render's uncited marker), colleague/roles.py (scout prompt_fragment: cite path:lines + excerpt, list commands), colleague/engines/mock.py (scripted scout digest), tests/test_purpose_schemas.py + tests/test_purpose_executor.py, docs/features/purpose-tools.md. The digest shape is DATA the parent reads \u2014 never a tool the runtime calls on the parent's behalf. Keep the brief templates fixed per purpose (c12/c24)."
+    },
+    {
+      "id": "t21",
+      "summary": "Associate validation guide (t21): how to test the associate/Nemotron seat with colleague on real cases",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "docs/features/associate-validation.md exists: preconditions (lobes advert, config show with the seat consumed, the /tokenize probe's max_model_len vs the advert's context, COLLEAGUE_ASSOCIATE_CONTEXT_BUDGET), a minimal real-case ladder (a single-file code_survey, a 4-module survey, a web_survey, a review child, the memory distill child), what to read off the artifact per case (sub_results model/status/usage, refusals, model_refresh warnings, post-digest reads), the pass bar per case and the known failure shapes (#460 context/alias, the /repo path quirk, the child cap #458)",
+        "the guide is exercised once on the rig with the results pasted as a live-testing row before t19's default-ON ships"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [],
+      "instruction": "Write it from rows 62/64 + #459/#460 evidence; keep it operator-facing and runnable (exact commands); link from adopt-from-qwen-code.md's associate section and CLAUDE.md's associate bullet."
     }
   ],
   "risks": [
