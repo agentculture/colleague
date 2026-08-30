@@ -1736,6 +1736,16 @@ class TaskResult:
     ``config_digest``/``role``, the serialized key is OMITTED (not null) when
     ``None``, so a prompt-less run serializes byte-identically to the
     pre-``prompt_digest`` artifact shape."""
+    offered_tools: Optional[list[str]] = None
+    """The depth-0 OFFERED tool names this work item ACTUALLY ran with (plan
+    delegation-follow-ups-a7-p3-hire, task t2, covers c34/h18) — the curated
+    schema list handed to the backend, in schema order, so a live-testing row
+    reads the acting seat's surface off the artifact instead of trusting the
+    env knobs the operator believes were set (neither
+    ``COLLEAGUE_ACTING_DROP_TOOLS`` nor the add knob was persisted anywhere
+    before this field). ``None`` when no surface was curated. Like
+    ``prompt_digest``, the serialized key is OMITTED (not null) when ``None``,
+    so a pre-field artifact loads and serializes byte-identically."""
     tip_sha: Optional[str] = None
     """The ``colleague/<id>`` work branch's tip commit SHA after a successful
     handoff (plan task t5, covers c5), or ``None`` when the handoff produced no
@@ -1899,6 +1909,11 @@ class TaskResult:
         # prompt serializes byte-identically to today's artifact (no extra key).
         if self.prompt_digest is not None:
             extra["prompt_digest"] = self.prompt_digest
+        # offered_tools sits BESIDE prompt_digest with the same omit-when-None
+        # treatment (t2, delegation-follow-ups): a run that curated no surface
+        # serializes byte-identically to the pre-field artifact.
+        if self.offered_tools is not None:
+            extra["offered_tools"] = list(self.offered_tools)
         # tip_sha gets the same omit-when-None treatment (plan task t5, covers c5):
         # a run whose handoff produced no commit serializes byte-identically to
         # the pre-tip_sha artifact (no extra key).
@@ -1995,6 +2010,9 @@ class TaskResult:
             config_events=_coerce_config_events(data.get("config_events")),
             config_digest=data.get("config_digest"),
             prompt_digest=data.get("prompt_digest"),
+            offered_tools=(
+                list(data["offered_tools"]) if isinstance(data.get("offered_tools"), list) else None
+            ),
             tip_sha=data.get("tip_sha"),
             warnings=list(data.get("warnings", [])),
         )

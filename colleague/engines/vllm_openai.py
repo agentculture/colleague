@@ -1385,6 +1385,11 @@ class VllmOpenAIEngine(Engine):
         # composed (byte-identical).
         if result.prompt_digest is None:
             result.prompt_digest = prompt_digest_for(composed_system_prompt)
+        # offered_tools (delegation-follow-ups t2, c34/h18): the depth-0 curated
+        # surface that ACTUALLY went on the wire, in schema order — same
+        # fill-only-when-None discipline as prompt_digest (all-engines rule).
+        if result.offered_tools is None:
+            result.offered_tools = [s["function"]["name"] for s in offered_tools]
         # Model-bound agents (#411, t13): an ARMED config always returns the
         # versioned ``agents`` block with the SAME shape on every backend
         # (all-engines rule) — the fold only fills a still-``None`` field, so
