@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
+import colleague.hire_assign as hire_assign
 import colleague.hire_schemas as hire_schemas
 import colleague.purpose_schemas as purpose_schemas
 import colleague.search_schemas as search_schemas
@@ -929,6 +930,7 @@ class ToolExecutor:
             **search_schemas.dispatch(self),
             **web_schemas.dispatch(self),
             **_purpose_dispatch(self),
+            **hire_assign.dispatch(self),
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,

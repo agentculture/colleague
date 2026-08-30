@@ -931,3 +931,65 @@ def test_batch_scenario_step_sequence_and_shape_match_across_engines(
     # Shape parity (h8): the mock is the reference the live engine is compared
     # against — same keys, recursively, ignoring concrete values.
     assert _key_shape(mock_result.to_dict()) == _key_shape(vllm_result.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# Hire + assign shape parity (t13, delegation-follow-ups): the hires block a
+# real mock-engine assignment produces round-trips through the artifact dict
+# identically — and the bare-run pins above stay untouched (omit-when-empty).
+# ---------------------------------------------------------------------------
+
+
+def test_hire_assign_on_mock_hires_block_round_trips(tmp_path: Path) -> None:
+    from colleague import hire_assign
+    from colleague.contract import TaskResult
+    from colleague.hire import Roster, mint_hire
+    from colleague.tools import ToolExecutor
+
+    repo = _make_git_repo(tmp_path, "hires")
+    cfg = EngineConfig.resolve()
+    ex = ToolExecutor(repo, spawn=make_spawn(str(repo), cfg, "mock"))
+    roster = Roster()
+    roster.add(
+        mint_hire(
+            agent_id="hire-1",
+            hirer_id="cortex-0",
+            base_role="writer",
+            purpose="scoped edits",
+            when="on assignment",
+            prompt_fragment="You are a hired writer.",
+            task_id="parent-1",
+            created_step=1,
+        )
+    )
+    ex.hire_roster = roster
+
+    outcome = ex.execute("assign_to_colleague", {"agent_id": "hire-1", "task": "do the sub task"})
+    assert outcome.result.startswith("assign_to_colleague[mock/")
+
+    # The block records the hire (prompt TEXT included) plus its assignment,
+    # shaped from the REAL mock child's SubResult.
+    hires = hire_assign.hires_block(ex)
+    assert len(hires) == 1
+    assert hires[0]["prompt_fragment"] == "You are a hired writer."
+    child = ex.sub_results[0]
+    assert hires[0]["assignments"] == [
+        {
+            "task_id": child.task_id,
+            "status": child.status,
+            "changed_files": list(child.changed_files),
+        }
+    ]
+
+    # Artifact round-trip: from_dict(to_dict) re-serializes identically.
+    result = TaskResult(
+        task_id="parent-1",
+        status=OK,
+        summary="s",
+        sub_results=list(ex.sub_results),
+        hires=hires,
+    )
+    d = result.to_dict()
+    rebuilt = TaskResult.from_dict(d)
+    assert rebuilt.hires == hires
+    assert rebuilt.to_dict() == d

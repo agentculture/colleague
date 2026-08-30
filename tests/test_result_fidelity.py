@@ -227,6 +227,7 @@ class TestNoFinishResultFidelity:
             "pr_url",
             "hook_firings",
             "sub_results",
+            "hires",  # hire roster + assignments block (delegation-follow-ups t13, c38/h22)
             "command",
             "destination",
             "announcement",
