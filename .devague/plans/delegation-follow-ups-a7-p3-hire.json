@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T04:35:15Z",
+  "updated": "2026-08-30T06:12:11Z",
   "targets": [
     {
       "id": "c1",
@@ -698,6 +698,22 @@
         "h12"
       ],
       "instruction": "Mirror docs/features/purpose-tools.md's structure. Record the two challenge parks (self-negotiation theatre, A7 generality) under honest limits with the row-62 accept/amend/decline counts."
+    },
+    {
+      "id": "t19",
+      "summary": "Associate default-ON for the non-writer purpose seats (t19, decision c45 / deviation d3)",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "With lobes armed and the associate role advertised READY, a bare run (no COLLEAGUE_ASSOCIATE_MODEL) resolves the associate seat to that role: a code_survey/web_survey child's sub_results[].model is the associate's served model; review/validate/plan children likewise; handover_to_colleague and the acting seat stay on cortex",
+        "Associate absent or ready:false = the child runs on cortex with a RECORDED fallback (a warning or the artifact's associate block names the role and 'not ready'), byte-identical to today's artifact shape otherwise; COLLEAGUE_ASSOCIATE_MODEL=off (or config.json associate=off) restores the opt-out; the explicit-model and 'lobes' sentinel values keep working",
+        "config show reports associate as consumed (model) or 'fallback: cortex (not ready)' and no longer lists it under not_consumed when ready; CLAUDE.md convention change (5) amended for the associate seat only; docs/features/qwen-direct.md + adopt-from-qwen-code.md updated; tests pin the ready/not-ready/off matrix on mock"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [],
+      "instruction": "Files: colleague/config.py (the associate resolution rung \u2014 grep 'associate' in config.py; flip the default from opt-in to discover-when-ready, keep 'off' as the explicit opt-out), colleague/cli/_commands/config.py (associate_cli.config_show_lines), docs/features/qwen-direct.md, docs/features/adopt-from-qwen-code.md, CLAUDE.md, tests/test_config_associate_default.py. Precedent: the muse->deepthink discovery rung (two-machines-two-minds arc). A RESOLUTION rung, never a per-turn choice; the purpose->role->seat table is unchanged."
     }
   ],
   "risks": [

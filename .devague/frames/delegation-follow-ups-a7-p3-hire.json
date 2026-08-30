@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-30T04:09:25Z",
-  "updated": "2026-08-30T04:30:36Z",
+  "updated": "2026-08-30T06:11:49Z",
   "claims": [
     {
       "id": "c1",
@@ -707,6 +707,18 @@
       "id": "c44",
       "kind": "decision",
       "text": "The hire arm is counted by extending scripts/compare_arms.py with hires/assignments columns in a versioned change landed BEFORE the hire row is pre-registered; PURPOSE_TOOL_NAMES stays six (q8)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c45",
+      "kind": "decision",
+      "text": "Associate default-ON (2026-08-30): a READY lobes associate role fills the read-only purpose seats (scout: code_survey/web_survey; reviewer/validator/planner children) by default \u2014 a fixed resolution rung, recorded cortex fallback when absent/not-ready, COLLEAGUE_ASSOCIATE_MODEL=off opts out; the writer purpose and the acting seat stay on cortex. Amends qwen-direct convention change (5) for the associate seat only; senses/muse stay opt-in.",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],
