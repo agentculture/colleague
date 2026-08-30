@@ -22,11 +22,14 @@ from pathlib import Path
 
 import pytest
 
+from colleague import salvage
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult, prompt_digest_for
+from colleague.engines import mock as mock_engine_mod
 from colleague.engines import vllm_openai
 from colleague.engines.mock import MockEngine
 from colleague.engines.vllm_openai import VllmOpenAIEngine
+from colleague.loop import ModelResponse, WorkAborted
 from tests._batch_fixture import (
     BATCH_TASK_INSTRUCTION,
     make_batch_repo,
@@ -226,3 +229,122 @@ def test_vllm_records_the_same_prompt_digest_as_mock(
     # Same model, same (empty) overlay state -> the SAME composed prompt on
     # both backends, hence the same digest: the all-engines rule, measured.
     assert mock_result.prompt_digest == vllm_result.prompt_digest
+
+
+# ---------------------------------------------------------------------------
+# The failure paths — an aborted / signal-salvaged run is EXACTLY the run whose
+# arm attribution matters most (Qodo 3888125917).
+#
+# Both engines stamped ``prompt_digest`` only AFTER ``loop.run()`` returned, so
+# a ``WorkAborted`` (which carries the loop's partial result out past that line)
+# and the interrupt-salvage handler (which writes the live result object while
+# the loop is still inside ``run()``) both produced an artifact with the key
+# missing — even though the composed prompt had already gone to the model. The
+# digest is now stamped the moment the loop's ``TaskResult`` exists.
+# ---------------------------------------------------------------------------
+
+
+def _exploding_complete(_messages: list) -> "ModelResponse":
+    raise RuntimeError("engine exploded mid-drive")
+
+
+def test_aborted_mock_run_still_carries_the_prompt_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``WorkAborted`` partial carries the digest of the prompt that ran."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_writer_overlay(repo, _OVERLAY_MARKER)
+
+    task = Task.new(str(repo), "write the output file", engine="mock")
+    cfg = EngineConfig(model=_MODEL)
+    engine = MockEngine()
+    composed = engine.system_prompt(task, cfg)
+    assert composed is not None
+
+    monkeypatch.setattr(mock_engine_mod, "_script", lambda _task: _exploding_complete)
+
+    with pytest.raises(WorkAborted) as excinfo:
+        engine.work(task, cfg)
+
+    partial = excinfo.value.result
+    assert partial.prompt_digest == hashlib.sha256(composed.encode("utf-8")).hexdigest()
+    assert partial.to_dict()["prompt_digest"] == partial.prompt_digest
+
+
+def test_aborted_vllm_run_still_carries_the_prompt_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All-engines rule: the live backend's aborted partial behaves identically."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_writer_overlay(repo, _OVERLAY_MARKER)
+
+    task = Task.new(str(repo), "write the output file", engine="vllm-openai")
+    cfg = EngineConfig(model=_MODEL)
+    engine = VllmOpenAIEngine()
+    composed = engine.system_prompt(task, cfg)
+    assert composed is not None
+
+    def _boom(url: str, payload: dict, *, api_key: str, timeout: float) -> dict:
+        raise RuntimeError("engine exploded mid-drive")
+
+    monkeypatch.setattr(vllm_openai, "_post_json", _boom)
+
+    with pytest.raises(WorkAborted) as excinfo:
+        engine.work(task, cfg)
+
+    partial = excinfo.value.result
+    assert partial.prompt_digest == hashlib.sha256(composed.encode("utf-8")).hexdigest()
+    assert partial.to_dict()["prompt_digest"] == partial.prompt_digest
+
+
+def test_the_live_salvage_object_carries_the_prompt_digest_mid_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The interrupt-salvage path (#410) reads the LIVE result through
+    ``salvage.peek`` while the loop is still running — so the digest must be
+    on that object before the engine's post-return line ever executes."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_writer_overlay(repo, _OVERLAY_MARKER)
+
+    task = Task.new(str(repo), "write the output file", engine="mock")
+    cfg = EngineConfig(model=_MODEL)
+    engine = MockEngine()
+    composed = engine.system_prompt(task, cfg)
+    assert composed is not None
+
+    seen: list = []
+
+    def _peeking_script(inner_task: Task):
+        def _complete(_messages: list) -> ModelResponse:
+            live = salvage.peek(inner_task.id)
+            seen.append(None if live is None else live.prompt_digest)
+            raise RuntimeError("interrupted mid-drive")
+
+        return _complete
+
+    monkeypatch.setattr(mock_engine_mod, "_script", _peeking_script)
+
+    with pytest.raises(WorkAborted):
+        engine.work(task, cfg)
+
+    assert seen == [hashlib.sha256(composed.encode("utf-8")).hexdigest()]
+
+
+def test_an_aborted_run_with_no_composed_prompt_still_omits_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The byte-identical floor holds on the failure path too."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr(MockEngine, "system_prompt", lambda self, task, config: None)
+    monkeypatch.setattr(mock_engine_mod, "_script", lambda _task: _exploding_complete)
+
+    with pytest.raises(WorkAborted) as excinfo:
+        MockEngine().work(Task.new(str(repo), "x", engine="mock"), EngineConfig(model=_MODEL))
+
+    partial = excinfo.value.result
+    assert partial.prompt_digest is None
+    assert "prompt_digest" not in partial.to_dict()

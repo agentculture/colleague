@@ -98,6 +98,7 @@ from colleague.contract import (
     Step,
     Task,
     TaskResult,
+    prompt_digest_for,
 )
 from colleague.finishstate import classify_finish_state
 from colleague.hooks import HookConfig, HookDecision, hook_approval_verdict, load_hooks, run_hook
@@ -5028,6 +5029,14 @@ def run(
     ]
 
     result = TaskResult(task_id=task.id, status=OK)
+    # Prompt digest (t7) — stamped the moment the result exists, not by the
+    # engine after run() returns: the two paths that never reach that line (a
+    # WorkAborted carrying this same partial, and the interrupt-salvage handler
+    # reading the live object registered below) are exactly the runs whose arm
+    # attribution matters most. Digests the ``system_prompt`` ARGUMENT, never
+    # the ``_DEFAULT_SYSTEM`` fallback, so a caller that composed no prompt
+    # still leaves the key off the artifact — byte-identical.
+    result.prompt_digest = prompt_digest_for(system_prompt)
     # Interrupt salvage (#410): expose the live partial so the work CLI's
     # SIGTERM/SIGINT handler can write the artifact before the process unwinds.
     salvage.register(task.id, result)

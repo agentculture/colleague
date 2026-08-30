@@ -1377,10 +1377,14 @@ class VllmOpenAIEngine(Engine):
                 associate_complete=associate_seats.make_associate_complete(config, self.name),
             ),
         )
-        # Prompt digest (t7): recorded on EVERY backend (all-engines rule)
-        # from the same composed string the loop received; ``None`` (no
-        # composed prompt) omits the key entirely — byte-identical artifact.
-        result.prompt_digest = prompt_digest_for(composed_system_prompt)
+        # Prompt digest (t7): the loop stamps this the moment its TaskResult
+        # exists (so an aborted / salvaged run still attests to its arm); this
+        # line is the floor for a caller that swapped ``run()`` out — it FILLS
+        # a still-unset field on EVERY backend (all-engines rule), never
+        # clobbers the loop's stamp, and omits the key when no prompt was
+        # composed (byte-identical).
+        if result.prompt_digest is None:
+            result.prompt_digest = prompt_digest_for(composed_system_prompt)
         # Model-bound agents (#411, t13): an ARMED config always returns the
         # versioned ``agents`` block with the SAME shape on every backend
         # (all-engines rule) — the fold only fills a still-``None`` field, so
