@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T10:31:58Z",
+  "updated": "2026-08-30T11:16:11Z",
   "targets": [
     {
       "id": "c1",
@@ -746,6 +746,22 @@
       ],
       "covers": [],
       "instruction": "Write it from rows 62/64 + #459/#460 evidence; keep it operator-facing and runnable (exact commands); link from adopt-from-qwen-code.md's associate section and CLAUDE.md's associate bullet."
+    },
+    {
+      "id": "t22",
+      "summary": "#460 fixes (t22): clamp the associate window to the served max_model_len and never let the alias retry hide a context-length 400",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "The associate child's context budget is clamped to the served window: min(advert-derived budget, tokenize max_model_len - output reserve) once the run-start /tokenize probe (through the alias) reports max_model_len; a unit test with a 1,048,576 advert and a 128,000 probe asserts the child budget <= 128,000 minus the reserve; with no probe result the advert-derived budget stands (byte-identical)",
+        "associate.retry_role_alias does NOT fire when the 4xx body is a context-length error (vLLM's 'maximum context length' shape) and, when the served-id dispatch itself fails, re-raises the ORIGINAL error with both bodies folded into the message; the child's ModelRefreshWarning is folded onto the parent TaskResult.warnings when the child dies before producing a result; tests cover all three",
+        "COLLEAGUE_ASSOCIATE_CONTEXT_BUDGET remains the operator override and wins over the clamp when smaller; docs/features/associate-validation.md drops the workaround line once this lands"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [],
+      "instruction": "Files: colleague/associate_config.py (_associate_budget_from_window stays; add the clamp seam), colleague/engines/vllm_openai.py (the run-start probe already records max_model_len per URL in _MAX_MODEL_LEN_BY_URL \u2014 apply it to config.context_budget_tokens for an associate-addressed seat before run()), colleague/associate.py (retry_role_alias guard + original-error re-raise), colleague/purpose_schemas.py (_record: fold child refresh warnings), tests/test_associate_window.py, tests/test_associate_config.py. Evidence: rows 62/64, #460 comments."
     }
   ],
   "risks": [
