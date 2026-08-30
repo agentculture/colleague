@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T07:57:53Z",
+  "updated": "2026-08-30T08:01:14Z",
   "targets": [
     {
       "id": "c1",
@@ -720,7 +720,7 @@
       "id": "t20",
       "summary": "Evidence-trail digests for the survey purposes (t20, decision c47)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "purpose_schemas._brief_code_survey / _brief_web_survey require a fixed digest shape: one entry per finding with path:start-end (or url + anchor), a <= 5-line verbatim excerpt, and a trailing 'commands run' list; the scout role fragment says the same; a digest missing citations is returned with a one-line 'uncited' marker prefixed by the parent-side renderer (never dropped)",
         "a parametrised test renders both briefs and asserts the three required sections; the mock engine's scripted scout answers in that shape so test_purpose_executor covers it",
