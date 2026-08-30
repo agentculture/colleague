@@ -234,6 +234,13 @@ case 5 the `memory` counters.
 - **Aggregation off thinking:** any count or exhaustive list from a
   thinking-off lane is wrong; from a thinking-on lane it is reliable only over
   a reduced, cleanly separable working set (§0b).
+- **A failed `/tokenize` probe keeps the advert-derived budget (a recorded
+  limit of the t22 clamp):** `served_window_budget` leaves the configured
+  budget untouched when the probe returns nothing (a server without
+  `/tokenize`, a network error) — on a 1,048,576 advert that is the 768k
+  budget that produced #460. Step 0's probe is what proves the clamp is
+  live; the gateway proxies the ROOT `/tokenize` (a `/v1/tokenize` request
+  is `Not Found`).
 - **`ready:false` on a live proxied role:** the flag describes the local host;
   the lane may still answer (probe it, step 0).
 

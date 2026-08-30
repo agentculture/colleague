@@ -108,3 +108,31 @@ def test_fallback_failure_reraises_with_both_bodies():
     msg = str(info.value.msg)
     assert "unroutable role alias" in msg and "role_infeasible" in msg
     assert info.value.code == 422  # the ORIGINAL status leads
+
+
+def test_folded_error_names_each_body_exactly_once():
+    """HTTPError.reason aliases msg — the folded ``refused:`` line must not
+    repeat the body (review finding, 2026-08-30)."""
+    import urllib.error
+
+    from colleague.associate import _folded_http_error, _http_error_body, _is_context_length_error
+
+    original = urllib.error.HTTPError(
+        "http://gw/v1/chat/completions",
+        400,
+        "Bad Request: maximum context length is 128000",
+        {},
+        None,
+    )
+    retry = urllib.error.HTTPError(
+        "http://gw/v1/chat/completions", 404, "Not Found: role_infeasible", {}, None
+    )
+    assert _is_context_length_error(original)
+    assert _http_error_body(original).count("maximum context length") == 1
+    folded = str(_folded_http_error(original, retry))
+    assert folded.count("maximum context length is 128000") == 1
+    assert folded.count("role_infeasible") == 1
+    assert (
+        "400 on the role-name address" in folded
+        and "served-id retry then failed with 404" in folded
+    )

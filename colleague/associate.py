@@ -187,8 +187,11 @@ _CONTEXT_LENGTH_MARKERS = ("maximum context length", "context length", "context_
 
 def _http_error_body(exc: urllib.error.HTTPError) -> str:
     """The error body text already folded onto *exc* (the adapter folds it into
-    ``exc.msg``/``exc.reason``), or ``""`` — never re-reads the stream."""
-    return " ".join(str(part) for part in (getattr(exc, "msg", ""), getattr(exc, "reason", "")))
+    ``exc.msg``; ``exc.reason`` merely aliases it), or ``""`` — never re-reads
+    the stream. ``msg`` first, ``reason`` only as a fallback: joining both
+    repeated every body twice in the folded ``refused:`` line (review, 2026-08-30)."""
+    msg = str(getattr(exc, "msg", "") or "")
+    return msg if msg else str(getattr(exc, "reason", "") or "")
 
 
 def _is_context_length_error(exc: urllib.error.HTTPError) -> bool:
