@@ -57,7 +57,7 @@ PR #450 / `ede7d7f` (v1.67.0); waves 2-7 sit on `spec/purpose-tools-get-chosen-w
 | `t8` | delivered | `COLLEAGUE_ACTING_DROP_TOOLS` drop-set threaded through `narrow_role_by_tool_set`, depth-0 only. PR #450. **Later corrected** — see drift and `7562fbf` |
 | `t9` | delivered | both duplicated literals repaired: `_SUBAGENTS` → `_PURPOSE_TOOLS`, 174 → 165 words; snapshot regenerated under `d1`. Commit `95c921b` |
 | `t10` | delivered | `arm-decomposable-neutral.md` + `arm-large-surface.md`; the large-surface pilot returned a NEGATIVE result recorded as such. PR #450. Fixture generator later corrected — see drift |
-| `t11` | delivered | `_writer_allowlist` drops only `web`; `strip_purpose_tools` → `strip_child_forbidden_tools` also strips the raw pair at depth ≥1. Four exact-set pins updated, never relaxed. Commit `ab76f74` |
+| `t11` | delivered, then reverted (`d4`) | arm 4 built and measured (`ab76f74`); the raw-pair restoration is REVERTED as the shipped default in `f12a0d9` after it delegated 0/3 and drew zero raw-pair calls in 21 runs. `strip_purpose_tools` → `strip_child_forbidden_tools` and the depth ≥1 strip are KEPT. Four exact-set pins moved twice, never relaxed |
 | `t12` | delivered | P0/P1/P2 overlays staged under `docs/live-testing/overlays/`, identical `effort: medium` line; `diff P1 P2` is exactly one paragraph. Commit `847ef9d` |
 | `t13` | delivered | row 51: row-49 brief re-run n=3, **delegation 0/3, markup 0/3** — the 0/3 is real behaviour, not dropped markup. Commit `25a8c63` |
 | `t14` | delivered | rows 52-58 pre-registered with `result: pending` and their bars, committed 01:31:56 before the matrix started 01:33:36. Commit `3b59d24` |
@@ -80,10 +80,19 @@ PR #450 / `ede7d7f` (v1.67.0); waves 2-7 sit on `spec/purpose-tools-get-chosen-w
   since d14; excluding it would require a second condition the surface half does
   not have. No pre-existing test pinned that seat's prompt. Operator accepted the
   consequent shift of the `three_tier` benchmark baseline.
-- `d3` (**proposed — awaiting operator confirm**) — t12 was built by a Claude
-  subagent, not by colleague, after two consecutive colleague dispatches produced
-  no files (attempt 1 exited 0 with zero output; attempt 2 stalled past 10
-  minutes). Neither run left a salvageable partial.
+- `d3` (approved) — t12 was built by a Claude subagent, not by colleague, after
+  two consecutive colleague dispatches produced no files (attempt 1 exited 0 with
+  zero output; attempt 2 stalled past 10 minutes). Neither run left a salvageable
+  partial.
+- `d4` (approved) — t11's arm-4 restoration is REVERTED as the shipped default
+  after the matrix measured it: `_writer_allowlist` returns to the purpose-only
+  surface, while t11's depth>=1 child-confinement hardening is KEPT. Raised by
+  Qodo finding 3888125915 on PR #455. Normally an intended, spec'd behaviour
+  change would be a PUSHBACK, but arm 4 had by then been measured and failed:
+  A4 delegated 0/3, and across all 21 runs no `subagent`/`subagents` call
+  occurred once. The restoration bought nothing measurable while reintroducing a
+  path around the fixed `PURPOSE_TABLE` mappings, so the evidence supports the
+  reviewer.
 - **Build split by task shape** (operator ruling, no `dN` record) — Claude
   subagents for large-file cross-module work (t5, t6, t7, t11, t14, t15, t16),
   colleague for authoring. Taken after wave 1's evidence: all 6 colleague runs
@@ -107,6 +116,7 @@ PR #450 / `ede7d7f` (v1.67.0); waves 2-7 sit on `spec/purpose-tools-get-chosen-w
 | `t9` (`d1`) | c39/h28's whole-arc snapshot guarantee conflicts with c2/h10's requirement that the default prompt stop naming absent tools; operator narrowed c39 to the prose-arm instruments | acceptable |
 | `t5` (`d2`) | the three-tier worker seat's composed prompt gains the writer fragment, so acceptance 3's "compose exactly as before" is NOT met for that one seat; the `three_tier` benchmark baseline shifts with it | acceptable |
 | `t12` (`d3`) | built by a Claude subagent rather than colleague after two colleague dispatches produced no files; the fallback preserved the wave rather than blocking the arc | acceptable |
+| `t11` (`d4`) | arm 4 was measured and rejected: A4 delegated 0/3 and no raw-pair call occurred in any of the 21 runs, so the shipped default reverts to the purpose-only surface; the child-confinement hardening is kept as defence in depth | acceptable |
 | `t2`, `t3`, `t8`, `t10` | all four shipped defects that PR #450's review caught and that were fixed on the same PR: `t2`/`t3` gated escalation on the ENV rather than the active transport and refreshed the idle clock only per newline-terminated line; `t8` ignored `drop` when `tool_set` was also given; `t10`'s fixture generated one 8-way duplicate rather than four distinct pairs, over-many public functions, and only one of two call edges. All fixed pre-merge | acceptable |
 | `t16` | the arm matrix answers the arc's question in the NEGATIVE: neither declared lever moved the delegation rate. The task was executed exactly as specified; the plan's implicit expectation that a lever would move it was not met | acceptable |
 | `t10` | the large-surface brief's acceptance required a "non-delegating baseline [that] provably hits a budget or context limit". The pilot showed the acting seat greps a symbol index and does ranged reads rather than `read_file`, so no such limit is hit; recorded as a negative result rather than forced. The brief still worked — arms A5/A6 delegated — but for a different reason than the acceptance assumed | needs-follow-up |
@@ -150,7 +160,7 @@ PR #450 / `ede7d7f` (v1.67.0); waves 2-7 sit on `spec/purpose-tools-get-chosen-w
 
 ## Remaining Work / Follow-up
 
-- **`d3` awaits operator confirm** — it is `proposed` (LLM-origin); until confirmed it is not a recorded decision.
+- **All four deviations (`d1`-`d4`) are operator-approved.** None is outstanding.
 - **`t10`'s unmet acceptance clause** — no brief was found whose non-delegating baseline provably hits a budget or context limit, because the acting seat surveys by grep + ranged reads rather than `read_file`. The arms still worked, so this is a follow-up, not a blocker: either re-spec the clause around the real survey strategy, or drop it.
 - **The 2026-08-29 large-surface pilot ran against the superseded fixture generator** — the generator was corrected during PR #450 review (four distinct pair algorithms, 8-12 public functions per module, both call edges). The pilot's *finding* concerns the tool surface, not fixture internals, so it is unaffected — but a re-pilot on the corrected fixture is the honest re-confirmation, and none was run.
 - **A clean prose test remains undone** — the isolated prose contrast (A3-vs-A1) sat at a floor, and the only contrast that moved (A6-vs-A5) is confounded. A clean test needs a P0-control arm on a brief that is not already at zero. Until then P2 does not promote into `BUILTIN_ROLES['writer'].prompt_fragment`.

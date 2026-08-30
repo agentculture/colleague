@@ -2,7 +2,7 @@
   "plan_slug": "purpose-tools-get-chosen",
   "schema_version": 1,
   "created": "2026-08-29T21:41:17Z",
-  "updated": "2026-08-29T22:09:26Z",
+  "updated": "2026-08-30T03:40:23Z",
   "deviations": [
     {
       "id": "d1",
@@ -41,7 +41,21 @@
         "t12"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "t11's arm-4 restoration is REVERTED as the shipped default after the matrix measured it: _writer_allowlist returns to the purpose-only surface, while t11's depth>=1 child-confinement hardening is KEPT",
+      "task_ref": "t11",
+      "reason": "Qodo finding 3888125915 on PR #455 flagged the restored raw subagent/subagents pair as violating the purpose-only cortex surface and permitting a bypass of the fixed PURPOSE_TABLE mappings. Normally an intended, spec'd behaviour change would be a PUSHBACK, but the arm matrix had by then measured arm 4 and it failed: A4 delegated 0/3, and across all 21 runs no subagent or subagents call occurred even once (every delegation was code_survey). The restoration therefore bought nothing measurable while reintroducing a delegation path outside the fixed purpose mappings, so the evidence supports the reviewer. Reverting the default surface honours 'a miss is written as a miss' for the surface lever. t11's strip_child_forbidden_tools hardening is deliberately retained as defense in depth, and the docs record arm 4 as tested-and-rejected on evidence rather than quietly undone; live-testing rows 49-58 keep every measured figure unchanged, since A4 genuinely ran against the restored surface.",
+      "affects": [
+        "t11",
+        "t15",
+        "t16"
+      ],
+      "origin": "llm",
+      "status": "approved",
       "classification": "acceptable"
     }
   ]
