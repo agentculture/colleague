@@ -443,6 +443,77 @@ interface stable), and the in-seat mechanism remains cheaper than four
 ~300k-token children, which is the rational choice the numbers keep showing.
 The shipped default prompt still carries no encouragement to delegate.
 
+## Evidence-trail digests (t20, decision c47)
+
+Rows 63/64 showed the digests being used only to *pick* modules, then verified
+by re-reading every cited module in full (row 63: 0 ranged reads in 3/3 runs)
+— and `docs/features/associate-validation.md` §0b showed why full-redo is the
+rational response to an unshaped digest: a returned `file` path is UNVERIFIED
+until re-resolved (a reproducible provenance fabrication exists). t20 fixes
+the digest SHAPE so ranged re-resolution is a single ranged read:
+
+- **Both survey briefs** (`_brief_code_survey` / `_brief_web_survey`) demand a
+  fixed digest: one entry per finding citing `path:start-end` (code) or the
+  url plus an anchor or quoted phrase (web), a verbatim excerpt of **at most
+  5 lines**, and a trailing `commands run:` list naming every command the
+  scout ran. The templates stay fixed per purpose (c12/c24); the other four
+  purposes' briefs are unchanged.
+- **The scout role fragment** (`colleague/roles.py`) says the same, so a scout
+  child spawned any other way reports in the same shape.
+- **The parent-side uncited marker** (`purpose_schemas._render`): a survey
+  digest whose text carries no `path:start-end` / `path:line` / url citation
+  (`_CITATION_RE`) is prefixed with ONE line —
+  `[uncited digest: no path:start-end or url citation — verify before
+  trusting]` — and returned in full, **never dropped**; a budget-exhausted
+  marker stays outermost. The digest shape is DATA the parent reads — never a
+  tool the runtime calls on the parent's behalf, and counts are never
+  requested corpus-wide.
+- **The mock engine** scripts a scout digest in this exact shape
+  (`colleague/engines/mock_scenarios.py`: `CODE_SURVEY_DIGEST` /
+  `WEB_SURVEY_DIGEST`, selected by the fixed brief prefix), so
+  `tests/test_purpose_executor.py` proves the lane end to end on the
+  reference backend.
+
+### row 64c (pre-registration draft)
+
+**Not yet registered.** The integrator owns `docs/live-testing.md` (a rig
+experiment, row 64b, is running against it); this block is the pre-registration
+TEXT, to be moved into that ledger **verbatim, before any run**. Written here
+per t20 acceptance 3 ("the row is pre-registered before the code lands on the
+rig").
+
+```text
+| 64c | delegation-follow-ups-a7-p3-hire (t20, decision c47): **arm R-digest —
+the requested-delegation brief re-run with the evidence-trail digest shape** |
+`docs/live-testing/briefs/arm-large-surface-requested.md`,
+`colleague/purpose_schemas.py`, `colleague/roles.py`, `scripts/compare_arms.py`
+| ⬜ | PRE-REGISTERED before any run. Everything not stated here is as rows
+63/64 (fixture, rig, comparator freeze, scope line, the six cells, the h16
+artifact-id rule, the requested-delegation brief verbatim). **The ONLY lever:**
+the t20 digest shape at the tip under test — the two survey briefs demand
+path:start-end + a <= 5-line verbatim excerpt + a trailing 'commands run:'
+list, the scout fragment says the same, and the parent renderer prefixes an
+'[uncited digest: …]' line on a citation-free digest. **Question:** does a
+cited, excerpted digest turn the post-digest verification from full-module
+redo (row 63: 17/16/17 further steps, ALL eight duplicate-pair modules re-read
+in full, 0 ranged reads, 3/3 runs) into ranged verify-only reads of the cited
+lines? **Cells:** post-digest reads classified ranged-verify (`sed -n`/ranged
+`read_file`/`head`/`tail` on a cited range) vs full-module-redo, per run;
+uncited-marker count per run (expected 0 — a non-zero count is recorded, not
+hidden); compliance as row 63 (>= 4 `code_survey` before the first module-body
+read); wall vs row 63's 3,315/3,009/4,019 s and the pooled in-seat median
+392 s. **Decision rule (pre-stated):** a majority of post-digest module reads
+ranged in >= 2/3 valid runs = the digest shape did its job; full redo again =
+negative, recorded as such. n=3. **Validity:** the parent `prompt_digest` is
+re-derived at registration time (the t20 change touches the CHILD brief and
+CHILD system fragment, not the parent system prompt — expected unchanged at
+`b7491476…`; if it moved, record the new digest and say why); `offered_tools`
+= the purpose-only surface, no raw name. **Seat:** as row 64's setup —
+`COLLEAGUE_ASSOCIATE_MODEL=lobes` once the #460 window fix lands and the
+operator confirms the Orin lane (row 64 d5); until then a cortex-children
+control run is labeled as such, never passed off as the associate arm. |
+```
+
 ## Provenance
 
 - Spec: `docs/specs/2026-08-28-purpose-tools-associate-seat.md` (decisions

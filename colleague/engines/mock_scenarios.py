@@ -101,3 +101,69 @@ def batch_turns(_task: Task) -> list[ModelResponse]:
             finish_reason="stop",
         ),
     ]
+
+
+# ---------------------------------------------------------------------------
+# t20 (decision c47) — the survey-digest scenario: a mock purpose child whose
+# brief is one of the two FIXED survey briefs (``colleague/purpose_schemas.py``
+# ``_brief_code_survey`` / ``_brief_web_survey``) answers with a scripted
+# evidence digest in the required shape — one cited finding (path:start-end,
+# or a url + anchor), a <= 5-line verbatim excerpt, and a trailing
+# ``commands run:`` list — so ``tests/test_purpose_executor.py`` proves the
+# parent-side renderer accepts a well-shaped digest end to end on the
+# reference backend. Selected by the brief's fixed opening line, like every
+# other mock recipe: any other task text keeps the default script.
+# ---------------------------------------------------------------------------
+
+#: The fixed opening lines of the two survey briefs (the templates' prefixes).
+CODE_SURVEY_BRIEF_PREFIX = "Survey the code for:"
+WEB_SURVEY_BRIEF_PREFIX = "Survey the web for:"
+
+#: Scripted digests — fixed values, not derived from the task, so tests pin
+#: the exact shape. The citations are illustrative, not real evidence: the
+#: mock never reads anything; the SHAPE is what the parent renderer checks.
+CODE_SURVEY_DIGEST = (
+    "finding: colleague/loop.py:1-3 — the survey target's opening lines\n"
+    "  excerpt:\n"
+    "    the opening line, quoted verbatim\n"
+    "commands run:\n"
+    "  - read_file colleague/loop.py"
+)
+WEB_SURVEY_DIGEST = (
+    "finding: https://example.invalid/docs#overview — the page's overview anchor\n"
+    "  excerpt:\n"
+    "    the quoted overview sentence, verbatim\n"
+    "commands run:\n"
+    "  - web fetch https://example.invalid/docs"
+)
+
+
+def survey_digest_or_none(task: Task) -> "str | None":
+    """The scripted digest for *task*'s survey brief, or ``None`` (no survey)."""
+    if task.instruction.startswith(CODE_SURVEY_BRIEF_PREFIX):
+        return CODE_SURVEY_DIGEST
+    if task.instruction.startswith(WEB_SURVEY_BRIEF_PREFIX):
+        return WEB_SURVEY_DIGEST
+    return None
+
+
+def survey_turns_or_none(task: Task) -> "list[ModelResponse] | None":
+    """One finish turn carrying the scripted digest, or ``None`` (no survey).
+
+    The scout role is read-only, so the scenario is a single deliberate
+    ``finish`` whose summary IS the digest — the digest is DATA the parent
+    reads, never a tool the runtime calls on the parent's behalf.
+    """
+    digest = survey_digest_or_none(task)
+    if digest is None:
+        return None
+    return [
+        ModelResponse(
+            content="reporting the survey digest",
+            reasoning="mock reasoning: survey brief — answer in the evidence-digest shape",
+            tool_calls=[ToolCall("mock-survey-finish", "finish", {"summary": digest})],
+            prompt_tokens=1,
+            completion_tokens=1,
+            finish_reason="stop",
+        )
+    ]
