@@ -42,6 +42,14 @@ export COLLEAGUE_ASSOCIATE_MODEL=lobes            # opt-in until the ladder belo
 # optional, tighter than the served window: COLLEAGUE_ASSOCIATE_CONTEXT_BUDGET=100000
 ```
 
+**Record the deployment's serving parameters, not only its window.** The
+Orin side is tuned deliberately (operator, 2026-08-30): temperature, output
+token budget, sampling defaults. Colleague sends no `temperature` of its own on
+the associate seat, so the server's defaults ARE the seat's — paste them from
+the deployment (the Orin's vLLM launch flags / `lobes status` on the Orin) into
+the row beside the served window, and re-run the ladder whenever they change;
+a result measured under one tuning is not evidence for another.
+
 ## 1. The case ladder — smallest first, each on a throwaway repo
 
 Run each case with `uv run colleague work "<brief>" --repo <tmp-repo> --no-pr --json`
