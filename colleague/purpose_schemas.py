@@ -349,7 +349,14 @@ _INCOMPLETE = "[purpose child incomplete: {reason}] "
 _UNCITED = "[uncited digest: no path:start-end or url citation — verify before trusting]\n"
 
 #: What counts as a citation: a url, or ``path:N`` / ``path:N-M``.
-_CITATION_RE = re.compile(r"https?://\S+|\S+:\d+(?:-\d+)?")
+# url | path:start[-end] (the pinned form) | "line(s) N" | an en-dash numeric
+# range - row 64c measured 10/12 digests cited via markdown tables/en-dashes
+# ('(lines 79-1054)', '| 79-138 |' with en-dash) and never the colon form:
+# those are real citations, not uncited digests. The brief still demands
+# path:start-end; this regex only decides the advisory marker.
+_CITATION_RE = re.compile(
+    r"https?://\S+|\S+:\d+(?:-\d+)?|[Ll]ines?\s*:?\s*\d+|\d+\s*[\u2013\u2014]\s*\d+"
+)
 
 #: The two purposes whose briefs demand the digest shape — the marker applies
 #: to these only; the other purposes' templates are unchanged (c12/c24).

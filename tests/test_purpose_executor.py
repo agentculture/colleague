@@ -662,3 +662,21 @@ def test_e2e_mock_scout_child_answers_in_the_digest_shape(tmp_path) -> None:
     assert result.sub_results[0].summary == mock_scenarios.CODE_SURVEY_DIGEST
     assert "commands run:" in result.steps[0].result
     assert "[uncited digest:" not in result.steps[0].result
+
+
+def test_table_and_en_dash_cited_digests_are_not_marked_uncited(tmp_path) -> None:
+    """Row 64c (2026-08-31): 10/12 real Nemotron digests cited via markdown
+    tables and en-dash ranges — "(lines 79–1054)", "| 79–138 |" — and never
+    the colon form; the marker must treat those as cited (format, not
+    absence). The colon form and URLs still match; a digest with no numeric
+    trace at all is still marked."""
+    from colleague.purpose_schemas import _CITATION_RE
+
+    assert _CITATION_RE.search("### src/mod_a.py — 9 public functions (lines 79–1054)")
+    assert _CITATION_RE.search("| `mod_a_step_00` | 79–138 | normalises payload |")
+    assert _CITATION_RE.search("Line 42 defines the constant")
+    assert _CITATION_RE.search("src/mod_a.py:79-138")
+    assert _CITATION_RE.search("https://example.com/doc#anchor")
+    assert _CITATION_RE.search("see lines: 12")
+    assert not _CITATION_RE.search("the module normalises payloads and filters rows")
+    assert not _CITATION_RE.search("I read every file and found the pairs")
