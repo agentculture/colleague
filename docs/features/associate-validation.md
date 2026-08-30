@@ -80,9 +80,14 @@ on 8 of 12 tasks (it looks like success). If a client insists on a cap, use
 
 ```json
 {"model": "associate", "messages": ["…"],
- "temperature": 0.6, "top_p": 0.95, "max_tokens": 2048,
+ "temperature": 0.2, "top_p": 0.95, "max_tokens": 2048,
  "chat_template_kwargs": {"enable_thinking": false}}
 ```
+
+(Operator correction 2026-08-30: triage runs at temperature **0.2**. And for
+colleague's use case every associate lane needs reasoning, so **depth is the
+profile for all associate sub-seats**; triage is an explicit operator override
+only.)
 
 ~4× faster and never truncates, at a real cost: terse and shallower — 11
 durable facts where depth got 25, 3/5 relevant files where depth found 5/5,

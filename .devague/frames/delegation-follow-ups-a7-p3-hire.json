@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-30T04:09:25Z",
-  "updated": "2026-08-30T12:02:11Z",
+  "updated": "2026-08-30T12:03:08Z",
   "claims": [
     {
       "id": "c1",
@@ -773,6 +773,18 @@
       "id": "c49",
       "kind": "decision",
       "text": "Associate (Nemotron) usage contract, measured by the operator (2026-08-30): address the lane as model 'associate' (never the raw checkpoint id \u2014 it 404s role_infeasible on a proxying box); served window 128,000; /v1/* needs the bearer key. TWO profiles: DEPTH PASS (research, survey, code location) = temperature 0.6, top_p 0.95, chat_template_kwargs.enable_thinking TRUE, and max_tokens OMITTED (a low cap is the failure mode: max_tokens 4096 with thinking on returned empty content with HTTP 200 + finish_reason length on 8/12 tasks; if a cap is unavoidable use >= 8192 \u2014 the depth arm used up to 9,730 output tokens on a 23K prompt). FAST TRIAGE (classification, routing, a bounded answer) = temperature 0.6, top_p 0.95, max_tokens 2048, thinking OFF \u2014 ~4x faster, never truncates, but terse/shallower (11 vs 25 durable facts, 3/5 vs 5/5 relevant files, missed the decisive line depth quoted; ignores output-format instructions more often). Rules: never ask this lane for corpus-wide facts (counts, inventories, exhaustive lists \u2014 confident fabrications; compute them and pass them in); treat every returned file path as unverified and re-resolve locally (basenames reliable, full paths wrong ~40%).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c50",
+      "kind": "decision",
+      "text": "Correction to c49 (operator, 2026-08-30): the FAST-TRIAGE profile uses temperature 0.2 (not 0.6); and for colleague's use case every associate lane needs reasoning, so DEPTH (thinking ON, temperature 0.6, top_p 0.95, no small max_tokens) is the profile for ALL associate sub-seats \u2014 TRIAGE is available only as an explicit operator override, never a colleague default.",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],

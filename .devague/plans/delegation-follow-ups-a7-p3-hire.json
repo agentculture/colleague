@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T12:02:45Z",
+  "updated": "2026-08-30T12:03:09Z",
   "targets": [
     {
       "id": "c1",
@@ -772,7 +772,8 @@
         "The associate seat's completions carry temperature ONLY when an operator set one for that seat (COLLEAGUE_ASSOCIATE_TEMPERATURE / config.json associate.temperature); unset = the key is OMITTED from the payload so the Orin's configured default applies; cortex's own temperature is never inherited by the associate seat; a payload-builder test pins both branches",
         "config show's associate line names the seat's temperature source ('deployment default' or the operator value); docs/features/associate-validation.md's precondition paragraph updated",
         "The associate seat carries a NAMED PROFILE (decision c49): DEPTH (the default for scout/code_survey/web_survey/memory-distill/synthesis) sends temperature 0.6, top_p 0.95, chat_template_kwargs {enable_thinking: true} and OMITS max_tokens (or sends >= 8192 when an operator forces a cap); TRIAGE (compact/digest sub-seats and any explicitly bounded call) sends temperature 0.6, top_p 0.95, max_tokens 2048, enable_thinking false. Each value is operator-overridable per seat (COLLEAGUE_ASSOCIATE_TEMPERATURE / _TOP_P / _MAX_TOKENS / _THINKING, config.json associate.*); the profile\u2192sub-seat map is a fixed table, never a per-turn choice; cortex's payload is byte-identical",
-        "A payload-builder test pins, for a seat stamped with each profile, exactly the keys sent and omitted (max_tokens absent on DEPTH; enable_thinking true/false; top_p present only on the associate); PURPOSE_TABLE's cortex rungs are untouched \u2014 the associate profile is what a purpose child gets ONLY when it runs on the associate seat"
+        "A payload-builder test pins, for a seat stamped with each profile, exactly the keys sent and omitted (max_tokens absent on DEPTH; enable_thinking true/false; top_p present only on the associate); PURPOSE_TABLE's cortex rungs are untouched \u2014 the associate profile is what a purpose child gets ONLY when it runs on the associate seat",
+        "Correction (c50): TRIAGE temperature is 0.2; DEPTH is the profile for EVERY associate sub-seat (scout/compact/synthesis/digest/distill) by default \u2014 TRIAGE only via an explicit operator override (COLLEAGUE_ASSOCIATE_PROFILE=triage or per sub-seat), never a colleague default"
       ],
       "deps": [
         "t22"
