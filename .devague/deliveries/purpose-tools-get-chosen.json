@@ -1,0 +1,48 @@
+{
+  "plan_slug": "purpose-tools-get-chosen",
+  "schema_version": 1,
+  "created": "2026-08-29T21:41:17Z",
+  "updated": "2026-08-29T22:09:26Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t9 regenerates tests/snapshots/prompttext_v1.txt; c39's no-change guarantee is scoped to the prose arms' instruments (the P0/P1/P2 overlays), not the base v1 snapshot",
+      "task_ref": "t9",
+      "reason": "Plan risk r3 named a conflict between two confirmed claims: c39/h28 promise the v1 snapshot is unchanged across the whole arc, while c2/h10 require the default prompt to stop naming subagent/subagents, which the acting seat no longer holds. Operator ruled r3 in favour of c2/h10 with c39 narrowed: the no-change guarantee covers the prose arm instruments only. Consequence carried into t16: every arm run must execute on the post-t9 tip so no arm compares across a prompt change.",
+      "affects": [
+        "t9",
+        "t16",
+        "c39",
+        "c2"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t5 lets the three-tier worker seat's composed prompt gain the writer fragment; acceptance 3's 'compose exactly as before' is met for the agents-mode lobes seats and the tools-off evaluator seat, but NOT for the three-tier worker",
+      "task_ref": "t5",
+      "reason": "The three-tier worker IS the depth-0 acting seat with no config.role, so curate_for_depth has offered it the writer's tool surface since d14. Excluding it from the prompt half would require a second condition the surface half does not have - the duplicated resolution t5 exists to remove - and would preserve, for exactly that seat, the prompt/surface disagreement the task targets. No pre-existing test pinned that seat's prompt (verified: no test calls system_prompt with a worker config), so nothing was relaxed. Operator accepted the change and the consequent shift of the three_tier benchmark baseline; three-tier rows recorded before this commit used a roleless worker prompt and are not comparable across it.",
+      "affects": [
+        "t5",
+        "t15"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t12 (the three prose overlays) was built by a Claude subagent, not by colleague, after two consecutive colleague dispatches produced no files",
+      "task_ref": "t12",
+      "reason": "Operator ruled the build split by task shape: colleague for NEW/small-file authoring, Claude subagents for large-file cross-module work. t12 is the ideal colleague shape (three new small prose files), so it was dispatched to colleague twice. Attempt 1 (background) exited 0 with zero output, no artifact and no files on its colleague/85ff39aed11a branch. Attempt 2 (foreground, COLLEAGUE_TIMEOUT=300) stalled past 10 minutes and was killed; its colleague/91a5e23c35ce branch likewise carries only the base commits, no overlay files. Neither run produced a partial to salvage. Falling back preserves the wave rather than blocking the arc on a backend stall; the failure itself is recorded as a colleague issue.",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    }
+  ]
+}
