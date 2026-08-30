@@ -651,3 +651,149 @@ def test_malformed_stats_web_calls_falls_back_to_step_count(tmp_path: Path):
     )
     stats = load_artifact_stats(tmp_path, "web-malformed-1")
     assert stats.web_calls == 1
+
+
+# --- hires / assignments columns (t15, covers c21/h11 — decision D44) --------
+
+
+def _write_hire_artifact(
+    repo: Path,
+    task_id: str,
+    steps: list[dict],
+    stats: dict,
+    hires: object = None,
+) -> None:
+    """Write a synthetic artifact optionally carrying the t13 ``hires`` key."""
+    (repo / ".colleague").mkdir(parents=True, exist_ok=True)
+    data: dict = {"task_id": task_id, "stats": stats, "steps": steps}
+    if hires is not None:
+        data["hires"] = hires
+    (repo / ".colleague" / f"{task_id}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_hires_counts_the_artifact_hires_list(tmp_path: Path):
+    """hires = len(artifact['hires']); the key is written by the hire lane
+    (t13) — compare_arms only reads it."""
+    _write_hire_artifact(
+        tmp_path,
+        "hire-1",
+        [],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        hires=[{"colleague_id": "c-1", "status": "ok"}, {"colleague_id": "c-2", "status": "ok"}],
+    )
+    stats = load_artifact_stats(tmp_path, "hire-1")
+    assert stats.hires == 2
+    assert stats.assignments == 0
+
+
+def test_assignments_counts_assign_to_colleague_steps(tmp_path: Path):
+    """assignments = the count of steps whose tool is 'assign_to_colleague' —
+    a SEPARATE column from delegations (decision D44), whose definition stays
+    the raw pair OR the purpose tools, unchanged."""
+    _write_full_artifact(
+        tmp_path,
+        "assign-1",
+        [
+            _step(0, "assign_to_colleague", {"task": "sweep the docs"}),
+            _step(1, "assign_to_colleague", {"task": "grep residuals"}),
+            _step(2, "subagent", {"instruction": "survey"}),
+            _step(3, "read_file"),
+        ],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    stats = load_artifact_stats(tmp_path, "assign-1")
+    assert stats.assignments == 2
+    # delegations definition unchanged: assign_to_colleague is NOT a delegation
+    assert stats.delegations == 1
+    assert stats.hires == 0
+
+
+def test_pre_field_artifacts_report_zero_hires_and_assignments():
+    """Every pre-t13 fixture artifact (no 'hires' key, no assign_to_colleague
+    steps) reports 0 for both new columns — never an error."""
+    stats = load_artifact_stats(FIXTURE_REPO, "main-1")
+    assert stats.hires == 0
+    assert stats.assignments == 0
+
+
+def test_malformed_hires_key_is_zero_not_an_error(tmp_path: Path):
+    """A non-list 'hires' value degrades to 0, matching the tolerant reads the
+    other counters use."""
+    _write_hire_artifact(
+        tmp_path,
+        "hire-bad-1",
+        [],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        hires="not-a-list",
+    )
+    stats = load_artifact_stats(tmp_path, "hire-bad-1")
+    assert stats.hires == 0
+
+
+def test_arm_totals_sum_hires_and_assignments(tmp_path: Path):
+    """ArmResult sums the two new counters across its artifacts, like the
+    existing delegation/associate/web totals."""
+    for task_id, hires_n, assign_n in (("sum-1", 1, 2), ("sum-2", 2, 0)):
+        _write_hire_artifact(
+            tmp_path,
+            task_id,
+            [_step(i, "assign_to_colleague", {"task": "x"}) for i in range(assign_n)],
+            {"duration_seconds": 100.0, "model_turns": 10},
+            hires=[{"colleague_id": f"c-{i}"} for i in range(hires_n)],
+        )
+    arm = load_arm(tmp_path, "summed", ["sum-1", "sum-2"])
+    assert arm.hires == 3
+    assert arm.assignments == 2
+
+
+def test_main_prints_the_hires_and_assignments_columns(tmp_path: Path, capsys):
+    """End-to-end: the table header carries hires + assignments, every existing
+    column and the bar line are unchanged, and a pre-field artifact's row shows
+    0 for both."""
+    _write_hire_artifact(
+        tmp_path,
+        "busy-h1",
+        [_step(0, "assign_to_colleague", {"task": "sweep"})],
+        {"duration_seconds": 100.0, "model_turns": 10},
+        hires=[{"colleague_id": "c-1"}],
+    )
+    _write_full_artifact(
+        tmp_path,
+        "quiet-h1",
+        [_step(0, "read_file")],
+        {"duration_seconds": 100.0, "model_turns": 10},
+    )
+    exit_code = main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--arm",
+            "baseline=busy-h1",
+            "--arm",
+            "other=quiet-h1",
+            "--bar-wall",
+            "1.0",
+            "--bar-turns",
+            "1.0",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    header = next(line for line in out.splitlines() if "mean_wall_s" in line)
+    # every existing column, unchanged, plus the two new ones
+    for col in (
+        "arm",
+        "n",
+        "mean_wall_s",
+        "mean_turns",
+        "delegations",
+        "associate_calls",
+        "web_calls",
+        "hires",
+        "assignments",
+        "wall_ratio",
+        "turns_ratio",
+        "bar",
+    ):
+        assert col in header
+    assert "bar: wall_ratio <= 1.0, turns_ratio <= 1.0" in out
