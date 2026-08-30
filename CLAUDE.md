@@ -93,20 +93,31 @@ minds. The architecture, part by part:
   fixed role → fixed seat + rung (`PURPOSE_TABLE`, never leaked from the
   parent), called explicitly: the deepthink precedent (increment 1) applied by
   purpose, never a router. **Arm 4 (plan t11) reverses the delegation half of
-  #443's "replace, don't add", UNDER TEST** — the raw `subagent`/`subagents`
-  are back on the ACTING seat alongside the typed purposes (raw `web` stays
-  replaced), because the two live-testing rows say different things: **row 50**
-  justified replace-don't-add (with raw `web` absent, cortex fired `web_survey`
-  ×3 in its first turn and never shelled out — the row's own verdict is "MISS on
-  the bar, mechanism proven", so it shows the purpose FORM gets called, not that
-  the outcome improved), while **row 49** overturns it for delegation (with raw
-  `subagent`/`subagents` absent, the branch made **0/3 purpose calls** and
-  `sub_results` 0 on a decomposable brief — removing the raw tools produced no
-  delegation at all, though the row also reads that brief as one cortex could
-  rationally do itself, and its 0/3 is itself under re-validation by plan t13).
-  The restoration is CONFINED to depth 0: `actingsurface.CHILD_FORBIDDEN_TOOLS`
-  keeps every spawned child the bounded 15-tool writer it already was. A
-  measured hypothesis, never a settled improvement. Doc: `purpose-tools.md`.
+  #443's "replace, don't add"** — the raw `subagent`/`subagents` are back on
+  the ACTING seat alongside the typed purposes (raw `web` stays replaced). The
+  restoration is CONFINED to depth 0: `actingsurface.CHILD_FORBIDDEN_TOOLS`
+  keeps every spawned child the bounded writer it already was (15 allow-list
+  names, 14 rendered tools). **MEASURED, and the result is negative
+  (`purpose-tools-get-chosen`, `docs/live-testing.md` rows 51–58, 21 runs, zero
+  voided, `markup_tool_calls` 0 on all 21):** neither declared lever moved the
+  delegation rate — prose A1/A2/A3 all 0/3 (wall/turns vs baseline
+  0.560/0.826, 0.908/0.913, 0.866/0.783), surface A4 0/3 (0.522/0.783) — and
+  **no `subagent`/`subagents` call occurred anywhere in the matrix**, so #443's
+  removal of the raw pair was NOT what suppressed delegation. What moved it was
+  **task shape**: 0 delegating runs of 15 on the small brief, 5 of 6 on the
+  large-surface brief, every delegation a typed `code_survey`; cortex
+  substitutes the parallel read-only tool batch for delegation and prefers that
+  cheaper form until the surface is too large. Task success was **equal** (5/5
+  `ok` delegating, 16/16 `ok` non-delegating), so **"cortex was right not to
+  delegate on a brief it can hold" is the supported reading** (claim c46). Two
+  limits: the small-brief zero is a FLOOR, not a null (all five small-brief arms
+  sat at exactly zero, so that brief cannot detect a prose effect — never
+  "prose does not work"), and the one arm meeting the promotion numbers is
+  CONFOUNDED (no P0 control on the large brief) and did NOT promote. **The
+  shipped default prompt carries no encouragement to delegate** — the t9
+  section names the six purpose tools and says "never delegate just to
+  delegate"; the imperative prose tested here lives only in staged overlays
+  under `docs/live-testing/overlays/`. Doc: `purpose-tools.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,

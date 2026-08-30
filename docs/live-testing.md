@@ -123,6 +123,125 @@ treat ❌-by-staleness the same as never-validated.
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
+## purpose-tools-get-chosen — arc closing record (2026-08-30, plan t15)
+
+The arm matrix of rows **52–58** is complete: 21 runs, all on tip `3b59d24`,
+all `status: ok`, every run's `prompt_digest` matching the arm its row
+pre-registered (**zero voided runs**) and `stats.counts.markup_tool_calls` = 0
+on all 21 (so no zero is a #360 dropped call). `scripts/compare_arms.py` was
+not modified by this arc. This section only *reads* rows 49–58; it changes no
+measured number in them.
+
+**Which lever moved the delegation rate: neither declared lever did.**
+
+| Arm | Lever | Delegation | Wall ratio | Turns ratio |
+| --- | --- | --- | --- | --- |
+| A0 | none (decomposable baseline) | 0/3 | — | — |
+| A1 | prose control, P0 overlay | 0/3 | 0.560 | 0.826 |
+| A2 | prose lever, P1 overlay | 0/3 | 0.908 | 0.913 |
+| A3 | prose lever, P2 overlay | 0/3 | 0.866 | 0.783 |
+| A4 | surface lever, raw `subagent`/`subagents` restored | 0/3 | 0.522 | 0.783 |
+| A5 | none (large-surface baseline) | 2/3, 6 calls | — | — |
+| A6 | prose lever, P2 overlay, large surface | 3/3, 12 calls | 1.193 | 0.762 |
+
+(Ratios for A1–A4 are against the A0 family baseline, as the comparator was
+run; A6's are against A5. Both prose contrasts that isolate the paragraph —
+A2-vs-A1 and A3-vs-A1 — read 0/3 against 0/3.)
+
+**The decisive negative result.** A4 restored the raw `subagent`/`subagents`
+pair to the acting seat, and **no `subagent` or `subagents` call occurred
+anywhere in the entire 21-run matrix, including that arm**. So #443's removal
+of the raw pair was not what suppressed delegation: the suppression predates
+the removal and survives its reversal. The arc's founding hypothesis is
+refuted, and this is recorded as the finding it is.
+
+**What did move it was task shape.** 0 delegating runs of the 15 small-brief
+runs (A0–A4); 5 of the 6 large-surface runs (A5–A6). Every delegation in the
+matrix named `code_survey` — a typed purpose tool, chosen freely by the model.
+
+**Mechanism.** Cortex substitutes the parallel read-only tool batch for
+delegation. A0–A4 each show `batches_run` 1–2 and `calls_parallelised` 3–7
+with zero delegation; the trade-off is visible *within* A5, where run 1
+delegated 3 times with `batches_run` 0 while run 2 delegated 0 times with
+`batches_run` 3 / `calls_parallelised` 10. It is not refusing concurrency; it
+holds a cheaper form of it and prefers that form until the surface is genuinely
+too large. This corroborates row 51.
+
+**Delegating vs non-delegating success — equally often.** All 21 runs finished
+`ok` and each changed exactly one module: the 5 delegating runs are 5/5 `ok`,
+the 16 non-delegating runs are 16/16 `ok`. Delegating runs succeeded neither
+more nor less often. Read with row 50 (the one delegating run that failed its
+bar — budget consumed, step-stall, no module changed) and rows 49/51 (three
+non-delegating runs each, all `ok` with the correct module and the correct
+duplicate identified), the supported conclusion is the one claim c46 was
+written to make reportable: **cortex was right not to delegate on a brief it
+can hold.**
+
+**Two honesty limits that bound every sentence above.**
+
+1. **A3-vs-A1 is a FLOOR, not a null.** Every small-brief arm — A0, A1, A2,
+   A3, A4 — sat at exactly zero delegating runs, so the decomposable brief has
+   no room below it to detect a prose effect of any size. The isolated prose
+   effect is recorded as **not detectable on this brief**; it must never be
+   restated as "the prose does not work".
+2. **A6-vs-A5 is CONFOUNDED and does not promote.** There is no P0 control on
+   the large-surface brief, so A6-vs-A5 measures the P2 overlay *as a whole* —
+   the imperative paragraph AND the replacement of
+   `BUILTIN_ROLES['writer'].prompt_fragment` that any operator overlay performs
+   — never the added paragraph in isolation. It does meet the q3 promotion
+   numbers (delegation 6 → 12 calls, turns 0.762×, reasoning 10661 → 10852),
+   and it is still **not promoted**. A clean test would need a P0-control arm
+   on a brief that is not already at the delegation floor, run at the same tip,
+   env and fixture, so the added paragraph is the only difference — i.e. an
+   A3-vs-A1-shaped comparison on the large-surface brief.
+
+**No encouragement shipped.** After t9 the default prompt's `Purpose tools
+(optional).` section *describes* the six typed tools and explicitly says
+"never delegate just to delegate". The imperative encouragement tested in this
+arc lives only in the P1/P2 overlays under `docs/live-testing/overlays/`, which
+are staged experiment instruments an operator copies to
+`<repo>/.colleague/agents/writer.md` for the duration of an arm — never a
+shipped default.
+
+**Before-state, recomputed from source on this branch (not from the spec).**
+
+- The prompt section t9 replaced was **174 words** (`_SUBAGENTS`, 1028 chars,
+  read back from `git show 95c921b^:colleague/prompttext.py`); its replacement
+  `_PURPOSE_TOOLS` is **165 words** (984 chars). The string `subagent` appears
+  nowhere in the new section, and each of `web_survey`, `code_survey`,
+  `review`, `validate`, `plan`, `handover_to_colleague` appears in it.
+- Rendered acting-seat surface (`loop.resolve_role` → `loop.curated_schemas`,
+  no `COLLEAGUE_*` set): **22 offered tools** at depth 0 — the base set plus
+  the six purpose tools plus the raw `subagent`/`subagents` t11 restored. With
+  the arm-0 knob `COLLEAGUE_ACTING_DROP_TOOLS=subagent,subagents` it is **20**.
+- Rendered depth-1 child surface: **14 offered tools** — no purpose tool and
+  no raw `subagent`/`subagents`; `depth-0 minus depth-1` is exactly
+  `{code_survey, handover_to_colleague, plan, review, subagent, subagents,
+  validate, web_survey}`. (Earlier prose in `purpose-tools.md` quoted 21 → 23
+  and "15-tool"; those are **allow-list name counts**, not rendered surfaces —
+  `deepthink` is unarmed and `web` is dropped by the writer role. Corrected in
+  that doc in this same commit.)
+
+**Deviations and issues raised during this arc.** `devague deviate --list`
+records **d1** (t9 regenerates `tests/snapshots/prompttext_v1.txt`; c39's
+no-change guarantee narrowed to the prose arms' P0/P1/P2 overlays), **d2** (t5
+lets the three-tier worker seat's composed prompt gain the writer fragment) and
+**d3** (t12's overlays were authored by a Claude subagent after two colleague
+dispatches produced no files). Issues filed:
+[#451](https://github.com/agentculture/colleague/issues/451) (an authoring run
+can stall leaving no partial, artifact or WIP commit),
+[#452](https://github.com/agentculture/colleague/issues/452) (no step-budget
+headroom for the finishing commit),
+[#453](https://github.com/agentculture/colleague/issues/453)
+(`work --continue` re-bases on HEAD, discarding the interrupted WIP branch) and
+[#454](https://github.com/agentculture/colleague/issues/454)
+(`COLLEAGUE_UPDATE_SNAPSHOTS=1` was a silent no-op).
+
+**Gaps, recorded rather than estimated.** `stream_guard_trips`, stalls-cut /
+stalls-escaped per run, the memory distill counters (attempts/validated/
+detached) and the rendered depth-0/depth-1 tool lists row 56 asked to be pasted
+are not present in the t16 results extract, and are reported as not captured.
+
 ## Feels-alive baseline measurements
 
 The "feels-alive" plan (devague specification) aims to reduce three operational frictions observed in the current colleague v1.44.0 runtime. This section records baseline measurements of each friction, captured live against the reference rig on **2026-07-10** during workforce task t1.

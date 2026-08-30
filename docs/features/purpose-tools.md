@@ -127,6 +127,15 @@ model = the associate's, evidence ids cited in the answer, and zero
 `.eidetic` store (eidetic CLI 0.13.0) and record the memory distill counters.
 **Results (2026-08-28, rows 49–50 in `docs/live-testing.md`):** row 49 **MISS** — branch n=3 `78b0f0f90855`/`480b6d6ea857`/`59fb72435645` 88.6 s / 6.67 turns vs main @ `e589451` 327 s / 5.67 (wall 0.27×, turns 1.18×), **0/3 purpose calls** — on a three-small-file brief cortex reads the files itself. Row 50 `0780c75e2519` **MISS on the bar, mechanism proven** — with raw `web` absent, cortex fired `web_survey` ×3 in its first turn, all three scout children ran on the associate seat, digests cite WebGlass operation ids, **zero `run_command`** (the row-47 host-recon path is closed), the one work-item web budget was consumed across the children; cortex then step-stalled (#438) before writing the final answer, so the evidence-ids-in-answer clause missed. The delegation doctrine (#435) stands: a purpose form is chosen where the raw tool is absent, not where reading is cheaper.
 
+**Rows 51–58 (2026-08-30) supersede that last sentence.** Row 51 re-ran row
+49's brief verbatim with the #360 markup counter in place and found markup 0 on
+every run, so row 49's 0/3 is real behaviour and not a dropped call. The
+21-run arm matrix of rows 52–58 then measured the two declared levers and found
+neither moved the rate, while restoring the raw `subagent`/`subagents` pair
+produced no raw call anywhere in the matrix — so "chosen where the raw tool is
+absent" is not the mechanism either. See § The `purpose-tools-get-chosen` arc
+below and the closing record in `docs/live-testing.md`.
+
 ## Honest limits
 
 - **The single-child spawn path creates no `sub/<id>` worktree (d9).**
@@ -228,24 +237,27 @@ Two honest limits on that reading:
   itself, so its 0/3 is consistent with H2 *and* with "delegation was simply
   not worth it here". Arm 4 does not settle that on its own — it is measured
   against the re-authored briefs of t10 and the pre-registered arm rows of t14.
-- Row 49's own 0/3 is under re-validation by plan task **t13** (whether the
-  count is real or an artifact of dropped tool markup, the #360 failure mode).
-  If t13 finds markup > 0, row 49 is rewritten as inconclusive and this
-  section's framing must be corrected with it.
+- Row 49's own 0/3 was re-validated by plan task **t13** (row 51): the brief was
+  re-run verbatim with the t6 markup counter in place and **markup was 0 on all
+  three runs**, so the 0/3 is real behaviour, not the #360 dropped-markup
+  artifact. The framing needed no correction — but see the closing record
+  below, which reports what arm 4 actually measured.
 
 ### What changed in code
 
 - `colleague/roles.py`'s `_writer_allowlist` now drops only `{"web"}` — the
   acting seat holds `subagent`/`subagents` again, plus the six purposes
-  (21 → 23 offered tools on a bare seat).
+  (21 → 23 names in the allow-list; **20 → 22 rendered** offered tools on a
+  bare seat, since `deepthink` is unarmed and `web` is dropped by the role —
+  recomputed from `loop.curated_schemas` at t15, see below).
 - `colleague/agents/tools.py`'s `THINKER_CODER_TOOLS` (and therefore
   `ASSOCIATE_TOOLS`) mirrors it, so the #411 agents-mode acting seat matches.
 - **The restoration does not leak to children.** `strip_purpose_tools` was
   widened into `colleague.actingsurface.strip_child_forbidden_tools`, which at
   depth >= 1 removes the six purpose names *and*
   `CHILD_FORBIDDEN_TOOLS = ("subagent", "subagents")`. A depth-1 child is
-  still the bounded **15-tool** writer it was before the arm — measured before
-  and after, unchanged.
+  still the bounded writer it was before the arm — **15 allow-list names, 14
+  rendered offered tools** — measured before and after, unchanged.
 - The four exact-set pins (`tests/test_roles.py` ×3,
   `tests/test_purpose_tools_byte_identical.py`, `tests/test_agents_tools.py`)
   were **changed, never relaxed**: the acting seat is now a strict superset of
@@ -256,6 +268,67 @@ Two honest limits on that reading:
   `colleague/delegation_text.py`'s armed-facts sentence has always targeted
   `subagent`/`subagents` as well as `web_survey`/`code_survey`, so on an armed
   rig it now splices onto **four** descriptions instead of two.
+
+## The `purpose-tools-get-chosen` arc (2026-08-30) — what the matrix measured
+
+Spec/plan `2026-08-29-purpose-tools-get-chosen`. Rows **51–58** of
+`docs/live-testing.md` carry the evidence; the full closing record (per-arm
+table, gaps, deviations, issues) lives there. The headline:
+
+- **Neither declared lever moved the delegation rate.** Prose: A1 0/3, A2 0/3,
+  A3 0/3 (wall/turns vs A0: 0.560/0.826, 0.908/0.913, 0.866/0.783). Surface:
+  A4 0/3 (0.522/0.783). Every one of the 21 runs was `ok`, carried the
+  `prompt_digest` its row pre-registered, and recorded
+  `markup_tool_calls` = 0 — so no zero here is a #360 dropped call.
+- **Arm 4 answers its own question in the negative, and answers the arc's.**
+  It restored raw `subagent`/`subagents` to the acting seat, and **no
+  `subagent`/`subagents` call occurred anywhere in the 21-run matrix, that arm
+  included**. #443's removal of the raw pair was therefore *not* what
+  suppressed delegation — H2 (suppression by removal) is refuted, and H1
+  (crowding) has nothing left to explain. The reversal-under-test recorded
+  above resolves as: the restoration changed no measured behaviour.
+- **Task shape is what moved it.** 0 delegating runs of 15 on the small
+  decomposable brief (A0–A4); 5 of 6 on the large-surface brief (A5 2/3 with 6
+  `code_survey` calls, A6 3/3 with 12). Every delegation named `code_survey`.
+- **Mechanism: cortex substitutes the parallel read-only tool batch.** A0–A4
+  show `batches_run` 1–2 / `calls_parallelised` 3–7 with zero delegation, and
+  the trade-off is visible inside A5 (run 1: 3 delegations, `batches_run` 0;
+  run 2: 0 delegations, `batches_run` 3 / `calls_parallelised` 10). It holds a
+  cheaper form of concurrency and prefers it until the surface is too large.
+- **Delegating runs succeeded equally often — not more, not less.** 5/5 `ok`
+  delegating, 16/16 `ok` non-delegating, each changing exactly one module. With
+  row 50's failed delegating run and rows 49/51's successful non-delegating
+  ones beside it, the supported conclusion is the one claim c46 exists to make
+  reportable: **cortex was right not to delegate on a brief it can hold.**
+
+Two limits bound all of the above:
+
+- **The small-brief prose result is a FLOOR, not a null.** All five small-brief
+  arms sat at exactly zero, so that brief cannot detect a prose effect of any
+  size. Recorded as *not detectable on this brief* — never as "prose does not
+  work".
+- **A6-vs-A5 is confounded and did NOT promote.** With no P0 control on the
+  large-surface brief it measures the P2 overlay whole — the imperative
+  paragraph *and* the replacement of `BUILTIN_ROLES['writer'].prompt_fragment`
+  that any operator overlay performs. It meets the q3 promotion numbers
+  (6 → 12 calls, turns 0.762×, reasoning 10661 → 10852) and is still not
+  promoted; a clean test needs a P0-control arm on a brief that is not already
+  at the floor.
+
+**Nothing encouraging shipped.** The default prompt's `Purpose tools
+(optional).` section (t9, `_PURPOSE_TOOLS`, **165 words**, down from the
+174-word `_SUBAGENTS` section it replaced) *names and describes* the six typed
+tools and says "never delegate just to delegate". The imperative encouragement
+this arc tested exists only in the P1/P2 overlays under
+`docs/live-testing/overlays/` — staged experiment instruments, not shipped
+defaults. No claim in this doc, in `CLAUDE.md` or in `adopt-from-qwen-code.md`
+asserts encouragement the shipped prompt carries.
+
+**Rendered surfaces, recomputed from source at t15** (`loop.resolve_role` →
+`loop.curated_schemas`, no `COLLEAGUE_*` set): depth 0 = **22** offered tools;
+depth 0 under the arm knob `COLLEAGUE_ACTING_DROP_TOOLS=subagent,subagents` =
+**20**; depth 1 = **14**, with `depth-0 minus depth-1` exactly the six purpose
+names plus `subagent`/`subagents`.
 
 ## Provenance
 
@@ -268,3 +341,7 @@ Two honest limits on that reading:
 - **No qwen-code port.** Nothing is ported; this is a new tool surface over
   the existing spawn path, so `NOTICE` and `docs/adopted-from.md` are
   **unchanged**.
+- Follow-up spec: `docs/specs/2026-08-29-purpose-tools-get-chosen.md` with plan
+  `docs/plans/2026-08-29-purpose-tools-get-chosen.md` — the measurement arc
+  closed above. Deviations `d1`–`d3` (`devague deviate --list`); issues raised:
+  #451, #452, #453, #454.
