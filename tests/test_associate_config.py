@@ -329,7 +329,8 @@ def test_seat_sends_the_role_name_on_the_wire_and_streams_like_cortex(
     # t23: the associate seat sends its PROFILE (depth: thinking on, temperature 0.6,
     # top_p 0.95, no max_tokens) instead of the scout rung / cortex temperature.
     assert seat_payload["chat_template_kwargs"] == {"enable_thinking": True}
-    assert seat_payload["temperature"] == 0.6 and seat_payload["top_p"] == 0.95
+    assert seat_payload["temperature"] == 0.6
+    assert seat_payload["top_p"] == 0.95
     assert "max_tokens" not in seat_payload
     assert cortex_payload.get("chat_template_kwargs") != {"enable_thinking": False}
 

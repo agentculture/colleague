@@ -66,7 +66,9 @@ def test_per_value_overrides_replace_single_fields(monkeypatch):
     monkeypatch.setenv("COLLEAGUE_ASSOCIATE_MAX_TOKENS", "8192")
     monkeypatch.setenv("COLLEAGUE_ASSOCIATE_TEMPERATURE", "0.4")
     prof = resolve_associate_profile({})
-    assert prof.name == "depth" and prof.max_tokens == 8192 and prof.temperature == 0.4
+    assert prof.name == "depth"
+    assert prof.max_tokens == 8192
+    assert prof.temperature == 0.4
     assert prof.enable_thinking is True
     monkeypatch.delenv("COLLEAGUE_ASSOCIATE_MAX_TOKENS")
     monkeypatch.delenv("COLLEAGUE_ASSOCIATE_TEMPERATURE")

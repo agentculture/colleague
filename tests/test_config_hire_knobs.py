@@ -35,7 +35,8 @@ def test_default_is_off_and_both_keys_omitted(tmp_path, monkeypatch):
     assert cfg.hire is False
     assert cfg.acting_add_tools == ()
     snap = cfg.to_dict()
-    assert "hire" not in snap and "acting_add_tools" not in snap
+    assert "hire" not in snap
+    assert "acting_add_tools" not in snap
 
 
 def test_env_wins_over_config_file(tmp_path, monkeypatch):
@@ -67,7 +68,8 @@ def test_snapshots_differ_only_by_the_knob(tmp_path, monkeypatch):
 
 def test_hire_does_not_conflict_with_execution_modes(tmp_path, monkeypatch):
     cfg = _resolve(tmp_path, monkeypatch, COLLEAGUE_HIRE="1", COLLEAGUE_AGENTS="1")
-    assert cfg.hire is True and cfg.agents is True
+    assert cfg.hire is True
+    assert cfg.agents is True
 
 
 def test_config_show_json_lists_both_knobs(tmp_path, monkeypatch):
@@ -134,7 +136,8 @@ def test_config_show_text_lines_list_both_knobs(tmp_path, monkeypatch):
         env=env,
         check=False,
     )
-    assert "hire: off" in out.stdout and "acting_add_tools: unset" in out.stdout
+    assert "hire: off" in out.stdout
+    assert "acting_add_tools: unset" in out.stdout
     env["COLLEAGUE_HIRE"] = "1"
     env["COLLEAGUE_ACTING_ADD_TOOLS"] = "subagent,subagents"
     out = subprocess.run(
@@ -145,4 +148,5 @@ def test_config_show_text_lines_list_both_knobs(tmp_path, monkeypatch):
         env=env,
         check=False,
     )
-    assert "hire: armed" in out.stdout and "acting_add_tools: subagent,subagents" in out.stdout
+    assert "hire: armed" in out.stdout
+    assert "acting_add_tools: subagent,subagents" in out.stdout

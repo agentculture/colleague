@@ -101,7 +101,11 @@ def resolve_associate_profile(file_associate: "dict[str, str]") -> AssociateProf
     (``COLLEAGUE_ASSOCIATE_TEMPERATURE`` / ``_TOP_P`` / ``_MAX_TOKENS`` /
     ``_THINKING``, or the same keys in the section) replace single fields. An
     unknown profile name or an unparseable value is ignored (the default
-    stands) — a misspelt knob never refuses a run.
+    stands) — a misspelt knob never refuses a run. ``thinking`` accepts only
+    the explicit spellings ``1``/``true``/``yes``/``on`` (→ on) and
+    ``0``/``false``/``no``/``off`` (→ off), case-insensitive; any other value
+    (``treu``) is ignored and the selected profile's ``enable_thinking``
+    stands — it is never read as ``false``.
     """
     from colleague import config as _cfg  # lazy: config imports this module
 
@@ -133,9 +137,27 @@ def resolve_associate_profile(file_associate: "dict[str, str]") -> AssociateProf
             kwargs["max_tokens"] = value if value > 0 else None
         except ValueError:
             pass
-    if str(raw_k).strip():
-        kwargs["enable_thinking"] = str(raw_k).strip().lower() in ("1", "true", "yes", "on")
+    thinking = _parse_thinking(raw_k)
+    if thinking is not None:
+        kwargs["enable_thinking"] = thinking
     return dataclasses.replace(profile, **kwargs) if kwargs else profile
+
+
+#: The spellings ``COLLEAGUE_ASSOCIATE_THINKING`` / ``associate.thinking`` accept
+#: (case-insensitive). Anything else is IGNORED, never read as ``false`` — a
+#: typo such as ``treu`` must not silently switch the seat's thinking off.
+_THINKING_TRUE = frozenset({"1", "true", "yes", "on"})
+_THINKING_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def _parse_thinking(raw: object) -> "bool | None":
+    """``True``/``False`` for an explicit spelling, ``None`` (ignore) otherwise."""
+    text = str(raw or "").strip().lower()
+    if text in _THINKING_TRUE:
+        return True
+    if text in _THINKING_FALSE:
+        return False
+    return None
 
 
 def _with_profile(

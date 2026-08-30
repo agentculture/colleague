@@ -474,7 +474,9 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   `colleague/subagents.py`, `colleague/cli/_commands/_input_line.py` (the
   session's colour-TTY reader thread; any failure degrades to cooked-mode),
   `colleague/realtime.py`, and `colleague/toolbatch.py` (the read-only tool-batch
-  pool behind `run_batch`, convention change (6)). Every
+  pool behind `run_batch`, convention change (6)); `colleague/associate.py`
+  imports `threading` for ONE lock around the once-per-process `/tokenize`
+  probe — no thread. Every
   shell-out targets an operator-installed CLI via explicit allow-listing; none opens
   a socket or forks a daemon. `worktrees.py`'s admin mutations are serialized by an
   advisory `fcntl` lock (#239).

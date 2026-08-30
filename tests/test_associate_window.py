@@ -103,10 +103,12 @@ def test_fallback_failure_reraises_with_both_bodies():
     def dispatch():
         raise retry
 
+    seat_config = _seat_config()
     with pytest.raises(urllib.error.HTTPError) as info:
-        associate.retry_role_alias(original, {"model": "associate"}, _seat_config(), dispatch)
+        associate.retry_role_alias(original, {"model": "associate"}, seat_config, dispatch)
     msg = str(info.value.msg)
-    assert "unroutable role alias" in msg and "role_infeasible" in msg
+    assert "unroutable role alias" in msg
+    assert "role_infeasible" in msg
     assert info.value.code == 422  # the ORIGINAL status leads
 
 
@@ -132,7 +134,5 @@ def test_folded_error_names_each_body_exactly_once():
     folded = str(_folded_http_error(original, retry))
     assert folded.count("maximum context length is 128000") == 1
     assert folded.count("role_infeasible") == 1
-    assert (
-        "400 on the role-name address" in folded
-        and "served-id retry then failed with 404" in folded
-    )
+    assert "400 on the role-name address" in folded
+    assert "served-id retry then failed with 404" in folded
