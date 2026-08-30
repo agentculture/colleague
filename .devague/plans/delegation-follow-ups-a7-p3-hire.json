@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-30T04:31:26Z",
-  "updated": "2026-08-30T06:16:29Z",
+  "updated": "2026-08-30T07:57:53Z",
   "targets": [
     {
       "id": "c1",
@@ -715,6 +715,22 @@
       ],
       "covers": [],
       "instruction": "Files: colleague/config.py (the associate resolution rung \u2014 grep 'associate' in config.py; flip the default from opt-in to discover-when-ready, keep 'off' as the explicit opt-out), colleague/efforttables.py (ASSOCIATE_SEAT_TABLE unchanged \u2014 the rungs stay; only WHO serves changes), colleague/memory.py / the distill child spawn (the memory lane must pick up the same resolved associate), colleague/cli/_commands/config.py (associate_cli.config_show_lines), docs/features/qwen-direct.md, docs/features/adopt-from-qwen-code.md, docs/features/memory.md, CLAUDE.md, tests/test_config_associate_default.py. Precedent: the muse->deepthink discovery rung (two-machines-two-minds arc). A RESOLUTION rung, never a per-turn choice; the purpose->role->seat table is unchanged. Decisions c45 + c46, deviation d3."
+    },
+    {
+      "id": "t20",
+      "summary": "Evidence-trail digests for the survey purposes (t20, decision c47)",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "purpose_schemas._brief_code_survey / _brief_web_survey require a fixed digest shape: one entry per finding with path:start-end (or url + anchor), a <= 5-line verbatim excerpt, and a trailing 'commands run' list; the scout role fragment says the same; a digest missing citations is returned with a one-line 'uncited' marker prefixed by the parent-side renderer (never dropped)",
+        "a parametrised test renders both briefs and asserts the three required sections; the mock engine's scripted scout answers in that shape so test_purpose_executor covers it",
+        "measured, not assumed: an arm re-runs the requested-delegation brief (row 64's setup) with the new digest shape and records post-digest reads as ranged-verify vs full-redo against rows 63/64; the row is pre-registered before the code lands on the rig"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [],
+      "instruction": "Files: colleague/purpose_schemas.py (_brief_code_survey, _brief_web_survey, _render's uncited marker), colleague/roles.py (scout prompt_fragment: cite path:lines + excerpt, list commands), colleague/engines/mock.py (scripted scout digest), tests/test_purpose_schemas.py + tests/test_purpose_executor.py, docs/features/purpose-tools.md. The digest shape is DATA the parent reads \u2014 never a tool the runtime calls on the parent's behalf. Keep the brief templates fixed per purpose (c12/c24)."
     }
   ],
   "risks": [
