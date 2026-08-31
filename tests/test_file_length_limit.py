@@ -44,7 +44,6 @@ SOURCE_EXTENSIONS = frozenset(
 #: raised, and must be REMOVED once the file fits. Never add to this list.
 GRANDFATHERED: dict[str, int] = {
     "colleague/cli/_commands/session.py": 3979,
-    "colleague/loop.py": 5392,
 }
 
 
