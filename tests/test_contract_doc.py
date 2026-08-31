@@ -124,8 +124,10 @@ def _maximal_task_result() -> TaskResult:
                 usage=Usage(1, 1, 2),
                 role="writer",
                 parent="max1",
+                reasoning_effort="low",
             )
         ],
+        effort={"main": "low", "senses": "off", "writer": "low", "distill": "low"},
         command="scaffold",
         destination="goal-frame",
         announcement="arrived",

@@ -11,6 +11,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable
 
+from colleague import effortrecord as _effortrecord
 from colleague import lessons as _lessonsmod
 from colleague import memory as _memorymod
 from colleague.contract import TaskResult
@@ -158,6 +159,11 @@ def _distill_pass(
     distill_fn = _resolve_distill_fn(ctx)
     if distill_fn is None or not ctx.memory_distill:
         return text, None
+    # t5 (h6): the distill seat is BUILT the moment the pass launches — record
+    # its already-resolved rung (DistillAuthor.effort, never recomputed) on the
+    # artifact effort block; an injected fn without an author records nothing.
+    if ctx.distill_author is not None:
+        _effortrecord.record(result, "distill", getattr(ctx.distill_author, "effort", None))
     counts = {"attempts": 1, "validated": 0}
     raw: Any = None
     with suppress(Exception):

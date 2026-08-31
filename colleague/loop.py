@@ -650,6 +650,8 @@ def run(
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
         associate_complete=_context.associate_complete,
+        reasoning_effort_main=_context.reasoning_effort_main,
+        reasoning_effort_senses=_context.reasoning_effort_senses,
         media_bridge=_context.media_bridge,
         senses_run=_context.senses_run,
         senses_media_bridge=_context.senses_media_bridge,

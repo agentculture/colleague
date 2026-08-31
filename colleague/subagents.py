@@ -849,6 +849,8 @@ def run_subagent(
         agent_id=agent_id,
         resolved_model=(binding.resolved_model if binding is not None else None),
         fallback_from_role=(binding.fallback_from_role if binding is not None else None),
+        # t5 (c6): the built child seat's resolved rung — read, never recomputed.
+        reasoning_effort=getattr(child_config, "reasoning_effort_seat", None),
     )
     # t13: raw incompletion reason (dynamic attr) — purpose_schemas keys its marker on it.
     sub.incompletion_reason = getattr(getattr(result, "incompletion", None), "reason", None)
