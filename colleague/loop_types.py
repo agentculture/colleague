@@ -128,6 +128,16 @@ class _Work:
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
     _served_model: list[str] = field(default_factory=list)  # first served id (t18)
+    # Reasoning sidecar (effort-v4 t6, c16/h7): ``seat`` is the acting-seat
+    # label stamped on every sidecar record — run()'s ``seat`` param threaded
+    # verbatim (the append_run_start precedent); display/disk only, never model
+    # context. ``_reasoning_ordinal`` is the within-turn dispatch-ordinal cell
+    # (the ``_last_substantive`` mutable-cell pattern): reset to ``[0]`` as each
+    # turn is accounted (the completion itself is ordinal 0), then ONE
+    # increment per tool dispatch — a parallel batch consumes one ordinal
+    # shared by its N records, a sequential call consumes its own (c34).
+    seat: str = "cortex"
+    _reasoning_ordinal: list[int] = field(default_factory=list)
     # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
     # step completed (the loop start until one does); ``_stalled`` holds the elapsed
     # seconds once the bound was crossed — a single-element cell the frozen ``_Work``

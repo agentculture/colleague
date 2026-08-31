@@ -71,6 +71,15 @@ ENV_TOOL_CONCURRENCY = "COLLEAGUE_TOOL_CONCURRENCY"
 STOP_SKIPPED = "skipped: flight stop requested before this batch ran"
 
 
+def _accounting():
+    """Lazy :mod:`colleague.loop_accounting` (the ``_loop`` lazy-import
+    pattern above): its import closure reaches ``loop_types``' collaborators,
+    and this module must stay a leaf the loop can import first."""
+    from colleague import loop_accounting
+
+    return loop_accounting
+
+
 def concurrency_width() -> int:
     """The batch width from ``COLLEAGUE_TOOL_CONCURRENCY``; unset/invalid → 10, <1 → 1."""
     raw = os.environ.get(ENV_TOOL_CONCURRENCY, "")
@@ -145,6 +154,10 @@ def run_turn_calls(ctx: Any, calls: Sequence[Any], run_one: Callable[[Any, Any],
             break
         if width <= 1 or len(batch) <= 1:
             for call in batch:
+                # Reasoning sidecar (effort-v4 t6, c34): each SEQUENTIAL call
+                # is its own dispatch — its record consumes its own
+                # within-turn request_index (a sequential pair gets two).
+                _accounting().record_tool_dispatch(ctx, [call])
                 if run_one(ctx, call):
                     finished = True
         elif _run_parallel_batch(ctx, batch, width):
@@ -186,6 +199,10 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
     _record_web_failures(ctx.executor, submitted)  # main thread, after the join
     runcounts.bump(ctx.result, "batches_run")  # t20: exact scoreboard
     runcounts.bump(ctx.result, "calls_parallelised", len(submitted))
+    # Reasoning sidecar (effort-v4 t6, c34): the whole batch is ONE dispatch —
+    # its N tool-call records ride the SAME request_ts/request_index the turn
+    # assigns here, in the main-thread bookkeeping, never inside the pool.
+    _accounting().record_tool_dispatch(ctx, [item.call for item in prepared])
     finished = False
     for item in prepared:  # phase 3 — bookkeeping on the main thread, request order
         step_index = len(ctx.result.steps)
