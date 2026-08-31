@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess  # nosec B404 - launching operator CLI is the point (trusted env, D2)
 from pathlib import Path
@@ -127,6 +126,20 @@ _VERSION_PROBE_TIMEOUT_SECONDS = 10
 _RERANK_PROBE_CACHE: dict[str, bool] = {}
 
 
+def _parse_version_tokens(banner: str) -> tuple[int, int] | None:
+    """``(major, minor)`` from the first whitespace token shaped ``X.Y.Z``.
+
+    Linear-time by construction (split + isdigit; no regex, no backtracking —
+    Sonar S8786): each token must split on ``.`` into at least three parts
+    whose first three are all plain digits.
+    """
+    for token in banner.split():
+        parts = token.split(".")
+        if len(parts) >= 3 and all(p.isdigit() for p in parts[:3]):
+            return (int(parts[0]), int(parts[1]))
+    return None
+
+
 def _rerank_supported(cli_path: str, *, cwd: str | Path | None = None) -> bool:
     """True iff ONE cached ``eidetic --version`` probe parses >= 0.14.0.
 
@@ -157,9 +170,11 @@ def _rerank_supported(cli_path: str, *, cwd: str | Path | None = None) -> bool:
         proc = None
     if proc is not None and proc.returncode == 0:
         # "eidetic-cli X.Y.Z" — tolerate surrounding text, require X.Y.Z.
-        match = re.search(r"(\d+)\.(\d+)\.(\d+)", proc.stdout or "")
-        if match:
-            supported = (int(match.group(1)), int(match.group(2))) >= _RERANK_MIN_VERSION
+        # Token parse, no regex: Sonar S8786 flagged the previous \d+\.\d+\.\d+
+        # search as super-linear under backtracking on adversarial banners.
+        version = _parse_version_tokens(proc.stdout or "")
+        if version is not None:
+            supported = version >= _RERANK_MIN_VERSION
 
     _RERANK_PROBE_CACHE[cli_path] = supported
     return supported

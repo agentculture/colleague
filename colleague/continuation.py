@@ -198,18 +198,28 @@ def recorded_acting_effort(repo: str | Path, task_id: str) -> tuple[Optional[str
         return (None, path)
     if not isinstance(data, dict):
         return (None, path)
+    rung = _acting_rung_from_artifact(data, LADDER)
+    return (rung, path)
+
+
+def _acting_rung_from_artifact(data: dict, ladder: tuple) -> Optional[str]:
+    """The acting ("main") seat's recorded rung from a loaded artifact dict.
+
+    Effort block first, ``finish_states`` fallback; only real ladder rungs are
+    honored — anything else reads as absent (``None``), never a crash.
+    """
     block = data.get("effort")
     if isinstance(block, dict):
         rung = block.get("main")
-        if isinstance(rung, str) and rung in LADDER:
-            return (rung, path)
+        if isinstance(rung, str) and rung in ladder:
+            return rung
     for record in data.get("finish_states") or []:
         if isinstance(record, dict) and record.get("seat") == "main":
             rung = record.get("reasoning_effort")
-            if isinstance(rung, str) and rung in LADDER:
-                return (rung, path)
+            if isinstance(rung, str) and rung in ladder:
+                return rung
             break  # the "main" finish record is unique per artifact
-    return (None, path)
+    return None
 
 
 def _expire_hires(result: TaskResult) -> str:

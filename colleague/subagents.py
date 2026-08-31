@@ -630,6 +630,27 @@ def _build_child_config(
     return scouted
 
 
+def _thread_sidecar_repo(
+    parent_config: EngineConfig, spec: ChildSpec, child_task: Task, child_config: EngineConfig
+) -> None:
+    """Thread the operator-repo sidecar destination one hop (effort-v4 t6, h20).
+
+    The child's reasoning sidecar lands TAGGED in the operator repo's
+    ``.colleague/`` — surviving child-worktree removal — via the
+    ``flight_repo_path`` pattern: ``_arm_delegation`` attached the operator
+    repo to the parent config (a dynamic attr, the ``agents_ledger_path``
+    precedent; ``replace`` drops it, so it is re-attached to the child config
+    for grandchildren). Absent (a direct ``run_subagent`` caller), the child's
+    sidecar stays under its own ``repo_path`` — model context is untouched
+    either way (h7).
+    """
+    sidecar_repo = getattr(parent_config, "reasoning_repo_path", None)
+    child_task.reasoning_repo_path = sidecar_repo
+    child_task.reasoning_parent_id = spec.parent_task_id
+    if sidecar_repo:
+        setattr(child_config, "reasoning_repo_path", sidecar_repo)
+
+
 def run_subagent(
     instruction: str,
     *,
@@ -782,11 +803,7 @@ def run_subagent(
     # it, so it is re-attached to the child config for grandchildren below).
     # Absent (a direct ``run_subagent`` caller), the child's sidecar stays
     # under its own ``repo_path`` — model context is untouched either way (h7).
-    sidecar_repo = getattr(parent_config, "reasoning_repo_path", None)
-    child_task.reasoning_repo_path = sidecar_repo
-    child_task.reasoning_parent_id = spec.parent_task_id
-    if sidecar_repo:
-        setattr(child_config, "reasoning_repo_path", sidecar_repo)
+    _thread_sidecar_repo(parent_config, spec, child_task, child_config)
 
     # (e) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
     # and the SAME global budget, so it can delegate further (single OR batch),

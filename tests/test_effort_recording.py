@@ -124,7 +124,8 @@ def test_delegated_scout_child_lands_in_the_parent_effort_block(tmp_path: Path) 
     )
 
     assert result.status == OK
-    assert result.sub_results and result.sub_results[0].role == "scout"
+    assert result.sub_results
+    assert result.sub_results[0].role == "scout"
     # The child's SubResult carries the built seat's rung (read, not recomputed) …
     assert result.sub_results[0].reasoning_effort == "off"
     assert result.sub_results[0].to_dict()["reasoning_effort"] == "off"
@@ -258,7 +259,8 @@ def test_deepthink_escalation_records_the_deepthink_rung(tmp_path: Path) -> None
         context=ContextControls(deepthink_run=fake, reasoning_effort_deepthink="xhigh"),
     )
     assert result.deepthink is not None
-    assert result.effort is not None and result.effort.get("deepthink") == "xhigh"
+    assert result.effort is not None
+    assert result.effort.get("deepthink") == "xhigh"
 
 
 def test_no_escalation_leaves_deepthink_absent_from_the_block(tmp_path: Path) -> None:
