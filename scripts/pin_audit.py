@@ -179,6 +179,77 @@ def _section_allowlist(repo_root: Path, module_path: str) -> None:
         print(f"   {name}: {status}")
 
 
+def _module_aliases(lines: list[str], import_path: str) -> set[str]:
+    """Every local name bound to ``import_path`` in one test file.
+
+    Shared by sections 1b and 2b: both need "what does this file call the
+    module object?" before they can spot a use of it.
+    """
+    as_rx = re.compile(r"\bimport\s+" + re.escape(import_path) + r"\s+as\s+([A-Za-z_]\w*)")
+    parent, _, modname = import_path.rpartition(".")
+    from_rx = re.compile(
+        r"\bfrom\s+" + re.escape(parent) + r"\s+import\s+[^#\n]*\b" + re.escape(modname) + r"\b"
+    )
+    from_as_rx = re.compile(
+        r"\bfrom\s+"
+        + re.escape(parent)
+        + r"\s+import\s+"
+        + re.escape(modname)
+        + r"\s+as\s+([A-Za-z_]\w*)"
+    )
+    aliases: set[str] = set()
+    for line in lines:
+        m = as_rx.search(line)
+        if m:
+            aliases.add(m.group(1))
+        m = from_as_rx.search(line)
+        if m:
+            aliases.add(m.group(1))
+        elif from_rx.search(line):
+            aliases.add(modname)
+    return aliases
+
+
+def _section_alias_patches(repo_root: Path, module_path: str) -> list[tuple[str, int, str]]:
+    """Section 2b: OBJECT-form patches — ``monkeypatch.setattr(<alias>, "name")``.
+
+    Section 2 only sees string targets (``"colleague.loop.thing"``). Tests far
+    more often hold the module object and patch an attribute on it::
+
+        from colleague.engines import vllm_openai
+        monkeypatch.setattr(vllm_openai, "_post", fake)
+
+    That form is invisible to a string-prefix grep, and it is the dangerous
+    one: re-exporting a moved symbol does NOT keep such a patch effective,
+    because a bare-name call resolves through the ``__globals__`` of the module
+    the calling function is TEXTUALLY DEFINED in. Missing these is how a split
+    leaves a green suite that tests nothing (found against appserver.py and
+    vllm_openai.py during the file-length arc).
+    """
+    print("\n2b. OBJECT-FORM PATCHES (module alias)")
+    import_path = _import_path(module_path)
+    found: list[tuple[str, int, str]] = []
+    for rel, lines in _iter_test_files(repo_root):
+        aliases = _module_aliases(lines, import_path)
+        if not aliases:
+            continue
+        alias_rx = re.compile(
+            r"\b(?:monkeypatch\.setattr|setattr)\s*\(\s*("
+            + "|".join(re.escape(a) for a in sorted(aliases))
+            + r")\s*,\s*['\"]([^'\"]+)['\"]"
+        )
+        for i, line in enumerate(lines, start=1):
+            m = alias_rx.search(line)
+            if m:
+                found.append((rel, i, f"{m.group(1)}.{m.group(2)}"))
+    for rel, i, target in found:
+        print(f"   {rel}:{i}: {target}")
+    if not found:
+        print("   (none)")
+    print(f"   -> {len(found)} object-form patch(es)")
+    return found
+
+
 def _section_checklist(
     found: list[tuple[str, int, str]],
     source_reads: list[tuple[str, int, str]],
@@ -215,6 +286,7 @@ def main(argv: list[str]) -> int:
     _section_path_literals(repo_root, module_path)
     source_reads = _section_module_source_reads(repo_root, module_path)
     found = _section_monkeypatch_targets(repo_root, module_path)
+    found += _section_alias_patches(repo_root, module_path)
     _section_allowlist(repo_root, module_path)
     _section_checklist(found, source_reads)
     return 0
