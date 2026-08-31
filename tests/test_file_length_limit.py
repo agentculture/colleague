@@ -48,10 +48,6 @@ GRANDFATHERED: dict[str, int] = {
     "colleague/config.py": 4442,
     "colleague/contract.py": 2479,
     "colleague/engines/vllm_openai.py": 1445,
-    "colleague/handoff.py": 1037,
-    "colleague/livecheck.py": 1481,
-    "colleague/loop.py": 5392,
-    "colleague/memory.py": 1147,
     "tests/test_boundary.py": 1144,
 }
 
