@@ -42,9 +42,7 @@ SOURCE_EXTENSIONS = frozenset(
 #: Files that already exceeded the limit when this gate landed (2026-08-31),
 #: pinned at their length on that day. SHRINK-ONLY: an entry may never be
 #: raised, and must be REMOVED once the file fits. Never add to this list.
-GRANDFATHERED: dict[str, int] = {
-    "colleague/cli/_commands/session.py": 3979,
-}
+GRANDFATHERED: dict[str, int] = {}
 
 
 def count_lines(contents: str) -> int:
