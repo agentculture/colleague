@@ -29,7 +29,7 @@ Two readers, one surface:
   table below). There is no second config format — both readers are served by
   one surface.
 
-## The v3 default table
+## The v4 default table
 
 This is the single source of truth for the default rung of every seat, role,
 and design call-site. It is pinned row-for-row by
@@ -45,20 +45,24 @@ duplicate it.
 
 | Seat | Default rung |
 |------|--------------|
-| `cortex` | `medium` |
-| `worker` | `medium` |
+| `cortex` | `low` |
+| `worker` | `low` |
 | `deepthink` | `xhigh` |
-| `evaluator` | `medium` |
+| `evaluator` | `low` |
 | `senses` | `off` |
 | `design` | `xhigh` |
-| `associate` | `off` |
+| `associate` | `low` |
+
+The `associate` row is the armed seat's floor (Nemotron needs `low`); the
+unreachable fallback to cortex runs at `off` (`associate_seats.FALLBACK_EFFORT`)
+— two models, one seat (#475).
 
 ### Subagent children (`ROLE_TABLE`)
 
 | Role | Default rung |
 |------|--------------|
-| `writer` | `medium` |
-| `planner` | `medium` |
+| `writer` | `low` |
+| `planner` | `low` |
 | `reviewer` | `low` |
 | `validator` | `low` |
 | `explorer` | `off` |
@@ -71,14 +75,15 @@ rung; the `associate` row above is the whole-seat override. Precedence:
 `default` kill-switch > explicit per-child override >
 `COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT>` / `reasoning_effort_seats["associate.<seat>"]`
 > `COLLEAGUE_ASSOCIATE_REASONING_EFFORT` (the whole-seat row) > this table.
-Unset, every seat but `distill` resolves exactly as before.
+Unset, every seat resolves to its `low` row (v4 #475 — the four `off` rows
+moved to join `distill`).
 
 | Associate seat | Default rung |
 |----------------|--------------|
-| `scout` | `off` |
-| `compact` | `off` |
-| `synthesis` | `off` |
-| `digest` | `off` |
+| `scout` | `low` |
+| `compact` | `low` |
+| `synthesis` | `low` |
+| `digest` | `low` |
 | `distill` | `low` |
 
 ### Purpose tools (`PURPOSE_TABLE` + `PURPOSE_STEPS`, `colleague/efforttables.py`)
@@ -92,17 +97,17 @@ the `default` kill-switch still yields no fragment. The step cap is the child's
 
 | Purpose tool | Child role | Default rung | Step cap |
 |--------------|------------|--------------|----------|
-| `web_survey` | `scout` (associate when armed) | `off` | 12 |
-| `code_survey` | `scout` (associate when armed) | `off` | 12 |
+| `web_survey` | `scout` (associate when armed) | `low` | 12 |
+| `code_survey` | `scout` (associate when armed) | `low` | 12 |
 | `review` | `reviewer` | `low` | 16 |
 | `validate` | `validator` | `low` | 16 |
-| `plan` | `planner` | `medium` | 10 |
-| `handover_to_colleague` | `writer` | `medium` | parent default |
+| `plan` | `planner` | `low` | 10 |
+| `handover_to_colleague` | `writer` | `low` | parent default |
 
 Honest limit (follow-up v5 of the purpose-tools spec): a **manual**
 `subagent`/`subagents` child still resolves the parent's cortex seat override
 above its own `ROLE_TABLE` row (`colleague/subagents.py`, the child rung
-resolution) — so `COLLEAGUE_CORTEX_REASONING_EFFORT=medium` reaches a manual
+resolution) — so `COLLEAGUE_CORTEX_REASONING_EFFORT=high` reaches a manual
 reviewer child; a purpose child does not inherit it.
 
 ### Top-level role overrides (`TOP_LEVEL_ROLE_TABLE`)
@@ -124,7 +129,7 @@ When no top-level role is given, the run's `--mode` applies the same rung to
 the acting seat for the two read-only modes (`colleague work --mode
 explore|review`, the mode the ask-colleague verbs select). The operator's rule
 (2026-08-30): the associate seat is the fast reviewer, and whenever it is not
-taken, cortex at `medium` is slow — a 20 KB diff review overflowed its
+taken, cortex at the v3 `medium` default is slow — a 20 KB diff review overflowed its
 synthesis turn at 274k reasoning chars and closed `incomplete`. Consulted only
 when no explicit override exists: the kill-switch, every per-seat / global
 knob, and a `--role` with its own top-level rung still win, so an unset run
@@ -135,7 +140,7 @@ is byte-identical.
 | `explore` | `low` |
 | `review` | `low` |
 
-Every other top-level role and mode keeps the **acting seat's** rung (medium).
+Every other top-level role and mode keeps the **acting seat's** rung (low).
 
 ### Design call-sites (`DESIGN_SITE_TABLE`)
 
@@ -259,10 +264,11 @@ byte-identical.
   scored 4/4 on shallow prompts. The saving is **seat-shaped**, so the knob is
   seat-shaped — the doc cites the measured rig evidence and states its limits
   rather than asserting a universal saving.
-- **The default now sends `medium` for the acting seat by design** (spec
-  decisions c35/c36/c38/c39). "Byte-identical" holds **under the kill-switch**,
+- **The default now sends `low` for the acting seat by design** (spec
+  decisions c35/c36/c38/c39; v4 #475 dropped the v3 `medium` default).
+  "Byte-identical" holds **under the kill-switch**,
   not under "nothing configured": with the default table armed, the acting
-  cortex/worker seat sends `reasoning_effort: medium` on the wire. Say it
+  cortex/worker seat sends `reasoning_effort: low` on the wire. Say it
   plainly — the increment is *not* invisible until armed; it is invisible only
   when the operator opts out via the kill switch.
 - **Thor / 35B ladder unknown.** The served checkpoint's ladder is not
@@ -299,7 +305,7 @@ byte-identical.
 
 ## Key files
 
-- `colleague/effort.py` — the ladder, the v3 tables, `resolve_effort`,
+- `colleague/effort.py` — the ladder, the v4 tables, `resolve_effort`,
   `to_chat_template_kwargs`, `validate_effort` (pure stdlib; `config` imports
   `effort`, never the reverse).
 - `colleague/design.py` — `DESIGN_CALL_SITES`, `design_effort`,

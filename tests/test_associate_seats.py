@@ -67,8 +67,8 @@ def test_unknown_seat_is_refused() -> None:
 
 def test_feature_doc_table_has_the_associate_row() -> None:
     doc = (REPO_ROOT / "docs/features/thinking-effort.md").read_text(encoding="utf-8")
-    assert "| `associate` | `off` |" in doc
-    assert "| `scout` | `off` |" in doc  # Qodo #441-4: read-only scouts think OFF
+    assert "| `associate` | `low` |" in doc  # v4 (#475): the armed seat's floor
+    assert "| `scout` | `off` |" in doc  # ROLE_TABLE: the unarmed scout — read-only, thinking OFF
 
 
 #: Every module allowed to touch ``config.associate`` — the seat builders, the
