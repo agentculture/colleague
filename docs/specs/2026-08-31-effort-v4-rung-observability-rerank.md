@@ -38,6 +38,12 @@
   - honesty: the reasoning sidecar never lands in git (covered by the .colleague/ gitignore path) and never changes model context — display/disk only, like flight; a size cap prevents an unbounded file on a 133k-char run
 - the rerank opt-in is version-safe: memory.py passes --rerank only when the installed eidetic CLI supports it (eidetic-cli >= 0.14.0) — on an older CLI the flag is withheld and recall behaves exactly as today, never an argv error that silently empties recall
   - honesty: a rig with pre-0.14 eidetic keeps working recall (test with a fake eidetic on PATH that rejects --rerank); recalled=0-because-flag-error can never recur (the #387-class failure)
+- the version gate needs a real detection mechanism and an honest dark-launch note: the operator rig runs eidetic-cli 0.13.0 TODAY (probed: 'eidetic --version' -> 0.13.0; 'recall --help' has no --rerank), so the opt-in ships dormant here until the rig upgrades — memory.py detects support via one 'eidetic --version' probe (parse >= 0.14.0), never try-and-retry on argv error
+  - honesty: on this rig, post-change recall output is byte-identical to today (0.13.0 withholds the flag); the version probe adds at most one subprocess call per run and its failure degrades to withholding, never to broken recall
+- the sidecar has the conventional off-knob: default-on, but `COLLEAGUE_REASONING_LOG`=0 disables it byte-identically (no file, no code-path residue) — matching the one-off-knob-per-mechanic convention every adopted default carries
+  - honesty: `COLLEAGUE_REASONING_LOG`=0 leaves no sidecar file and the artifact/stats unchanged vs a pre-arc run
+- the c25 re-apply is loud, never silent: after v4 lands, continuing a pre-v4 run re-applies its recorded rung (e.g. medium) over the new low default — the continuation prints and records a warning naming the re-applied rung and its source artifact whenever it differs from what env/config would resolve, so an operator can see an old rung resurrected
+  - honesty: a continuation test pins: recorded rung != current resolution -> warning on TaskResult.warnings naming both values; equal -> no warning
 
 ## Honesty conditions
 
@@ -48,6 +54,7 @@
 - each after-state clause maps to at least one requirement claim (v4->c2/c3/c4, rung->c6/c14/c22, sidecar->c16/c26, rerank->c23/c27)
 - the h24 finding is cited as recorded on #475 (the 1000-line ceiling did not buy delegation), not restated stronger
 - the rerun is executed AFTER the rung-recording lands, and its artifact is quoted in #475 as closure evidence
+- grep of feedback export + handoff paths shows no read of the sidecar; a test asserts export output for a run WITH a sidecar contains no reasoning text
 
 ## Success signals
 
@@ -56,12 +63,14 @@
 ## Scope / boundaries
 
 - the vLLM adapter keeps touching only the OpenAI surface: recording the rung reuses the already-computed `_effort_for` value — no new probe, no new wire field beyond the existing `chat_template_kwargs` carve-out (#476 option 3, per-turn wire recording, is not taken)
+- the sidecar stays out of every sharing surface: feedback export, handoff/PR content, and mesh surfaces never read or transmit <`task_id`>.reasoning.jsonl — chain-of-thought can quote repo content (including secrets read during the run) and is local-diagnostic only
 
 ## Assumptions
 
 - if recall opts in to --rerank, `min_score` keeps reading the hybrid score field (not `rerank_score`): #467 measures the reranker as near-binary (0.9998/0.9963 vs 0.0048/0.0035 for topically-relevant material), so a hybrid-calibrated `COLLEAGUE_RECALL_MIN_SCORE` applied to `rerank_score` would cut supporting records the reranker ranked first; ordering-sensitive consumers (`score_recall_precision`'s rank computation) must instead become order-driven rather than score-driven
 - landing order: the #476 rung-recording lands FIRST, then the #475 validation rerun (the identical 6daa8d083e7b brief at low on the same rig vs the recorded arms: 2851s incomplete at medium, 506s complete Claude control) — so the rerun's independent variable is read from the run's own artifact instead of re-derived from source
 - the work seam's forwarding lanes stay coherent: --background already forwards --effort verbatim (`_work_background.py` line 34's ('effort','--effort','value') tuple), and chain episodes share the one in-process config so an override rides every episode; neither needs new plumbing for v4 or #476
+- the ladder-400 retry path stays interpretable: when a retry drops the `reasoning_effort` key, the artifact already records a ladder-retry warning (`vllm_payload`.`ladder_retry_warnings_as_dicts`) — FinishRecord.`reasoning_effort` records the RESOLVED rung and the warning marks that the key was dropped on the wire; the pair, together, is the honest record (no new field needed)
 
 ## Scope exploration
 
@@ -91,6 +100,16 @@
   - seeds: `c15`
 - `s13` — `colleague/loop_wire.py (ModelResponse.reasoning) + colleague/loop_accounting.py (lines 21-36) + colleague/contract_records.py (WorkStats.add_generated)`: reasoning arrives as a separate wire field per turn and only len() is kept; no surface (artifact steps, flight feed, spill-to-disk) carries the text — the flight feed is also reaped at run end, so even transient traces vanish
   - seeds: `c16`
+- `s14` — `challenge pass / adjacent-systems lens: installed eidetic CLI (probe)`: eidetic-cli 0.13.0 on this rig, no --rerank in recall --help — c23's opt-in is dark on the validation rig itself; version-probe detection seeded as c28
+  - seeds: `c28`
+- `s15` — `challenge pass / failure-mode lens: colleague/engines/vllm_payload.py ladder retry`: `ladder_retry_warnings_as_dicts` already lands retry evidence on the artifact after every work item; the recorded-rung + retry-warning pair covers the dropped-key case
+  - seeds: `c29`
+- `s16` — `challenge pass / security lens: .gitignore + feedback export surface`: .gitignore lines 247-249 already ignore /.colleague/\* except commands/skills, so the sidecar path is covered as-is; the remaining exposure is export/sharing lanes, seeded as boundary c31
+  - seeds: `c31`
+- `s17` — `challenge pass / lifecycle lens: colleague/continuation.py + the v4 cutover`: re-applying a recorded rung across the v4 boundary silently resurrects pre-v4 defaults on continued runs; loud-warning requirement seeded as c32
+  - seeds: `c32`
+- `s18` — `challenge pass / concurrency lens: loop turns + toolbatch pool`: reasoning arrives only on main-thread sequential completions (the toolbatch pool runs executor.execute only, convention change (6)); sidecar writes are single-writer per run — clean pass, residual risk only if a future concurrent completion lane appears
+- `s19` — `challenge pass / counter-evidence lens: docs/live-testing.md rows 49-65`: no recorded measurement contradicts the low-is-better hypothesis for this rig, but none confirms it either — the only supporting datum is the single #475 A/B; the rerun (success signal) is the counter-evidence hunt, deliberately kept as the arc's own validation
 
 ## Decisions
 
@@ -99,8 +118,10 @@
 - `ROLE_TABLE` writer/planner drop medium->low alongside the v4 tables (unmeasured for children specifically; the rerun validates)
 - work --continue re-applies the recorded rung from the resumed artifact to the acting seat; an explicit --effort on the continue invocation wins over the recorded value
 - the reasoning sidecar is default-on, size-capped, gitignored under .colleague/, survives the run, and is reaped by colleague clean
+- child reasoning sidecars land tagged in the operator repo's .colleague/ beside the parent's, surviving worktree reap and SIGTERM — the lost-work case is exactly when they are needed
 
 ## Open parks
 
 - [unknown_nonblocking] whether dropping effort to low alone lands the 6daa8d083e7b task inside the stream-lifetime bound, or a sampling change (small non-zero temperature / `top_p`) is also needed — measurable only by the rerun
 - [unknown_nonblocking] whether the acting seat should gain `reasoning_exhausted_reason`'s treatment (a warning when `finish_reason`=length with high `reasoning_chars` and near-zero `answer_chars` — today wired only for the distill child in distilleffort.py); #475's run reported only step-stall
+- [unknown_nonblocking] sidecar semantics across an --until-done chain (one task id, several episodes): append across episodes vs per-episode files, and whether the size cap is per-run or per-chain — decidable at plan time, not a spec blocker

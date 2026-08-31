@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-31T16:24:00Z",
-  "updated": "2026-08-31T16:50:07Z",
+  "updated": "2026-08-31T16:54:54Z",
   "claims": [
     {
       "id": "c1",
@@ -434,6 +434,106 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "the version gate needs a real detection mechanism and an honest dark-launch note: the operator rig runs eidetic-cli 0.13.0 TODAY (probed: 'eidetic --version' -> 0.13.0; 'recall --help' has no --rerank), so the opt-in ships dormant here until the rig upgrades \u2014 memory.py detects support via one 'eidetic --version' probe (parse >= 0.14.0), never try-and-retry on argv error",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "on this rig, post-change recall output is byte-identical to today (0.13.0 withholds the flag); the version probe adds at most one subprocess call per run and its failure degrades to withholding, never to broken recall",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "assumption",
+      "text": "the ladder-400 retry path stays interpretable: when a retry drops the reasoning_effort key, the artifact already records a ladder-retry warning (vllm_payload.ladder_retry_warnings_as_dicts) \u2014 FinishRecord.reasoning_effort records the RESOLVED rung and the warning marks that the key was dropped on the wire; the pair, together, is the honest record (no new field needed)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "the sidecar has the conventional off-knob: default-on, but COLLEAGUE_REASONING_LOG=0 disables it byte-identically (no file, no code-path residue) \u2014 matching the one-off-knob-per-mechanic convention every adopted default carries",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "COLLEAGUE_REASONING_LOG=0 leaves no sidecar file and the artifact/stats unchanged vs a pre-arc run",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "boundary",
+      "text": "the sidecar stays out of every sharing surface: feedback export, handoff/PR content, and mesh surfaces never read or transmit <task_id>.reasoning.jsonl \u2014 chain-of-thought can quote repo content (including secrets read during the run) and is local-diagnostic only",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "grep of feedback export + handoff paths shows no read of the sidecar; a test asserts export output for a run WITH a sidecar contains no reasoning text",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "the c25 re-apply is loud, never silent: after v4 lands, continuing a pre-v4 run re-applies its recorded rung (e.g. medium) over the new low default \u2014 the continuation prints and records a warning naming the re-applied rung and its source artifact whenever it differs from what env/config would resolve, so an operator can see an old rung resurrected",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "a continuation test pins: recorded rung != current resolution -> warning on TaskResult.warnings naming both values; equal -> no warning",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "decision",
+      "text": "child reasoning sidecars land tagged in the operator repo's .colleague/ beside the parent's, surviving worktree reap and SIGTERM \u2014 the lost-work case is exactly when they are needed",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -449,6 +549,15 @@
     {
       "id": "v2",
       "text": "whether the acting seat should gain reasoning_exhausted_reason's treatment (a warning when finish_reason=length with high reasoning_chars and near-zero answer_chars \u2014 today wired only for the distill child in distilleffort.py); #475's run reported only step-stall",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "sidecar semantics across an --until-done chain (one task id, several episodes): append across episodes vs per-episode files, and whether the size cap is per-run or per-chain \u2014 decidable at plan time, not a spec blocker",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -560,6 +669,50 @@
       "seeds": [
         "c16"
       ]
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / adjacent-systems lens: installed eidetic CLI (probe)",
+      "finding": "eidetic-cli 0.13.0 on this rig, no --rerank in recall --help \u2014 c23's opt-in is dark on the validation rig itself; version-probe detection seeded as c28",
+      "seeds": [
+        "c28"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / failure-mode lens: colleague/engines/vllm_payload.py ladder retry",
+      "finding": "ladder_retry_warnings_as_dicts already lands retry evidence on the artifact after every work item; the recorded-rung + retry-warning pair covers the dropped-key case",
+      "seeds": [
+        "c29"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / security lens: .gitignore + feedback export surface",
+      "finding": ".gitignore lines 247-249 already ignore /.colleague/* except commands/skills, so the sidecar path is covered as-is; the remaining exposure is export/sharing lanes, seeded as boundary c31",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / lifecycle lens: colleague/continuation.py + the v4 cutover",
+      "finding": "re-applying a recorded rung across the v4 boundary silently resurrects pre-v4 defaults on continued runs; loud-warning requirement seeded as c32",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / concurrency lens: loop turns + toolbatch pool",
+      "finding": "reasoning arrives only on main-thread sequential completions (the toolbatch pool runs executor.execute only, convention change (6)); sidecar writes are single-writer per run \u2014 clean pass, residual risk only if a future concurrent completion lane appears",
+      "seeds": []
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / counter-evidence lens: docs/live-testing.md rows 49-65",
+      "finding": "no recorded measurement contradicts the low-is-better hypothesis for this rig, but none confirms it either \u2014 the only supporting datum is the single #475 A/B; the rerun (success signal) is the counter-evidence hunt, deliberately kept as the arc's own validation",
+      "seeds": []
     }
   ],
   "lapses": []
