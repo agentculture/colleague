@@ -507,8 +507,10 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   advisory `fcntl` lock (#239).
 - **The runtime owns hooks, telemetry, the per-model-hooks overlay, the `culture` /
   `devague` tools, the approval gate, `WorkStats`, and the feedback store — not
-  backends** (all load in `colleague/loop.py`; a hook that fires on `mock` fires
-  identically on `vllm-openai`). Telemetry off, and an absent
+  backends** (they load in the RUNTIME — `colleague/loop.py` and its `loop_*`
+  siblings, the `_work_*`/`_session_*` command modules — never in
+  `colleague/engines/`, which is the line that matters; a hook that fires on
+  `mock` fires identically on `vllm-openai`). Telemetry off, and an absent
   feedback/`approvals.json`, are strict no-ops. **Tokens are exactly what `usage`
   reports — never estimated** (reasoning is chars/bytes; no tokenizer, no `bytes/4`).
   The `devague` allow-list excludes `confirm`/`reject`/`export`; each tool shells out

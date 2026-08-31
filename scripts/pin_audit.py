@@ -30,6 +30,7 @@ usage message when called with no argument.
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from pathlib import Path
@@ -197,8 +198,21 @@ def _module_aliases(lines: list[str], import_path: str) -> set[str]:
         + re.escape(modname)
         + r"\s+as\s+([A-Za-z_]\w*)"
     )
+    # `mod = <import.path>` and `mod = importlib.import_module("<import.path>")`
+    assign_rx = re.compile(
+        r"^\s*([A-Za-z_]\w*)\s*=\s*(?:"
+        + re.escape(import_path)
+        + r"\b|importlib\.import_module\(\s*['\"]"
+        + re.escape(import_path)
+        + r"['\"]|import_module\(\s*['\"]"
+        + re.escape(import_path)
+        + r"['\"])"
+    )
     aliases: set[str] = set()
     for line in lines:
+        m = assign_rx.search(line)
+        if m:
+            aliases.add(m.group(1))
         m = as_rx.search(line)
         if m:
             aliases.add(m.group(1))
@@ -210,8 +224,20 @@ def _module_aliases(lines: list[str], import_path: str) -> set[str]:
     return aliases
 
 
+def _dotted(node: "ast.expr") -> str:
+    """``a.b.c`` for an attribute chain rooted in a Name, else ``""``."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
 def _section_alias_patches(repo_root: Path, module_path: str) -> list[tuple[str, int, str]]:
-    """Section 2b: OBJECT-form patches — ``monkeypatch.setattr(<alias>, "name")``.
+    """Section 2b: OBJECT-form patches — ``monkeypatch.setattr(<obj>, "name")``.
 
     Section 2 only sees string targets (``"colleague.loop.thing"``). Tests far
     more often hold the module object and patch an attribute on it::
@@ -225,27 +251,56 @@ def _section_alias_patches(repo_root: Path, module_path: str) -> list[tuple[str,
     the calling function is TEXTUALLY DEFINED in. Missing these is how a split
     leaves a green suite that tests nothing (found against appserver.py and
     vllm_openai.py during the file-length arc).
+
+    Parsed with :mod:`ast`, not matched with a regex. A regex over a single
+    identifier missed 81 real sites in this repo — every ATTRIBUTE-CHAIN patch
+    such as ``monkeypatch.setattr(subagents.registry, "load")`` or
+    ``monkeypatch.setattr(session_mod.realtime, "open_session")``, which reach
+    a second module THROUGH the audited module's namespace and so break in
+    exactly the same way when it is split.
     """
-    print("\n2b. OBJECT-FORM PATCHES (module alias)")
+    print("\n2b. OBJECT-FORM PATCHES (module object)")
     import_path = _import_path(module_path)
     found: list[tuple[str, int, str]] = []
+    unparsed: list[str] = []
     for rel, lines in _iter_test_files(repo_root):
         aliases = _module_aliases(lines, import_path)
         if not aliases:
             continue
-        alias_rx = re.compile(
-            r"\b(?:monkeypatch\.setattr|setattr)\s*\(\s*("
-            + "|".join(re.escape(a) for a in sorted(aliases))
-            + r")\s*,\s*['\"]([^'\"]+)['\"]"
-        )
-        for i, line in enumerate(lines, start=1):
-            m = alias_rx.search(line)
-            if m:
-                found.append((rel, i, f"{m.group(1)}.{m.group(2)}"))
+        try:
+            tree = ast.parse("\n".join(lines))
+        except SyntaxError as exc:
+            # Never swallow this. A silent `continue` here reported "0 patches"
+            # for every module while the parse was failing on every file — the
+            # same "examined nothing, looked clean" failure this tool exists to
+            # catch, and it happened during this very section's development.
+            print(f"   !! could not parse {rel}: {exc} — its patches are NOT audited")
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            fn = _dotted(node.func)
+            if fn not in ("monkeypatch.setattr", "setattr", "mock.patch.object", "patch.object"):
+                continue
+            target = _dotted(node.args[0])
+            # The ROOT of the chain must be one of this module's aliases:
+            # `subagents.registry` counts when auditing subagents.py, because
+            # the patch reaches `registry` through subagents' own namespace.
+            if not target or target.split(".")[0] not in aliases:
+                continue
+            attr = ""
+            if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                if isinstance(node.args[1].value, str):
+                    attr = node.args[1].value
+            found.append((rel, node.lineno, f"{target}.{attr}" if attr else target))
+    found.sort()
     for rel, i, target in found:
         print(f"   {rel}:{i}: {target}")
     if not found:
         print("   (none)")
+    if unparsed:
+        print(f"   -> WARNING: {len(unparsed)} test file(s) could not be parsed and were skipped")
     print(f"   -> {len(found)} object-form patch(es)")
     return found
 

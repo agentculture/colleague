@@ -84,6 +84,16 @@ def scan_lengths(root: Path, names: list[str]) -> dict[str, int]:
         if not _is_source(name):
             continue
         path = root / name
+        # A tracked symlink is never measured by following it. ``is_file()``
+        # would say True for one pointing at a real file (letting the gate
+        # measure content from outside the repo, or block on something like
+        # /dev/zero) and False for a broken one (silently dropping a tracked
+        # source entry — the exact "examined nothing, reported clean" failure
+        # this scanner's docstring exists to prevent). Report it as 0 so it
+        # stays visible in the mapping and cannot masquerade as absent.
+        if path.is_symlink():
+            counts[name] = 0
+            continue
         if not path.is_file():  # a deleted-but-still-indexed path
             continue
         counts[name] = count_lines(path.read_text(encoding="utf-8", errors="replace"))
@@ -163,6 +173,31 @@ def test_the_scanner_actually_scans(tmp_path: Path) -> None:
     assert "over.py" in over, "the scanner would not catch a new over-limit .py file"
     assert "over_no_final_newline.ts" in over, "a missing final newline hid an over-limit file"
     assert "exactly_at_limit.py" not in over, "the limit is inclusive"
+
+
+def test_symlinks_are_never_followed(tmp_path: Path) -> None:
+    """A tracked symlink is reported, never followed (Qodo #6).
+
+    Following one would let the gate measure content from outside the repo, or
+    block on a device file; skipping a broken one would silently drop a tracked
+    source entry. Both are the "examined nothing, reported clean" failure
+    :func:`scan_lengths` exists to prevent, so a symlink is recorded as 0
+    rather than resolved or dropped.
+    """
+    (tmp_path / "real.py").write_text("x\n" * (MAX_SOURCE_FILE_LINES + 500), encoding="utf-8")
+    (tmp_path / "points_outside.py").symlink_to(tmp_path / "real.py")
+    (tmp_path / "broken.py").symlink_to(tmp_path / "gone.py")
+
+    counts = scan_lengths(tmp_path, ["points_outside.py", "broken.py"])
+
+    assert counts["points_outside.py"] == 0, (
+        "a symlink was FOLLOWED — the gate measured its target's length and "
+        "could read content from outside the repository"
+    )
+    assert "broken.py" in counts, (
+        "a broken symlink vanished from the scan — a tracked source entry that "
+        "reports nothing is indistinguishable from a clean one"
+    )
 
 
 def test_the_gate_covers_python() -> None:
