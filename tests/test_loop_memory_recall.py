@@ -74,13 +74,13 @@ def _fake_eidetic(bin_dir: Path, log: Path, recall_payload: list[dict]) -> None:
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
 
 
-@pytest.fixture()
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / ".eidetic" / "memory").mkdir(parents=True)
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def eidetic_log(repo: Path, tmp_path: Path, monkeypatch) -> Path:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

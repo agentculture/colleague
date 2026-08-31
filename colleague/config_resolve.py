@@ -360,8 +360,8 @@ def resolve_scalar_knobs(
     ``model`` / ``context_budget_tokens`` / ``lobes_context`` and every seat,
     mode and effort field.
     """
-    return dict(
-        max_steps=int(
+    return {
+        "max_steps": int(
             _pick(
                 _str(max_steps),
                 "COLLEAGUE_MAX_STEPS",
@@ -369,7 +369,7 @@ def resolve_scalar_knobs(
                 default=str(_DEFAULT_MAX_STEPS),
             )
         ),
-        temperature=float(
+        "temperature": float(
             _pick(
                 None,
                 "COLLEAGUE_TEMPERATURE",
@@ -377,7 +377,7 @@ def resolve_scalar_knobs(
                 default=str(_DEFAULT_TEMPERATURE),
             )
         ),
-        timeout=float(
+        "timeout": float(
             _pick(
                 None,
                 "COLLEAGUE_TIMEOUT",
@@ -385,7 +385,7 @@ def resolve_scalar_knobs(
                 default=str(_DEFAULT_TIMEOUT),
             )
         ),
-        max_output_chars=int(
+        "max_output_chars": int(
             _pick(
                 _str(ov.max_output_chars),
                 "COLLEAGUE_MAX_OUTPUT_CHARS",
@@ -393,7 +393,7 @@ def resolve_scalar_knobs(
                 default=str(_DEFAULT_MAX_OUTPUT_CHARS),
             )
         ),
-        subagent_concurrency=_try_int(
+        "subagent_concurrency": _try_int(
             _pick(
                 _str(ov.subagent_concurrency),
                 "COLLEAGUE_SUBAGENT_CONCURRENCY",
@@ -402,7 +402,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_SUBAGENT_CONCURRENCY,
         ),
-        subagent_depth=_try_int(
+        "subagent_depth": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_SUBAGENT_DEPTH",
@@ -411,7 +411,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_SUBAGENT_DEPTH,
         ),
-        subagent_total=_try_int(
+        "subagent_total": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_SUBAGENT_TOTAL",
@@ -420,7 +420,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_SUBAGENT_TOTAL,
         ),
-        autosplit_target_tokens=int(
+        "autosplit_target_tokens": int(
             _pick(
                 _str(ov.autosplit_target_tokens),
                 "COLLEAGUE_AUTOSPLIT_TARGET",
@@ -428,7 +428,7 @@ def resolve_scalar_knobs(
                 default=str(_DEFAULT_AUTOSPLIT_TARGET_TOKENS),
             )
         ),
-        fillline_threshold=_try_float(
+        "fillline_threshold": _try_float(
             _pick(
                 _str(ov.fillline_threshold),
                 "COLLEAGUE_FILLLINE_THRESHOLD",
@@ -437,7 +437,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_FILLLINE_THRESHOLD,
         ),
-        fanout_files=_try_int(
+        "fanout_files": _try_int(
             _pick(
                 _str(ov.fanout_files),
                 "COLLEAGUE_FANOUT_FILES",
@@ -446,7 +446,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_FANOUT_FILES,
         ),
-        review_fanout_folders=_try_int_or_none(
+        "review_fanout_folders": _try_int_or_none(
             _pick(
                 None,
                 "COLLEAGUE_REVIEW_FANOUT_FOLDERS",
@@ -454,7 +454,7 @@ def resolve_scalar_knobs(
                 default="",
             )
         ),
-        plan_offer_tokens=_try_int(
+        "plan_offer_tokens": _try_int(
             _pick(
                 _str(ov.plan_offer_tokens),
                 "COLLEAGUE_PLAN_OFFER_TOKENS",
@@ -463,7 +463,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_PLAN_OFFER_TOKENS,
         ),
-        max_continue_nudges=_try_int(
+        "max_continue_nudges": _try_int(
             _pick(
                 _str(ov.max_continue_nudges),
                 "COLLEAGUE_MAX_CONTINUE_NUDGES",
@@ -474,7 +474,7 @@ def resolve_scalar_knobs(
         ),
         # Env-only (no CLI flag / explicit override) — keeping it off the
         # parameter list holds resolve() at 13 params (Sonar S107, PR #207).
-        synthesis_reserve_steps=_try_int(
+        "synthesis_reserve_steps": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_SYNTHESIS_RESERVE_STEPS",
@@ -486,12 +486,12 @@ def resolve_scalar_knobs(
         # Lint gate (#200) — env > config.json > default-on. Kept off the
         # signature (the --no-lint flag overrides post-resolve) to hold the
         # S107 parameter ceiling, mirroring synthesis_reserve_steps above.
-        lint=_resolve_lint_enabled(files.lint),
-        watch=_resolve_watch_enabled(files.watch),
-        coherence=_resolve_coherence_enabled(files.coherence),
-        memory=_resolve_memory_enabled(files.memory),
-        memory_distill=_resolve_memory_distill(files.memory_distill),
-        lint_fix_retries=_try_int(
+        "lint": _resolve_lint_enabled(files.lint),
+        "watch": _resolve_watch_enabled(files.watch),
+        "coherence": _resolve_coherence_enabled(files.coherence),
+        "memory": _resolve_memory_enabled(files.memory),
+        "memory_distill": _resolve_memory_distill(files.memory_distill),
+        "lint_fix_retries": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_LINT_FIX_RETRIES",
@@ -502,8 +502,8 @@ def resolve_scalar_knobs(
         ),
         # Test-integrity gate (#203) — env > config.json > default-on, mirroring
         # lint. Kept off the signature (no CLI flag in v0) for the S107 ceiling.
-        testintegrity=_resolve_testintegrity_enabled(files.ti),
-        testintegrity_fix_retries=_try_int(
+        "testintegrity": _resolve_testintegrity_enabled(files.ti),
+        "testintegrity_fix_retries": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_TESTINTEGRITY_FIX_RETRIES",
@@ -512,11 +512,11 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_TESTINTEGRITY_FIX_RETRIES,
         ),
-        testintegrity_reviewer_model=testintegrity_reviewer_model,
+        "testintegrity_reviewer_model": testintegrity_reviewer_model,
         # Affected-tests gate (#213) — env > config.json > default-on, mirroring
         # lint. Kept off the signature (no CLI flag in v0) for the S107 ceiling.
-        affected_tests=_resolve_affected_tests_enabled(files.at),
-        affected_tests_fix_retries=_try_int(
+        "affected_tests": _resolve_affected_tests_enabled(files.at),
+        "affected_tests_fix_retries": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES",
@@ -526,7 +526,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_AFFECTED_TESTS_FIX_RETRIES,
         ),
-        affected_tests_depth=_try_int(
+        "affected_tests_depth": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_AFFECTED_TESTS_DEPTH",
@@ -534,7 +534,7 @@ def resolve_scalar_knobs(
             ),
             default=_DEFAULT_AFFECTED_TESTS_DEPTH,
         ),
-        affected_tests_max_files=_try_int(
+        "affected_tests_max_files": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_AFFECTED_TESTS_MAX_FILES",
@@ -545,14 +545,14 @@ def resolve_scalar_knobs(
             default=_DEFAULT_AFFECTED_TESTS_MAX_FILES,
         ),
         # affected_tests_override has no env var (set later from a CLI flag).
-        affected_tests_override=None,
+        "affected_tests_override": None,
         # Episode chaining (indefinite-run, decision c21) — env > config.json
         # > default (dormant OFF / cap 5, 0 = unlimited). The --until-done /
         # --max-episodes CLI flags are applied post-resolve by the work path
         # (t5), keeping both off the signature (the S107 ceiling, the lint
         # precedent).
-        until_done=_resolve_until_done_enabled(files.until_done),
-        max_episodes=_try_int(
+        "until_done": _resolve_until_done_enabled(files.until_done),
+        "max_episodes": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_MAX_EPISODES",
@@ -564,7 +564,7 @@ def resolve_scalar_knobs(
         # Per-run compaction-turn cap (issue #334) — env > config.json >
         # the fillline default (4), 0 = unlimited (the max_episodes
         # convention above). Malformed input falls back to the default.
-        compaction_cap=_try_int(
+        "compaction_cap": _try_int(
             _pick(
                 None,
                 "COLLEAGUE_COMPACTION_CAP",
@@ -573,4 +573,4 @@ def resolve_scalar_knobs(
             ),
             default=DEFAULT_COMPACTION_CAP,
         ),
-    )
+    }
