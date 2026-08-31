@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404 - launching operator CLI is the point (trusted env, D2)
 from pathlib import Path
@@ -99,6 +100,61 @@ ALLOWED_VERBS: frozenset[str] = frozenset({"recall", "remember"})
 #: Bound a runaway CLI so it cannot stall the loop indefinitely.
 _TIMEOUT_SECONDS = 300
 
+# ── eidetic --rerank opt-in behind a version probe (#467, eidetic-cli#39) ────
+#
+# eidetic-cli 0.14.0 adds an opt-in ``--rerank`` stage to ``eidetic recall``.
+# An older CLI REJECTS the unknown flag, and a wrong argv would make recall
+# return [] silently — the #387-class recalled=0 failure (see the envelope
+# comment inside :func:`recall`). So the flag is passed only after ONE
+# ``eidetic --version`` probe per process proves the CLI is new enough; ANY
+# probe failure (timeout, OSError, non-zero exit, unparseable output) means
+# the flag is WITHHELD and the recall argv stays byte-identical to the
+# pre-rerank surface (dark launch on a 0.13 rig).
+
+#: Minimum eidetic-cli version whose ``recall`` accepts ``--rerank``.
+_RERANK_MIN_VERSION: tuple[int, int] = (0, 14)
+
+#: Bound on the one-per-process ``eidetic --version`` probe.
+_VERSION_PROBE_TIMEOUT_SECONDS = 10
+
+#: Per-process probe cache, keyed by the resolved CLI path (recall runs on
+#: the main thread — no lock needed). Never cleared at runtime; a process
+#: probes each CLI path at most once.
+_RERANK_PROBE_CACHE: dict[str, bool] = {}
+
+
+def _rerank_supported(cli_path: str, *, cwd: str | Path | None = None) -> bool:
+    """True iff ONE cached ``eidetic --version`` probe parses >= 0.14.0.
+
+    The probe result is cached per process in :data:`_RERANK_PROBE_CACHE`.
+    Any failure — timeout, OSError, non-zero exit, or output with no
+    parseable ``X.Y.Z`` — caches ``False``: the flag is withheld, never
+    retried, so a flag-rejecting older CLI can never yield recalled=0.
+    """
+    cached = _RERANK_PROBE_CACHE.get(cli_path)
+    if cached is not None:
+        return cached
+
+    supported = False
+    try:
+        proc = subprocess.run(  # nosec B603 # NOSONAR - fixed argv, operator CLI
+            [cli_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_PROBE_TIMEOUT_SECONDS,
+            cwd=str(cwd) if cwd is not None else None,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        proc = None
+    if proc is not None and proc.returncode == 0:
+        # "eidetic-cli X.Y.Z" — tolerate surrounding text, require X.Y.Z.
+        match = re.search(r"(\d+)\.(\d+)\.(\d+)", proc.stdout or "")
+        if match:
+            supported = (int(match.group(1)), int(match.group(2))) >= _RERANK_MIN_VERSION
+
+    _RERANK_PROBE_CACHE[cli_path] = supported
+    return supported
+
 
 def recall(
     repo_path: str | Path,
@@ -121,6 +177,10 @@ def recall(
     Returns:
         A list of result dicts parsed from the CLI's JSON output.
         Returns an empty list if the CLI is absent or output is malformed.
+
+    ``--rerank`` (#467) is appended iff :func:`_rerank_supported` proved the
+    CLI is >= 0.14.0 — withheld on any doubt, keeping the argv byte-identical
+    to the pre-rerank surface on an older rig (dark launch).
     """
     cli_path = shutil.which("eidetic")
     if cli_path is None:
@@ -142,6 +202,10 @@ def recall(
         "--visibility",
         "public",
     ]
+    if _rerank_supported(cli_path, cwd=root_path):
+        # Opt-in rerank stage (#467): only a CLI proven >= 0.14.0 sees the
+        # flag; otherwise the argv is byte-identical to the pre-rerank one.
+        argv.append("--rerank")
 
     try:
         proc = subprocess.run(  # nosec B603 # NOSONAR - argv list, no shell; free text

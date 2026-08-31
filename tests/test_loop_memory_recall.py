@@ -100,7 +100,13 @@ def eidetic_log(repo: Path, tmp_path: Path, monkeypatch) -> Path:
 def _calls(log: Path) -> list[list[str]]:
     if not log.exists():
         return []
-    return [json.loads(line)["argv"] for line in log.read_text().splitlines()]
+    return [
+        argv
+        for argv in (json.loads(line)["argv"] for line in log.read_text().splitlines())
+        # The once-per-process `eidetic --version` rerank probe (#467) is
+        # not a verb invocation — keep the verb-sequence assertions stable.
+        if argv[:1] != ["--version"]
+    ]
 
 
 def _cwds(log: Path) -> list[str]:
@@ -361,7 +367,13 @@ def test_embed_env_reaches_eidetic_subprocess_end_to_end(
     )
 
     assert result.status == OK
-    lines = [json.loads(line) for line in log.read_text().splitlines()]
+    lines = [
+        parsed
+        for parsed in (json.loads(line) for line in log.read_text().splitlines())
+        # Skip the `--version` rerank probe (#467): it is not a verb call
+        # and does not carry the embed env overrides.
+        if parsed["argv"][:1] != ["--version"]
+    ]
     verbs = [line["argv"][0] for line in lines]
     assert verbs == ["recall", "remember"]
     assert all(line["env_value"] == "http://embed-host:9000/v1" for line in lines)
