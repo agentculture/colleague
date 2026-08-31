@@ -1,5 +1,27 @@
 """The subagent launcher — nested in-process child work items, depth-bounded.
 
+Split (hard-1000-line-file-limit, task t7) into three siblings so this module
+stays under the 1000-line file-length gate: the seat/binding resolution surface
+(:class:`~colleague.subagents_binding.ChildSpec`, the delegation-bounds check,
+the cross-role lobes binding) lives in :mod:`colleague.subagents_binding`; most
+of the parallel batch orchestration (the worktree lifecycle, the merge child,
+the batch entry point) lives in :mod:`colleague.subagents_batch`. This module
+keeps the two synchronous single-child entry points (:func:`make_spawn` /
+:func:`run_subagent`), the armed child-config builders that assign the
+per-seat thinking-effort rung (:func:`_child_config_for_profile` /
+:func:`_build_child_config` — the ``tests/test_thinking_effort_boundary.py``
+sanctioned-assign-files list still names only this file), and
+:func:`_spawn_children` — the ONE function anywhere in the batch lane that
+actually instantiates a ``ThreadPoolExecutor``, kept here on purpose: this is
+the sole module ``tests/test_boundary.py``'s two-sided ``_THREADS_ALLOWED``
+check (mirrored byte-for-byte in ``tests/test_agents_boundary.py`` and
+``tests/test_chain_e2e.py``) permits to import ``concurrent.futures``, and
+moving that one call site would have forced edits to all three. Every name
+this module used to define directly is still reachable at
+``colleague.subagents.<name>`` — re-exported here — so all 18 existing
+importers, and every ``colleague.subagents.registry.load`` monkeypatch, still
+resolve unchanged.
+
 Mid-work, an engine can delegate a scoped sub-task to a NESTED child work item on a
 chosen engine/model. This module is the launcher. It offers two paths:
 
@@ -62,110 +84,52 @@ import threading
 from typing import Callable, List, Optional, cast
 
 from colleague import associate_seats as _associate_seats
-from colleague import registry, web_schemas, worktrees
-from colleague.agents.profile import DORMANT_PURPOSES, PURPOSE_ROLE, PURPOSES
-from colleague.agents.state.context import CONTEXT_MODES
+from colleague import (  # noqa: F401 - re-exported: tests patch colleague.subagents.worktrees
+    registry,
+    web_schemas,
+    worktrees,
+)
 from colleague.config import (
     MAX_SUBAGENT_DEPTH,
-    MAX_SUBAGENT_FANOUT,
     MAX_SUBAGENT_TOTAL,
     EngineConfig,
     _role_dial_base_url,
     _same_origin,
-    effective_concurrency,
 )
 from colleague.configlifecycle import EpisodeConfigSnapshot
-from colleague.contract import ERROR, OK, SubResult, Task, Usage
-from colleague.design import design_seat_config as _design_seat_config
-from colleague.roles import is_read_only
+from colleague.contract import SubResult, Task
+from colleague.subagents_batch import (  # noqa: F401
+    _MIN_CHILD_CONTEXT_BUDGET,
+    _MIN_CHILD_MAX_STEPS,
+    _build_child_spec,
+    _child_budget_share,
+    _resolve_batch_width,
+    _run_batch,
+    _run_child_in_worktree,
+    make_batch_spawn,
+)
 
-# Floors for the width-scaled child budget share (t12 / spec R5): a child's
-# share is clamped so scaling can never hand a child an unworkable budget —
-# and never MORE than the parent's own value (a tiny parent budget stays the
-# ceiling, floors notwithstanding).
-_MIN_CHILD_MAX_STEPS = 10
-_MIN_CHILD_CONTEXT_BUDGET = 16000
-
-
-@dataclasses.dataclass(frozen=True)
-class ChildSpec:
-    """Per-child delegation extras for ONE nested child work item.
-
-    Bundles the switches that accreted beyond the original engine/model/role
-    trio — the explicit t12 budget, the t16 goal contract, and t16 lineage —
-    so the launcher signatures stay under the S107 parameter ceiling (the
-    ``ContextControls`` precedent). Every field defaults to ``None``: an
-    empty spec is byte-identical to the pre-t12/t16 behavior."""
-
-    max_steps: Optional[int] = None
-    context_budget_tokens: Optional[int] = None
-    goal: Optional[str] = None
-    acceptance: Optional[List[str]] = None
-    parent_task_id: Optional[str] = None
-    #: Model-bound agents (#411, plan task t14): the child's *profile* — a purpose
-    #: name from :data:`colleague.agents.profile.PURPOSES` (``talker`` / ``worker`` /
-    #: ``thinker_coder`` / ``associate``) or a bare bindable lobes role name
-    #: (:data:`BINDABLE_ROLES`). ``None`` (the default) = no profile: the child
-    #: inherits the parent seat exactly as today; INERT unless ``agents`` is armed.
-    profile: Optional[str] = None
-    #: ``inherit`` (the default, today's behaviour) or ``clear`` (the child
-    #: receives the handover summary — t10 — as its ``Task.context`` instead
-    #: of the parent's transcript). Anything else is refused whole.
-    context_mode: str = "inherit"
-    #: The PARENT's own profile/purpose (lineage one hop up), recorded on the
-    #: child's ``delegate`` event as ``from_profile``; threaded by
-    #: :func:`make_spawn` / :func:`make_batch_spawn`'s ``parent_profile``.
-    parent_profile: Optional[str] = None
-    #: An explicit per-child thinking-effort override (#416 t5, c28/h19) — one
-    #: of :data:`colleague.effort.LADDER` or the kill-switch sentinel
-    #: ``"default"``. ``None`` (the default) means "no override": the child's
-    #: builder resolves its effort from the role/seat tables instead. Threaded
-    #: from the ``subagent``/``subagents`` tool args (:mod:`colleague.tools`)
-    #: as ``resolve_effort``'s ``parent_override`` — the HIGHEST-precedence
-    #: input, above the role/seat tables.
-    effort: Optional[str] = None
-    #: Whether this child consumes a slot of the shared delegation budget
-    #: (``MAX_SUBAGENT_FANOUT`` / ``MAX_SUBAGENT_TOTAL``). ``True`` (the
-    #: default) is every manual delegation — byte-identical. ``False`` is
-    #: the purpose-tool arithmetic exemption
-    #: (purpose-tools-associate-seat, c34). The DEPTH cap always applies.
-    charges_budget: bool = True
-    #: The ONE work-item-wide web budget this child inherits (t7, c33/h32):
-    #: ``COLLEAGUE_WEB_MAX_CALLS - parent.web_calls`` at spawn time, or
-    #: ``None`` (the default) - today's per-executor budget, byte-identical
-    #: for every manual ``subagent``/``subagents`` call.
-    web_calls_remaining: Optional[int] = None
-    #: The purpose-tool name (t8, q3) when spawned BY a purpose tool — exempts
-    #: the armed ``⊆``-parent check for its FIXED child surface; ``None`` for
-    #: a manual ``subagent``/``subagents`` delegation, which stays subject to it.
-    purpose: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        if self.context_mode not in CONTEXT_MODES:
-            raise ValueError(
-                f"unknown context_mode: {self.context_mode!r} (expected one of {CONTEXT_MODES})"
-            )
-        if self.profile is not None and (
-            self.profile not in PURPOSES and self.profile not in BINDABLE_ROLES
-        ):
-            raise ValueError(
-                f"unknown profile: {self.profile!r} (expected a purpose in "
-                f"{sorted(PURPOSES)} or a lobes role in {sorted(BINDABLE_ROLES)})"
-            )
-        if self.effort is not None:
-            from colleague import effort as _effort
-
-            _effort.validate_effort(self.effort)
-
-
-#: The lobes roles a child ``profile`` may name DIRECTLY (a bare role name
-#: instead of a purpose). Chat-capable seats only — ``stt``/``tts``/
-#: ``embedder`` are not seats a child work item can run on.
-BINDABLE_ROLES = frozenset({"cortex", "senses", "worker", "muse", "associate"})
-
-#: The floor role every profile falls back to (spec q1: cortex runs ALL roles
-#: for now) — mirrors ``colleague.agents.profile._FALLBACK_ROLE``.
-_FALLBACK_ROLE = "cortex"
+# Re-exported below (not referenced by name in this file's own code) so every
+# existing importer of a name this module used to define directly still
+# resolves at colleague.subagents.<name> after the t7 split — including the
+# `colleague.subagents.registry.load` monkeypatch targets and every private
+# helper tests import or patch directly.
+from colleague.subagents_binding import (  # noqa: F401
+    BINDABLE_ROLES,
+    ChildSpec,
+    SubagentError,
+    _child_purpose,
+    _child_requested_tools,
+    _ChildBinding,
+    _delegate_event_data,
+    _delegation_bounds,
+    _enforce_delegation_bounds,
+    _requested_role,
+    _resolve_child_binding,
+    _seat_purpose,
+    decomposition_seat_config,
+    default_parent_profile,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -274,10 +238,6 @@ __all__ = [
 ]
 
 
-class SubagentError(Exception):
-    """A subagent launch was refused — e.g. the depth or global-budget cap was exceeded."""
-
-
 class _AgentBudget:
     """A thread-safe global agent counter shared across ONE top-level work item.
 
@@ -331,274 +291,6 @@ def new_agent_budget(config: Optional[EngineConfig] = None) -> "_AgentBudget":
     """
     limit = getattr(config, "subagent_total", MAX_SUBAGENT_TOTAL) if config else MAX_SUBAGENT_TOTAL
     return _AgentBudget(limit)
-
-
-def decomposition_seat_config(config: EngineConfig) -> EngineConfig:
-    """The 'subagents.decompose' design call-site seat (#416 t6, c14/h9): xhigh.
-
-    Honest limit: this module dispatches each child as a full ``Task`` through
-    ``Engine.work`` (:func:`make_spawn`/:func:`make_batch_spawn`), so a child's
-    OWN completion is built by the engine at the child's own role/seat effort
-    (t5) — there is no separate "decide how to decompose" completion in this
-    module to route through the design seat instead. This builder is pinned
-    here, ready for a future dedicated decomposition-planning call; it is
-    unit-tested at the builder level (``tests/test_design_call_site.py``), not
-    exercised end-to-end.
-    """
-    return _design_seat_config(config, "subagents.decompose")
-
-
-# ---------------------------------------------------------------------------
-# Cross-role dial (#411, plan task t14): a child may bind a different lobes role.
-# ---------------------------------------------------------------------------
-
-
-def default_parent_profile(config: EngineConfig) -> Optional[str]:
-    """The profile the TOP-LEVEL spawn wiring hands to :func:`make_spawn` /
-    :func:`make_batch_spawn` as ``parent_profile``.
-
-    Unarmed (``config.agents`` False) → ``None`` — byte-identical to today.
-    Armed → an explicit ``config.agents_profile`` attribute when the loop
-    wiring (t15) set one, else ``thinker_coder`` (cortex runs the acting seat
-    today, spec q1). Every caller passes this so every spawn path carries the
-    parent's purpose.
-    """
-    if not getattr(config, "agents", False):
-        return None
-    explicit = getattr(config, "agents_profile", None)
-    return str(explicit) if explicit else "thinker_coder"
-
-
-def _seat_purpose(config: EngineConfig) -> str:
-    """The purpose whose tool surface THIS seat's own loop narrows itself to.
-
-    Read back from the same place the loop's ``resolve_role`` reads it (t15):
-    an explicit ``agents_profile`` attribute, else the acting default
-    (``thinker_coder``, the full surface). Parent and child are therefore
-    always ranked on the SAME rule.
-    """
-    from colleague.agents.runtime import DEFAULT_ACTING_PURPOSE
-
-    return str(getattr(config, "agents_profile", None) or DEFAULT_ACTING_PURPOSE)
-
-
-def _child_purpose(parent_config: EngineConfig, spec: ChildSpec) -> str:
-    """The purpose the CHILD seat will actually run on.
-
-    Its own when ``spec.profile`` names one; otherwise the PARENT's — a bare
-    lobes role name switches the model, never the tool surface, and a spawn
-    with NO profile inherits the parent's seat (the ``subagent`` tool's own
-    documented contract). Never ``DEFAULT_ACTING_PURPOSE``: defaulting there
-    would silently widen a narrow parent's child to the full surface.
-    """
-    from colleague.agents.tools import PURPOSE_TOOLS
-
-    if spec.profile in PURPOSE_TOOLS:
-        return str(spec.profile)
-    return _seat_purpose(parent_config)
-
-
-def _child_requested_tools(
-    spec: ChildSpec,
-    child_purpose: str,
-    role: Optional[str],
-    parent_config: Optional[EngineConfig] = None,
-) -> tuple[str, ...]:
-    """Requested tools for the ``⊆`` check (t8, q3): a purpose spawn's FIXED
-    role-allowlist-∩-environment surface (via ``curate_schemas``, the same
-    filter ``web``'s presence check applies) — else today's profile tools."""
-    if spec.purpose:
-        from colleague.tools import curate_schemas
-
-        return tuple(sorted(s["function"]["name"] for s in curate_schemas(role)))
-    from colleague.agents.tools import tools_for_purpose
-
-    return tuple(sorted(tools_for_purpose(child_purpose, parent_config)))
-
-
-def _delegation_bounds(
-    parent_config: EngineConfig,
-    spec: ChildSpec,
-    *,
-    instruction: str,
-    depth: int,
-    role: Optional[str],
-) -> tuple[str, str, tuple[str, ...], "object"]:
-    """``(child_purpose, child_ceiling, requested_tools, verdict)`` for one delegation."""
-    from colleague.agents.delegation import DelegationRequest, validate_delegation
-    from colleague.agents.runtime import seat_ceiling
-    from colleague.agents.tools import tools_for_purpose
-
-    parent_purpose = _seat_purpose(parent_config)
-    child_purpose = _child_purpose(parent_config, spec)
-    # The child inherits the parent's publish intent; only its ROLE can lower
-    # the ceiling further, so the child's ceiling is ranked off the parent's
-    # config with the CHILD's role applied.
-    child_ceiling = seat_ceiling(parent_config, role)
-    requested_tools = _child_requested_tools(spec, child_purpose, role)
-    request = DelegationRequest(
-        delegation_id="",  # validation only — nothing is recorded from here
-        from_agent=spec.parent_profile or parent_purpose,
-        requested_agent_profile=spec.profile or child_purpose,
-        objective=instruction,
-        acceptance="",
-        requested_tools=requested_tools,
-        authority_ceiling=child_ceiling,
-        context_mode=spec.context_mode,
-        depth=depth,
-        purpose=spec.purpose,
-    )
-    verdict = validate_delegation(
-        request,
-        parent_effective_tools=tools_for_purpose(parent_purpose),
-        parent_ceiling=seat_ceiling(parent_config, getattr(parent_config, "role", None)),
-    )
-    return child_purpose, child_ceiling, requested_tools, verdict
-
-
-def _enforce_delegation_bounds(
-    parent_config: EngineConfig,
-    spec: ChildSpec,
-    *,
-    instruction: str,
-    depth: int,
-    role: Optional[str],
-) -> tuple[tuple[str, ...], str]:
-    """Validate ONE armed delegation against the parent's bounds — refuse whole.
-
-    Returns the ``(requested_tools, authority_ceiling)`` the delegation was
-    ranked on, for the ``delegate`` event to record (empty when unarmed).
-
-    The enforcement half of t11 (Qodo, PR #414): ``validate_delegation`` owned
-    the arithmetic — child tools ``⊆`` parent tools, child ceiling ``≤``
-    parent ceiling, depth/fanout/total within the ``MAX_SUBAGENT_*`` caps,
-    ``context_mode`` in the closed set — but nothing on the spawn path called
-    it, so a narrow parent could hand a child a WIDER surface by naming a
-    different profile (a ``worker`` seat, which holds no ``write_file`` /
-    ``edit_file``, delegating a ``thinker_coder`` child that does).
-
-    Called on EVERY armed spawn — gated on ``config.agents``, NOT on a
-    declared profile: a delegation that omits ``profile`` inherits the
-    parent's seat, and gating on the profile would have let the model skip the
-    check by simply not naming one. Runs BEFORE the global budget charge,
-    before the ``delegate`` event and before the child engine runs, so a
-    refused delegation costs nothing, records nothing and spawns nothing.
-    Refusal surfaces as :class:`SubagentError` — the same clean, model-visible
-    refusal as the depth and budget caps. Because a non-subset REFUSES, the
-    child's surface is a subset of the parent's by construction.
-
-    Two bounds are deliberately NOT re-derived here: ``fanout``/``total`` (the
-    shared ``_AgentBudget`` charges and refuses them upstream, before any work —
-    and a ``charges_budget=False`` purpose child is exempt from exactly those
-    two, c34) and the ``_NOT_INHERITABLE`` tool classes (nested delegation is
-    explicitly permitted — a child gets its own depth-bound spawn callbacks).
-    Alignment is not permission: the host's policy/approval gate still gates
-    every route this allows.
-    """
-    if not getattr(parent_config, "agents", False):
-        return (), ""  # unarmed: no purposes, no bounds — byte-identical today
-    child_purpose, ceiling, requested_tools, verdict = _delegation_bounds(
-        parent_config, spec, instruction=instruction, depth=depth, role=role
-    )
-    if not verdict.allowed:
-        raise SubagentError(
-            f"delegation refused: {child_purpose!r} under "
-            f"{_seat_purpose(parent_config)!r} — {verdict.reason}"
-        )
-    return requested_tools, ceiling
-
-
-@dataclasses.dataclass(frozen=True)
-class _ChildBinding:
-    """How ONE child's ``profile`` resolved — the trace record behind the armed
-    child config and the ``SubResult.agent_id`` / ``resolved_model`` /
-    ``fallback_from_role`` fields.
-
-    ``role_info`` is the lobes ``RoleInfo`` the child dials (``None`` when the
-    gateway was absent/unreachable — the child then stays on the parent's
-    main endpoint). ``gateway_url`` is the gateway the roles came from.
-    """
-
-    profile: str
-    requested_role: str
-    model_role: str
-    resolved_model: str
-    fallback_from_role: Optional[str]
-    role_info: object
-    gateway_url: Optional[str]
-
-
-def _requested_role(profile: str) -> str:
-    """The lobes role a profile names: a purpose maps through the enumerated
-    :data:`~colleague.agents.profile.PURPOSE_ROLE` table; a bare role name is
-    itself."""
-    return PURPOSE_ROLE[profile] if profile in PURPOSES else profile
-
-
-def _resolve_child_binding(parent_config: EngineConfig, spec: ChildSpec) -> Optional[_ChildBinding]:
-    """Resolve ``spec.profile`` against the lobes gateway — ``None`` when unarmed.
-
-    Armed (``parent_config.agents`` True) AND ``spec.profile`` set, the roles
-    come from :func:`colleague.lobes.resolve_roles` over the parent's
-    ``lobes_gateway_url``; the requested role binds when present AND ready,
-    else the child is carried on the cortex model under a RECORDED fallback
-    (``fallback_from_role`` = the requested role — the
-    :func:`colleague.agents.profile.resolve_profile` doctrine: fallback, never
-    refusal, never silent). Two further rules:
-
-    - **d3 dormancy**: a DORMANT purpose (``worker``) is NEVER bound even when
-      its role is ready — it resolves to the cortex floor, fallback recorded.
-    - **no gateway** (unarmed lobes, or unreachable): the child degrades to
-      the parent's MAIN model/endpoint with the fallback recorded; a
-      ``thinker_coder``/``cortex`` profile on the main seat records no
-      fallback (it IS the floor).
-
-    Pure except for the one GET :func:`colleague.lobes.resolve_roles` issues
-    (which never raises — it degrades to ``None``).
-    """
-    profile = spec.profile
-    if not getattr(parent_config, "agents", False) or profile is None:
-        return None
-    # Lazy import: keeps the unarmed import graph of this module byte-identical
-    # (lobes pulls urllib) and lets tests monkeypatch the gateway resolver.
-    from colleague import lobes as _lobes
-
-    requested = _requested_role(profile)
-    gateway = getattr(parent_config, "lobes_gateway_url", None)
-    roles = _lobes.resolve_roles(gateway) if gateway else None
-    if roles is None:
-        # Gateway absent/unreachable: the parent's main seat IS the floor.
-        return _ChildBinding(
-            profile=profile,
-            requested_role=requested,
-            model_role=_FALLBACK_ROLE,
-            resolved_model=parent_config.model,
-            fallback_from_role=(requested if requested != _FALLBACK_ROLE else None),
-            role_info=None,
-            gateway_url=None,
-        )
-    role = getattr(roles, requested, None)
-    dormant = profile in DORMANT_PURPOSES or requested in DORMANT_PURPOSES
-    if role is not None and getattr(role, "ready", False) and not dormant:
-        return _ChildBinding(
-            profile=profile,
-            requested_role=requested,
-            model_role=requested,
-            resolved_model=role.model,
-            fallback_from_role=None,
-            role_info=role,
-            gateway_url=gateway,
-        )
-    floor = getattr(roles, _FALLBACK_ROLE)
-    return _ChildBinding(
-        profile=profile,
-        requested_role=requested,
-        model_role=_FALLBACK_ROLE,
-        resolved_model=floor.model,
-        fallback_from_role=(requested if requested != _FALLBACK_ROLE else None),
-        role_info=floor,
-        gateway_url=gateway,
-    )
 
 
 def _child_config_for_profile(
@@ -938,44 +630,6 @@ def _build_child_config(
     return scouted
 
 
-def _delegate_event_data(
-    child_task_id: str,
-    spec: ChildSpec,
-    binding: "_ChildBinding",
-    agent_id: Optional[str],
-    bounds: tuple[tuple[str, ...], str] = ((), ""),
-    resolved_effort: Optional[str] = None,
-) -> dict:
-    """The ``delegate`` ledger event payload for an armed child (#411 t14).
-
-    ``resolved_effort`` (#416 t5, c28/h19) is the CHILD's resolved thinking-
-    effort rung (the same value :func:`_child_config_for_profile` set as the
-    child config's ``reasoning_effort_seat``) — recorded beside
-    ``effort_override`` (``True`` when ``spec.effort`` named an explicit
-    per-child override, the highest-precedence input) so a ledger replay can
-    audit not just the tools/ceiling a delegation was ranked on but the
-    effort it actually ran with.
-    """
-    return {
-        "id": child_task_id,
-        "delegation_id": child_task_id,
-        "child_ref": f"sub/{child_task_id}",
-        "profile": binding.profile,
-        "context_mode": spec.context_mode,
-        "from_profile": spec.parent_profile,
-        "agent_id": agent_id,
-        "model_role": binding.model_role,
-        "resolved_model": binding.resolved_model,
-        "fallback_from_role": binding.fallback_from_role,
-        # What the t11 bounds check ranked this delegation on, so a ledger
-        # replay can audit the decision instead of taking it on trust.
-        "requested_tools": list(bounds[0]),
-        "authority_ceiling": bounds[1],
-        "effort": resolved_effort,
-        "effort_override": spec.effort is not None,
-    }
-
-
 def run_subagent(
     instruction: str,
     *,
@@ -1206,307 +860,6 @@ def run_subagent(
     return sub
 
 
-# ---------------------------------------------------------------------------
-# Parallel batch orchestration: per-worktree children + sequential merge child.
-# ---------------------------------------------------------------------------
-
-
-def _positive_int_or_none(value: object) -> Optional[int]:
-    """A positive int, or None (bools and non-ints are not budgets)."""
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value if value > 0 else None
-
-
-def _child_budget_share(
-    parent_config: EngineConfig, width: int
-) -> tuple[Optional[int], Optional[int]]:
-    """The per-child ``(max_steps, context_budget_tokens)`` share at *width*.
-
-    ``(None, None)`` at width <= 1 — the sequential path inherits the parent's
-    full budget unchanged (byte-identical, h5). At width > 1 each concurrent
-    child gets ``parent // width``, floored at the ``_MIN_CHILD_*`` constants
-    but never above the parent's own value, so W concurrent children stop
-    scheduling W full parent budgets against one served model (spec R5).
-    """
-    if width <= 1:
-        return None, None
-    steps = min(
-        parent_config.max_steps,
-        max(_MIN_CHILD_MAX_STEPS, parent_config.max_steps // width),
-    )
-    budget = min(
-        parent_config.context_budget_tokens,
-        max(
-            _MIN_CHILD_CONTEXT_BUDGET,
-            parent_config.context_budget_tokens // width,
-        ),
-    )
-    return steps, budget
-
-
-def _batch_all_read_only(items: List[dict], batch_role: Optional[str]) -> bool:
-    """True when every child's effective role is a read-only builtin.
-
-    The effective role mirrors ``_spawn_children``: the item's own ``role``,
-    falling back to the batch-level role. Read-only children provably cannot
-    write (role-withheld tools), so the batch's merge child is structurally a
-    no-op over empty diffs.
-    """
-    if not items:
-        return False
-    return all(is_read_only(item.get("role") or batch_role) for item in items)
-
-
-def _resolve_batch_width(
-    parent_config: EngineConfig, items: List[dict], batch_role: Optional[str]
-) -> int:
-    """Effective concurrency width for a batch (t12).
-
-    Normally ``effective_concurrency`` clamps to ``MAX_SUBAGENT_FANOUT - 1`` —
-    one fan-out slot stays reserved for the merge child. A batch whose children
-    are ALL read-only roles frees that reservation (its merge is a no-op), so
-    its width may use the full ``MAX_SUBAGENT_FANOUT``. Always clamped to the
-    item count; width 1 (the default) never touches a thread pool.
-    """
-    if _batch_all_read_only(items, batch_role):
-        width = min(max(1, parent_config.subagent_concurrency), MAX_SUBAGENT_FANOUT)
-    else:
-        width = effective_concurrency(parent_config.subagent_concurrency)
-    return min(width, len(items))
-
-
-def _child_id(batch_token: str, index: int) -> str:
-    """Derive a stable, unique child id from a per-batch token and the child index.
-
-    Stable WITHIN a batch (token fixed once, index is the input position) so the
-    ``sub/<child_id>`` branches are deterministic relative to one another — no
-    ``random``/``time``-based id that would make a test flaky.
-    """
-    return f"{batch_token}-{index}"
-
-
-def _run_child_in_worktree(
-    repo_path: str,
-    child_id: str,
-    instruction: str,
-    *,
-    parent_config: EngineConfig,
-    parent_engine: str,
-    depth: int,
-    engine: Optional[str] = None,
-    model: Optional[str] = None,
-    role: Optional[str] = None,
-    counter: Optional["_AgentBudget"] = None,
-    spec: Optional[ChildSpec] = None,
-) -> SubResult:
-    """Drive ONE batch child inside its own git worktree, then commit its branch.
-
-    This is the unit of work each ThreadPoolExecutor worker runs (or the
-    sequential loop calls directly when width == 1). It is a MODULE-LEVEL function
-    (not a closure) so tests can monkeypatch it to inject delay / deterministic
-    output without spinning up a real engine.
-
-    Steps:
-    1. Create the worktree on branch ``sub/<child_id>`` via
-       :func:`colleague.worktrees.worktree_add`.
-    2. Run the nested child work item via :func:`run_subagent`, with its ``repo_path``
-       set to the worktree path so all its file writes land on the child branch.
-       ``goal``/``acceptance`` (t16) are forwarded unchanged onto the child's
-       ``Task``; ``parent_task_id`` (t16) is recorded on the returned
-       ``SubResult.parent``.
-    3. Commit the child's changes onto its branch via
-       :func:`colleague.worktrees.commit_all` (an empty diff is a no-op, not an
-       error).
-
-    Returns the child's :class:`SubResult` (the merge happens later, in the main
-    thread, after the join). The worktree itself is NOT removed here — teardown is
-    centralised in :func:`make_batch_spawn`'s ``finally`` so a worker thread never
-    races cleanup.
-    """
-    worktree_path = worktrees.worktree_add(repo_path, child_id)
-    sub = run_subagent(
-        instruction,
-        repo_path=worktree_path,
-        parent_config=parent_config,
-        parent_engine=parent_engine,
-        depth=depth,
-        engine=engine,
-        model=model,
-        role=role,
-        counter=counter,
-        spec=spec,
-    )
-    # Commit whatever the child wrote onto its sub/<child_id> branch so the
-    # post-join merge has something to integrate. An empty diff is fine.
-    worktrees.commit_all(worktree_path, f"subagent {child_id}: {instruction[:60]}")
-    return sub
-
-
-def _merge_children(
-    repo_path: str,
-    child_ids: List[str],
-    *,
-    merge_engine: str,
-    merge_model: str,
-    parent_task_id: Optional[str] = None,
-) -> tuple[SubResult, List[str]]:
-    """Sequentially merge each child branch into the working branch (the merge child).
-
-    Runs in the MAIN thread after the parallel join, so it never races child
-    writes. Each ``sub/<child_id>`` branch is merged via
-    :func:`colleague.worktrees.merge_branch`. A clean merge (or a harmless no-op)
-    is kept; a CONFLICT is recorded and SURFACED in the returned ``SubResult`` —
-    the branch is left intact (its work is not dropped), the working tree is
-    restored to a clean state by ``merge_branch``'s abort, and the conflicted paths
-    are named in the summary. The merge child is the final element of the batch's
-    returned list and COUNTS against ``MAX_SUBAGENT_FANOUT`` (the batch reserves a
-    slot for it).
-
-    Returns a ``(merge_child, conflicted_child_ids)`` pair. ``conflicted_child_ids``
-    is the list of children whose merge conflicted; the caller MUST preserve those
-    children's ``sub/<id>`` branches during teardown (do not delete them) so the
-    "integrate manually" instruction in the summary is honoured.
-
-    ``parent_task_id`` (t16), when given, is recorded on the merge child's
-    ``SubResult.parent`` too, for consistency with its sibling children —
-    ``None`` (the default) omits it, byte-identical to before.
-    """
-    merged: List[str] = []
-    noop: List[str] = []
-    conflicted: List[str] = []
-    conflicted_paths: List[str] = []
-
-    for child_id in child_ids:
-        outcome = worktrees.merge_branch(repo_path, child_id)
-        if outcome.status == worktrees.MergeOutcome.MERGED:
-            merged.append(child_id)
-        elif outcome.status == worktrees.MergeOutcome.NOOP:
-            noop.append(child_id)
-        else:  # CONFLICT
-            conflicted.append(child_id)
-            conflicted_paths.extend(outcome.conflicted_paths or [])
-
-    # Summary describes exactly what merged and what conflicted.
-    parts: List[str] = []
-    if merged:
-        parts.append(f"merged {len(merged)} branch(es): {', '.join(merged)}")
-    if noop:
-        parts.append(f"{len(noop)} no-op (nothing to integrate)")
-    if conflicted:
-        paths = ", ".join(sorted(set(conflicted_paths))) or "(unspecified paths)"
-        parts.append(
-            f"CONFLICT on {len(conflicted)} branch(es) "
-            f"({', '.join(conflicted)}); conflicted paths: {paths}. "
-            "These children's work was NOT force-merged or dropped — resolve "
-            "the conflict and integrate their sub/<id> branches manually."
-        )
-    summary = "; ".join(parts) if parts else "nothing to merge"
-
-    status = ERROR if conflicted else OK
-    merge_child = SubResult(
-        task_id="merge-" + (child_ids[0] if child_ids else "empty"),
-        engine=merge_engine,
-        model=merge_model,
-        status=status,
-        summary=summary,
-        changed_files=[],
-        usage=Usage(),
-        parent=parent_task_id,
-    )
-    return merge_child, conflicted
-
-
-def make_batch_spawn(
-    repo_path: str,
-    parent_config: EngineConfig,
-    parent_engine: str,
-    depth: int = 1,
-    *,
-    counter: Optional["_AgentBudget"] = None,
-    parent_task_id: Optional[str] = None,
-    parent_profile: Optional[str] = None,
-) -> BatchSpawnFn:
-    """Build a batch spawn callback that fans children out and merges them back.
-
-    Analogous to :func:`make_spawn`, but for a BATCH: the returned closure takes a
-    list of items (``{"instruction", "engine", "model"}``, optionally carrying
-    ``"goal"``/``"acceptance"`` per item, t16, and ``"profile"``/
-    ``"context_mode"`` per item, #411 t14 — ``parent_profile`` is recorded on
-    every child's delegate event exactly as :func:`make_spawn` does) and returns a FLAT
-    ``list[SubResult]`` — the N child results in INPUT ORDER followed by exactly
-    one merge child ("child C"). The loop wiring (t5) calls
-    ``make_batch_spawn(task.repo_path, config, task.engine, parent_task_id=task.id)``
-    and the ``subagents`` tool (t4) folds the whole returned list into
-    ``TaskResult.sub_results``. ``parent_task_id`` (t16) is recorded on every
-    child's (and the merge child's) ``SubResult.parent``; ``None`` (the default)
-    omits it, byte-identical to the pre-t16 behavior.
-
-    Concurrency is governed by
-    ``effective_concurrency(parent_config.subagent_concurrency)``:
-    width 1 runs children sequentially with NO ``ThreadPoolExecutor``; width > 1
-    runs them concurrently via a ``ThreadPoolExecutor`` confined to this module.
-    Per-child worktrees/branches are torn down on every exit path.
-    """
-
-    def batch_spawn(items: List[dict], role: Optional[str] = None) -> List[SubResult]:
-        """Run a batch of child subagents, each in its own isolated worktree.
-
-        Children run sequentially by default, or concurrently when
-        COLLEAGUE_SUBAGENT_CONCURRENCY > 1 (bounded by MAX_SUBAGENT_FANOUT). The
-        batch-level ``role`` (#t4) types every child unless an item carries its
-        own ``"role"``. Returns the list of their
-        :class:`~colleague.contract.SubResult` objects.
-        """
-        return _run_batch(
-            items,
-            repo_path=repo_path,
-            parent_config=parent_config,
-            parent_engine=parent_engine,
-            depth=depth,
-            role=role,
-            counter=counter,
-            parent_task_id=parent_task_id,
-            parent_profile=parent_profile,
-        )
-
-    return batch_spawn
-
-
-def _build_child_spec(
-    item: dict,
-    *,
-    share_steps: Optional[int],
-    share_budget: Optional[int],
-    parent_task_id: Optional[str],
-    parent_profile: Optional[str],
-) -> ChildSpec:
-    """Build one batch child's :class:`ChildSpec` from its raw *item* dict.
-
-    Extracted from ``_spawn_children``'s ``_run_one`` closure (SonarCloud
-    S3776) — pure translation, no behaviour change. An explicit per-item
-    ``max_steps``/``context_budget_tokens`` wins over the width-scaled
-    *share_steps*/*share_budget*; ``goal``/``acceptance`` are structural,
-    programmatic-only (t16); ``profile``/``context_mode`` are the cross-role
-    dial (#411 t14); ``effort`` is the per-child thinking-effort override
-    (#416 t5) — an invalid value in any of these is refused whole by
-    ``ChildSpec`` itself.
-    """
-    item_steps = _positive_int_or_none(item.get("max_steps"))
-    item_budget = _positive_int_or_none(item.get("context_budget_tokens"))
-    return ChildSpec(
-        max_steps=(item_steps if item_steps is not None else share_steps),
-        context_budget_tokens=(item_budget if item_budget is not None else share_budget),
-        goal=(item.get("goal") or None),
-        acceptance=(item.get("acceptance") or None),
-        parent_task_id=parent_task_id,
-        profile=(item.get("profile") or None),
-        context_mode=str(item.get("context_mode") or "inherit"),
-        parent_profile=parent_profile,
-        effort=(item.get("effort") or None),
-    )
-
-
 def _spawn_children(
     items: List[dict],
     child_ids: List[str],
@@ -1570,134 +923,3 @@ def _spawn_children(
         for fut in concurrent.futures.as_completed(future_index):
             results[future_index[fut]] = fut.result()
     return results
-
-
-def _run_batch(
-    items: List[dict],
-    *,
-    repo_path: str,
-    parent_config: EngineConfig,
-    parent_engine: str,
-    depth: int,
-    role: Optional[str] = None,
-    counter: Optional["_AgentBudget"] = None,
-    parent_task_id: Optional[str] = None,
-    parent_profile: Optional[str] = None,
-) -> List[SubResult]:
-    """Fan a batch of children out concurrently, then merge their branches.
-
-    See :func:`make_batch_spawn` for the contract. Termination is structural: the
-    depth cap AND the global agent budget are enforced FIRST, before any worktree
-    is created.
-    """
-    # (a) Depth cap FIRST — before any worktree or thread is created, so a refused
-    # level does zero work (mirrors run_subagent's guarantee for the batch path).
-    if depth > MAX_SUBAGENT_DEPTH:
-        raise SubagentError(f"subagent depth limit ({MAX_SUBAGENT_DEPTH}) exceeded")
-
-    if not items:
-        # An empty batch still returns a (no-op) merge child so the shape is
-        # uniform: callers always get the children + exactly one merge child.
-        empty_merge, _ = _merge_children(
-            repo_path,
-            [],
-            merge_engine=parent_engine,
-            merge_model=parent_config.model,
-            parent_task_id=parent_task_id,
-        )
-        return [empty_merge]
-
-    # (a2) Global agent budget PRE-CHECK — before any worktree is created, refuse the
-    # whole batch when it obviously cannot fit (#t4), so an over-budget batch does zero
-    # work and leaks no worktree. This is a best-effort snapshot; each child is also
-    # charged authoritatively (thread-safe) inside run_subagent, which catches the
-    # deep-nested-concurrent race the snapshot cannot.
-    # (a2b) Delegation bounds PRE-CHECK — same reason, same place: every item's bounds
-    # are ranked BEFORE the first worktree exists, so one widening item refuses the
-    # WHOLE batch cleanly instead of aborting midway (the batch's ``finally`` removes
-    # every child worktree with delete_branch=True, discarding siblings' committed work).
-    for index, item in enumerate(items):
-        item_spec = ChildSpec(
-            profile=(item.get("profile") or None),
-            context_mode=str(item.get("context_mode") or "inherit"),
-            parent_profile=parent_profile,
-        )
-        try:
-            _enforce_delegation_bounds(
-                parent_config,
-                item_spec,
-                instruction=str(item.get("instruction", "")),
-                depth=depth,
-                role=(item.get("role") or role),
-            )
-        except SubagentError as exc:
-            raise SubagentError(f"batch item {index}: {exc}") from exc
-
-    if counter is not None and counter.remaining() < len(items):
-        raise SubagentError(
-            f"global agent budget ({counter.limit}) exceeded: batch of "
-            f"{len(items)} exceeds {counter.remaining()} remaining"
-        )
-
-    # (b) Resolve the effective concurrency width (t12: an all-read-only batch
-    # frees the merge-child reservation). Width 1 (the default) is the
-    # sequential path that NEVER touches ThreadPoolExecutor — byte-identical to
-    # the pre-concurrency behavior.
-    width = _resolve_batch_width(parent_config, items, role)
-
-    # (c) Assign a deterministic-within-batch token + per-child ids up front (main
-    # thread), so the branch names are stable relative to each other.
-    batch_token = Task.new(repo_path, "batch").id  # a fresh short id seeds the batch
-    child_ids = [_child_id(batch_token, i) for i in range(len(items))]
-
-    # Children whose merge CONFLICTED — their sub/<id> branch must survive
-    # teardown so the work can be integrated manually. Empty unless _merge_children
-    # runs and reports conflicts; on an exceptional exit (a worker raised before
-    # the merge) it stays empty and the normal full cleanup applies.
-    conflicted_ids: set[str] = set()
-
-    try:
-        # (c2) Run all children (sequential or concurrent) — the dispatch + the
-        # ThreadPoolExecutor live in _spawn_children to keep this function's
-        # cognitive complexity in budget (S3776).
-        child_results = _spawn_children(
-            items,
-            child_ids,
-            width,
-            repo_path=repo_path,
-            parent_config=parent_config,
-            parent_engine=parent_engine,
-            depth=depth,
-            role=role,
-            counter=counter,
-            parent_task_id=parent_task_id,
-            parent_profile=parent_profile,
-        )
-
-        # (d) SEQUENTIAL merge child, AFTER the join — never races child writes.
-        merge_child, conflicted = _merge_children(
-            repo_path,
-            child_ids,
-            merge_engine=parent_engine,
-            merge_model=parent_config.model,
-            parent_task_id=parent_task_id,
-        )
-        conflicted_ids = set(conflicted)
-
-        # (e) Flat list: children in input order + the single merge child.
-        ordered = [r for r in child_results if r is not None]
-        ordered.append(merge_child)
-        return ordered
-    finally:
-        # (f) Teardown on EVERY exit path (success, partial, exception): remove each
-        # per-child worktree so no worktree dir leaks. The per-child branch is deleted
-        # too — EXCEPT for children whose merge CONFLICTED, whose sub/<id> branch is
-        # PRESERVED (delete_branch=False) so their committed work survives for manual
-        # integration (the merge child's summary points at it). teardown_all then
-        # sweeps only worktrees under our own root (never a branch with no worktree,
-        # so the retained conflicted branches stay put).
-        for child_id in child_ids:
-            worktrees.worktree_remove(
-                repo_path, child_id, delete_branch=(child_id not in conflicted_ids)
-            )
-        worktrees.teardown_all(repo_path)
