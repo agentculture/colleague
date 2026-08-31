@@ -494,6 +494,9 @@ def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
                     role=PURPOSE_ROLE[name],
                     effort=_purpose_effort(executor, name),
                     max_steps=efforttables.PURPOSE_STEPS[name],
+                    # #458 (re-scoped): the opt-in per-purpose child window cap —
+                    # ``None`` unset (byte-identical); the row-64b lever.
+                    context_budget_tokens=efforttables.purpose_context_override(name),
                     charges_budget=charges_budget(name),
                     web_calls_remaining=webbudget.remaining_for_child(executor),
                     purpose=name,

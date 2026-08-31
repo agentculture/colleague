@@ -75,6 +75,31 @@ PURPOSE_STEPS: "dict[str, Optional[int]]" = {
 }
 
 
+def purpose_context_override(purpose: str) -> "Optional[int]":
+    """The EXPERIMENT lever for a purpose child's context budget (#458 re-scoped).
+
+    ``COLLEAGUE_<PURPOSE>_CONTEXT_BUDGET`` (e.g.
+    ``COLLEAGUE_CODE_SURVEY_CONTEXT_BUDGET=65536``) caps the ONE named
+    purpose's child window — the #461 doctrine that survey work belongs in a
+    16K-64K band, wired through ``ChildSpec.context_budget_tokens`` (explicit
+    beats derived; the associate seat still takes ``min(child, seat)``).
+    Unset, empty, non-integer or ``<= 0`` -> ``None`` = the child inherits the
+    parent's budget, byte-identical to today. An env-read helper by the
+    ``actingsurface.acting_add_set`` precedent: an opt-in instrument for the
+    row-64b arm, NEVER a shipped default until the arm promotes it.
+    """
+    import os
+
+    raw = os.environ.get(f"COLLEAGUE_{purpose.upper()}_CONTEXT_BUDGET", "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 def resolve_associate_seat_overrides(
     pick: "Callable[..., str]",
     file_reasoning_effort_seats: "dict[str, str]",
