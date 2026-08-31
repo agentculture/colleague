@@ -52,7 +52,6 @@ GRANDFATHERED: dict[str, int] = {
     "colleague/livecheck.py": 1481,
     "colleague/loop.py": 5392,
     "colleague/memory.py": 1147,
-    "colleague/senses.py": 1483,
     "colleague/subagents.py": 1703,
     "tests/test_boundary.py": 1144,
 }

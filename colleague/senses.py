@@ -111,45 +111,53 @@ import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, cast
 
-from colleague import media, registry
+from colleague import media
 from colleague.agents.talker import recording_complete as _talker_recorded
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import ContextPacket, SensesRecord
 from colleague.plan.cli_driver import _extract_json_object, robust_simple_complete
+from colleague.senses_common import (
+    _FIDELITY_CLAUSE,
+    _GROUNDING_CLAUSE,
+    _TRUNCATION_NOTE,
+    _coerce_ack,
+    _coerce_confidence,
+    _coerce_omissions,
+    _fold_history,
+    _TokenMeter,
+    _window_text,
+)
+
+# Re-exported for backward compatibility: colleague/resident/appserver.py,
+# colleague/frontdoor.py, colleague/engines/vllm_openai.py, and
+# colleague/engines/mock.py all import these names from colleague.senses
+# (not colleague.senses_extra, where they are now defined) — moving them
+# there without a re-export here would break those call sites.
+from colleague.senses_extra import (  # noqa: F401
+    _FRONTDOOR_SYSTEM_PROMPT,
+    _UPDATE_SYSTEM_PROMPT,
+    FRONTDOOR_POINT,
+    UPDATE_POINT,
+    SensesRun,
+    make_senses_run,
+    run_senses_frontdoor,
+    run_senses_update,
+)
 from colleague.senses_stream import EnvelopeStream
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from colleague.engine import Engine
 
-#: Appended to a prompt truncated to fit the senses model's send budget — a
-#: visible marker so whoever reads the digest knows content was cut (mirrors
-#: :data:`colleague.deepthink._TRUNCATION_NOTE`). Only the prompt SENT to the
-#: senses model is ever truncated; ``ContextPacket.original`` always carries the
-#: caller's full verbatim input regardless.
-_TRUNCATION_NOTE = "[senses digest truncated to fit budget]"
-
-#: The grounding clause (structural senses relay fidelity, three-tier-execution
-#: arc, task t2): composed into every prompt-bearing senses surface (all five
-#: system prompts below plus :data:`colleague.senses_loop._LOOP_SYSTEM_PROMPT`)
-#: so the model is told, in every call, that its view is bounded to exactly
-#: what this prompt hands it — never the wider run, never its own general
-#: knowledge, as if it had eyes on anything else.
-_GROUNDING_CLAUSE = (
-    "You can see only the status block you are given below — nothing else about the run."
-)
-
-#: The fidelity clause (task t2): composed alongside :data:`_GROUNDING_CLAUSE`
-#: into every prompt-bearing senses surface. Names the exact failure this arc
-#: guards against structurally (in code, via :func:`_enforce_fidelity` /
-#: :func:`_repeats_background` — this clause is prompt hygiene, never the sole
-#: guarantee): a live embodiment session once had senses recite its
-#: background "knowledge" block on 6 of 6 turns instead of relaying the
-#: current answer.
-_FIDELITY_CLAUSE = (
-    "Answer the current message from the current result first; background "
-    "knowledge never replaces it."
-)
+# NOTE: _TRUNCATION_NOTE / _GROUNDING_CLAUSE / _FIDELITY_CLAUSE and the
+# windowing/history/token-metering/coercion plumbing (_window_text,
+# _fold_history, _TokenMeter, _coerce_confidence, _coerce_omissions,
+# _coerce_ack) now live in colleague/senses_common.py (fl-t6,
+# hard-1000-line-file-limit) — imported above and used directly below, which
+# ALSO re-exports them from this module's namespace (colleague/senses_loop.py
+# still does ``from colleague.senses import _TRUNCATION_NOTE, ...`` and keeps
+# working unchanged). run_senses_talk stays HERE: source-read by
+# tests/test_senses_live_presence_proofs.py for its FunctionDef by name.
 
 #: Per-surface display-streaming envelope keys (d4/#374, ssv task t3). Senses
 #: reply envelopes are key-inconsistent across surfaces: the coordination
@@ -167,12 +175,12 @@ FRONTDOOR_STREAM_FIELD = "answer"
 TALK_STREAM_FIELD = "answer"
 
 #: Fixed invocation-point labels recorded on each :class:`SensesRecord`.
+#: UPDATE_POINT / FRONTDOOR_POINT are defined in colleague/senses_extra.py
+#: (imported above for re-export) alongside the lanes that use them.
 INTAKE_POINT = "senses-intake"
 SPEAKBACK_POINT = "senses-speakback"
 MEDIA_BRIDGE_POINT = "media-bridge"
 TALK_POINT = "senses-talk"
-UPDATE_POINT = "senses-update"
-FRONTDOOR_POINT = "senses-frontdoor"
 
 _INTAKE_SYSTEM_PROMPT = (
     "You are the senses lobe for colleague — the perception front door. Read the "
@@ -220,32 +228,8 @@ _TALK_SYSTEM_PROMPT = (
     "message). No prose outside the JSON. " + _GROUNDING_CLAUSE + " " + _FIDELITY_CLAUSE
 )
 
-_UPDATE_SYSTEM_PROMPT = (
-    "You are the senses lobe for colleague — narrating progress to the operator "
-    "WHILE the cortex model drives a running work item. Read the recent flight-feed "
-    "lines below and narrate in 1–2 first-person sentences what the run is doing "
-    "RIGHT NOW. Quote or paraphrase real feed lines; if the feed shows nothing new, "
-    "say exactly that. NEVER invent progress, files, or results not present in the "
-    'feed. Reply with ONLY a JSON object of the form: {"update": "..."}. '
-    "No prose outside the JSON. " + _GROUNDING_CLAUSE + " " + _FIDELITY_CLAUSE
-)
-
-
-_FRONTDOOR_SYSTEM_PROMPT = (
-    "You are the senses lobe for colleague — the front door the operator talks "
-    "to first. Answer the operator's greeting or question about colleague "
-    'itself directly, conversationally, and in the FIRST person ("I" / '
-    '"colleague"), using ONLY the architecture facts given below and the '
-    "operator's own words. Do NOT invent, guess, or assume any architecture or "
-    "identity detail that is not stated in those facts — if the facts don't "
-    "say, say PLAINLY that you don't know and that cortex can check, rather "
-    "than fabricating an answer. This is a front-door answer only: you do not "
-    "act, read, or write anything — cortex does the repo work. Reply with ONLY "
-    'a JSON object of the form: {"answer": "..."}. No prose outside the JSON. '
-    + _GROUNDING_CLAUSE
-    + " "
-    + _FIDELITY_CLAUSE
-)
+# _UPDATE_SYSTEM_PROMPT / _FRONTDOOR_SYSTEM_PROMPT moved to
+# colleague/senses_extra.py alongside run_senses_update / run_senses_frontdoor.
 
 
 def senses_engine_config(
@@ -375,237 +359,6 @@ def make_senses_display_delta(
             on_display_delta(piece)
 
     return on_delta
-
-
-def _coerce_confidence(value: Any) -> float:
-    """Best-effort float coercion for the model's ``confidence`` (default 0.0).
-
-    Mirrors :meth:`ContextPacket.from_dict`'s handling — a value that cannot be
-    parsed as ``float`` (e.g. the model wrote ``"high"``) degrades to ``0.0``
-    rather than raising, since a bad confidence is advisory, not fatal.
-    """
-    if value is None:
-        return 0.0
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _coerce_omissions(value: Any) -> list[str]:
-    """Coerce the model's ``omissions`` into a list of short strings.
-
-    A list/tuple becomes ``[str(x) for x in value]``; a bare string becomes a
-    single-element list; anything else (``None``, a number, a dict) becomes
-    ``[]`` — tolerant of model hallucination, never a crash.
-    """
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, (list, tuple)):
-        return [str(x) for x in value]
-    return []
-
-
-#: Hard cap on ``ContextPacket.ack`` length (talking-to-one arc, task t1). A
-#: one/two-sentence acknowledgment never needs more; an over-long reply is
-#: hard-truncated in place — never a second completion, never invented filler.
-_MAX_ACK_LEN = 500
-
-
-def _coerce_ack(value: Any) -> Optional[str]:
-    """Best-effort extraction of the model's ``ack`` field (task t1).
-
-    A non-empty string is stripped of surrounding whitespace and hard-capped to
-    :data:`_MAX_ACK_LEN` characters. Anything else — missing, ``None``, an
-    empty/whitespace-only string, or a non-string value (a number, list, dict)
-    from a hallucinating model — degrades to ``None``: a reply with no usable
-    ack is simply absent, never fabricated.
-    """
-    if not isinstance(value, str):
-        return None
-    stripped = value.strip()
-    if not stripped:
-        return None
-    return stripped[:_MAX_ACK_LEN]
-
-
-def _window_text(
-    text: str,
-    *,
-    system_prompt: str,
-    budget: int,
-    count_tokens: "Callable[[list[dict[str, Any]]], int]",
-) -> str:
-    """Return *text* truncated so ``[system, user=text]`` fits the send budget.
-
-    Mirrors :func:`colleague.deepthink.window_messages`' arithmetic: reserve one
-    quarter of *budget* for the completion, so the prompt must measure at or
-    under ``budget - budget // 4``. A prompt that already fits passes through
-    byte-identical. Otherwise the user text is binary-searched down (bounded
-    number of ``count_tokens`` calls) with :data:`_TRUNCATION_NOTE` appended so
-    the cut is always visible. The senses model's OWN counter/budget are used
-    (the caller passes ``engine.make_count_tokens(senses_config)`` and
-    ``senses_config.context_budget_tokens``).
-    """
-    reserve = max(1, budget // 4)
-    send_budget = max(1, budget - reserve)
-
-    def _messages(body: str) -> "list[dict[str, Any]]":
-        msgs: "list[dict[str, Any]]" = []
-        if system_prompt:
-            msgs.append({"role": "system", "content": system_prompt})
-        msgs.append({"role": "user", "content": body})
-        return msgs
-
-    if count_tokens(_messages(text)) <= send_budget:
-        return text
-
-    lo, hi = 0, len(text)
-    best = _TRUNCATION_NOTE
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        prefix = text[:mid]
-        candidate = f"{prefix}\n\n{_TRUNCATION_NOTE}" if prefix else _TRUNCATION_NOTE
-        if count_tokens(_messages(candidate)) <= send_budget:
-            best = candidate
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return best
-
-
-#: The only two valid ``role`` values on a history entry (talking-to-one arc,
-#: task t4) — the session-side rolling record of prior senses exchanges.
-_VALID_HISTORY_ROLES = ("operator", "senses")
-
-
-def _history_lines(history: "Optional[list[dict[str, str]]]") -> "list[str]":
-    """Format *history* into ordered ``"role: text"`` lines (oldest first).
-
-    Defensive, never raises: an entry that is not a ``dict``, carries a
-    ``role`` other than ``"operator"``/``"senses"``, or has a missing/blank/
-    non-string ``text`` is silently skipped — a malformed history entry never
-    breaks a senses call. ``history`` being ``None`` or empty returns ``[]``,
-    the caller's byte-identical no-history signal.
-    """
-    if not history:
-        return []
-    lines: "list[str]" = []
-    for entry in history:
-        if not isinstance(entry, dict):
-            continue
-        role = entry.get("role")
-        if role not in _VALID_HISTORY_ROLES:
-            continue
-        text = entry.get("text")
-        if not isinstance(text, str) or not text.strip():
-            continue
-        lines.append(f"{role}: {text.strip()}")
-    return lines
-
-
-#: The label prefixing a folded history block (task t2): explicitly names it
-#: as OPTIONAL BACKGROUND, never authoritative for the current turn — the
-#: knowledge-entries-labeled-and-ordered half of the structural fidelity fix
-#: (the other half is :func:`_enforce_fidelity`'s code-level containment
-#: check). Kept in exactly ONE place so every prompt-bearing senses surface
-#: that folds history (all five functions in this module plus the senses
-#: coordination loop) gets the SAME label, never a re-typed variant.
-_BACKGROUND_LABEL = "Optional background (may not relate to the current message):"
-
-
-def _fold_history(
-    primary_body: str,
-    history: "Optional[list[dict[str, str]]]",
-    *,
-    system_prompt: str,
-    budget: int,
-    count_tokens: "Callable[[list[dict[str, Any]]], int]",
-) -> str:
-    """Prefix *primary_body* with a windowed, labeled background block (t4/t2).
-
-    Folds *history* (oldest first) into a clearly-delimited block, headed
-    :data:`_BACKGROUND_LABEL`, placed BEFORE *primary_body* — the caller's
-    already-assembled request/feed/summary payload — so the model reads
-    prior exchanges before the current turn, but is told plainly that they
-    are optional background, not a substitute for answering the current
-    message (structural senses relay fidelity, task t2). Participates in the
-    SAME budget accounting as :func:`_window_text` (identical
-    quarter-of-budget completion reserve): when the combined ``[system,
-    user=block+primary_body]`` prompt would exceed the send budget, the
-    OLDEST history entries are dropped first (whole entries, never sliced
-    mid-entry) until it fits.
-
-    *primary_body* is NEVER trimmed here — callers window it via
-    :func:`_window_text` first, so it already fits the send budget alone;
-    dropping every history entry always recovers that guarantee (the
-    function's existing payload always wins over history).
-
-    Returns *primary_body* completely UNCHANGED when *history* is ``None``,
-    empty, or every entry is defensively skipped by :func:`_history_lines` —
-    the byte-identical no-history path pinned by the existing senses tests.
-    """
-    lines = _history_lines(history)
-    if not lines:
-        return primary_body
-
-    reserve = max(1, budget // 4)
-    send_budget = max(1, budget - reserve)
-
-    def _messages(body: str) -> "list[dict[str, Any]]":
-        msgs: "list[dict[str, Any]]" = []
-        if system_prompt:
-            msgs.append({"role": "system", "content": system_prompt})
-        msgs.append({"role": "user", "content": body})
-        return msgs
-
-    def _combine(remaining: "list[str]") -> str:
-        if not remaining:
-            return primary_body
-        block = f"{_BACKGROUND_LABEL}\n" + "\n".join(remaining)
-        return f"{block}\n\n{primary_body}"
-
-    remaining = list(lines)
-    candidate = _combine(remaining)
-    while remaining and count_tokens(_messages(candidate)) > send_budget:
-        remaining = remaining[1:]  # drop the OLDEST entry first.
-        candidate = _combine(remaining)
-    return candidate
-
-
-class _TokenMeter:
-    """Accumulates exact prompt+completion tokens across a call's completions.
-
-    :func:`robust_simple_complete` may issue more than one completion (an
-    empty-content follow-up turn), so tokens are SUMMED across every completion
-    the invocation actually paid for. Tokens are read verbatim from each
-    response's ``prompt_tokens``/``completion_tokens`` — never estimated
-    (the token-honesty rule; the senses-side mirror of
-    :func:`colleague.deepthink._call_tokens`). ``value`` is ``None`` until at
-    least one completion is seen, so a degraded call (which never reached the
-    wire) records ``tokens=None``.
-    """
-
-    def __init__(self) -> None:
-        self._total = 0
-        self._seen = False
-
-    def wrap(
-        self, complete: "Callable[[list[dict[str, Any]]], Any]"
-    ) -> "Callable[[list[dict[str, Any]]], Any]":
-        def recording(messages: "list[dict[str, Any]]") -> Any:
-            response = complete(messages)
-            prompt = getattr(response, "prompt_tokens", 0) or 0
-            completion = getattr(response, "completion_tokens", 0) or 0
-            self._total += int(prompt) + int(completion)
-            self._seen = True
-            return response
-
-        return recording
-
-    @property
-    def value(self) -> Optional[int]:
-        return self._total if self._seen else None
 
 
 def run_senses_intake(
@@ -1185,299 +938,6 @@ def run_senses_talk(
         }
 
 
-def run_senses_update(
-    feed_tail: list[str],
-    packet: Optional[ContextPacket],
-    senses_config: Optional[EngineConfig],
-    engine: "Engine",
-    *,
-    count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
-    history: "Optional[list[dict[str, str]]]" = None,
-) -> Optional[dict[str, Any]]:
-    """Issue ONE proactive progress narration (task t3).
-
-    The structural sibling of :func:`run_senses_talk` for *proactive* progress
-    narration — the "talking to colleague feels like talking to one person" arc.
-    Issues exactly ONE tools-off completion, windowed to senses' OWN context
-    budget via :func:`_window_text`, and returns an advisory
-    ``{update, latency, tokens, degraded}`` record.
-
-    Grounded: the system prompt instructs senses to narrate in 1–2 first-person
-    sentences what the run is doing RIGHT NOW, derived ONLY from the given feed
-    lines — quote or paraphrase real lines; if the feed shows nothing new, say
-    exactly that; NEVER invent progress, files, or results not present in the
-    feed. The same grounding contract as :data:`_TALK_SYSTEM_PROMPT`.
-
-    Returns ``None`` when *senses_config* or *engine* is unusable (``None`` or
-    missing). Otherwise NEVER raises: any failure (unreachable endpoint, request
-    error, empty content) degrades to a record with ``update=None`` and
-    ``degraded=True``.
-
-    Parameters
-    ----------
-    feed_tail:
-        Recent flight-feed lines (most recent last).
-    packet:
-        The run's :class:`~colleague.contract.ContextPacket`, or ``None``.
-    senses_config:
-        The senses-pointed :class:`EngineConfig`, or ``None`` (unarmed).
-    engine:
-        The :class:`~colleague.engine.Engine` instance.
-    count_tokens:
-        Injectable token counter; defaults to
-        ``engine.make_count_tokens(senses_config)``.
-    history:
-        Optional rolling chat history (talking-to-one arc, task t4) — folded
-        into the user prompt BEFORE the feed section, windowed the same way
-        as :func:`run_senses_intake`'s ``history``; ``None``/``[]`` is
-        byte-identical to before this parameter existed.
-
-    Returns
-    -------
-    dict | None
-        ``None`` when unarmed. Otherwise
-        ``{"update": str | None, "latency": float, "tokens": int | None,
-        "degraded": bool}``.
-    """
-    if senses_config is None or engine is None:
-        return None
-
-    start = time.monotonic()
-    meter = _TokenMeter()
-    try:
-        counter = (
-            count_tokens if count_tokens is not None else engine.make_count_tokens(senses_config)
-        )
-        feed_text = "\n".join(feed_tail) if feed_tail else ""
-        # Ground the narration in what the run is ABOUT (the intake packet's
-        # interpretation) so a status line names the goal, not just raw feed —
-        # the packet augments the feed, it never substitutes for it. This
-        # ``about`` line is UNBOUNDED (a model-authored interpretation can run
-        # long), so it must be windowed together with the feed below — never
-        # windowed alone, and never appended after windowing.
-        about = ""
-        if packet is not None and packet.interpretation:
-            about = f"The running work item is about: {packet.interpretation}\n\n"
-        user_prompt = (
-            f"{about}Recent flight feed (most recent last):\n{feed_text or '(no feed yet)'}"
-        )
-        # Window the WHOLE assembled prompt (about + header + feed) BEFORE
-        # folding history: ``_fold_history`` only ever drops history entries,
-        # it never trims ``primary_body`` (see its docstring) — so the primary
-        # body must already fit the send budget on its own, or an unbounded
-        # ``about`` line could push the assembled prompt over budget.
-        user_prompt = _window_text(
-            user_prompt,
-            system_prompt=_UPDATE_SYSTEM_PROMPT,
-            budget=senses_config.context_budget_tokens,
-            count_tokens=counter,
-        )
-        user_prompt = _fold_history(
-            user_prompt,
-            history,
-            system_prompt=_UPDATE_SYSTEM_PROMPT,
-            budget=senses_config.context_budget_tokens,
-            count_tokens=counter,
-        )
-        # Tools-off ALWAYS: an explicit empty tool list, never ``None``.
-        complete = engine.make_complete(senses_config, tools=[])
-        complete = _talker_recorded(
-            complete, senses_config, engine=engine, truncation_marker=_TRUNCATION_NOTE
-        )
-        simple = robust_simple_complete(meter.wrap(complete))
-        raw = simple(_UPDATE_SYSTEM_PROMPT, user_prompt)
-        if not raw.strip():
-            raise ValueError("empty senses update response")
-        data = _extract_json_object(raw, required_key="update")
-        update_text = str(data.get("update", "")).strip()
-        latency = time.monotonic() - start
-        return {
-            "update": update_text if update_text else None,
-            "latency": latency,
-            "tokens": meter.value,
-            "degraded": False,
-        }
-    except Exception:
-        latency = time.monotonic() - start
-        return {
-            "update": None,
-            "latency": latency,
-            "tokens": None,
-            "degraded": True,
-        }
-
-
-#: The bound senses media-bridge callable the loop threads through
-#: :class:`~colleague.loop.ContextControls`. Signature:
-#: ``(question: str, media_parts: list[dict]) -> (description | None, SensesRecord)``.
-#: Built once per work item by :func:`make_senses_run`; never raises.
-SensesRun = Callable[..., "tuple[Optional[str], SensesRecord]"]
-
-
-def make_senses_run(config: EngineConfig, engine_name: str) -> "Optional[SensesRun]":
-    """Bind :func:`run_senses_media_bridge` to *config* + *engine_name* for the loop.
-
-    Returns ``None`` when no senses config is present (``config.senses`` is
-    ``None``) — the signal the loop keys off to leave the senses media bridge
-    dormant (byte-identical). The returned callable loads the engine + builds the
-    senses-pointed :class:`EngineConfig` on each call (mirroring
-    :func:`colleague.deepthink.make_deepthink_run`), and never raises: an unknown
-    engine name or a missing senses config degrades to ``(None, degraded record)``.
-    """
-    if config.senses is None:
-        return None
-
-    def bound(
-        question: str,
-        media_parts: "list[dict[str, Any]]",
-    ) -> "tuple[Optional[str], SensesRecord]":
-        start = time.monotonic()
-        try:
-            senses_config = senses_engine_config(config)
-            if senses_config is None:  # pragma: no cover - guarded by the None check above
-                raise RuntimeError("no senses config resolved")
-            engine = registry.load(engine_name)
-            return run_senses_media_bridge(question, media_parts, senses_config, engine)
-        except Exception:
-            latency = time.monotonic() - start
-            return None, SensesRecord(
-                point=MEDIA_BRIDGE_POINT, latency=latency, tokens=None, degraded=True
-            )
-
-    return bound
-
-
-def run_senses_frontdoor(
-    text: str,
-    *,
-    facts: str,
-    senses_config: Optional[EngineConfig],
-    make_complete: "Callable[..., Callable[[list[dict[str, Any]]], Any]]",
-    make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
-    history: "Optional[list[dict[str, str]]]" = None,
-) -> Optional[dict[str, Any]]:
-    """Answer ONE senses-direct turn — a greeting or question about colleague
-    itself — WITHOUT waking cortex (talking-to-one-teammate arc, task t3).
-
-    The structural sibling of :func:`run_senses_talk` for a front-door turn
-    that never touches a running work item: no flight feed, no task state, no
-    relay judgment — just the operator's words grounded against a caller-
-    supplied curated fact-set (:func:`colleague.architecture_facts.
-    load_architecture_facts`, though any string works — this function does
-    not import or depend on that module). Issues exactly ONE tools-off
-    completion against the senses model.
-
-    Tools-off ALWAYS: *make_complete* is invoked as
-    ``make_complete(senses_config, tools=[])`` — an explicit empty tool list,
-    never ``None`` — mirroring :func:`run_senses_talk`. *make_complete* is
-    passed in directly (not a full engine), the same shape as
-    :func:`run_senses_talk`.
-
-    Grounded: the user prompt carries *facts* + *text* verbatim (never
-    trimmed independently — the whole assembled body is windowed together),
-    windowed to *senses_config*'s OWN ``context_budget_tokens`` via
-    :func:`_window_text`, counted via *make_count_tokens* when given, else the
-    zero-dep :func:`~colleague.context.count_tokens_chars` fallback (there is
-    no engine object here to fall back to its own counter — the same
-    ``make_count_tokens if make_count_tokens is not None else
-    count_tokens_chars`` convention as :func:`run_senses_talk`).
-    :data:`_FRONTDOOR_SYSTEM_PROMPT` instructs senses to answer ONLY from the
-    given facts + the operator's words and to say plainly that it doesn't
-    know (deferring to cortex) rather than invent an architecture/identity
-    detail not present in *facts*.
-
-    Conversation continuity: an optional *history* (a list of
-    ``{"role": "operator"|"senses", "text": "..."}`` entries, oldest first)
-    is folded into the user prompt via :func:`_fold_history` the same way as
-    every other senses invocation function; ``None``/``[]`` is byte-identical
-    to omitting it.
-
-    Returns ``None`` when *senses_config* is ``None`` (senses unarmed) — the
-    signal the caller uses to fall back to waking cortex directly. Otherwise
-    NEVER raises: any failure (unreachable endpoint, request error, overflow,
-    empty or unrecoverable content, an empty ``answer`` field) degrades to a
-    record with ``degraded=True`` and a safe, non-fabricated ``answer``.
-
-    Parameters
-    ----------
-    text:
-        The operator's verbatim message (a greeting or a question about
-        colleague itself).
-    facts:
-        The curated architecture/identity fact-set to ground the answer in
-        (typically :func:`colleague.architecture_facts.load_architecture_facts`).
-    senses_config:
-        The senses-pointed :class:`EngineConfig`, or ``None`` (unarmed).
-    make_complete:
-        The ``(config, tools=...) -> CompleteFn`` seam, bound once per turn by
-        the caller (mirrors :func:`run_senses_talk`).
-    make_count_tokens:
-        Injectable token counter; defaults to
-        :func:`~colleague.context.count_tokens_chars`.
-    history:
-        Optional rolling chat history, folded in before the facts+message
-        body via :func:`_fold_history`; ``None``/``[]`` is a strict no-op.
-
-    Returns
-    -------
-    dict | None
-        ``None`` when unarmed. Otherwise
-        ``{"answer": str, "latency": float, "degraded": bool,
-        "tokens": int | None}`` — a plain advisory dict (NOT a
-        :class:`~colleague.contract.SensesRecord`; a caller wraps this into
-        one, tagged :data:`FRONTDOOR_POINT`, for the artifact). ``tokens`` is
-        the exact summed prompt+completion tokens on success, ``None`` on
-        degradation (never estimated).
-    """
-    if senses_config is None:
-        return None
-
-    start = time.monotonic()
-    meter = _TokenMeter()
-    try:
-        counter = make_count_tokens if make_count_tokens is not None else count_tokens_chars
-        primary_body = (
-            f"{_BACKGROUND_LABEL} architecture facts.\n{facts}\n\n"
-            f"Operator's message (answer this; the facts above are background, "
-            f"never a substitute for answering it): {text}"
-        )
-        user_prompt = _window_text(
-            primary_body,
-            system_prompt=_FRONTDOOR_SYSTEM_PROMPT,
-            budget=senses_config.context_budget_tokens,
-            count_tokens=counter,
-        )
-        user_prompt = _fold_history(
-            user_prompt,
-            history,
-            system_prompt=_FRONTDOOR_SYSTEM_PROMPT,
-            budget=senses_config.context_budget_tokens,
-            count_tokens=counter,
-        )
-        # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
-        # front-door answer structurally cannot carry a tool schema on the wire.
-        complete = make_complete(senses_config, tools=[])
-        complete = _talker_recorded(complete, senses_config, truncation_marker=_TRUNCATION_NOTE)
-        simple = robust_simple_complete(meter.wrap(complete))
-        raw = simple(_FRONTDOOR_SYSTEM_PROMPT, user_prompt)
-        if not raw.strip():
-            raise ValueError("empty senses frontdoor response")
-        data = _extract_json_object(raw, required_key="answer")
-        answer = str(data.get("answer", "")).strip()
-        if not answer:
-            raise ValueError("empty senses frontdoor answer")
-        latency = time.monotonic() - start
-        return {
-            "answer": answer,
-            "latency": latency,
-            "degraded": False,
-            "tokens": meter.value,
-        }
-    except Exception:
-        latency = time.monotonic() - start
-        return {
-            "answer": "senses can't answer that right now — cortex can.",
-            "latency": latency,
-            "degraded": True,
-            "tokens": None,
-        }
+# run_senses_update / SensesRun / make_senses_run / run_senses_frontdoor moved
+# to colleague/senses_extra.py (fl-t6, hard-1000-line-file-limit) and are
+# imported near the top of this module for re-export.
