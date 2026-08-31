@@ -1,20 +1,21 @@
 # Delivery Summary — delegation-follow-ups-a7-p3-hire
 
-plan: `delegation-follow-ups-a7-p3-hire` · run: `partial` · date: `2026-08-30`
+plan: `delegation-follow-ups-a7-p3-hire` · run: `complete` · date: `2026-08-30`
 baseline: `devague summary skeleton`
+
+> Supersedes the Phase-A-only version of this artifact committed in PR #465
+> (run: `partial`); that text stays in git history. The plan is now fully
+> executed except `t19`, which remains blocked by an operator decision.
 
 ## Intent
 
-Phase A of the plan: run the two follow-up arms #456 asked for — the
-raw-vs-purpose fair fight (A7) and a size-trigger prose arm with a clean
-control (P3) — as one pre-registered matrix on the large-surface brief, take
-the q3 promotion decision on measured numbers, and ship the arms PR
-(v1.69.0). Phase B — `hire_colleague` as a twelfth sanctioned increment
-(t9–t18, t20) — was planned behind the arms PR and did not run in this
-delivery. Mid-run the operator added the nemotron scout arm (d2), the
-associate default-ON task (d3, parked by d5), the explicitly-requested
-delegation arm R (d4), and the associate window/sampling fixes (t21–t23).
-PR #464 merged as `8a5b1f5`.
+Answer #456's two follow-up questions (the raw-vs-purpose fair fight A7, and a
+size-conditional prose arm P3 with a clean control) on measured numbers, then
+build #457's `hire_colleague` as a twelfth sanctioned surface — a run-scoped
+employee with an agreed purpose — and decide its default on evidence rather
+than intent. Delivered in two waves: Phase A (arms + the associate fixes the
+arms exposed) as PR #464, Phase B (the hire increment + evidence-trail
+digests) as PR #469, with the #458 follow-through as PR #468 between them.
 
 ## Planned Work
 
@@ -48,84 +49,90 @@ Quoted verbatim from the `devague summary` skeleton:
 
 | Plan task | Status | What actually landed |
 |-----------|--------|----------------------|
-| `t1` | delivered | `actingsurface.ACTING_ADD_ENV` / `acting_add_set()`: a depth-0 add after the drop, names restricted to `tools.SCHEMAS`, children untouched; `tests/test_acting_add_knob.py` |
-| `t2` | delivered | `TaskResult.offered_tools` (omit-when-None; an EMPTY surface stays absent — a review fix), stamped identically by mock and vllm; `tests/test_contract_offered_tools.py` |
-| `t3` | delivered | overlays `docs/live-testing/overlays/P2-0/writer.md` + `P3/writer.md`; `tests/test_overlays_p3.py` |
-| `t4` | partial | `COLLEAGUE_HIRE` / config.json `hire` (env > file > OFF; the nested `{"enabled": …}` form reads `enabled` — a review fix) + `acting_add_tools` on `EngineConfig`, `config show` text + JSON; the "config digest" half is the d1 deviation — attestation moved to `offered_tools` |
-| `t5` | delivered | rows 59–61 pre-registered before any run (`docs/live-testing.md`) |
-| `t6` | delivered | 9 runs + the added arms: rows 59 (A7 0/3), 60 (P2-0 1/3), 61 (P3 0/3), 62 (nemotron, refused — #460), 63 (R-cortex 3/3 compliant, full redo, 3.2× wall), 64 (R-nemotron re-run n=3: 14/14 children on Nemotron, ranged verification 3/3, wall miss 1.626, 2.0× faster than row 63) |
-| `t7` | delivered | `docs/features/purpose-tools.md` "delegation-follow-ups arc" + CLAUDE.md sentence; q3 decision: nothing promotes (P3 misses), the shipped prompt carries no delegation prose |
-| `t8` | delivered | v1.69.0, CHANGELOG, PR #464 merged `8a5b1f5`; Qodo 7 threads (3 pushback, 4 fixed), 13+2 Sonar smells fixed, two colleague reviews (one delivered, one recorded miss) |
-| `t9` | dropped | Phase B not started in this delivery (behind the arms PR by plan; hire arm moved to row 65 by d4) |
-| `t10` | dropped | as t9 |
-| `t11` | dropped | as t9 — the child confinement that exists (`CHILD_FORBIDDEN_TOOLS`) predates this plan |
-| `t12` | dropped | as t9 |
-| `t13` | dropped | as t9 |
-| `t14` | dropped | as t9 |
-| `t15` | dropped | as t9 (`compare_arms.py` unchanged, sha `f7e25fdc…`) |
-| `t16` | dropped | as t9 |
-| `t17` | dropped | as t9 |
-| `t18` | dropped | as t9 |
-| `t19` | blocked | built on `agent/t19` (`d57ce7e`, suite green there) and PARKED by d5 — not in the PR; gated on the validation ladder |
-| `t20` | dropped | not started (Phase B) |
-| `t21` | delivered | `docs/features/associate-validation.md` (preconditions off the rig, the #461 contract with its correction, five-case ladder, pass bars, failure shapes) |
-| `t22` | delivered | `associate.served_window_budget` (one root `/tokenize` probe per (url, wire model), failures memoised, locked), context-length-400 guard, folded two-body error; `tests/test_associate_window.py`, `tests/test_associate_probe_cache.py`; proven live by row 64 (0 refusals) |
-| `t23` | delivered | `AssociateProfile` depth/triage, per-value overrides (explicit thinking spellings only), the payload branch `_apply_associate_profile`; `tests/test_associate_sampling.py`, `tests/test_associate_thinking_parse.py` |
+| `t1` | delivered | `actingsurface.ACTING_ADD_ENV`/`acting_add_set`: depth-0 add after the drop, `tools.SCHEMAS`-restricted, children untouched (PR #464) |
+| `t2` | delivered | `TaskResult.offered_tools`, stamped identically by both engines; an EMPTY surface stays absent (review fix) (PR #464) |
+| `t3` | delivered | overlays `P2-0/writer.md`, `P3/writer.md` + `tests/test_overlays_p3.py` (PR #464) |
+| `t4` | partial | both knobs on `EngineConfig` + `config show` (text and JSON); the "config digest" half is `d1` — attestation moved to `offered_tools` |
+| `t5` | delivered | rows 59–61 pre-registered before any run |
+| `t6` | delivered | 9-run matrix + the added arms: rows 59 (A7 0/3), 60 (P2-0 1/3), 61 (P3 0/3), 62, 63, 64 |
+| `t7` | delivered | `docs/features/purpose-tools.md` arc section + CLAUDE.md; q3 decision taken: nothing promotes |
+| `t8` | delivered | v1.69.0, PR #464 merged `8a5b1f5`; Qodo 7 threads (3 pushback, 4 fixed), 15 Sonar findings fixed |
+| `t9` | delivered | `colleague/hire.py`: ten-field `Hire`, `Roster` cap 4, `hired_role` proven prompt-never-grants over every base (PR #469) |
+| `t10` | delivered | `colleague/hire_schemas.py` + the `curate_schemas` splice, `_writer_allowlist`, one armed-only prompt sentence (PR #469) |
+| `t11` | delivered | `strip_child_forbidden_tools` strips the pair at depth ≥ 1; agents sets knob-guarded; batch pool excludes it (PR #469) |
+| `t12` | delivered | `colleague/hire_dispatch.py`: ≤ 2 tools-off completions on the real `make_complete(tools=[])` seam; mock candidate rule (PR #469) |
+| `t13` | delivered | `colleague/hire_assign.py` + `TaskResult.hires` (omit-when-empty), reusing the purpose fold/render (PR #469) |
+| `t14` | delivered | additive `"hire"` ledger kind, refs-not-payloads event, hires expired at the cut (PR #469) |
+| `t15` | delivered | `compare_arms.py` hires/assignments columns, 0 on pre-field artifacts, `delegations` unchanged (PR #469) |
+| `t16` | delivered | `arm-repeated-subtasks.md` + `make_repeated_subtasks_fixture.py` (8 packages, one seeded contradiction each); row **65** pre-registered (renumbered, `d4`) |
+| `t17` | delivered | row 65 run and recorded: H vs control, n=3 each, interleaved — **hires 0/3** |
+| `t18` | delivered | `docs/features/hire-colleague.md`, CLAUDE.md twelfth increment, **v1.71.0** (not the planned 1.70.0 — see drift), PR #469 merged `69339a5` |
+| `t19` | blocked | built on `agent/t19` (`d57ce7e`, suite green there), PARKED by `d5`; not in any PR — gated on the validation ladder and #459 |
+| `t20` | delivered | fixed digest shape on both survey briefs + scout fragment, parent-side `[uncited digest: …]` marker, scripted mock digests; measured as row 64c (PR #469) |
+| `t21` | delivered | `docs/features/associate-validation.md` incl. the corrected #461 evidence (PR #464) |
+| `t22` | delivered | `served_window_budget` (one `/tokenize` probe per (url, model), failures memoised + locked), context-length-400 guard, folded two-body error; proven live by row 64 (0 refusals) (PR #464 + review round) |
+| `t23` | delivered | `AssociateProfile` depth/triage + per-value overrides; explicit thinking spellings only (review fix) (PR #464) |
 
 ## Mid-work Decisions
 
-- `d1` — h26's `config_digest` clause cannot hold on a bare run; t4 attests the knobs via `config show` + the EngineConfig snapshot and the artifact-side attestation is `offered_tools` — discovered while implementing t4: the digest named in h26 does not exist on the artifacts the arm rows read
-- `d2` — finish the 9-run matrix as-is AND add a nemotron arm (row 62) — operator: 'scout (`code_survey`) is nemotron 3.5 lightning' — the intended topology differs from what the rig served
-- `d3` — nemotron as the non-writer seat ON BY DEFAULT (new task t19) — operator: 'nemotron as the non-writer (code-survey, web-survey, etc.) should be on by default'
-- `d4` — add arm R, explicitly requested delegation, rows 63/64, hire arm → row 65 — operator: 'can we merge A5+A6? (+ explicitly request delegation)'
-- `d5` — the associate seat is NOT validated; Rn-2/Rn-3 skipped; row 64 re-runs on the #460 tip; t19 stays parked — operator: skip Rn-2/Rn-3; open a lobes-cli issue; add instructions for testing associate/Nemotron on real cases; until then use qwen with none/low thinking
-- No deviation record covers these, captured directly: (a) the #461 correction (the second lobes comment reverses the first's thinking-off numbers) was folded into the guide as frame decision c51; (b) top-level `--role reviewer` and `--mode explore|review` now reason at `low` on the acting seat (operator rule after a cortex-`medium` review overflowed a 274k-char synthesis turn); (c) the associate-seat diff review by colleague failed twice (truncated synthesis + step-stall) and was reviewed by Claude instead; (d) a false "full suite green on 09b999b" was carried across a compaction (a piped exit code) — corrected by fixing the nine pre-existing failures in `22dccb9`; (e) the file-length ratchet baseline was moved with its sanctioned command, the per-arc convention since v1.65.
+- `d1` — h26's `config_digest` clause cannot hold on a bare run; t4 attests via `config show` + the EngineConfig snapshot, and the artifact-side attestation is `offered_tools` — discovered while implementing t4.
+- `d2` — finish the 9-run matrix as-is AND add a nemotron arm (row 62) — operator: the scout seat is intended to be Nemotron, but the rig served cortex.
+- `d3` — nemotron as the non-writer seat ON BY DEFAULT (new task t19) — operator decision.
+- `d4` — add arm R (explicitly requested delegation, rows 63/64); the hire arm moves to row 65 — operator: the speed question needs delegation to actually happen.
+- `d5` — the associate seat is NOT validated; Rn-2/Rn-3 skipped; row 64 re-runs on the #460 tip; t19 stays parked — operator decision.
+- No deviation record covers these; captured directly: **(a)** #461's second comment reversed its first (thinking-off vs thinking-on numbers) and was folded into the guide as frame decision `c51`; **(b)** a top-level `--role reviewer` and `--mode explore|review` now reason at `low` (operator rule, after a cortex-`medium` review overflowed a 274k-char synthesis turn); **(c)** #458 was re-scoped after a **steps-vs-turns correction** — the 12-turn cap was applying all along — and its lever shipped as PR #468 with row 64b recording a MISS; **(d)** Phase B was built by Claude worktree agents rather than colleague-as-developer, because the GPU was reserved for pre-registered rows; **(e)** an early "full suite green" claim was false (a piped exit code) and was corrected by fixing the nine real failures it hid; **(f)** one row-65 H attempt was VOIDED for a runner env bug (`hire=unset`) and re-run.
 
 ## Drift From Plan
 
 | Plan item | Reason for divergence | Classification |
-|-----------|------------------------|-----------------|
-| `t4` (`d1`) | discovered while implementing t4: the digest named in h26 does not exist on the artifacts the arm rows read | acceptable |
-| `t6` (`d2`) | operator: 'scout (`code_survey`) is nemotron 3.5 lightning' — the intended topology differs from what the rig served | acceptable |
-| `t6` (`d3`) | operator: 'nemotron as the non-writer (code-survey, web-survey, etc.) should be on by default' | risky |
-| `t6` (`d4`) | operator: 'can we merge A5+A6? (+ explicitly request delegation)' — the speed question needs delegation to actually happen | acceptable |
-| `t19` (`d5`) | operator: skip Rn-2/Rn-3; open a lobes-cli issue; add instructions for testing associate/Nemotron on real cases; until then use qwen with none/low thinking | risky |
-| `t9`–`t18`, `t20` | Phase B (the hire increment) was sequenced behind the arms PR and not started; the plan's row for the hire arm moved 62 → 63 → 65 (d2, d4) | needs-follow-up |
-| `t8` | the PR also carries the low-effort top-level review default, the #461 correction, and the review-round fixes — none in the task's contract | acceptable |
+|-----------|-----------------------|----------------|
+| `t4` (`d1`) | the digest named in h26 does not exist on the artifacts the arm rows read | acceptable |
+| `t6` (`d2`) | the intended scout topology differs from what the rig served | acceptable |
+| `t6` (`d3`) | operator: nemotron as the non-writer seat should be on by default | risky |
+| `t6` (`d4`) | the speed question needs delegation to actually happen | acceptable |
+| `t19` (`d5`) | the associate seat is not validated on real cases; default-ON does not ship until it is | risky |
+| `t16`, `t17` | the hire arm is row **65**, not the plan's row 62 (`d2`/`d4` consumed 62–64) | acceptable |
+| `t18` | shipped as **v1.71.0**, not the planned 1.70.0 — PR #468 (the #458 lever, unplanned work discovered mid-arc) consumed 1.70.0 | acceptable |
+| `t12`, `t13` | `role=hired_role(hire)` cannot ride the spawn seam (a Role OBJECT silently widens through `load_role` → `None` → the full surface); the hired child runs the base role NAME with the authored fragment opening its brief | acceptable |
+| `t13`, `t17` | `hires_block` was never called by the run path, so `TaskResult.hires` was structurally empty **while row 65 ran** (found in review, Qodo #469/2, fixed in the same PR); the row's verdict was re-derived from the step trace | needs-follow-up |
+| `t20` | its measurement arm is row **64c**, added after the plan was written; the plan named no row | acceptable |
+| — (unplanned) | the #458 lever + row 64b shipped as their own PR #468 (v1.70.0); no plan task covers them | acceptable |
 
 ## Evidence
 
-- tests: `uv run pytest -n auto -q` on `main` @ `8a5b1f5` — `10518 passed, 51 skipped` — exit 0 (read directly, not through a pipe)
-- lint: `uv run flake8 colleague tests` — clean; `uv run black --check colleague tests` — clean; markdownlint clean on every touched `.md`
-- commits: `daedbc6..8a5b1f5` (squash-merged PR #464; branch history 79a42c1…08bfe56)
-- PRs / issues: PR #464 (merged 2026-08-30T18:48Z); closes #460; refs #456, #457, #458, #459, #461, #462, #463, lobes-cli#234, lobes-cli#235
-- live-testing: rows 59–64 in `docs/live-testing.md`; artifacts row 64: `d5c57e32a644`, `a3e4b1726bf9`, `a56de2c569e6` (tip `d0ff8c0`); comparator sha `f7e25fdc…`
-- colleague reviews: knobs diff task `8e658025caa2` (delivered); associate diff tasks `6267ef2f4fec`, `657afd0187f6` (incomplete — recorded miss)
+- tests: `uv run pytest -n auto -q` on `main` @ `69339a5` — **10711 passed, 51 skipped** — exit 0 (read directly, never through a pipe)
+- lint: `uv run flake8 colleague tests` clean; `black`/`isort` clean; markdownlint clean on every touched `.md`
+- commits: `daedbc6..69339a5` — PRs #464 (`8a5b1f5`), #465 (`e283a20`), #468 (`4fcf7b2`), #469 (`69339a5`)
+- rows: `docs/live-testing.md` rows 59–65 (each figure carries its artifact id)
+- row 64b artifacts: `c8f7e1244907`, `702358ee78ab`, `134533394a11`
+- row 64c artifacts: `d19a89765eab`, `474e744bf301`, `69cde59b032c`
+- row 65 artifacts: control `afc8687bdd85`, `414c5c86a8cb`, `7bfb680cd928`; H `fa54fae93a7a`, `ca84bab55170`, `196bd9c40607`
+- issues: closes #457, #460; refs #456, #458, #459, #461, #462, #463; filed #470 (Dependabot, unrelated); lobes-cli#234, #235
 
 ## Delivery Claims
 
 | Claim | Confidence | Evidence |
 |-------|------------|----------|
-| A7: offering the raw pair beside the purpose tools does not move delegation (0/3 by either form) | high | row 59 · artifacts' `offered_tools` · `tests/test_acting_add_knob.py` |
-| P3 does not promote (0/3; turns 1.286×, reasoning 123k vs 9.8k) against the P2-0 control | high | rows 60–61 · `scripts/compare_arms.py` (sha `f7e25fdc…`) |
-| Requested delegation on cortex children is compliant but 3.2× slower with a full redo | high | row 63 · artifacts `e3b34f4bd27c`, `77a8f51496d3`, `8da050ce241c` |
-| On the fixed tip, Nemotron children run without refusal and the parent verifies digests by ranged reads (3/3) | high | row 64 · artifacts `d5c57e32a644`, `a3e4b1726bf9`, `a56de2c569e6` |
-| Delegation to Nemotron is faster than cortex children (2.0×) but slower than in-seat (wall ratio 1.626 vs P2-0; 3.8–5.3× the 392 s bar) | high | row 64 · `compare_arms.py` output quoted in the row |
-| #460 is fixed (served-window clamp; the alias retry never hides a context-length 400) | high | `colleague/associate.py` · `tests/test_associate_window.py` · row 64 (0 refusals) · issue #460 closed |
-| The associate sends the operator's measured `depth` profile | high | `colleague/associate_config.py` · `tests/test_associate_sampling.py` · `Rn2-*.config.json` captures |
-| `TaskResult.offered_tools` identifies a surface arm off the artifact on both engines | high | `tests/test_contract_offered_tools.py` · `tests/test_e2e_mock.py` key sets |
-| `COLLEAGUE_HIRE` resolves env > config.json > OFF and is attestable from `config show` | high | `tests/test_config_hire_knobs.py` |
-| Top-level reviews reason at `low` and this prevents the synthesis overflow | medium | `tests/test_effort_top_level_mode.py` (the rule) · one observation: 37 steps/23 min at `low` vs a 30-min stall at `medium` (n=1 each — not a measured arm) |
-| Nemotron (thinking on) beats cortex-`low` on the survey task | unverified | no arm ran cortex children at `low` (row 63's ran at `off`); #459's decision rule |
-| `hire_colleague` exists | unverified | Phase B not started — not claimed |
+| A7: offering the raw pair beside the purpose tools does not move delegation (0/3 either form) | high | row 59 · `tests/test_acting_add_knob.py` |
+| P3 does not promote against its P2-0 control (0/3) | high | rows 60–61 · `scripts/compare_arms.py` |
+| Nemotron children run without refusal and the parent verifies by ranged reads | high | row 64 (3/3, 0 refusals) · `tests/test_associate_window.py` |
+| #460 is fixed (served-window clamp; the alias retry never hides a context-length 400) | high | commit `8a5b1f5` · issue #460 closed · row 64 |
+| The child context-budget lever does NOT earn a default (row 64b MISS on wall and tokens) | high | row 64b · PR #468 (`4fcf7b2`) |
+| The evidence-trail digest shape turns post-digest verification ranged (26/28 reads, 3/3 runs) | high | row 64c · `colleague/purpose_schemas.py` |
+| The hire lane is built, confined, and byte-identical when unarmed | high | `tests/test_hire*.py` (5 files) · `tests/test_purpose_tools_byte_identical.py` · commit `69339a5` |
+| Cortex does not choose the hire lane on a brief it can hold (hires 0/3) | high | row 65 · the step trace of all three H runs (0 `hire_colleague` steps) |
+| `COLLEAGUE_HIRE` is correct to ship default-OFF | high | row 65 (the pre-registered decision rule) · `docs/features/hire-colleague.md` |
+| A hire, when one occurs, reaches `TaskResult.hires` on every exit path | high | `tests/test_hire_assign.py::test_hires_snapshot_lands_on_every_exit_path` (added in review) |
+| The hire lane amortises on a brief too large to hold in-seat | unverified | no such brief exists yet — parked, never claimed |
+| Nemotron beats cortex-`low` on survey work | unverified | no arm ran cortex children at `low` (row 63's ran at `off`) — #459 |
+| A live model's negotiation accepts/amends/declines sensibly | unverified | no negotiation ever ran outside the mock tests (row 65: 0 hires) |
 
 ## Remaining Work / Follow-up
 
-- `t9`–`t18`, `t20` — Phase B, the hire increment: scope it as its own PR (v1.70.0) with the hire arm as row 65; owner: the next workforce run.
-- `t19` — associate default-ON stays parked on `agent/t19`: rebase after the validation ladder (`docs/features/associate-validation.md`) has a green row and #459's per-lane decision is taken.
-- #458 — the purpose child's 12-step cap is unapplied (children read to 460k–846k tokens); fix it, then re-run row 64 as row-64b (pre-registered condition) — the whole wall gap is child over-reading.
-- #459 — fixture-scored digest quality for `code_survey`/`web_survey`/memory, with the #461 correction folded in; decides qwen-`low` vs nemotron per lane.
-- #462 / #463 — future purpose tools; `run_command` reason + slower-warning — issues only.
-- Row 64 — the Orin's serving parameters were read off the deployment via ssh (2026-08-30 ~22:15) and pasted into the row in this same PR: vLLM v0.27.1, `--max-model-len=128000`, DSpark speculative decoding (5 tokens), `qwen3_coder` tool parser, `nemotron_v3` reasoning parser.
-- lobes-cli#234 / #235 — advert carries the served window; `thinking_budget` on vLLM.
-- The colleague second opinion on the associate-seat diff never completed on cortex (two attempts) — a recorded miss; re-attempt on the associate seat once validated, or accept Claude's review as the second opinion.
+- `t19` — associate default-ON stays parked on `agent/t19`; unblock via the validation ladder (`docs/features/associate-validation.md`) plus #459's per-lane decision, then rebase and ship.
+- The **amortisation test above the in-seat ceiling** — the one shape that could still make the hire lane earn its keep: a repeated-sub-task brief too large for one seat. Does not exist; the parked follow-up.
+- #459 — score digest CONTENT against fixture ground truth (the #461 correction folded in) before any seat default changes.
+- #462 / #463 — future purpose tools from the #461 evidence; `run_command` reason + slower-warning. Issues only.
+- #470 — two high Dependabot alerts in the `[mcp]` extra's chain (base install unaffected); filed while closing this arc.
+- lobes-cli#234 / #235 — the advert should carry the served window; `thinking_budget` is ignored on vLLM.
+- The colleague second opinion on the associate-seat diff never completed on cortex (two attempts, both truncated/stalled) — a recorded miss; retry on the associate seat once validated.
