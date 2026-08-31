@@ -15,14 +15,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from colleague.contract import ERROR, OK, SubResult, Usage
+import pytest
+
+from colleague.contract import OK, SubResult, Usage
 from colleague.plan.checkpoint import load as load_checkpoint
 from colleague.plan.frame import Claim, HonestyCondition, PlanFrame
-from colleague.plan.orchestrator import (
-    OrchestratorResult,
-    PlanRunContext,
-    run_plan_mode,
-)
+from colleague.plan.orchestrator import PlanRunContext, run_plan_mode
 from colleague.plan.plan_stage import PlanItem
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -154,262 +152,60 @@ def _plan_items_with_deps() -> list[PlanItem]:
 # ── (a) OrchestratorResult dataclass ─────────────────────────────────────────
 
 
-class TestOrchestratorResult:
-    def test_fields(self):
-        result = OrchestratorResult(
-            spec_result=None,
-            converged=True,
-            plan_items=[],
-            waves=[],
-            sub_results=[],
-            conflicts=[],
-        )
-        assert result.converged is True
-        assert result.plan_items == []
-        assert result.waves == []
-        assert result.sub_results == []
-        assert result.conflicts == []
-
-    def test_all_fields_populated(self):
-        from colleague.plan.spec_stage import SpecStageResult
-
-        result = OrchestratorResult(
-            spec_result=SpecStageResult(),
-            converged=True,
-            plan_items=[PlanItem(id="x", summary="s", acceptance=["a"])],
-            waves=[["x"]],
-            sub_results=[_make_subresult("r1")],
-            conflicts=[_make_subresult("c1", ERROR)],
-        )
-        assert result.converged is True
-        assert len(result.plan_items) == 1
-        assert result.waves == [["x"]]
-        assert len(result.sub_results) == 1
-        assert len(result.conflicts) == 1
-
-
-class TestHappyPath:
-    def test_converged_path(self):
-        """All claims confirmed -> plan computed -> workforce runs -> result returned."""
+class TestValidation:
+    def test_invalid_plan_items_raises(self):
+        """Plan items with empty acceptance criteria raise ValueError."""
         deps = FakeDependencies()
         deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0"), _make_subresult("merge")])
-
-        result = run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
+        deps.set_plan_items(
+            [
+                PlanItem(id="bad", summary="Bad item", acceptance=[]),
+            ]
         )
+        deps.set_subresults([_make_subresult("child-0")])
 
-        assert result.converged is True
-        assert result.spec_result is not None
-        assert result.spec_result.result.passed is True
-        assert len(result.plan_items) == 2
-        assert len(result.waves) == 1
-        assert result.waves[0] == ["p1", "p2"]
-        assert len(result.sub_results) == 2
-        assert result.conflicts == []
+        with pytest.raises(ValueError, match="has no acceptance criteria"):
+            run_plan_mode(
+                "test request",
+                propose_claims=deps.propose_claims,
+                decide=deps.decide,
+                propose_plan_items=deps.propose_plan_items,
+                batch_spawn=deps.batch_spawn,
+                engine="mock",
+                model="test-model",
+            )
 
-    def test_all_injected_callables_called(self):
-        """All injected callables are invoked on the happy path."""
+    def test_dangling_dep_raises(self):
+        """Plan items with unknown deps raise ValueError."""
         deps = FakeDependencies()
         deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
+        deps.set_plan_items(
+            [
+                PlanItem(id="x", summary="X", acceptance=["ok"], deps=["nonexistent"]),
+            ]
+        )
         deps.set_subresults([_make_subresult("child-0")])
 
-        run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
+        with pytest.raises(ValueError, match="depends on unknown"):
+            run_plan_mode(
+                "test request",
+                propose_claims=deps.propose_claims,
+                decide=deps.decide,
+                propose_plan_items=deps.propose_plan_items,
+                batch_spawn=deps.batch_spawn,
+                engine="mock",
+                model="test-model",
+            )
 
-        assert deps.propose_claims_called
-        assert deps.propose_plan_items_called
-        assert deps.batch_spawn_called
 
-    def test_decide_called_for_all_proposed_items(self):
-        """decide is called once per proposed claim + honesty condition."""
-        deps = FakeDependencies()
-        claims = _full_claims()
-        honesty = _full_honesty()
-        deps.set_claims(claims, honesty)
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
-
-        run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
-
-        # 6 claims + 6 honesty = 12 decide calls
-        assert len(deps.decide_calls) == 12
-
-    def test_multi_wave_execution(self):
-        """Items with dependencies produce multiple waves, each calling batch_spawn."""
+class TestMultiWaveCheckpointing:
+    def test_checkpoint_advances_to_workforce(self, tmp_path: Path):
+        """After running waves, checkpoint recommended_move is 'workforce'."""
         deps = FakeDependencies()
         deps.set_claims(_full_claims(), _full_honesty())
         deps.set_plan_items(_plan_items_with_deps())
         deps.set_subresults([_make_subresult("child-0")])
 
-        result = run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
-
-        assert result.converged is True
-        # p1 alone in wave 0, p2 in wave 1, p3 in wave 2
-        assert result.waves == [["p1"], ["p2"], ["p3"]]
-        # batch_spawn called 3 times (once per wave)
-        assert deps.batch_spawn_called
-
-
-class TestNonConvergedPath:
-    def test_reject_mandatory_no_plan(self):
-        """Rejecting a mandatory claim -> converged=False, no plan, no workforce."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
-
-        result = run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide_reject_first,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
-
-        assert result.converged is False
-        assert result.plan_items == []
-        assert result.waves == []
-        assert result.sub_results == []
-        assert result.conflicts == []
-
-    def test_reject_mandatory_propose_plan_items_not_called(self):
-        """When spec doesn't converge, propose_plan_items is NEVER called."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
-
-        run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide_reject_first,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
-
-        assert not deps.propose_plan_items_called
-        assert not deps.batch_spawn_called
-
-    def test_reject_mandatory_batch_spawn_not_called(self):
-        """When spec doesn't converge, batch_spawn is NEVER called."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
-
-        run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide_reject_first,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
-
-        assert not deps.batch_spawn_called
-
-
-class TestConflicts:
-    def test_error_subresult_becomes_conflict(self):
-        """A batch_spawn returning an ERROR-status SubResult -> non-empty conflicts."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        # Return an ERROR merge child
-        deps.set_subresults(
-            [
-                _make_subresult("child-0", OK),
-                _make_subresult("merge", ERROR),
-            ]
-        )
-
-        result = run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
-
-        assert result.converged is True
-        assert len(result.conflicts) == 1
-        assert result.conflicts[0].status == ERROR
-        assert result.conflicts[0].task_id == "merge"
-
-    def test_no_conflicts_when_all_ok(self):
-        """All OK sub-results -> empty conflicts."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults(
-            [
-                _make_subresult("child-0", OK),
-                _make_subresult("merge", OK),
-            ]
-        )
-
-        result = run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
-
-        assert result.conflicts == []
-
-
-class TestCheckpointPersistence:
-    def test_checkpoint_written_on_converge(self, tmp_path: Path):
-        """When repo_path is provided and spec converges, a checkpoint is saved.
-        After the full run (spec + workforce), the final checkpoint has
-        recommended_move='workforce' (set by the workforce stage)."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
-
         run_plan_mode(
             "test request",
             propose_claims=deps.propose_claims,
@@ -423,18 +219,58 @@ class TestCheckpointPersistence:
 
         cp = load_checkpoint("test-plan", tmp_path)
         assert cp is not None
-        assert cp.plan_id == "test-plan"
-        # Final checkpoint after workforce stage says "workforce"
         assert cp.recommended_move == "workforce"
 
-    def test_checkpoint_written_on_non_converge(self, tmp_path: Path):
-        """When repo_path is provided and spec does NOT converge, checkpoint still saved."""
+
+class TestSpecResultFidelity:
+    def test_spec_result_transcript_populated(self):
+        """The returned spec_result has a populated transcript."""
         deps = FakeDependencies()
         deps.set_claims(_full_claims(), _full_honesty())
         deps.set_plan_items(_valid_plan_items())
         deps.set_subresults([_make_subresult("child-0")])
 
-        run_plan_mode(
+        result = run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+        )
+
+        assert result.spec_result is not None
+        assert len(result.spec_result.transcript) == 12  # 6 claims + 6 honesty
+
+    def test_spec_result_convergence_passed(self):
+        """The spec_result.result.passed matches the converged flag."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+        )
+
+        assert result.spec_result.result.passed is True
+        assert result.converged is True
+
+    def test_spec_result_convergence_failed(self):
+        """When spec doesn't converge, spec_result.result.passed is False."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
             "test request",
             propose_claims=deps.propose_claims,
             decide=deps.decide_reject_first,
@@ -442,40 +278,15 @@ class TestCheckpointPersistence:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            context=PlanRunContext(repo_path=str(tmp_path), plan_id="test-plan"),
         )
 
-        cp = load_checkpoint("test-plan", tmp_path)
-        assert cp is not None
-        assert cp.recommended_move == "spec"
+        assert result.spec_result.result.passed is False
+        assert result.converged is False
 
-    def test_checkpoint_resolved_gates_populated(self, tmp_path: Path):
-        """Checkpoint resolved_gates contains all gate item_ids from the transcript."""
-        deps = FakeDependencies()
-        claims = _full_claims()
-        honesty = _full_honesty()
-        deps.set_claims(claims, honesty)
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
 
-        run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-            context=PlanRunContext(repo_path=str(tmp_path), plan_id="test-plan"),
-        )
-
-        cp = load_checkpoint("test-plan", tmp_path)
-        assert cp is not None
-        # Should have 6 claims + 6 honesty = 12 resolved gates
-        assert len(cp.resolved_gates) == 12
-
-    def test_no_checkpoint_without_repo_path(self, tmp_path: Path):
-        """When repo_path is None, no checkpoint file is created."""
+class TestDefaults:
+    def test_default_plan_id(self, tmp_path: Path):
+        """Default plan_id='plan' is used when not specified."""
         deps = FakeDependencies()
         deps.set_claims(_full_claims(), _full_honesty())
         deps.set_plan_items(_valid_plan_items())
@@ -489,18 +300,142 @@ class TestCheckpointPersistence:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            context=PlanRunContext(repo_path=None, plan_id="test-plan"),
+            context=PlanRunContext(repo_path=str(tmp_path)),
         )
 
-        # No checkpoint should exist
-        cp_path = tmp_path / ".colleague" / "plan"
-        assert not cp_path.exists()
+        cp = load_checkpoint("plan", tmp_path)
+        assert cp is not None
+        assert cp.plan_id == "plan"
 
 
-class TestInvariants:
-    def test_no_self_confirm(self):
-        """The orchestrator never sets state='confirmed' itself.
-        Only the injected decide callable can confirm."""
+class TestQuickPath:
+    def test_quick_skips_spec_stage(self):
+        """When quick=True, propose_claims is NOT called (spec stage skipped)."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        # propose_claims should NOT have been called
+        assert not deps.propose_claims_called
+        # But plan items and workforce should still run
+        assert deps.propose_plan_items_called
+        assert deps.batch_spawn_called
+
+    def test_quick_produces_converged_result(self):
+        """Quick path produces a converged=True result with plan items."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert len(result.plan_items) == 2
+        assert len(result.waves) == 1
+        assert len(result.sub_results) == 1
+
+    def test_quick_spec_result_has_empty_transcript(self):
+        """Quick path's spec_result has an empty transcript (no gates)."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.spec_result is not None
+        assert result.spec_result.transcript == []
+        assert result.spec_result.result.passed is True
+
+    def test_quick_frame_contains_request_text(self):
+        """The quick path frame carries the request as a confirmed claim."""
+        # We verify indirectly: propose_plan_items receives the frame,
+        # and the quick path builds a frame with a single confirmed claim
+        # whose text is the request.
+        captured_frames: list[PlanFrame] = []
+
+        def capture_propose_plan_items(frame: PlanFrame) -> list[PlanItem]:
+            captured_frames.append(frame)
+            return [PlanItem(id="q1", summary="from request", acceptance=["ok"])]
+
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "my quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=capture_propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert len(captured_frames) == 1
+        frame = captured_frames[0]
+        assert len(frame.claims) == 1
+        assert frame.claims[0].text == "my quick request"
+        assert frame.claims[0].state == "confirmed"
+
+    def test_quick_checkpoint_has_plan_move(self, tmp_path: Path):
+        """Quick path saves a checkpoint with recommended_move='plan'."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="quick-plan"),
+            quick=True,
+        )
+
+        cp = load_checkpoint("quick-plan", tmp_path)
+        assert cp is not None
+        # After workforce runs, the final checkpoint says "workforce"
+        assert cp.recommended_move == "workforce"
+
+    def test_quick_default_false_is_identical(self):
+        """When quick=False (default), behaviour is identical to before."""
         deps = FakeDependencies()
         deps.set_claims(_full_claims(), _full_honesty())
         deps.set_plan_items(_valid_plan_items())
@@ -514,55 +449,106 @@ class TestInvariants:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
+            quick=False,
         )
 
-        # The spec_result's frame should have confirmed items (via decide)
-        # but the orchestrator itself never wrote state="confirmed"
-        # We verify by checking that all confirmations came from decide calls
+        # Full spec stage ran
+        assert deps.propose_claims_called
         assert result.converged is True
-        # The spec_result.transcript records all decisions
-        for record in result.spec_result.transcript:
-            assert record.decision in ("confirm", "reject")
+        assert len(result.spec_result.transcript) == 12  # 6 claims + 6 honesty
+        assert len(result.plan_items) == 2
 
-    def test_planning_not_called_before_convergence(self):
-        """propose_plan_items and batch_spawn are NOT called when spec doesn't converge."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
+    def test_quick_calls_decide_before_workforce(self):
+        """When quick=True, decide is called exactly once with plan items
+        before any batch_spawn call."""
+        decide_calls: list[tuple[Any, str | None]] = []
 
-        # Reject ALL items -> definitely won't converge
-        def reject_all(item, critique) -> str:
+        def spy_decide(item, critique):
+            decide_calls.append((item, critique))
+            return "confirm"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        plan_items = _valid_plan_items()
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=spy_decide,
+            propose_plan_items=lambda frame: plan_items,
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        # decide called exactly once with the plan items list
+        assert len(decide_calls) == 1
+        assert decide_calls[0][0] is plan_items
+        assert decide_calls[0][1] == "quick-plan"
+        # batch_spawn was called (workforce ran)
+        assert batch_spawn_called[0]
+
+    def test_quick_reject_skips_workforce(self):
+        """When quick=True and decide returns 'reject', batch_spawn is NOT
+        called and waves is empty."""
+
+        def reject_decide(item, critique):
             return "reject"
 
-        run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=reject_all,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="mock",
-            model="test-model",
-        )
+        batch_spawn_called = [False]
 
-        assert not deps.propose_plan_items_called
-        assert not deps.batch_spawn_called
-
-    def test_engine_agnostic(self):
-        """The orchestrator works with any engine/model combination."""
-        deps = FakeDependencies()
-        deps.set_claims(_full_claims(), _full_honesty())
-        deps.set_plan_items(_valid_plan_items())
-        deps.set_subresults([_make_subresult("child-0")])
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
 
         result = run_plan_mode(
-            "test request",
-            propose_claims=deps.propose_claims,
-            decide=deps.decide,
-            propose_plan_items=deps.propose_plan_items,
-            batch_spawn=deps.batch_spawn,
-            engine="vllm-openai",
-            model="gpt-4",
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=reject_decide,
+            propose_plan_items=lambda frame: _valid_plan_items(),
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
         )
 
         assert result.converged is True
+        assert result.plan_items == _valid_plan_items()
+        assert result.waves == []
+        assert result.sub_results == []
+        assert not batch_spawn_called[0]
+
+    def test_quick_confirm_runs_workforce(self):
+        """When quick=True and decide returns 'confirm', the workforce runs
+        (batch_spawn called) as before."""
+
+        def confirm_decide(item, critique):
+            return "confirm"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=confirm_decide,
+            propose_plan_items=lambda frame: _valid_plan_items(),
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert len(result.plan_items) == 2
+        assert len(result.waves) == 1
+        assert len(result.sub_results) == 1
+        assert batch_spawn_called[0]

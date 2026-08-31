@@ -54,12 +54,7 @@ GRANDFATHERED: dict[str, int] = {
     "colleague/memory.py": 1147,
     "colleague/senses.py": 1483,
     "colleague/subagents.py": 1703,
-    "tests/test_ask_colleague_skill.py": 1467,
     "tests/test_boundary.py": 1144,
-    "tests/test_configurator.py": 1145,
-    "tests/test_loop.py": 1002,
-    "tests/test_loop_memory.py": 1240,
-    "tests/test_plan_orchestrator.py": 1002,
 }
 
 
