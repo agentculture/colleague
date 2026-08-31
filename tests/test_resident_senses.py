@@ -32,7 +32,10 @@ from agent_lifecycle.runtime.message import Message  # noqa: E402
 
 from colleague.config import EngineConfig, SensesConfig  # noqa: E402
 from colleague.contract import ContextPacket, SensesRecord  # noqa: E402
-from colleague.resident import appserver as appserver_mod  # noqa: E402
+
+# The senses lane lives in a sibling module (file-length split): patch the
+# senses entry points where they are actually LOOKED UP.
+from colleague.resident import appserver_senses as appserver_senses_mod  # noqa: E402
 from colleague.resident.appserver import build_appserver_supervisor  # noqa: E402
 
 
@@ -71,8 +74,8 @@ def _patch_senses(monkeypatch, *, shaped="shaped mesh reply", task_type="bugfix"
     def _speak(summary, senses_config, engine, **kw):
         return shaped, SensesRecord(point="senses-speakback", latency=0.1, tokens=5, degraded=False)
 
-    monkeypatch.setattr(appserver_mod, "run_senses_intake", _intake)
-    monkeypatch.setattr(appserver_mod, "run_senses_speakback", _speak)
+    monkeypatch.setattr(appserver_senses_mod, "run_senses_intake", _intake)
+    monkeypatch.setattr(appserver_senses_mod, "run_senses_speakback", _speak)
 
 
 async def _round_trip(transport, supervisor, message, *, timeout: float = 30.0):
@@ -184,8 +187,8 @@ def test_senses_unresolved_resident_is_byte_identical(tmp_path, monkeypatch) -> 
     def _boom(*a, **k):
         raise AssertionError("senses must not run without a senses model")
 
-    monkeypatch.setattr(appserver_mod, "run_senses_intake", _boom)
-    monkeypatch.setattr(appserver_mod, "run_senses_speakback", _boom)
+    monkeypatch.setattr(appserver_senses_mod, "run_senses_intake", _boom)
+    monkeypatch.setattr(appserver_senses_mod, "run_senses_speakback", _boom)
     repo = _init_repo(tmp_path)
     transport, supervisor = _supervisor(
         repo, EngineConfig(), operator_identity="ori", open_pr=False
