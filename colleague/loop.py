@@ -642,6 +642,7 @@ def run(
         messages=messages,
         policy=policy,
         progress=progress,
+        seat=seat,
         model=model or "",
         senses_model=_context.senses_model,
         lobes_gateway=_context.lobes_gateway,

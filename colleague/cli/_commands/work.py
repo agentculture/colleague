@@ -502,6 +502,13 @@ def _arm_delegation(config: EngineConfig, task: Task) -> None:
     when the ``agents`` mode is armed, so the unarmed calls are
     byte-identical to today.
     """
+    # Reasoning sidecar (effort-v4 t6, h20): children tag their sidecars to the
+    # OPERATOR repo (the #310 flight-plane precedent — ``task`` here is
+    # post-isolation, so ``flight_repo_path`` names the operator repo when the
+    # run is worktree-isolated). Attached as a dynamic config attr (the
+    # ``agents_ledger_path`` precedent) so ``run_subagent`` can reach it
+    # through the spawn closures without a signature change.
+    config.reasoning_repo_path = task.flight_repo_path or task.repo_path
     budget = new_agent_budget(config)
     spawn_kwargs: dict = {"counter": budget, "parent_task_id": task.id}
     parent_profile = default_parent_profile(config)
