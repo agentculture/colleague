@@ -40,6 +40,25 @@ def _read_source(rel_path: str) -> str:
     return (_REPO_ROOT / rel_path).read_text(encoding="utf-8")
 
 
+def _session_surface() -> tuple[str, ...]:
+    """Every module the session's presence surface is spread across.
+
+    Was just ``session.py``. The hard-1000-line-file-limit arc decomposed that
+    file into ``_session_*.py`` mixin siblings, which moved two of the three
+    ``flight.append_guidance`` relay call sites out of it — so a check that
+    greps only ``session.py`` silently covers LESS than it did, while still
+    passing. Enumerating the siblings by glob restores the original reach and
+    keeps it as new siblings appear.
+    """
+    package = _REPO_ROOT / "colleague" / "cli" / "_commands"
+    siblings = sorted(p.name for p in package.glob("_session_*.py"))
+    return ("session.py",) + tuple(siblings)
+
+
+def _session_surface_paths() -> tuple[str, ...]:
+    return tuple(f"colleague/cli/_commands/{name}" for name in _session_surface())
+
+
 def _assigned_attribute_names(source: str) -> set[str]:
     """Every attribute name that is ever an ASSIGNMENT TARGET in *source*
     (``x.foo = ...`` / ``x.foo += ...``), via AST -- catches an indirect or
@@ -178,10 +197,7 @@ class TestSensesReplyNeverBecomesTheTaskAnswer:
         speakback string from it, per its own docstring: "The raw cortex
         summary on result.summary is never mutated") -- reading is fine; this
         pins that it is never the target of an assignment."""
-        for rel_path in (
-            "colleague/cli/_commands/talk.py",
-            "colleague/cli/_commands/session.py",
-        ):
+        for rel_path in ("colleague/cli/_commands/talk.py",) + _session_surface_paths():
             source = _read_source(rel_path)
             assigned = _assigned_attribute_names(source)
             assert "summary" not in assigned, (
@@ -247,10 +263,7 @@ class TestFlightFileIsTheOnlyInjectionChannel:
         methods import anything from ``colleague.loop`` -- they cannot reach
         ``ctx.messages`` even by accident, since they never hold a reference
         to the loop's internal work context at all."""
-        for rel_path in (
-            "colleague/cli/_commands/talk.py",
-            "colleague/cli/_commands/session.py",
-        ):
+        for rel_path in ("colleague/cli/_commands/talk.py",) + _session_surface_paths():
             source = _read_source(rel_path)
             assert "colleague.loop" not in source
             assert "ctx.messages" not in source
@@ -278,12 +291,21 @@ class TestFlightFileIsTheOnlyInjectionChannel:
         mechanism, exercised end to end (see also
         ``tests/test_talk_lane.py::test_applied_guidance_recorded_on_feed_and_artifact``,
         which already pins the loop side of this in isolation)."""
-        for rel_path in (
-            "colleague/cli/_commands/talk.py",
-            "colleague/cli/_commands/session.py",
-        ):
-            source = _read_source(rel_path)
-            assert "flight.append_guidance(" in source
+        assert "flight.append_guidance(" in _read_source("colleague/cli/_commands/talk.py")
+        # The session's relay used to sit wholly in session.py; the
+        # hard-1000-line-file-limit arc spread it across _session_*.py mixins.
+        # So this is a check on the SURFACE, not on every file in it: a module
+        # with no relay at all is fine, a relay through some other channel is
+        # not (the per-file absence checks above enforce that half).
+        relaying = [
+            rel
+            for rel in _session_surface_paths()
+            if "flight.append_guidance(" in _read_source(rel)
+        ]
+        assert relaying, (
+            "no module of the session surface relays through flight.append_guidance -- "
+            f"searched {list(_session_surface_paths())}"
+        )
 
     def test_guidance_written_via_flight_append_guidance_is_applied_at_the_next_boundary(
         self, tmp_path: Path

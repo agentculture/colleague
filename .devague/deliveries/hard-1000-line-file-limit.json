@@ -1,0 +1,22 @@
+{
+  "plan_slug": "hard-1000-line-file-limit",
+  "schema_version": 1,
+  "created": "2026-08-31T14:27:39Z",
+  "updated": "2026-08-31T14:27:39Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "The arc lands as ONE PR from a single stacked branch (39 commits, 17 TDD-gated merge commits, one version bump) instead of the six-to-eight thematic PRs c36 confirmed, and h27's independent revertibility is NOT met.",
+      "task_ref": "t20",
+      "reason": "Every split task deletes its own entry from the shared GRANDFATHERED dict in tests/test_file_length_limit.py, so each merge depends on the file state of the ones before it. Measured, not assumed: reverting the t5 (tools.py) merge alone conflicts on that file. Splitting the branch into stacked PRs now would NOT restore revertibility because the coupling is in the content, not the branch shape. The design that would have worked \u2014 no task touches GRANDFATHERED, all 21 entries drop in one final commit \u2014 is a lesson for the next arc of this shape, not a cheap retrofit. Operator approved landing as one PR with the deviation recorded.",
+      "affects": [
+        "c36",
+        "h27",
+        "c31"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up"
+    }
+  ]
+}

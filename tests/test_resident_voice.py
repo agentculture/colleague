@@ -38,7 +38,11 @@ from agent_lifecycle.reference import InMemoryTransport  # noqa: E402
 from agent_lifecycle.runtime.message import Message  # noqa: E402
 
 from colleague.config import EngineConfig, SensesConfig, VoiceConfig  # noqa: E402
+
+# The senses/voice lane lives in a sibling module (file-length split): patch
+# `synthesize` / `run_senses_talk` where they are actually LOOKED UP.
 from colleague.resident import appserver as appserver_mod  # noqa: E402
+from colleague.resident import appserver_senses as appserver_senses_mod  # noqa: E402
 from colleague.resident.appserver import build_appserver_supervisor  # noqa: E402
 
 
@@ -114,7 +118,7 @@ def test_reply_carries_artifact_relative_wav_path_when_voice_armed(
         Path(out_path).write_bytes(b"RIFF....WAVEfake")
         return Path(out_path)
 
-    monkeypatch.setattr(appserver_mod, "synthesize", _fake_synthesize)
+    monkeypatch.setattr(appserver_senses_mod, "synthesize", _fake_synthesize)
 
     transport, supervisor = _supervisor(
         repo, _voice_config(), operator_identity="ori", open_pr=False
@@ -142,7 +146,7 @@ def test_reply_unchanged_when_synth_degrades_to_none(
     """The rig's speech proxy 502s -> synthesize returns None -> no audio line,
     byte-identical to a no-tts reply (additive, never a crash)."""
     repo = _init_repo(tmp_path)
-    monkeypatch.setattr(appserver_mod, "synthesize", lambda *a, **k: None)
+    monkeypatch.setattr(appserver_senses_mod, "synthesize", lambda *a, **k: None)
 
     transport, supervisor = _supervisor(
         repo, _voice_config(), operator_identity="ori", open_pr=False
@@ -165,7 +169,7 @@ def test_synthesize_never_called_when_voice_unarmed(
     def _boom(*a, **k):
         raise AssertionError("synthesize must not be called when voice is unarmed")
 
-    monkeypatch.setattr(appserver_mod, "synthesize", _boom)
+    monkeypatch.setattr(appserver_senses_mod, "synthesize", _boom)
 
     transport, supervisor = _supervisor(
         repo, EngineConfig(), operator_identity="ori", open_pr=False
@@ -264,7 +268,7 @@ def test_non_operator_relay_answers_via_senses_talk_when_armed(
             "tokens": 12,
         }
 
-    monkeypatch.setattr(appserver_mod, "run_senses_talk", _fake_talk)
+    monkeypatch.setattr(appserver_senses_mod, "run_senses_talk", _fake_talk)
 
     config = EngineConfig()
     config.senses = SensesConfig(
@@ -294,7 +298,7 @@ def test_operator_relay_also_carries_senses_talk_answer_when_armed(
         appserver_mod, "append_guidance", lambda repo_path, task_id, message: calls.append(task_id)
     )
     monkeypatch.setattr(
-        appserver_mod,
+        appserver_senses_mod,
         "run_senses_talk",
         lambda message, **kw: {
             "answer": "acknowledged, focusing there now.",

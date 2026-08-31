@@ -110,7 +110,7 @@ The live cockpit feed is now legible at a glance:
 - **Grouping** — consecutive identical feed lines collapse into a single
   `<line> ×N` entry (e.g. four back-to-back `[culture]` calls become
   `[culture] agtag issues ×4`). Logic lives in
-  `colleague/tui/reducer.py` `_collapse_repeat`.
+  `agentfront/taui/reducer.py` `append_conversation`.
 - **Tool targets** — the `culture` and `devague` loop tools now surface as
   `<cli> <args>` / `<move> <args>` in the feed hint (e.g.
   `[culture] agtag issues fetch`) instead of a bare `[culture]` sentinel.

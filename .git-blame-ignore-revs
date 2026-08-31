@@ -1,0 +1,14 @@
+# .git-blame-ignore-revs
+#
+# Ignore commits that only move code (pure refactoring or formatting changes)
+# when viewing blame. These commits don't change the logic of the code, only
+# its location or format, and add noise to blame output.
+#
+# To use this file, configure git blame to ignore these revisions:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Then use blame normally:
+#   git blame <file>
+#   git blame -L <start>,<end> <file>
+#
+# Each pure-move commit SHA gets appended here as it lands.

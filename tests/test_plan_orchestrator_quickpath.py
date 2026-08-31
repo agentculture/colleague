@@ -1,0 +1,554 @@
+"""Tests for colleague.plan.orchestrator — the plan-mode orchestrator.
+
+Covers:
+  (a) OrchestratorResult dataclass fields.
+  (b) Full happy path: converge -> plan -> workforce -> result.
+  (c) Non-converged path: spec fails -> no plan, no workforce.
+  (d) surface_conflicts: ERROR sub-results collected.
+  (e) Checkpoint persistence when repo_path is provided.
+  (f) Invariants: no self-confirm, no plan/workforce before convergence.
+  (g) validate_items raises ValueError on bad plan items.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from colleague.contract import OK, SubResult, Usage
+from colleague.plan.checkpoint import load as load_checkpoint
+from colleague.plan.frame import Claim, HonestyCondition, PlanFrame
+from colleague.plan.orchestrator import PlanRunContext, run_plan_mode
+from colleague.plan.plan_stage import PlanItem
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+
+def _claim(kind: str, id: str = "", text: str = "", state: str = "proposed") -> Claim:
+    return Claim(
+        id=id or kind,
+        kind=kind,
+        text=text or f"{kind} text",
+        state=state,
+    )
+
+
+def _honesty(
+    claim_id: str, id: str = "", text: str = "", state: str = "proposed"
+) -> HonestyCondition:
+    return HonestyCondition(
+        id=id or f"hc-{claim_id}",
+        claim_id=claim_id,
+        text=text or f"hc for {claim_id}",
+        state=state,
+    )
+
+
+def _make_subresult(task_id: str, status: str = OK) -> SubResult:
+    return SubResult(
+        task_id=task_id,
+        engine="mock",
+        model="test-model",
+        status=status,
+        summary=f"Result for {task_id}",
+        usage=Usage(),
+    )
+
+
+# ── Fake callables (injected dependencies) ──────────────────────────────────
+
+
+class FakeDependencies:
+    """Trackable fake dependencies for the orchestrator."""
+
+    def __init__(self):
+        self.propose_claims_called = False
+        self.propose_plan_items_called = False
+        self.batch_spawn_called = False
+        self.decide_calls: list[tuple[Any, str | None]] = []
+        self.claims_to_propose: list[Claim] = []
+        self.honesty_to_propose: list[HonestyCondition] = []
+        self.plan_items_to_propose: list[PlanItem] = []
+        self.subresults_to_return: list[SubResult] = []
+
+    def set_claims(self, claims: list[Claim], honesty: list[HonestyCondition]):
+        self.claims_to_propose = claims
+        self.honesty_to_propose = honesty
+
+    def set_plan_items(self, items: list[PlanItem]):
+        self.plan_items_to_propose = items
+
+    def set_subresults(self, results: list[SubResult]):
+        self.subresults_to_return = results
+
+    def propose_claims(self, request: str) -> tuple[list[Claim], list[HonestyCondition]]:
+        self.propose_claims_called = True
+        return list(self.claims_to_propose), list(self.honesty_to_propose)
+
+    def decide(self, item: Any, critique: str | None) -> str:
+        self.decide_calls.append((item, critique))
+        # Default: confirm everything
+        return "confirm"
+
+    def decide_reject_first(self, item: Any, critique: str | None) -> str:
+        self.decide_calls.append((item, critique))
+        # Reject the first item (which will be "announcement")
+        if hasattr(item, "id") and item.id == "announcement":
+            return "reject"
+        return "confirm"
+
+    def propose_plan_items(self, frame: PlanFrame) -> list[PlanItem]:
+        self.propose_plan_items_called = True
+        return list(self.plan_items_to_propose)
+
+    def batch_spawn(self, items: list[dict]) -> list[SubResult]:
+        self.batch_spawn_called = True
+        return list(self.subresults_to_return)
+
+
+def _full_claims() -> list[Claim]:
+    """All mandatory claim kinds as proposed."""
+    return [
+        _claim("announcement"),
+        _claim("audience"),
+        _claim("after_state"),
+        _claim("boundary"),
+        _claim("success_signal"),
+        _claim("before_state"),
+    ]
+
+
+def _full_honesty() -> list[HonestyCondition]:
+    """Honesty conditions for all spec-affecting claims, all proposed."""
+    return [
+        _honesty("announcement"),
+        _honesty("audience"),
+        _honesty("after_state"),
+        _honesty("boundary"),
+        _honesty("success_signal"),
+        _honesty("before_state"),
+    ]
+
+
+def _valid_plan_items() -> list[PlanItem]:
+    """Two valid plan items with no deps (single wave)."""
+    return [
+        PlanItem(id="p1", summary="First task", acceptance=["works"]),
+        PlanItem(id="p2", summary="Second task", acceptance=["works"]),
+    ]
+
+
+def _plan_items_with_deps() -> list[PlanItem]:
+    """Three items: p1 has no deps, p2 depends on p1, p3 depends on p2."""
+    return [
+        PlanItem(id="p1", summary="First", acceptance=["ok"]),
+        PlanItem(id="p2", summary="Second", acceptance=["ok"], deps=["p1"]),
+        PlanItem(id="p3", summary="Third", acceptance=["ok"], deps=["p2"]),
+    ]
+
+
+# ── (a) OrchestratorResult dataclass ─────────────────────────────────────────
+
+
+class TestValidation:
+    def test_invalid_plan_items_raises(self):
+        """Plan items with empty acceptance criteria raise ValueError."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(
+            [
+                PlanItem(id="bad", summary="Bad item", acceptance=[]),
+            ]
+        )
+        deps.set_subresults([_make_subresult("child-0")])
+
+        with pytest.raises(ValueError, match="has no acceptance criteria"):
+            run_plan_mode(
+                "test request",
+                propose_claims=deps.propose_claims,
+                decide=deps.decide,
+                propose_plan_items=deps.propose_plan_items,
+                batch_spawn=deps.batch_spawn,
+                engine="mock",
+                model="test-model",
+            )
+
+    def test_dangling_dep_raises(self):
+        """Plan items with unknown deps raise ValueError."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(
+            [
+                PlanItem(id="x", summary="X", acceptance=["ok"], deps=["nonexistent"]),
+            ]
+        )
+        deps.set_subresults([_make_subresult("child-0")])
+
+        with pytest.raises(ValueError, match="depends on unknown"):
+            run_plan_mode(
+                "test request",
+                propose_claims=deps.propose_claims,
+                decide=deps.decide,
+                propose_plan_items=deps.propose_plan_items,
+                batch_spawn=deps.batch_spawn,
+                engine="mock",
+                model="test-model",
+            )
+
+
+class TestMultiWaveCheckpointing:
+    def test_checkpoint_advances_to_workforce(self, tmp_path: Path):
+        """After running waves, checkpoint recommended_move is 'workforce'."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_plan_items_with_deps())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="test-plan"),
+        )
+
+        cp = load_checkpoint("test-plan", tmp_path)
+        assert cp is not None
+        assert cp.recommended_move == "workforce"
+
+
+class TestSpecResultFidelity:
+    def test_spec_result_transcript_populated(self):
+        """The returned spec_result has a populated transcript."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+        )
+
+        assert result.spec_result is not None
+        assert len(result.spec_result.transcript) == 12  # 6 claims + 6 honesty
+
+    def test_spec_result_convergence_passed(self):
+        """The spec_result.result.passed matches the converged flag."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+        )
+
+        assert result.spec_result.result.passed is True
+        assert result.converged is True
+
+    def test_spec_result_convergence_failed(self):
+        """When spec doesn't converge, spec_result.result.passed is False."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide_reject_first,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+        )
+
+        assert result.spec_result.result.passed is False
+        assert result.converged is False
+
+
+class TestDefaults:
+    def test_default_plan_id(self, tmp_path: Path):
+        """Default plan_id='plan' is used when not specified."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            context=PlanRunContext(repo_path=str(tmp_path)),
+        )
+
+        cp = load_checkpoint("plan", tmp_path)
+        assert cp is not None
+        assert cp.plan_id == "plan"
+
+
+class TestQuickPath:
+    def test_quick_skips_spec_stage(self):
+        """When quick=True, propose_claims is NOT called (spec stage skipped)."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        # propose_claims should NOT have been called
+        assert not deps.propose_claims_called
+        # But plan items and workforce should still run
+        assert deps.propose_plan_items_called
+        assert deps.batch_spawn_called
+
+    def test_quick_produces_converged_result(self):
+        """Quick path produces a converged=True result with plan items."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert len(result.plan_items) == 2
+        assert len(result.waves) == 1
+        assert len(result.sub_results) == 1
+
+    def test_quick_spec_result_has_empty_transcript(self):
+        """Quick path's spec_result has an empty transcript (no gates)."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.spec_result is not None
+        assert result.spec_result.transcript == []
+        assert result.spec_result.result.passed is True
+
+    def test_quick_frame_contains_request_text(self):
+        """The quick path frame carries the request as a confirmed claim."""
+        # We verify indirectly: propose_plan_items receives the frame,
+        # and the quick path builds a frame with a single confirmed claim
+        # whose text is the request.
+        captured_frames: list[PlanFrame] = []
+
+        def capture_propose_plan_items(frame: PlanFrame) -> list[PlanItem]:
+            captured_frames.append(frame)
+            return [PlanItem(id="q1", summary="from request", acceptance=["ok"])]
+
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "my quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=capture_propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert len(captured_frames) == 1
+        frame = captured_frames[0]
+        assert len(frame.claims) == 1
+        assert frame.claims[0].text == "my quick request"
+        assert frame.claims[0].state == "confirmed"
+
+    def test_quick_checkpoint_has_plan_move(self, tmp_path: Path):
+        """Quick path saves a checkpoint with recommended_move='plan'."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="quick-plan"),
+            quick=True,
+        )
+
+        cp = load_checkpoint("quick-plan", tmp_path)
+        assert cp is not None
+        # After workforce runs, the final checkpoint says "workforce"
+        assert cp.recommended_move == "workforce"
+
+    def test_quick_default_false_is_identical(self):
+        """When quick=False (default), behaviour is identical to before."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=False,
+        )
+
+        # Full spec stage ran
+        assert deps.propose_claims_called
+        assert result.converged is True
+        assert len(result.spec_result.transcript) == 12  # 6 claims + 6 honesty
+        assert len(result.plan_items) == 2
+
+    def test_quick_calls_decide_before_workforce(self):
+        """When quick=True, decide is called exactly once with plan items
+        before any batch_spawn call."""
+        decide_calls: list[tuple[Any, str | None]] = []
+
+        def spy_decide(item, critique):
+            decide_calls.append((item, critique))
+            return "confirm"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        plan_items = _valid_plan_items()
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=spy_decide,
+            propose_plan_items=lambda frame: plan_items,
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        # decide called exactly once with the plan items list
+        assert len(decide_calls) == 1
+        assert decide_calls[0][0] is plan_items
+        assert decide_calls[0][1] == "quick-plan"
+        # batch_spawn was called (workforce ran)
+        assert batch_spawn_called[0]
+
+    def test_quick_reject_skips_workforce(self):
+        """When quick=True and decide returns 'reject', batch_spawn is NOT
+        called and waves is empty."""
+
+        def reject_decide(item, critique):
+            return "reject"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=reject_decide,
+            propose_plan_items=lambda frame: _valid_plan_items(),
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert result.plan_items == _valid_plan_items()
+        assert result.waves == []
+        assert result.sub_results == []
+        assert not batch_spawn_called[0]
+
+    def test_quick_confirm_runs_workforce(self):
+        """When quick=True and decide returns 'confirm', the workforce runs
+        (batch_spawn called) as before."""
+
+        def confirm_decide(item, critique):
+            return "confirm"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=confirm_decide,
+            propose_plan_items=lambda frame: _valid_plan_items(),
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert len(result.plan_items) == 2
+        assert len(result.waves) == 1
+        assert len(result.sub_results) == 1
+        assert batch_spawn_called[0]

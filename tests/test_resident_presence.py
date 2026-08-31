@@ -23,7 +23,12 @@ from agent_lifecycle.runtime.message import Message  # noqa: E402
 from colleague.config import EngineConfig, SensesConfig  # noqa: E402
 from colleague.contract import ContextPacket  # noqa: E402
 from colleague.presence import UpdateCadence  # noqa: E402
-from colleague.resident import appserver as appserver_mod  # noqa: E402
+
+# The proactive-update sink lives in a sibling module (file-length split).
+# The senses lane lives in a sibling module (file-length split): patch the
+# senses entry points where they are actually LOOKED UP.
+from colleague.resident import appserver_senses as appserver_senses_mod  # noqa: E402
+from colleague.resident import presencesink as presencesink_mod  # noqa: E402
 from colleague.resident.appserver import (  # noqa: E402
     _ResidentPresenceSink,
     build_appserver_supervisor,
@@ -40,7 +45,7 @@ def test_resident_presence_sink_fires_on_cadence_caps_and_emits(monkeypatch) -> 
             "degraded": False,
         }
 
-    monkeypatch.setattr(appserver_mod, "run_senses_update", _update)
+    monkeypatch.setattr(presencesink_mod, "run_senses_update", _update)
     emitted: list[str] = []
     sink = _ResidentPresenceSink(
         senses_config=object(),
@@ -62,7 +67,7 @@ def test_resident_presence_sink_fires_on_cadence_caps_and_emits(monkeypatch) -> 
 
 def test_resident_presence_sink_never_raises_on_degraded_update(monkeypatch) -> None:
     monkeypatch.setattr(
-        appserver_mod,
+        presencesink_mod,
         "run_senses_update",
         lambda *a, **k: {"update": None, "latency": 0.1, "tokens": None, "degraded": True},
     )
@@ -86,7 +91,7 @@ def test_resident_presence_sink_marks_failed_step_in_feed(monkeypatch) -> None:
         captured.append(list(feed_tail))
         return {"update": "noted", "latency": 0.1, "tokens": 5, "degraded": False}
 
-    monkeypatch.setattr(appserver_mod, "run_senses_update", _update)
+    monkeypatch.setattr(presencesink_mod, "run_senses_update", _update)
     sink = _ResidentPresenceSink(
         senses_config=object(),
         engine=object(),
@@ -142,8 +147,8 @@ def _patch_intake_ack(monkeypatch, ack: str = "on it — I'll get cortex started
         packet = ContextPacket(original=text, interpretation=text, confidence=0.9, ack=ack)
         return packet, SensesRecord(point="senses-intake", latency=0.1, tokens=3, degraded=False)
 
-    monkeypatch.setattr(appserver_mod, "run_senses_intake", _intake)
-    monkeypatch.setattr(appserver_mod, "run_senses_speakback", lambda *a, **k: (None, None))
+    monkeypatch.setattr(appserver_senses_mod, "run_senses_intake", _intake)
+    monkeypatch.setattr(appserver_senses_mod, "run_senses_speakback", lambda *a, **k: (None, None))
 
 
 async def _drive(transport, supervisor, message, *, timeout: float = 30.0):

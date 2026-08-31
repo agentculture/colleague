@@ -196,27 +196,29 @@ refusal path, and an operator turn narrows nothing at all.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import replace as _dc_replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from agent_lifecycle.runtime.message import Message
 from agent_lifecycle.runtime.supervisor import Supervisor
 
-from colleague import registry
-from colleague.artifact import artifact_dir
-from colleague.artifact import write as _write_artifact
 from colleague.attribution import senses_line
 from colleague.config import resolve_lobes_gateway_url
-from colleague.contract import ContextPacket, SensesBlock, SensesRecord, Task
-from colleague.flight import append_guidance, feed_path, is_safe_task_id
+from colleague.contract import ContextPacket, Task
+from colleague.flight import append_guidance, is_safe_task_id
 from colleague.frontdoor import run_frontdoor
 from colleague.media import validate_attachment
-from colleague.presence import cadence_from_env, clarify_from_env, should_clarify, should_update
+from colleague.presence import cadence_from_env, clarify_from_env, should_clarify
+
+# The senses/voice lane and the proactive-update sink live in siblings (file
+# length discipline); both stay under colleague/resident/ so test_boundary.py's
+# asyncio exemption prefix is unchanged.
+from colleague.resident.appserver_senses import _SensesLaneMixin
+from colleague.resident.presencesink import _ResidentPresenceSink
 
 # Re-exported: the two request-line conventions' grammar lives in that module.
 from colleague.resident.requestlines import _MAX_ATTACHMENTS  # noqa: F401
@@ -228,15 +230,6 @@ from colleague.resident.webtrust import (
     resolve_web_access,
     turn_lifecycle,
 )
-from colleague.senses import (
-    UPDATE_POINT,
-    run_senses_intake,
-    run_senses_speakback,
-    run_senses_talk,
-    run_senses_update,
-    senses_engine_config,
-)
-from colleague.voice import synthesize
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
     from agent_lifecycle.runtime.transport import Transport
@@ -252,129 +245,7 @@ _STOP: object = object()
 _ACK_DISPATCH_NOTICE = "taking your request to cortex now."
 
 
-class _ResidentPresenceSink:
-    """Cadence-gated proactive-update progress sink for an OPERATOR's resident run.
-
-    Presence-default-everywhere (t11 / c10 / h17). A ``CockpitProgressSink``-shaped
-    duck (``__call__(step_index, tool, target, ok)`` + ``close()``) that
-    ``execute_work`` drives at each progress boundary WHILE the operator's work
-    item runs. When the cadence fires (and the per-run cap is not yet hit), it
-    narrates ONE senses update grounded strictly in the accumulated progress
-    lines (:func:`colleague.senses.run_senses_update`) and emits it via the
-    injected *emit* callback — the caller wires *emit* to a threadsafe
-    reply-to-origin mesh enqueue, so the operator is kept posted where they asked.
-
-    Cap-bounded by the update cadence (``COLLEAGUE_SENSES_UPDATE_CAP``) so senses
-    can never flood a mesh channel (h17); hitting the cap is recorded ONCE, never
-    silent (h4). Built ONLY for the operator (never a non-operator — the c19
-    boundary): the appserver constructs it inside the ``ALLOW_WRITE`` branch, so a
-    non-operator request never gets one. Every fired update lands on
-    ``records``/``chat`` for the artifact fold. Never raises — a narration failure
-    can never disturb the cortex work item (the #206 invariant: a beat never
-    advances the real step count)."""
-
-    def __init__(
-        self,
-        *,
-        senses_config: Any,
-        engine: Any,
-        cadence: Any,
-        emit: "Callable[[str], None]",
-        packet: "Optional[ContextPacket]" = None,
-        history: "Optional[list[dict[str, str]]]" = None,
-    ) -> None:
-        self._senses_config = senses_config
-        self._engine = engine
-        self._cadence = cadence
-        self._emit = emit
-        self._packet = packet
-        self._history = history
-        self._feed_lines: list[str] = []
-        self._updates_sent = 0
-        self._last_update_step = 0
-        self._last_phase = ""
-        self._cap_recorded = False
-        self.records: list[SensesRecord] = []
-        self.chat: list[dict[str, Any]] = []
-
-    def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
-        try:
-            self._observe(step_index, tool, target, ok)
-        except Exception:  # noqa: BLE001 — narration must never disturb the run
-            return
-
-    def _observe(self, step_index: int, tool: str, target: str, ok: bool) -> None:
-        phase_changed = False
-        if tool:
-            line = f"step {step_index}: {tool} {target}".strip()
-            if not ok:
-                # Ground a FAILED step in the narration too — senses can only
-                # narrate a failure honestly if the feed actually says one
-                # happened (h4: never silent).
-                line = f"{line} [failed]"
-            self._feed_lines.append(line)
-        else:
-            # A phase notice (#206): its target is the phase label; only a CHANGE
-            # counts toward a cadence fire.
-            phase_changed = target != self._last_phase
-            self._last_phase = target
-
-        fire, reason = should_update(
-            self._cadence,
-            step_count=step_index,
-            last_update_step=self._last_update_step,
-            phase_changed=phase_changed,
-            updates_sent=self._updates_sent,
-        )
-        if reason == "cap":
-            if not self._cap_recorded:
-                self._cap_recorded = True
-                self.chat.append({"kind": "update", "capped": True, "at": time.time()})
-            return
-        if not fire:
-            return
-
-        # A fired attempt consumes senses budget whether or not it produces text
-        # — count it toward the cap either way (honest accounting, h4).
-        self._updates_sent += 1
-        self._last_update_step = step_index
-        record = run_senses_update(
-            list(self._feed_lines[-40:]),
-            self._packet,
-            self._senses_config,
-            self._engine,
-            history=self._history,
-        )
-        if record is None:
-            return
-        self.records.append(
-            SensesRecord(
-                point=UPDATE_POINT,
-                latency=record["latency"],
-                tokens=record.get("tokens"),
-                degraded=record["degraded"],
-            )
-        )
-        text = record.get("update")
-        if text:
-            self.chat.append(
-                {
-                    "kind": "update",
-                    "text": text,
-                    "latency": record["latency"],
-                    "degraded": record["degraded"],
-                    "at": time.time(),
-                }
-            )
-            with contextlib.suppress(Exception):
-                self._emit(text)
-
-    def close(self) -> None:
-        """Satisfy the CockpitProgressSink duck — nothing to tear down."""
-        return None
-
-
-class AppserverHarness:
+class AppserverHarness(_SensesLaneMixin):
     """agent-lifecycle ``Harness`` adapter dispatching mesh requests as work items.
 
     Satisfies :class:`agent_lifecycle.runtime.harness.Harness` structurally
@@ -894,135 +765,6 @@ class AppserverHarness:
                 sender=self._agent_nick, target=target, body=body, kind="message", metadata=meta
             )
         )
-
-    def _senses_talk(self, message: str, task_id: str):
-        """Run ONE senses talk-lane turn grounded in *task_id*'s live flight feed.
-
-        Returns :func:`colleague.senses.run_senses_talk`'s advisory dict, or
-        ``None`` when no senses model is resolved at all (the SAME
-        None-signals-unarmed contract :meth:`_senses_engine` already uses).
-        Sync (executor-bound, mirrors :meth:`_senses_intake`).
-        """
-        pair = self._senses_engine()
-        if pair is None:
-            return None
-        senses_config, engine = pair
-        feed_tail = self._read_feed_tail(task_id)
-        return run_senses_talk(
-            message,
-            feed_tail=feed_tail,
-            packet=None,
-            task_state=None,
-            senses_config=senses_config,
-            make_complete=engine.make_complete,
-            make_count_tokens=engine.make_count_tokens(senses_config),
-        )
-
-    def _read_feed_tail(self, task_id: str, max_chars: int = 4000) -> str:
-        """Best-effort tail of *task_id*'s live flight feed (raw JSONL text).
-
-        Reuses :func:`colleague.flight.feed_path` — no new flight.py helper.
-        Returns ``""`` when the flight has no feed file yet (an unaddressed or
-        not-yet-armed task id) or on any read failure; never raises.
-        """
-        try:
-            path = feed_path(self._repo_path, task_id)
-            if not path.is_file():
-                return ""
-            return path.read_text(encoding="utf-8")[-max_chars:]
-        except (OSError, ValueError):
-            return ""
-
-    # ── cortex/senses split (t9) ─────────────────────────────────────────────
-
-    def _senses_engine(self):
-        """Return ``(senses_config, engine)`` for a senses call, or ``None`` — the
-        SAME seam intake and speak-back share. ``None`` when no senses model is
-        resolved (byte-identical) or the engine cannot be loaded (proceed raw).
-        Sync (runs in the executor); role-independent (senses is tools-off)."""
-        senses_config = senses_engine_config(self._config)
-        if senses_config is None:
-            return None
-        try:
-            engine = registry.load(self._engine_name)
-        except Exception:  # noqa: BLE001 - an unloadable engine → proceed cortex-only
-            return None
-        return senses_config, engine
-
-    def _senses_intake(self, text: str):
-        """Perceive *text* into a ContextPacket (+ record). ``(None, None)`` when
-        no senses engine; ``(None, degraded_record)`` when intake degrades — the
-        caller then proceeds with the raw text. Sync (executor)."""
-        pair = self._senses_engine()
-        if pair is None:
-            return None, None
-        senses_config, engine = pair
-        return run_senses_intake(text, senses_config, engine)
-
-    def _speakback_and_finalize(self, result, intake_record, ack_chat=None, presence_sink=None):
-        """Shape the reply via speak-back AND fold the session-side intake +
-        speak-back records (+ the t11 operator-lane presence beats) onto
-        ``result.senses``, re-saving the artifact.
-
-        Returns the shaped display string (or ``None`` to fall back to the raw
-        summary). ``result.summary`` is never mutated — the artifact keeps the raw
-        cortex summary; only the mesh reply body is shaped. Sync (executor)."""
-        shaped, speakback_record = None, None
-        pair = self._senses_engine()
-        if pair is not None:
-            senses_config, engine = pair
-            shaped, speakback_record = run_senses_speakback(result.summary, senses_config, engine)
-        if result.senses is None:
-            result.senses = SensesBlock(mode="split", packet=None, records=[])
-        pre = [intake_record] if intake_record is not None else []
-        post = [speakback_record] if speakback_record is not None else []
-        # Presence-default-everywhere (t11): fold the operator-lane beats — the
-        # ack (+ clarify) chat entries and the cadence-gated proactive-update
-        # records/chat — onto the artifact so the whole reply-to-origin exchange
-        # is reconstructable (h6). The proactive-update records slot chronologically
-        # (during the run, so BEFORE the terminal speak-back); a no-op ([]/None)
-        # for a non-operator or an unarmed run → byte-identical.
-        update_records = list(presence_sink.records) if presence_sink is not None else []
-        result.senses.records = pre + list(result.senses.records) + update_records + post
-        chat_add = list(ack_chat or [])
-        if presence_sink is not None:
-            chat_add += list(presence_sink.chat)
-        if chat_add:
-            result.senses.chat = list(result.senses.chat) + chat_add
-        try:
-            _write_artifact(result, artifact_dir(self._repo_path))
-        except Exception:  # nosec B110 - a re-save failure must never fail the reply
-            pass
-        return shaped
-
-    # ── audio reply link (t8) ────────────────────────────────────────────────
-
-    def _synthesize_reply_audio(self, text: str, artifact_path: Path) -> Optional[str]:
-        """Synthesize *text* to a wav beside *artifact_path*; return its path
-        RELATIVE TO THE REPO ROOT, or ``None`` when there is nothing to attach.
-
-        Returns ``None`` (never calling :func:`colleague.voice.synthesize` at
-        all) when ``config.voice`` is unarmed or carries no ``tts_model`` — the
-        additive-only contract. When armed, ``synthesize`` itself is
-        degrade-never-raise (see :mod:`colleague.voice`); its own ``None``
-        (e.g. the reference rig's speech proxy 502ing) propagates straight
-        through here, so a degraded synth leaves the reply byte-identical to a
-        no-tts reply — no line, no exception. Sync (executor-bound).
-        """
-        voice_config = self._config.voice
-        if voice_config is None or not voice_config.tts_model:
-            return None
-        wav_path = artifact_path.parent / f"{artifact_path.stem}.wav"
-        written = synthesize(
-            text,
-            tts_model=voice_config.tts_model,
-            base_url=voice_config.tts_base_url,
-            out_path=wav_path,
-            api_key=voice_config.api_key,
-        )
-        if written is None:
-            return None
-        return os.path.relpath(str(written), start=self._repo_path)
 
     async def _dispatch_and_reply(
         self,

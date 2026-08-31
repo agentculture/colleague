@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.72.0] - 2026-08-31
+
+### Added
+
+- tests/test_file_length_limit.py — a HARD 1000-physical-line ceiling over tracked source (.py plus 11 other source extensions), ported from culture-nodes' tests/lint/filelength_test.go. Includes a scanner-gate meta-test (a scanner that examined nothing must not read as a clean tree) and a shrink-only GRANDFATHERED list that is now EMPTY. CI enforces it with no workflow change — tests.yml already runs pytest.
+- scripts/pin_audit.py — a read-only helper reporting which tests are coupled to a module: path literals, module-object source reads (`Path(mod.__file__)`, `inspect.getsource`), string-form patch targets, alias-form object patches, and test_boundary.py allow-list membership, plus a monkeypatch-effectiveness checklist.
+- .git-blame-ignore-revs and docs/arc-hard-1000-line-baseline.md — blame continuity and the recorded pre-split baseline.
+
+### Changed
+
+- 21 oversized files split into ~60 new modules, all under 1000 lines, with NO behaviour change: loop.py 5392->962 (21 `loop_*` siblings, loop_types the leaf), config.py 4442->880 (10 siblings, resolve() 680->212), cli/_commands/session.py 3979->821 (10 `_session_*` mixins), cli/_commands/work.py 2854->979 (7 `_work_*` siblings, stepwise execute_work), contract.py 2479->702 (6 siblings), subagents.py 1703->925, tools.py 1552->943, explain/catalog.py 1507->160, senses.py 1483->943, livecheck.py 1481->775, engines/vllm_openai.py 1445->620, resident/appserver.py 1206->948, memory.py 1147->667, tae_loop.py 1043->864, handoff.py 1037->923, plus six oversized test files.
+- Every split keeps its subprocess/threading import AND a use of it in the original module, so tests/test_boundary.py's two-sided `_SUBPROCESS_ALLOWED` / `_THREADS_ALLOWED` allow-lists are byte-identical to main — a deliberate design constraint that turned a six-place mirrored edit into a zero-place edit.
+- tests/test_senses_live_presence_proofs.py now globs the `_session_*.py` siblings instead of grepping session.py alone, restoring the structural guard's reach after the decomposition moved two of three flight.append_guidance relay call sites out of session.py.
+
+### Fixed
+
+- pin_audit's alias blind spot: it saw only string patch targets and missed all 444 object-form sites (monkeypatch.setattr(mod, "name")). Re-exporting a moved symbol does NOT keep such a patch effective — a bare-name call resolves through the `__globals__` of the module the calling function is TEXTUALLY defined in — so a split could leave a green suite that tests nothing.
+- contract_records.ChainView.accumulate keeps its real TaskResult annotation behind TYPE_CHECKING rather than being loosened to Any.
+
 ## [1.71.2] - 2026-08-31
 
 ### Changed
