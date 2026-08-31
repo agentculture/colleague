@@ -65,7 +65,7 @@ def test_bare_role_build_resolves_effort_from_role_table() -> None:
 
 def test_bare_role_build_no_role_falls_back_to_cortex_seat() -> None:
     child = _build_child_config(_config(), ChildSpec(), None, model=None, role=None)
-    assert _effort_of(child) == effort.SEAT_TABLE["cortex"]  # "medium"
+    assert _effort_of(child) == effort.SEAT_TABLE["cortex"]  # "low" (v4, #475)
 
 
 def test_bare_role_build_parent_off_does_not_carry_forward_to_cortex_child() -> None:
@@ -78,7 +78,7 @@ def test_bare_role_build_parent_off_does_not_carry_forward_to_cortex_child() -> 
     setattr(parent, "reasoning_effort_seat", "off")
     child = _build_child_config(parent, ChildSpec(), None, model=None, role="writer")
     assert _effort_of(child) != "off"
-    assert _effort_of(child) == effort.ROLE_TABLE["writer"]  # "medium"
+    assert _effort_of(child) == effort.ROLE_TABLE["writer"]  # "low" (v4, #475)
 
 
 def test_bare_role_build_explicit_override_wins() -> None:
@@ -109,7 +109,7 @@ def test_profile_build_resolves_effort_from_role_table() -> None:
     child = _child_config_for_profile(
         _config(agents=True), ChildSpec(), _binding("cortex"), role="planner"
     )
-    assert _effort_of(child) == effort.ROLE_TABLE["planner"]  # "medium"
+    assert _effort_of(child) == effort.ROLE_TABLE["planner"]  # "low" (v4, #475)
 
 
 def test_profile_build_seat_keys_on_bound_lobes_role_not_cortex() -> None:
@@ -127,7 +127,7 @@ def test_profile_build_parent_off_does_not_carry_forward() -> None:
     setattr(parent, "reasoning_effort_seat", "off")
     child = _child_config_for_profile(parent, ChildSpec(), _binding("cortex"), role="writer")
     assert _effort_of(child) != "off"
-    assert _effort_of(child) == effort.ROLE_TABLE["writer"]  # "medium"
+    assert _effort_of(child) == effort.ROLE_TABLE["writer"]  # "low" (v4, #475)
 
 
 def test_profile_build_explicit_override_wins() -> None:

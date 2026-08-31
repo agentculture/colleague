@@ -21,18 +21,21 @@ def test_ladder_constant():
     assert effort.DEFAULT_SENTINEL == "default"
 
 
-# (table, key, expected) rows pinning the exact v3 tables (c36/c40).
+# (table, key, expected) rows pinning the exact v4 tables (the
+# effort-v4-rung-observability-rerank arc, #475): acting/associate seats and
+# writer/planner roles drop to "low"; only deepthink/design keep xhigh.
 _TABLE_ROWS = [
-    (effort.SEAT_TABLE, "cortex", "medium"),
-    (effort.SEAT_TABLE, "worker", "medium"),
+    (effort.SEAT_TABLE, "cortex", "low"),
+    (effort.SEAT_TABLE, "worker", "low"),
     (effort.SEAT_TABLE, "deepthink", "xhigh"),
-    (effort.SEAT_TABLE, "evaluator", "medium"),
+    (effort.SEAT_TABLE, "evaluator", "low"),
     (effort.SEAT_TABLE, "senses", "off"),
     (effort.SEAT_TABLE, "design", "xhigh"),
-    # adopt-from-qwen-code t18: the associate (fast non-coding scout) seat, thinking OFF.
-    (effort.SEAT_TABLE, "associate", "off"),
-    (effort.ROLE_TABLE, "writer", "medium"),
-    (effort.ROLE_TABLE, "planner", "medium"),
+    # v4 (#475): the associate seat's floor is "low" — Nemotron on the armed
+    # seat needs low as its floor (supersedes the t18 "thinking OFF" row).
+    (effort.SEAT_TABLE, "associate", "low"),
+    (effort.ROLE_TABLE, "writer", "low"),
+    (effort.ROLE_TABLE, "planner", "low"),
     (effort.ROLE_TABLE, "reviewer", "low"),
     (effort.ROLE_TABLE, "validator", "low"),
     (effort.ROLE_TABLE, "explorer", "off"),
@@ -215,18 +218,20 @@ def test_validate():
 # effort.py past the file-length ratchet.
 # ---------------------------------------------------------------------------
 
+# v4 (the effort-v4-rung-observability-rerank arc, #475): every associate
+# sub-seat and every purpose runs at "low".
 _NEW_TABLE_ROWS = [
-    (efforttables.ASSOCIATE_SEAT_TABLE, "scout", "off"),
-    (efforttables.ASSOCIATE_SEAT_TABLE, "compact", "off"),
-    (efforttables.ASSOCIATE_SEAT_TABLE, "synthesis", "off"),
-    (efforttables.ASSOCIATE_SEAT_TABLE, "digest", "off"),
+    (efforttables.ASSOCIATE_SEAT_TABLE, "scout", "low"),
+    (efforttables.ASSOCIATE_SEAT_TABLE, "compact", "low"),
+    (efforttables.ASSOCIATE_SEAT_TABLE, "synthesis", "low"),
+    (efforttables.ASSOCIATE_SEAT_TABLE, "digest", "low"),
     (efforttables.ASSOCIATE_SEAT_TABLE, "distill", "low"),
-    (efforttables.PURPOSE_TABLE, "web_survey", "off"),
-    (efforttables.PURPOSE_TABLE, "code_survey", "off"),
+    (efforttables.PURPOSE_TABLE, "web_survey", "low"),
+    (efforttables.PURPOSE_TABLE, "code_survey", "low"),
     (efforttables.PURPOSE_TABLE, "review", "low"),
     (efforttables.PURPOSE_TABLE, "validate", "low"),
-    (efforttables.PURPOSE_TABLE, "plan", "medium"),
-    (efforttables.PURPOSE_TABLE, "handover_to_colleague", "medium"),
+    (efforttables.PURPOSE_TABLE, "plan", "low"),
+    (efforttables.PURPOSE_TABLE, "handover_to_colleague", "low"),
 ]
 
 
@@ -268,13 +273,30 @@ def test_new_table_sizes_exact():
 def test_code_survey_agrees_with_scout_row():
     # A purpose-called scout's rung is the PURPOSE_TABLE row (an explicit
     # override); ASSOCIATE_SEAT_TABLE['scout'] applies only to a manual
-    # subagent role='scout'. Both spell 'off' — pinned so the two tables
-    # never silently diverge.
+    # subagent role='scout'. Under the effort-v4-rung-observability-rerank
+    # arc (#475) both moved to 'low' TOGETHER — pinned so the two tables
+    # never silently diverge — while effort.ROLE_TABLE['scout'] (the UNARMED
+    # scout, no associate model behind it) deliberately stays 'off': the
+    # associate sub-seat row now diverges from the unarmed role row on
+    # purpose, because only the armed seat has Nemotron's low floor.
     assert (
         efforttables.PURPOSE_TABLE["code_survey"]
         == efforttables.ASSOCIATE_SEAT_TABLE["scout"]
-        == "off"
+        == "low"
     )
+    assert effort.ROLE_TABLE["scout"] == "off"
+
+
+def test_fallback_effort_off_and_associate_seat_low_together():
+    # v4 (#475), two models, one seat: the FALLBACK is CORTEX occupying the
+    # associate seat, and cortex above 'off' over-thinks a shallow scout
+    # lane — so FALLBACK_EFFORT is 'off'; Nemotron on the ARMED associate
+    # seat needs 'low' as its floor — so SEAT_TABLE['associate'] is 'low'.
+    # The pair is asserted together because the split IS the rationale.
+    from colleague import associate_seats
+
+    assert associate_seats.FALLBACK_EFFORT == "off"
+    assert effort.SEAT_TABLE["associate"] == "low"
 
 
 def _pick_factory(env: dict):
@@ -364,8 +386,8 @@ def test_associate_sub_seat_precedence():
         )
         == "high"
     )
-    # Table default is the floor.
-    assert efforttables.resolve_associate_sub_seat_effort(seat="scout") == "off"
+    # Table default is the floor (v4 #475: every sub-seat row is "low").
+    assert efforttables.resolve_associate_sub_seat_effort(seat="scout") == "low"
     assert efforttables.resolve_associate_sub_seat_effort(seat="distill") == "low"
     # DEFAULT_SENTINEL at any override rung means "send nothing".
     assert (

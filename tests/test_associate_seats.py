@@ -13,7 +13,7 @@ Pins, per the acceptance criteria:
   tool call is refused and recorded, never executed;
 * UNARMED (``COLLEAGUE_ASSOCIATE_MODEL`` unset → ``config.associate`` None)
   every seat is byte-identical to main (h1/c44); ARMED-but-unreachable falls
-  to cortex@low with a recorded warning (c32/c33 — the fallback exists, it
+  to cortex@off with a recorded warning (c32/c33, v4 #475 — the fallback exists, it
   is the unreachable branch, not the unset branch).
 """
 
@@ -103,7 +103,7 @@ def test_ast_guard_config_associate_referenced_only_by_the_consumers() -> None:
 
 # ---------------------------------------------------------------------------
 # 2. Seat resolution: unarmed byte-identical, armed → the associate seat,
-#    unreachable → cortex@low with a warning
+#    unreachable → cortex@off with a warning (v4 #475)
 # ---------------------------------------------------------------------------
 
 
@@ -121,25 +121,27 @@ def test_armed_seat_config_is_the_associate_seat(seat: str) -> None:
     assert seat_cfg.model == ASSOCIATE_WIRE_MODEL
     assert seat_cfg.base_url == _ASSOC.base_url
     # the seat's own ASSOCIATE_SEAT_TABLE row (t2: per-sub-seat rung —
-    # scout/compact/synthesis/digest 'off', distill 'low')
+    # every row 'low' under the effort-v4-rung-observability-rerank arc, #475)
     from colleague.efforttables import ASSOCIATE_SEAT_TABLE
 
     assert effort.effort_of(seat_cfg) == ASSOCIATE_SEAT_TABLE[seat]
 
 
-def test_fallback_seat_config_is_cortex_at_low() -> None:
+def test_fallback_seat_config_is_cortex_at_off() -> None:
+    # v4 (#475), two models, one seat: cortex occupying the associate seat
+    # over-thinks a shallow lane above 'off' — FALLBACK_EFFORT is 'off'.
     cfg = _config(armed=True)
-    low = associate_seats.fallback_seat_config(cfg, "compact")
-    assert low.model == "cortex-model"
-    assert effort.effort_of(low) == "low"
-    assert effort.to_chat_template_kwargs(effort.effort_of(low)) == {"reasoning_effort": "low"}
+    fallback = associate_seats.fallback_seat_config(cfg, "compact")
+    assert fallback.model == "cortex-model"
+    assert effort.effort_of(fallback) == "off"
+    assert effort.to_chat_template_kwargs(effort.effort_of(fallback)) == {"enable_thinking": False}
 
 
 def test_fallback_honours_the_kill_switch() -> None:
     cfg = _config(armed=True)
     cfg.reasoning_effort = "default"
-    low = associate_seats.fallback_seat_config(cfg, "compact")
-    assert effort.effort_of(low) is None
+    fallback = associate_seats.fallback_seat_config(cfg, "compact")
+    assert effort.effort_of(fallback) is None
 
 
 class _FakeEngine:
@@ -179,11 +181,11 @@ def test_armed_factory_completes_on_the_associate_seat() -> None:
     assert complete is not None
     resp = complete([{"role": "user", "content": "summarise"}])
     assert resp.content == f"from {ASSOCIATE_WIRE_MODEL}"
-    assert engine.calls == [(ASSOCIATE_WIRE_MODEL, "off")]
+    assert engine.calls == [(ASSOCIATE_WIRE_MODEL, "low")]  # v4 sub-seat row (#475)
     assert warnings == []
 
 
-def test_unreachable_associate_falls_to_cortex_low_with_a_recorded_warning() -> None:
+def test_unreachable_associate_falls_to_cortex_off_with_a_recorded_warning() -> None:
     engine = _FakeEngine(seat_fails=True)
     factory = associate_seats.make_associate_complete(
         _config(armed=True), "fake", engine_loader=lambda name: engine
@@ -194,11 +196,12 @@ def test_unreachable_associate_falls_to_cortex_low_with_a_recorded_warning() -> 
     assert complete is not None
     resp = complete([{"role": "user", "content": "synthesise"}])
     assert resp.content == "from cortex-model"
-    assert engine.calls == [(ASSOCIATE_WIRE_MODEL, "off"), ("cortex-model", "low")]
+    # v4 (#475): the armed seat tries at 'low'; the cortex fallback runs 'off'.
+    assert engine.calls == [(ASSOCIATE_WIRE_MODEL, "low"), ("cortex-model", "off")]
     assert len(warnings) == 1
     assert "associate" in warnings[0]
     assert "synthesis" in warnings[0]
-    assert "low" in warnings[0]
+    assert "off" in warnings[0]
 
 
 def test_engine_without_one_shot_completions_degrades_with_a_warning() -> None:
@@ -247,7 +250,7 @@ def test_scout_child_config_swaps_to_the_associate_seat() -> None:
     assert bound.base_url == _ASSOC.base_url
     assert bound.role == "scout"
     assert bound.context_budget_tokens == min(131072, _ASSOC.context_budget)
-    assert effort.effort_of(bound) == "off"
+    assert effort.effort_of(bound) == "low"  # v4 sub-seat row (#475)
 
 
 def test_scout_child_config_honours_the_explicit_effort_override() -> None:
@@ -309,7 +312,7 @@ def test_scout_spawn_end_to_end_on_mock_is_read_only(tmp_path: Path) -> None:
     )
     assert child.model == ASSOCIATE_WIRE_MODEL
     assert child.role == "scout"
-    assert effort.effort_of(child) == "off"
+    assert effort.effort_of(child) == "low"  # v4 sub-seat row (#475)
     assert Task  # imported for the child contract shape; the spawn itself is exercised elsewhere
 
 
@@ -374,13 +377,14 @@ def test_distill_associate_rung_never_authors_in_tae_mode() -> None:
 @pytest.mark.parametrize("seat", ["scout", "compact", "synthesis", "digest"])
 def test_armed_seat_config_resolves_the_sub_seat_row(seat: str) -> None:
     """With nothing set, every associate seat resolves its OWN table row
-    (scout/compact/synthesis/digest = 'off') — not the whole-seat row."""
+    ('low' across the board since v4, #475) — not the whole-seat row."""
     cfg = _config(armed=True)
-    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, seat)) == "off"
+    assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, seat)) == "low"
 
 
 def test_armed_distill_seat_resolves_low_with_nothing_set() -> None:
-    """The distill sub-seat's table row is 'low' — the split the spec names."""
+    """The distill sub-seat's table row is 'low' (unchanged by v4 — the
+    other sub-seats moved to join it, #475)."""
     cfg = _config(armed=True)
     assert effort.effort_of(associate_seats.resolve_associate_seat_config(cfg, "distill")) == "low"
 
@@ -416,12 +420,12 @@ def test_kill_switch_yields_none_on_every_associate_seat() -> None:
 
 
 def test_scout_child_config_resolves_the_scout_sub_seat_row() -> None:
-    """A scout child's rung is the 'scout' sub-seat row ('off') with nothing
-    set — and the "associate.scout" override beats it."""
+    """A scout child's rung is the 'scout' sub-seat row ('low', v4 #475)
+    with nothing set — and the "associate.scout" override beats it."""
     parent = _config(armed=True)
     child = dataclasses.replace(parent, role="scout")
     bound = associate_seats.scout_child_config(parent, child, "scout", effort_override=None)
-    assert effort.effort_of(bound) == "off"
+    assert effort.effort_of(bound) == "low"
     parent.reasoning_effort_seats = {"associate.scout": "high"}
     bound = associate_seats.scout_child_config(parent, child, "scout", effort_override=None)
     assert effort.effort_of(bound) == "high"
@@ -431,21 +435,21 @@ def test_scout_child_config_resolves_the_scout_sub_seat_row() -> None:
 
 
 def test_make_associate_complete_resolves_the_seat_sub_row() -> None:
-    """The loop's seat factory resolves the rung per seat: compact/synthesis
-    at 'off', distill at 'low' with nothing set; the kill switch drops it."""
+    """The loop's seat factory resolves the rung per seat: 'low' across the
+    board (v4, #475) with nothing set; the kill switch drops it."""
     engine = _FakeEngine()
     factory = associate_seats.make_associate_complete(
         _config(armed=True), "fake", engine_loader=lambda name: engine
     )
     assert factory is not None
     warnings: list[str] = []
-    for seat, expected in (("compact", "off"), ("synthesis", "off"), ("distill", "low")):
+    for seat, expected in (("compact", "low"), ("synthesis", "low"), ("distill", "low")):
         complete = factory(seat, warnings.append)
         assert complete is not None
         complete([{"role": "user", "content": "x"}])
     assert engine.calls == [
-        (ASSOCIATE_WIRE_MODEL, "off"),
-        (ASSOCIATE_WIRE_MODEL, "off"),
+        (ASSOCIATE_WIRE_MODEL, "low"),
+        (ASSOCIATE_WIRE_MODEL, "low"),
         (ASSOCIATE_WIRE_MODEL, "low"),
     ]
     assert warnings == []
@@ -500,9 +504,10 @@ def test_distill_author_rung_honours_overrides_and_the_kill_switch() -> None:
     assert associate_seats.distill_author(cfg).effort is None
 
 
-def test_setup_failure_on_the_associate_seat_warns_and_falls_back_to_cortex_low() -> None:
+def test_setup_failure_on_the_associate_seat_warns_and_falls_back_to_cortex_off() -> None:
     """Qodo #441-7: an exception from make_complete() DURING SETUP (not only
-    NotImplementedError) must warn once and hand back a cortex@low completion."""
+    NotImplementedError) must warn once and hand back a cortex@off completion
+    (v4 #475: FALLBACK_EFFORT is 'off')."""
 
     class _SetupFails(_FakeEngine):
         def make_complete(self, config, *, tools):
@@ -520,7 +525,7 @@ def test_setup_failure_on_the_associate_seat_warns_and_falls_back_to_cortex_low(
     assert complete is not None
     resp = complete([{"role": "user", "content": "summarise"}])
     assert resp.content == "from cortex-model"
-    assert engine.calls == [("cortex-model", "low")]
+    assert engine.calls == [("cortex-model", "off")]
     assert len(warnings) == 1
     assert "RuntimeError" in warnings[0]
     assert "loader exploded" in warnings[0]

@@ -8,7 +8,7 @@ seat's resolved rung (``EngineConfig.reasoning_effort_effective``):
 - ``deepthink_engine_config`` → seat "deepthink" (xhigh default);
 - ``senses_engine_config`` → seat "senses" (off default);
 - ``tae_loop.seat_engine_config`` → "senses" for the front, "evaluator"
-  for the evaluator (medium default); the TAE worker needs no attribute
+  for the evaluator (low default since v4, #475); the TAE worker needs no attribute
   because with the mode armed the ACTING dial IS the TAE worker;
 - ``agents.runtime.agent_engine_config`` → the profile purpose's seat
   (talker→senses, thinker_coder→cortex, worker→worker).
@@ -116,7 +116,7 @@ def test_senses_seat_kill_switch_unsets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# tae_loop.seat_engine_config → front "senses", evaluator "evaluator" (medium)
+# tae_loop.seat_engine_config → front "senses", evaluator "evaluator" (low, v4)
 # ---------------------------------------------------------------------------
 
 
@@ -151,7 +151,7 @@ def test_tae_front_seat_operator_override_wins() -> None:
 
 def test_tae_evaluator_seat_carries_its_table_rung() -> None:
     seat = seat_engine_config(_tae_config(), _tae_seat("evaluator"), seat_name="evaluator")
-    assert _effort(seat) == "medium"
+    assert _effort(seat) == "low"  # v4 table rung (#475)
 
 
 def test_tae_evaluator_seat_operator_override_wins() -> None:
@@ -242,7 +242,7 @@ def test_agent_seat_talker_operator_override_wins() -> None:
 def test_agent_seat_thinker_coder_carries_cortex_rung() -> None:
     roles = _advert_roles()
     seat = agent_engine_config(_parent_config(), _profile("thinker_coder", roles), roles)
-    assert _effort(seat) == "medium"
+    assert _effort(seat) == "low"  # v4 cortex rung (#475)
 
 
 def test_agent_seat_thinker_coder_operator_override_wins() -> None:
@@ -261,7 +261,7 @@ def test_agent_seat_worker_carries_worker_rung() -> None:
     names the seat-table row."""
     roles = _advert_roles()
     seat = agent_engine_config(_parent_config(), _profile("worker", roles), roles)
-    assert _effort(seat) == "medium"
+    assert _effort(seat) == "low"  # v4 worker rung (#475)
 
 
 def test_agent_seat_worker_operator_override_wins() -> None:

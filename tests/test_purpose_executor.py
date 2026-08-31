@@ -163,7 +163,8 @@ def capturing_engine(monkeypatch):
 
 @pytest.mark.parametrize(
     ("name", "expected"),
-    [("review", "low"), ("code_survey", "off"), ("plan", "medium")],
+    # v4 (#475): every PURPOSE_TABLE row is "low".
+    [("review", "low"), ("code_survey", "low"), ("plan", "low")],
 )
 def test_parent_seat_medium_does_not_leak_into_the_purpose_child(
     tmp_path, capturing_engine, name: str, expected: str

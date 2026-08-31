@@ -270,10 +270,11 @@ def test_budget_ratio_mirrors_deepthink_headroom() -> None:
 # ── effort table row ────────────────────────────────────────────────────────
 
 
-def test_effort_table_gains_an_associate_row_defaulting_to_off() -> None:
-    assert effort.SEAT_TABLE["associate"] == "off"
-    assert effort.resolve_effort(seat="associate") == "off"
-    assert effort.to_chat_template_kwargs("off") == {"enable_thinking": False}
+def test_effort_table_gains_an_associate_row_defaulting_to_low() -> None:
+    # v4 (#475): Nemotron on the armed associate seat needs "low" as its floor.
+    assert effort.SEAT_TABLE["associate"] == "low"
+    assert effort.resolve_effort(seat="associate") == "low"
+    assert effort.to_chat_template_kwargs("low") == {"reasoning_effort": "low"}
 
 
 def test_associate_seat_effort_override_is_read(
@@ -401,7 +402,7 @@ def test_role_name_rejection_falls_back_once_to_the_served_id_with_a_warning(
     assert warning.refreshed_id == _ASSOCIATE_MODEL
     assert "associate" in capsys.readouterr().err
     # ONCE: a second rejection on the served id propagates unchanged — the
-    # consumer (seat B) is what falls to cortex@low from here.
+    # consumer (seat B) is what falls to the cortex fallback from here.
     with pytest.raises(urllib.error.HTTPError):
         engine._recover_http_error(exc, payload, "cortex", None, seat, dispatch)
     assert calls == [_ASSOCIATE_MODEL]
