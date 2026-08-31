@@ -51,11 +51,12 @@ from contextlib import suppress
 from typing import Any
 
 from colleague import editgate as _editgate
+from colleague import stallguard  # noqa: F401 - reached as ``loop.stallguard``
+from colleague import effortrecord
 from colleague import escalation as _escalation  # noqa: F401 - patched as ``loop._escalation``
 from colleague import loop_hooks as _loop_hooks
 from colleague import loop_run_stages as _run_stages
 from colleague import loopguards as _loopguards
-from colleague import stallguard  # noqa: F401 - reached as ``loop.stallguard``
 from colleague import media, salvage
 from colleague import toolbatch_loop as _toolbatch_loop
 from colleague import webbudget
@@ -653,6 +654,7 @@ def run(
         associate_complete=_context.associate_complete,
         reasoning_effort_main=_context.reasoning_effort_main,
         reasoning_effort_senses=_context.reasoning_effort_senses,
+        reasoning_effort_deepthink=_context.reasoning_effort_deepthink,
         media_bridge=_context.media_bridge,
         senses_run=_context.senses_run,
         senses_media_bridge=_context.senses_media_bridge,
@@ -787,6 +789,11 @@ def run(
     _dt_calls = getattr(executor, "deepthink_calls", None)
     if _dt_calls:
         result.deepthink = list(_dt_calls)
+        # The deepthink seat RAN a completion, so its rung joins the effort
+        # block (c22 — review-2 finding: it was the one model-running seat
+        # the block omitted). Recorded only when escalations fired, so a
+        # single-model run stays byte-identical.
+        effortrecord.record(result, "deepthink", ctx.reasoning_effort_deepthink)
 
     # Acceptance self-check (t15 / spec R6 / #259): on a CLEAN finish of a task
     # that declared acceptance criteria, ONE bounded completion records advisory

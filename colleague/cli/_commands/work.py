@@ -821,6 +821,13 @@ def execute_work(
         # the interrupt-commit handler is never left armed past this work item.
         setup.restore_signals()
         telemetry.flush()
+        # A staged continuation warning belongs to THIS run only. On the happy
+        # path _stamp_run_metadata already drained it; if _drive_engine raised,
+        # clear it here so a long-lived session config never stamps a stale
+        # warning onto an unrelated later run (review-2 finding, c32/h19).
+        if getattr(config, "continuation_warnings", None):
+            with suppress(Exception):
+                config.continuation_warnings = []
         # Tear down the isolation worktree on every exit path (success, engine
         # failure, handoff error), KEEPING its colleague/<id> branch — the branch
         # is the deliverable the operator merges; only the working dir is disposable.

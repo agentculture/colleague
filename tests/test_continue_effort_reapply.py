@@ -270,3 +270,42 @@ class TestSessionContinue:
         h = _Harness(tmp_path)
         assert h.session._slash("/continue") is True
         assert not any("recorded" in e for e in h.errors)
+
+
+# ---------------------------------------------------------------------------
+# review-2 finding: a staged warning is cleared even when the engine raises
+# ---------------------------------------------------------------------------
+
+
+def test_staged_warning_cleared_when_engine_raises(tmp_path, monkeypatch) -> None:
+    """If _drive_engine raises, the finally block clears the staged warning so a
+    long-lived session config never stamps it onto an unrelated later run."""
+    import subprocess
+
+    from colleague.cli._commands import work as work_mod
+    from colleague.contract import Task
+
+    repo = tmp_path / "r"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "--allow-empty", "-q", "-m", "x"], check=True)
+
+    config = EngineConfig.resolve()
+    config.continuation_warnings = [{"kind": "continuation-effort", "detail": "stale"}]
+
+    def _boom(**kwargs):
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(work_mod, "_drive_engine", _boom)
+    try:
+        work_mod.execute_work(
+            repo=repo,
+            engine_name="mock",
+            task=Task.new(str(repo), "t"),
+            open_pr=False,
+            base="main",
+            config=config,
+        )
+    except RuntimeError:
+        pass
+    assert getattr(config, "continuation_warnings", None) in (None, [])

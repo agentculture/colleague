@@ -85,6 +85,7 @@ class _Work:
     # ContextControls fields of the same names; see their contract there.
     reasoning_effort_main: "str | None" = None
     reasoning_effort_senses: "str | None" = None
+    reasoning_effort_deepthink: "str | None" = None
     # Media-comprehension bridge (t8, c24): armed only when the operator declared
     # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
     media_bridge: bool = False
@@ -674,6 +675,7 @@ class ContextControls:
     #: ``effortrecord.seat_effort`` formula the senses seat builder uses, so
     #: record and wire can never diverge. ``None`` = no senses config.
     reasoning_effort_senses: "str | None" = None
+    reasoning_effort_deepthink: "str | None" = None
 
     @classmethod
     def from_config(
@@ -743,6 +745,14 @@ class ContextControls:
             reasoning_effort_senses=(
                 _effortrecord.seat_effort(config, "senses")
                 if getattr(config, "senses", None) is not None
+                else None
+            ),
+            # The deepthink seat's rung, resolved with the SAME formula its
+            # seat builder applies (deepthink.py) — recorded onto the effort
+            # block only if an escalation actually fired (review-2 c22 fix).
+            reasoning_effort_deepthink=(
+                _effortrecord.seat_effort(config, "deepthink")
+                if getattr(config, "deepthink", None) is not None
                 else None
             ),
             # Continuation chaining armed (decision c23): an armed invocation's

@@ -45,6 +45,9 @@ _ALLOWLIST: frozenset[str] = frozenset(
         "colleague/reasoninglog.py",
         "colleague/loop_accounting.py",
         "colleague/contract.py",
+        # The 0-byte crash-residue reap gives the sidecar clean-parity (c26,
+        # review-1 finding) — it unlinks, never reads or transmits.
+        "colleague/artifact.py",
     }
 )
 

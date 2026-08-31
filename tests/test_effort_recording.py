@@ -228,3 +228,49 @@ def test_recorded_senses_rung_matches_the_built_senses_seat(tmp_path: Path) -> N
     seat = senses_engine_config(cfg)
     assert controls.reasoning_effort_senses == "medium"
     assert getattr(seat, "reasoning_effort_seat") == "medium"
+
+
+# ---------------------------------------------------------------------------
+# 5. the deepthink seat joins the block when (and only when) it RAN (review-2)
+# ---------------------------------------------------------------------------
+
+
+def test_deepthink_escalation_records_the_deepthink_rung(tmp_path: Path) -> None:
+    """A fired deepthink escalation lands {"deepthink": <rung>} on the block."""
+    from tests.test_loop_deepthink import _fake_deepthink
+
+    fake, _calls = _fake_deepthink(text="the verdict")
+    executor = ToolExecutor(str(tmp_path), deepthink=fake)
+    complete = _scripted(
+        [
+            ModelResponse(
+                tool_calls=[ToolCall("d", "deepthink", {"question": "q", "context": "c"})]
+            ),
+            _finish(),
+        ]
+    )
+    task = Task.new(str(tmp_path), "review x")
+    result = run(
+        complete,
+        task,
+        max_steps=5,
+        executor=executor,
+        context=ContextControls(deepthink_run=fake, reasoning_effort_deepthink="xhigh"),
+    )
+    assert result.deepthink is not None
+    assert result.effort is not None and result.effort.get("deepthink") == "xhigh"
+
+
+def test_no_escalation_leaves_deepthink_absent_from_the_block(tmp_path: Path) -> None:
+    """The rung is threaded but no escalation fires -> the seat stays absent."""
+    executor = ToolExecutor(str(tmp_path))
+    complete = _scripted([_finish()])
+    task = Task.new(str(tmp_path), "do work")
+    result = run(
+        complete,
+        task,
+        max_steps=5,
+        executor=executor,
+        context=ContextControls(reasoning_effort_deepthink="xhigh"),
+    )
+    assert (result.effort or {}).get("deepthink") is None
