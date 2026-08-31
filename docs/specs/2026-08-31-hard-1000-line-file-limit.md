@@ -1,0 +1,181 @@
+# hard 1000-line file limit
+
+> Every tracked source file in colleague is under 1000 lines, and a CI test keeps it that way — the same hard gate culture-nodes enforces, ported to pytest and covering .py.
+> instruction: Run 'uv run pytest -n auto' before and after and compare the passed count; run 'uv run pytest tests/`test_file_length_limit.py`' for the gate itself.
+
+## Audience
+
+- Colleague's maintainers, and the local coder models colleague delegates to — the models are the constrained reader: a 5392-line module exhausts their budget before an edit lands, which is why the limit is a delegation fix, not a style rule.
+  - instruction: Dispatch one ask-colleague write against a split-out module and check it commits.
+
+## Before → After
+
+- Before: 21 tracked files hold 39,750 lines (loop.py 5392, config.py 4442, session.py 3979, work.py 2854, contract.py 2479 and 16 more), the soft ratchet in tests/`test_file_length_ratchet.py` only WARNS above 1000, and tasks touching the hot files route away from colleague because a local model times out reading them (#399, #413).
+  - instruction: Compare against the table in issue #412 and the GRANDFATHERED values.
+- After: Every tracked source file is under 1000 physical lines, tests/`test_file_length_limit.py`::GRANDFATHERED is empty, and CI fails any PR that adds an over-limit file.
+  - instruction: grep -A2 'GRANDFATHERED: dict' tests/`test_file_length_limit.py` — expect an empty dict.
+
+## Why it matters
+
+- The size of these files is a capability limit, not a tidiness one: #399 records that every task touching loop.py had to be routed away from colleague, and parallel work was serialized by handing two agents disjoint LINE RANGES of one file as a coordination protocol.
+  - instruction: gh issue view 399 and read the numbered harm section.
+
+## Requirements
+
+- The gate is a pytest test (tests/`test_file_length_limit.py`), not a new CI job — .github/workflows/tests.yml:45 already runs 'uv run pytest -n auto', so the limit becomes CI-enforced with zero workflow change.
+  - instruction: uv run pytest tests/`test_file_length_limit.py`; confirm .github/workflows/tests.yml gained no new job.
+  - honesty: The gate really scans .py: tests/`test_file_length_limit.py`::`test_the_gate_covers_python` asserts .py is in `SOURCE_EXTENSIONS` and that >100 tracked .py files were actually scanned — a scanner that examined nothing must not read as a clean tree.
+- The work is 21 tracked files totalling 39,750 lines; 18,750 lines must move and the package gains at least 20 new modules. Scale, not novelty, is the risk.
+  - instruction: git ls-files | filter the twelve source extensions | wc -l per file; sum the over-1000 set.
+  - honesty: The line accounting is reproducible: git ls-files over the twelve source extensions yields exactly 21 files over 1000 and 39,750 total lines on the branch point.
+- Every split must leave the original import path working: repo-wide reference counts are contract 427, config 422, loop 213, tools 171, memory 72, work 70, subagents 69, senses 64, `vllm_openai` 64, session 60, livecheck 53. Re-export from the original module is the cheap answer; a mass import rewrite is not in scope.
+  - instruction: uv run pytest -n auto — the suite is the verifier; do not rewrite importers.
+  - honesty: After every split, an unmodified 'from colleague.<mod> import <name>' at any of the pre-existing call sites still resolves — verified by the suite, not by inspection.
+- Live docs must follow the code: docs/features/ + CLAUDE.md carry module paths (loop.py in 30 live docs, config.py 21, contract.py 17, tools.py 10, subagents.py 10, livecheck.py 8, senses.py 7).
+  - instruction: For each doc under docs/features/ and CLAUDE.md, grep every colleague/\*.py path it cites and assert the file exists.
+  - honesty: docs/features/ and CLAUDE.md name no module path that no longer exists, verified by grepping every path they cite against the tree.
+- loop.py (5392) splits along seams that are already thematic because every helper takes ctx: `_Work` — gates ~665, injections ~480, context/compaction ~440, transport+degradation ~530, tool execution ~400, memory ~240, synthesis/finish ~280, flight ~125, TAE adapters ~65. The two shared dataclasses `_Work` (:525, 320 lines, 79 fields) and ContextControls (:3171, 360 lines, 55 fields) must land in a leaf `loop_types.py` or every sibling import is circular.
+  - instruction: python -c 'import colleague.loop' from a clean interpreter; inspect `loop_types.py` imports for any colleague.loop\* name.
+  - honesty: `loop_types.py` imports no other extracted sibling — it is a true leaf, verified by an import graph with no cycle back into loop.py.
+- colleague/resident/appserver.py is 0% covered — 325 statements, every test skipped without the \[resident\] extra. It is the ONE file of the 21 where 'the suite still reports 10,715 passing' proves nothing about behaviour preservation, so its split needs a different safety net (install the extra and run the resident tests, or split it last under explicit manual verification).
+  - honesty: appserver.py's split is verified by actually running its tests with the \[resident\] extra installed, not by the default suite that skips them.
+- Every PR needs a version bump (the version-check CI job blocks merge), so the split's PR granularity is a real constraint: one PR per file means 21 bumps and 21 review cycles, one PR for everything is unreviewable at 18,750 lines.
+  - honesty: The chosen PR granularity is stated up front and each PR is independently revertible without breaking a later one.
+- The split needs a .git-blame-ignore-revs entry: 18,750 moved lines destroy git blame continuity in a repo whose method leans on provenance, and blame is how a reviewer traces why a line exists.
+  - honesty: .git-blame-ignore-revs exists and lists each pure-move commit, and git blame --ignore-revs-file returns the original author for a moved line.
+
+## Honesty conditions
+
+- Every split is behaviour-preserving: the full suite reports the same 10,715 passing tests before and after, and no test is deleted or weakened to make a split fit.
+- tests/`test_boundary.py`'s `_SUBPROCESS_ALLOWED` and `_THREADS_ALLOWED` end the arc listing exactly the modules that actually import subprocess/threading — no stale entry, no unlisted consumer, both halves of the two-sided check green.
+- The six mirrors of the two allow-lists agree at the end of the arc: the two AST/equality tests pass unmodified in shape, and the prose in CLAUDE.md, AGENTS.colleague.md and README.md lists the same modules the code does.
+- Every source-text pin that a split touches is either left intact or updated deliberately in the same commit — never satisfied by weakening the assertion (e.g. relaxing 'exactly one `read_control`()' to 'at least one').
+- Both pinned paths still import after every split: 'from colleague.engines.`vllm_openai` import VllmOpenAIEngine' and 'from colleague.explain.catalog import ENTRIES' resolve, and 'colleague backends list' still discovers vllm-openai.
+- No monkeypatch target is repointed: the diff contains zero edits to a patch string naming colleague.loop, colleague.tools, colleague.config, colleague.subagents or work.
+- Every new module carved from resident/appserver.py sits under colleague/resident/, and `test_boundary.py`'s asyncio scan stays green with `_ASYNC_EXEMPT_PREFIX` unchanged.
+- session.py's lanes come out as mixins or self-taking functions with no behaviour change: `test_talking_to_one_boundary.py`'s requirement that `_maybe_proactive_update`'s call site live in a file named session.py inside `_WorkSink`.`__call__` still passes unmodified.
+- Every private cross-module name still resolves from its original module after the split — `_DEFAULT_MAX_OUTPUT_CHARS`, `MAX_SUBAGENT_FANOUT`, `_extract_json_object`, `_arm_interrupt_commit`, `resolve_role`.
+- contract.py's import stays cheap: importing colleague.contract pulls in neither colleague.testintegrity nor colleague.affectedtests, verified by inspecting sys.modules after a fresh import.
+- The five second-order decompositions do not change public behaviour — the all-engines rule holds (mock and vllm-openai identical in result shape) and colleague/engines/`vllm_openai.py` stays importable at its pinned entry point.
+- Monkeypatch targets still bind: the tests patching colleague.loop.`load_telemetry`, colleague.tools.subprocess.run, colleague.config.`_merged_config_json`, colleague.subagents.registry.load and work.`load_telemetry` pass WITHOUT being rewritten to new module paths.
+- The grandfather list can only shrink: `test_the_grandfather_list_is_reaped` fails if a pinned file drops to <=1000 and keeps its entry, and no entry is ever raised to accommodate growth.
+- A local coder model can actually edit a post-split module: at least one delegated colleague run lands an edit in a formerly-oversized area without exhausting its budget.
+- GRANDFATHERED is literally empty at the end of the arc, and `test_the_grandfather_list_is_reaped` would fail if any entry were left behind.
+- The before-state numbers are the recorded branch-point measurement, not a recollection — they match the counts captured on this frame and in issue #412's table.
+- The claim is sourced, not asserted: issue #399 explicitly records the routing-away and the line-range coordination protocol.
+- The passing count is compared, not assumed: the before number is recorded before the first split and the after number matches it exactly, with no skips converted from passes.
+- The threshold is measured, not assumed: at least one delegated colleague run edits a ~900-line post-split module successfully, or the arc records honestly that the ceiling was chosen for reviewability rather than for delegation.
+- The Sonar quality gate is green on the final PR, or its failure is a recorded, explained exception rather than a surprise.
+- For every test whose monkeypatch target lives in a split module, the patch is proven still effective — not merely still green.
+
+## Success signals
+
+- All 21 files under 1000 lines, GRANDFATHERED reduced from 21 entries to 0, and the full suite still 10715 passed with 0 behaviour changes.
+  - instruction: uv run pytest -n auto twice and diff the summary lines.
+
+## Scope / boundaries
+
+- tests/`test_boundary.py`'s `_SUBPROCESS_ALLOWED` (:534) and `_THREADS_ALLOWED` (:780) are two-sided: moving a subprocess/threading import into a new sibling fails BOTH the new file and the now-non-importing original. Of the 21, that binds tools.py, handoff.py, memory.py, livecheck.py (subprocess) and subagents.py (threads).
+  - instruction: uv run pytest tests/`test_boundary.py` -k 'subprocess or thread' after every extraction that moves an import.
+- Those two allow-lists are mirrored in three tests that compare them byte-for-byte — tests/`test_agents_boundary.py`:217 (AST-extracted, requires a literal frozenset AnnAssign), tests/`test_chain_e2e.py`:580 (exact frozenset equality), and six importers of the names — plus prose in CLAUDE.md:464, AGENTS.colleague.md:29 and README.md:739. Any list change is a six-place edit.
+  - instruction: Grep the module list out of `test_boundary.py` and diff it against `test_agents_boundary.py`, `test_chain_e2e.py`, CLAUDE.md:464, AGENTS.colleague.md:29, README.md:739.
+- About thirty tests pin a specific source FILE by path or by its text — e.g. `test_senses_live_presence_proofs.py` requires exactly ONE `read_control`() in colleague/loop.py, `test_talking_to_one_boundary.py`:354 requires exactly 2 occurrences of `_maybe_proactive_update` with the call site in a file named session.py, `test_content_lane_e2e.py`:747 requires exactly one `config_lifecycle` assignment in work.py and none elsewhere. Extraction is therefore NOT mechanical: each move either keeps the pinned text in place or updates the pin deliberately.
+  - instruction: Before moving code, grep tests/ for the file path being split; re-read each hit and decide keep-in-place vs deliberate pin update.
+- Two import paths are pinned by packaging and must survive verbatim: pyproject.toml:117 'colleague.engines.`vllm_openai`:VllmOpenAIEngine' and colleague/explain/`__init__.py`:9 'from colleague.explain.catalog import ENTRIES'.
+  - instruction: python -c 'from colleague.engines.`vllm_openai` import VllmOpenAIEngine; from colleague.explain.catalog import ENTRIES'; uv run colleague backends list.
+- Monkeypatch string targets bind the ORIGINAL namespace — colleague.loop.`load_telemetry`, colleague.tools.subprocess.run, colleague.config.`_merged_config_json`, colleague.subagents.registry.load, colleague.cli.`_commands`.work.`load_telemetry`. A moved symbol must still be USED through the original module, not merely re-exported from it.
+  - instruction: git diff -- tests/ | grep -E 'monkeypatch|patch\(' — expect no changed patch targets.
+- Anything carved out of colleague/resident/appserver.py must stay under colleague/resident/ — tests/`test_boundary.py`:298 exempts only that prefix from the asyncio ban.
+  - instruction: uv run pytest tests/`test_boundary.py` -k asyncio; confirm the new file paths start with colleague/resident/.
+- session.py's `_Session` mutates shared instance state across all 85 methods, so its lanes (talk ~390, voice ~295, panels ~620, senses ~370, slash table ~270, parser ~270) must be extracted as MIXINS or as functions taking self — not a value-passing split — and `_session_actions.py` already imports `_Session` under `TYPE_CHECKING` while session.py re-exports its names, an existing bidirectional edge the split repeats.
+  - instruction: uv run pytest tests/`test_talking_to_one_boundary.py` tests/`test_senses_live_presence_proofs.py`.
+- Private-name coupling pins where constants may move: tools.py:46 imports config's private `_DEFAULT_MAX_OUTPUT_CHARS`, loop.py:73 imports `MAX_SUBAGENT_FANOUT`, senses.py:119 imports a private `_extract_json_object` from plan/`cli_driver.py`, salvage.py:6 documents reading work.py's `_arm_interrupt_commit`, and actingsurface.py:223 does a function-local 'from colleague.loop import `resolve_role`' to dodge a cycle that is therefore already live.
+  - instruction: Import each private name from its documented source module in a clean interpreter.
+- contract.py must stay import-cheap — 46 modules import it early. Its two lazy class getters (:2456, :2469) exist to avoid pulling testintegrity/affectedtests at import time; any new sibling must preserve that pattern.
+  - instruction: python -c "import colleague.contract, sys; assert 'colleague.affectedtests' not in sys.modules".
+- SonarCloud blocks CI: sonar-project.properties sets qualitygate.wait=true. A move-only diff registers as NEW code to Sonar, so the new-code coverage and duplicated-lines conditions apply to all 18,750 moved lines — the appserver.py split in particular would add ~325 uncovered new-code statements.
+- A monkeypatch that stops binding does not necessarily FAIL — a patch applied to a name the code no longer reads leaves the test green while silently testing nothing. So h6/h13 cannot be verified by 'the suite passes'; each affected test must be checked to still exercise the patched path (e.g. by asserting the fake was called, or by temporarily breaking the real implementation).
+
+## Non-goals
+
+- docs/specs/ is append-only history and is NOT rewritten when a module moves — a spec records what was true when it was written; only docs/features/, CLAUDE.md, AGENTS.colleague.md and README.md are live pointers.
+  - instruction: Leave docs/specs/ untouched in the diff; git diff --stat -- docs/specs/ must be empty.
+- Fixing the 144 'colleague/<mod>.py:<line>' line-number citations in docs/ is NOT in scope — most sit in docs/specs/, which c14 keeps as append-only history, so they become permanently stale by design. Only live docs get path (not line) corrections.
+
+## Assumptions
+
+- Behaviour-preserving extraction is cheap to verify here: the full suite is 10,715 tests in 24s (measured 2026-08-31, 'uv run pytest -n auto'), so each split can be validated in under a minute.
+  - instruction: Record the passing count before the first split: uv run pytest -n auto.
+- The extraction targets are already recorded, not to be re-derived: issue #412 lists the six candidates (memory exchange, gate lane, budget lane, finish recovery, config per-mode loaders, the three seat builders), #399 gives the seams and the constraints, #413 is the work item, #280 the older ask.
+  - instruction: gh issue view 412 and 399 before planning any loop.py or config.py extraction.
+- The other sixteen files are ordinary extraction: explain/catalog.py (39 docstring constants + one ENTRIES dict, zero logic, one consumer) is the lowest-risk file in the repo; tools.py is a clean two-way cut (620 lines of pure SCHEMAS data vs the 720-line ToolExecutor); senses.py splits one module per lane; subagents.py's batch lane (~490) is its cleanest cut; and the six oversized TEST files carry almost no coupling.
+  - instruction: Start with explain/catalog.py to validate the workflow end to end, then the six test files, then tools/senses/subagents.
+- The 1000-line ceiling may not reach the threshold the delegation rationale depends on. Recorded counter-evidence: a 610-line edit to tui.py timed out at 8 minutes while a new ~60-line file succeeded in under a minute (colleague#173), and colleague reliably reads only in <=60-line ranges. culture-nodes' own gate calls 300 lines the design target and 1000 merely the hard limit. Mitigating evidence: that record predates the tolerant `edit_file` adopted in the qwen-code arc, which removed the full-file rewrite that caused the stall — so the threshold is genuinely unmeasured, not known-insufficient.
+
+## Scope exploration
+
+- `s1` — `.github/workflows/tests.yml`: line 45 runs 'uv run pytest -n auto'; the limit needs no new CI job, only a test file. Full suite measured at 10,715 tests in 24s.
+  - seeds: `c2`, `c3`
+- `s2` — `git ls-files (tracked source, 12 extensions)`: 21 files exceed 1000 lines totalling 39,750 — 18,750 lines must move and the package gains 20+ modules.
+  - seeds: `c4`
+- `s3` — `issues #399 / #412 / #413 / #280`: the extraction candidates and the harm (a local model cannot edit these files before timing out, so every task touching them routes away from colleague) are already recorded; #412 lists six named candidates and #413 is the open work item.
+  - seeds: `c5`
+- `s4` — `tests/test_boundary.py:534,780`: `_SUBPROCESS_ALLOWED` and `_THREADS_ALLOWED` are two-sided allow-lists — a moved import fails both the new file and the now-non-importing original. Binds tools/handoff/memory/livecheck and subagents.
+  - seeds: `c6`
+- `s5` — `tests/test_agents_boundary.py:217, tests/test_chain_e2e.py:580, CLAUDE.md:464`: the same two allow-lists are mirrored byte-for-byte in two tests (one AST-extracted, requiring a literal frozenset AnnAssign) and in three prose files — a six-place edit.
+  - seeds: `c7`
+- `s6` — `tests/ source-text pins (~30 tests)`: `test_senses_live_presence_proofs.py` requires exactly ONE `read_control`() in loop.py; `test_talking_to_one_boundary.py`:354 requires exactly 2 `_maybe_proactive_update` occurrences with the call site in a file named session.py; `test_content_lane_e2e.py`:747 requires exactly one `config_lifecycle` assignment in work.py and none elsewhere; `test_timeout_survival.py`:205 string-splits work.py. Extraction is not mechanical.
+  - seeds: `c8`
+- `s7` — `repo-wide 'from colleague.<mod> import' counts`: contract 427, config 422, loop 213, tools 171, memory 72, work 70, subagents 69, senses 64, `vllm_openai` 64, session 60, livecheck 53 — re-export at the original path, not a mass import rewrite.
+  - seeds: `c9`
+- `s8` — `pyproject.toml:117 + colleague/explain/__init__.py:9`: two import paths are pinned by packaging and must survive verbatim: the `vllm_openai`:VllmOpenAIEngine entry point and explain.catalog:ENTRIES.
+  - seeds: `c10`
+- `s9` — `monkeypatch string targets across tests/`: colleague.loop.`load_telemetry`, colleague.tools.subprocess.run, colleague.config.`_merged_config_json`, colleague.subagents.registry.load, work.`load_telemetry` — a moved symbol must still be USED through the original namespace, not merely re-exported.
+  - seeds: `c11`
+- `s10` — `tests/test_boundary.py:298 (_ASYNC_EXEMPT_PREFIX)`: only colleague/resident/ is exempt from the asyncio ban, so anything carved out of resident/appserver.py must stay under that package.
+  - seeds: `c12`
+- `s11` — `docs/features/ + CLAUDE.md vs docs/specs/`: live docs name module paths (loop.py in 30, config.py 21, contract.py 17) and must follow the code; docs/specs/ is append-only history and is not rewritten.
+  - seeds: `c13`, `c14`
+- `s12` — `colleague/loop.py (ast + read)`: helpers uniformly take ctx: `_Work`, so the seams are extraction-shaped: gates ~665, injections ~480, context/compaction ~440, transport ~530, tool execution ~400, memory ~240, synthesis ~280, flight ~125. `_Work` (:525) and ContextControls (:3171) are 680 lines of shared dataclass that must become a leaf module first.
+  - seeds: `c15`
+- `s13` — `colleague/explain/catalog.py, tools.py, senses.py, subagents.py + the 6 test files`: sixteen of the twenty-one are ordinary extraction — catalog.py is 39 docstring constants and one ENTRIES dict with one consumer and zero test pins; tools.py cuts cleanly into 620 lines of SCHEMAS data and a 720-line ToolExecutor; senses.py is one module per lane.
+  - seeds: `c16`
+- `s14` — `colleague/cli/_commands/session.py:738 (_Session)`: 2700 lines / 85 methods = 68% of the file, mutating shared instance state throughout — the lanes must be extracted as mixins, and `_session_actions.py` already shows the bidirectional `TYPE_CHECKING` edge the split repeats.
+  - seeds: `c17`
+- `s15` — `private cross-module imports (tools.py:46, loop.py:73, senses.py:119, salvage.py:6, actingsurface.py:223)`: private-name coupling pins where constants may move, and actingsurface.py's function-local import of colleague.loop is evidence the import cycle is already live.
+  - seeds: `c18`
+- `s16` — `colleague/contract.py:2456,2469`: the lazy class getters exist to keep an early-imported module import-cheap for its 46 importers; any new sibling must preserve that pattern.
+  - seeds: `c19`
+- `s17` — `challenge pass / unstated-assumptions lens: eidetic records colleague#173 + culture-nodes filelength_test.go`: the 1000 ceiling is unmeasured against colleague's real edit threshold — a 610-line edit timed out, reads work at <=60 lines, and culture-nodes calls 300 the design target; the counter-evidence predates the tolerant `edit_file`, so this is unmeasured, not disproven.
+  - seeds: `c28`
+- `s18` — `challenge pass / failure-mode lens: coverage report over the 21 files`: coverage is 92-99% everywhere EXCEPT colleague/resident/appserver.py at 0% (325 statements, tests skipped without the \[resident\] extra) — the one file where the suite-based safety argument is vacuous.
+  - seeds: `c29`
+- `s19` — `challenge pass / operations lens: sonar-project.properties`: qualitygate.wait=true blocks CI, and a move-only diff counts as new code, so new-code coverage/duplication conditions apply to all 18,750 moved lines.
+  - seeds: `c30`
+- `s20` — `challenge pass / lifecycle lens: .github/workflows/tests.yml version-check + git history`: every PR needs a version bump, so PR granularity is a constraint on the arc, not a detail; 18,750 moved lines also break git blame continuity and want a .git-blame-ignore-revs.
+  - seeds: `c31`, `c33`
+- `s21` — `challenge pass / observability lens: monkeypatch semantics`: a monkeypatch that stops binding stays GREEN — it patches a name nothing reads — so the suite cannot by itself verify h6/h13; effectiveness must be proven per test.
+  - seeds: `c32`
+- `s22` — `challenge pass / adjacent-systems lens: gh pr list + docs citations`: no open PRs and no in-flight work to conflict with — a clean entry point; 144 file:line citations exist in docs/, mostly in append-only docs/specs/, and go permanently stale by design.
+  - seeds: `c34`
+- `s23` — `challenge pass / reversibility + concurrency lenses: git revert path, tests/test_boundary.py thread lists`: clean pass on both — the change adds no runtime concurrency and every commit is a git revert away, with the caveat that a mid-sequence revert breaks later splits that built on it (routed to q4). Residual risk recorded, not dismissed.
+
+## Decisions
+
+- All 21 oversized files are fixed in this arc, second-order decomposition included — the arc does not stop at first-order extraction (q1).
+  - instruction: Track the five hot files separately from the sixteen; each needs a decomposition decision, not just a move.
+- Re-export shims at the original module path are the sanctioned compatibility mechanism; no mass call-site rewrite. A moved symbol must still be USED through the original namespace so monkeypatch string targets keep binding (q2).
+  - instruction: After each split, confirm the original module still USES the moved symbol through its own namespace where a test patches it.
+- The gate lands now and green, carrying a shrink-only GRANDFATHERED list: entries may only shrink and must be deleted the moment a file fits, so CI enforces the limit on all new code immediately (q3).
+  - instruction: Delete the GRANDFATHERED entry in the same commit that brings the file under 1000.
+- The 1000 ceiling ships as specced; h24 is honoured by measurement — a delegated colleague run against a ~900-line post-split module decides whether the delegation rationale (c23/c26) holds or is recorded as unachieved (q5).
+- PR granularity is thematic: one PR for the sixteen ordinary extractions, then one per hot file — roughly six to eight PRs and version bumps, each independently revertible (q4).
+- colleague/resident/appserver.py is split with a real safety net: the \[resident\] extra is installed and its tests actually run, rather than relying on the default suite that skips them (honours h25).
+
+## Open parks
+
+- [unknown_nonblocking] Whether Sonar's new-code conditions actually fire on a pure-move diff — the behaviour was not probed, only the blocking config was read.
+
+## Resolved vagueness
+
+- [unknown_blocking] The obvious seams do NOT get the five hot files under 1000 on their own — after every candidate extraction loop.py still holds ~1490 lines (the 440-line run() plus cross-cut prompt constants), config.py ~1200 (EngineConfig.resolve is ONE 680-line function at :3336), work.py ~1350 (`execute_work` :1162 is the hub every seam calls back into), contract.py ~1330 (TaskResult is 610 lines), and session.py's `_Session` is 2700 lines / 85 methods = 68% of its file. Each needs a SECOND-ORDER split — decomposing one large function or class — which is judgement work, not extraction. — resolved: In scope (q1): the arc includes second-order decomposition of the five hot files. The residual after first-order extraction is now a known quantity, not an unknown — loop ~1490, config ~1200, work ~1350, contract ~1330, and session's `_Session` 2700 across 85 methods.
