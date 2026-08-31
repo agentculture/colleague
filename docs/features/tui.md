@@ -40,12 +40,12 @@ Event  →  reduce(state, event)  →  CockpitState  →  serialize()  =  TAUI J
 ```
 
 Every component in the pipeline is a pure function (same input → same output).
-The reducer (`colleague/tui/reducer.py`) never reads the clock, opens a file,
+The reducer (`agentfront/taui/reducer.py`, imported as `agentfront.taui.reducer`) never reads the clock, opens a file,
 or calls the model. State changes only through events.
 
 ### Events
 
-Events are a discriminated union (`colleague/tui/events.py`) covering user
+Events are a discriminated union (`agentfront/taui/events.py`) covering user
 interaction (`UserInput`, `Key`), model progress (`WorkStep`), UI lifecycle
 (`Tick`, `Dismiss`), and suggestions (`SkillSuggested`). Each event carries a
 string `type` discriminator and round-trips through JSON cleanly — the JSONL
@@ -53,7 +53,7 @@ event log is a full replay record.
 
 ### State
 
-`CockpitState` (`colleague/tui/state.py`) is a plain `dataclasses` tree:
+`CockpitState` (`agentfront/taui/state.py`) is a plain `dataclasses` tree:
 status bar, skills panel, conversation panel, prompt input, popup overlay, and
 background spinner state. Every field has a default; a fresh state is always
 valid. `state.to_dict()` / `CockpitState.from_dict()` round-trip losslessly
@@ -61,7 +61,7 @@ through `json.dumps` — same convention as `colleague.contract`.
 
 ## The TAUI mirror
 
-`colleague/tui/taui.py` produces the agent-readable dict from a
+`agentfront/taui/mirror.py` (`serialize`) produces the agent-readable dict from a
 `CockpitState`. Key invariants:
 
 - Every popup and panel carries a stable `id`.
@@ -75,7 +75,7 @@ through `json.dumps` — same convention as `colleague.contract`.
 
 ## Dotted-path selectors
 
-`colleague/tui/selectors.py` walks the TAUI mirror and exposes:
+`agentfront/taui/selectors.py` walks the TAUI mirror and exposes:
 
 - `selectors(mirror)` — every addressable dotted path in the tree.
 - `resolve(mirror, selector)` — the node (dict or scalar) at a path, or
@@ -88,7 +88,7 @@ node changes its selector automatically.
 
 ## Snapshot triple
 
-`colleague/tui/snapshot.py` captures a complete TUI moment as three
+`agentfront/taui/snapshot.py` captures a complete TUI moment as three
 complementary files written to a caller-supplied directory:
 
 | File | Contents |
@@ -102,7 +102,7 @@ the UI looked like, what the model saw, and what happened — without a live
 process or any additional context.
 
 ```python
-from colleague.tui.snapshot import write_snapshot, read_snapshot
+from agentfront.taui.snapshot import write_snapshot, read_snapshot
 
 paths = write_snapshot(directory, "bug-x", state, events)
 snap  = read_snapshot(directory, "bug-x")
@@ -116,11 +116,11 @@ would break the zero-deps guard.
 
 ## Deterministic replay
 
-`colleague/tui/replay.py` folds a list of events through the pure reducer,
+`agentfront/taui/reducer.py` (`replay`) folds a list of events through the pure reducer,
 starting from an initial state (or a fresh `CockpitState` when `None`):
 
 ```python
-from colleague.tui.replay import replay, replay_from_jsonl
+from agentfront.taui.reducer import replay, replay_from_jsonl
 
 final_state = replay(events)
 final_state = replay_from_jsonl(jsonl_text)   # parse + fold in one call
@@ -131,7 +131,7 @@ same final state — useful for regression tests and offline debugging.
 
 ## Diagnose: 7-bug-class cross-mirror differ
 
-`colleague/tui/diagnose.py` classifies disagreements between the three views
+`agentfront/taui/diagnose.py` classifies disagreements between the three views
 of a snapshot — **without any LLM, model, or network call**:
 
 | Bug class | What it means |
@@ -169,7 +169,7 @@ The TUI renderer follows the same extension seam as backends:
 
 ```toml
 [project.entry-points."colleague.renderers"]
-ansi = "colleague.tui.render.ansi:render"
+ansi = "agentfront.taui.render.ansi:render"
 ```
 
 An external package that installs a `colleague.renderers` entry-point
@@ -177,7 +177,7 @@ An external package that installs a `colleague.renderers` entry-point
 without any core change — the same mechanism `colleague backends list` uses for
 backends.
 
-The built-in `ansi` renderer (`colleague/tui/render.ansi`) is **hand-rolled
+The built-in `ansi` renderer (`agentfront.taui.render.ansi`) is **hand-rolled
 ANSI SGR** — no third-party rendering library, no network, no subprocess. It
 works out of the box with zero extras installed.
 
@@ -195,14 +195,15 @@ them. The `ansi` renderer remains the built-in default regardless.
 ## Zero-deps guarantee
 
 The TUI core is import-clean: `rich`, `textual`, `urllib`, `socket`, `http`, and
-`subprocess` are absent from every `colleague/tui/` source file. This is
+`subprocess` are absent from every `colleague/tui/` source file (the two remaining
+colleague-coupled modules: `from_work.py`, `render/driver.py`). This is
 enforced by `tests/test_zero_deps.py`:
 
 - `test_tui_core_no_third_party_imports` — imports all nine TUI core modules at
   runtime and asserts no third-party top-level module is introduced (same
   mechanism as the OTel guard).
 - `test_tui_core_no_forbidden_stdlib_imports` — scans the source of every
-  `colleague/tui/*.py` and asserts no `rich`, `textual`, `urllib`, `socket`,
+  `colleague/tui/*.py` (`from_work.py`, `render/driver.py`) and asserts no `rich`, `textual`, `urllib`, `socket`,
   `http`, or `subprocess` import appears.
 
 ## Live work integration (#74)
@@ -220,7 +221,7 @@ A real `work` feeds the cockpit, not just authored/snapshot state:
   never swept into the work branch.
 - **Replay a real work item (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
   finished work item's loop-step trace into the cockpit. Live and replayed steps read
-  identically — both go through one converter (`colleague/tui/from_drive.py`)
+  identically — both go through one converter (`colleague/tui/from_work.py`)
   and the same pure reducer, so a failed step opens the same popup live and on
   replay.
 
@@ -238,15 +239,16 @@ A real `work` feeds the cockpit, not just authored/snapshot state:
 
 ## Key files
 
-- `colleague/tui/state.py` — `CockpitState` and its nested dataclasses.
-- `colleague/tui/events.py` — discriminated event union with JSONL helpers.
-- `colleague/tui/reducer.py` — pure `reduce(state, event) -> CockpitState`.
-- `colleague/tui/taui.py` — `serialize(state) -> dict` (the TAUI mirror).
-- `colleague/tui/selectors.py` — dotted-path resolution over the TAUI mirror.
-- `colleague/tui/snapshot.py` — snapshot triple write + read.
-- `colleague/tui/replay.py` — deterministic event-log replay.
-- `colleague/tui/diagnose.py` — 7-bug-class cross-mirror differ.
-- `colleague/tui/render/ansi.py` — stdlib ANSI renderer (the default plugin).
+- `agentfront/taui/state.py` — `CockpitState` and its nested dataclasses.
+- `agentfront/taui/events.py` — discriminated event union with JSONL helpers.
+- `agentfront/taui/reducer.py` — pure `reduce(state, event) -> CockpitState`, plus `replay`.
+- `agentfront/taui/mirror.py` — `serialize(state) -> dict` (the TAUI mirror).
+- `agentfront/taui/selectors.py` — dotted-path resolution over the TAUI mirror.
+- `agentfront/taui/snapshot.py` — snapshot triple write + read.
+- `agentfront/taui/diagnose.py` — 7-bug-class cross-mirror differ.
+- `agentfront/taui/render/ansi.py` — stdlib ANSI renderer (the default plugin).
+- `colleague/tui/from_work.py` — the loop-step → `agentfront.taui` `WorkStep` adapter.
+- `colleague/tui/render/driver.py` — the `colleague tui live` raw-terminal loop.
 
 ## See also
 

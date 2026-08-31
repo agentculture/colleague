@@ -21,11 +21,19 @@ minds. The architecture, part by part:
 - **Mind / backend** — the model/coder backend.
 - **Adapter** — invokes one backend (`colleague/engines/`, an `Engine` subclass
   with `work(task, config) -> TaskResult`). Doc: `engines.md`.
-- **Task runtime** — the shared contract (`colleague/contract.py`:
-  `Task`/`TaskResult`); optional `Task.goal`/`acceptance` → an **advisory**
-  acceptance self-check (never flips status). Doc: `task-goals.md`.
-- **Tool loop** — the bounded agentic loop (`colleague/loop.py`) over repo-confined
-  tools (`colleague/tools.py`: base six + `culture`). Hooks, the progress sink
+- **Task runtime** — the shared contract (`colleague/contract.py` +
+  `contract_coerce`/`contract_configevents`/`contract_records`/`contract_reports`/
+  `contract_senses`/`contract_taskresult_io` siblings, split under the 1000-line
+  hard ceiling: `Task`/`TaskResult`); optional `Task.goal`/`acceptance` → an
+  **advisory** acceptance self-check (never flips status). Doc: `task-goals.md`.
+- **Tool loop** — the bounded agentic loop (`colleague/loop.py`, split into 21
+  `loop_*` siblings — `loop_types`/`loop_transport`/`loop_context`/`loop_senses`/
+  `loop_testgates`/`loop_constants`/`loop_outcomes`/`loop_memory`/`loop_synthesis`/
+  `loop_gates`/`loop_run_stages`/`loop_setup`/`loop_gatebase`/`loop_hooks`/
+  `loop_flight`/`loop_wire`/`loop_toolexec`/`loop_tae`/`loop_progress`/`loop_turn`/
+  `loop_accounting` — under the 1000-line hard ceiling, `loop.py` itself stays the
+  entry point) over repo-confined tools (`colleague/tools.py` + `tool_schemas`:
+  base six + `culture`). Hooks, the progress sink
   (#38), phase notices (#206), finish recovery (#248/#231) live here (all-engines);
   **a phase notice never advances `step_count`**. Doc: `work-and-loop.md`.
 - **Plugins** — backends discovered via the `colleague.engines` entry-point group
@@ -45,8 +53,10 @@ minds. The architecture, part by part:
 - **Approval gate** — operator allow-list over what the harness runs (`colleague/policy.py`): `run_command` by token, `hooks`/`commands` by checksum;
   absent = strict no-op. Doc: `approval-gate.md`.
 - **Subagents** — delegate sub-tasks via `subagent`/`subagents`
-  (`colleague/subagents.py`), each child in a `sub/<id>` worktree + a sequential
-  merge child; caps `MAX_SUBAGENT_DEPTH`/`_FANOUT`; concurrency opt-in (default 1). Doc: `subagents.md`.
+  (`colleague/subagents.py` + `subagents_binding`/`subagents_batch` siblings, split
+  under the 1000-line hard ceiling), each child in a `sub/<id>` worktree + a
+  sequential merge child; caps `MAX_SUBAGENT_DEPTH`/`_FANOUT`; concurrency opt-in
+  (default 1). Doc: `subagents.md`.
 - **Subagent roles** — a subagent can be a **typed role** (`colleague/roles.py`); a
   read-only role **provably cannot mutate the tree**; caps depth 4 / total 24. Doc:
   `subagent-roles.md`.
@@ -133,7 +143,10 @@ minds. The architecture, part by part:
   trigger P3 0/3 against a clean P2-0 control and does not promote — and
   found the purpose child's step cap unapplied (#458).** Doc: `purpose-tools.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
-  cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
+  cortex drives, senses is a tools-off front door; absent = byte-identical.
+  `colleague/senses.py` is split into `senses_common`/`senses_extra` siblings under
+  the 1000-line hard ceiling (`senses_loop.py`/`senses_moves.py`/`senses_stream.py`
+  stay separate, pre-existing modules). Doc: `cortex-senses.md`.
 - **Three-tier execution** (superseded by #411 — kept as the benchmark baseline) — worker acts / senses relays / cortex configures,
   resolved BY ROLE NAME from the lobes gateway (worker role), opt-in via config;
   byte-identical when unconfigured; deepthink absent in three-tier mode;
@@ -279,7 +292,11 @@ minds. The architecture, part by part:
 - **Config resolution** — `colleague/configdir.py` (repo > user) + a persistent
   `.colleague/config.json` override (flag > env > config.json > default); `colleague
   config show` (redacted); includes the `convertible`→`colleague` rename
-  back-compat. Doc: `config-resolution.md`.
+  back-compat. Resolution itself lives in `colleague/config.py`, split into 10
+  `config_*` siblings under the 1000-line hard ceiling —
+  `config_defaults`/`config_types`/`config_files`/`config_lobes`/`config_seats`/
+  `config_modelpin`/`config_flags`/`config_profiles`/`config_resolve`/
+  `config_snapshot`. Doc: `config-resolution.md`.
 - **Layered per-model config** — `colleague/layers.py`: AGENTS + skills compose into
   the system prompt with **exact-path per-model isolation**; injected once on
   `Engine.system_prompt()`. **MCP layering is NOT built** — reads no `mcp.json`.
@@ -303,7 +320,15 @@ minds. The architecture, part by part:
 - **CLI surface (cli-on-agentfront)** — the agent-first CLI is **rendered from one
   imported agentfront `App`** (`colleague/cli/_app.py`), not argparse; each verb is
   a rendered **tool** or **host command**; yields a single-dispatch MCP server
-  (`mcp serve`, `[mcp]`) + an HTTP app; four reserved meta-verbs stay colleague-owned. Doc: `cli-on-agentfront.md`.
+  (`mcp serve`, `[mcp]`) + an HTTP app; four reserved meta-verbs stay colleague-owned.
+  The two largest commands are split under the 1000-line hard ceiling:
+  `colleague/cli/_commands/session.py` + 10 `_session_*` mixin siblings
+  (`_session_actions`/`_session_const`/`_session_dispatch`/`_session_input`/
+  `_session_panels`/`_session_parser`/`_session_runs`/`_session_senses`/
+  `_session_slash`/`_session_support`/`_session_talk`/`_session_voice`), and
+  `colleague/cli/_commands/work.py` + 7 `_work_*` siblings
+  (`_work_background`/`_work_chain`/`_work_configplane`/`_work_parser`/
+  `_work_salvage`/`_work_support`/`_work_task`). Doc: `cli-on-agentfront.md`.
 
 ## v1 scope (hold this line)
 
@@ -500,6 +525,14 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   rubric (identity/provider/usage/engines/otel/environment), exit-1 on unhealthy;
   the **usage** group warns when a bare work item would pick the no-op `mock`
   backend. `doctor --probe` adds the one gated network check (`provider_reachable`).
+- **Hard 1000-line file-length ceiling.** `tests/test_file_length_limit.py`
+  fails the suite on any tracked source file over 1000 physical lines, with an
+  empty, shrink-only `GRANDFATHERED` escape hatch; the soft
+  `tests/test_file_length_ratchet.py` (d6) is the complementary per-file
+  baseline that only tightens. `scripts/pin_audit.py <path>` is the read-only
+  pre-split safety net (path literals, monkeypatch targets, subprocess/thread
+  allow-list membership) run before splitting an oversized module. Doc:
+  `file-length-limit.md`.
 
 ## Commands
 

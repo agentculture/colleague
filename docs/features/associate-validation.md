@@ -116,7 +116,7 @@ is "worst at everything except speed"):**
 - **Paths: verify, do not assume broken.** Thinking on (n=12): exact path
   75 %, basename 92 %, definition line 100 % (thinking off, n=36: 56 / 78 /
   92 %). One misattribution reproduced in all four configurations —
-  `colleague/tests/test_plan_plan_stage.py` returned as
+  `tests/test_plan_plan_stage.py` returned as
   `culture-nodes/tests/test_plan_plan_stage.py` while the correct prefix sat
   in the `FILE:` header it had just read: correctly retrieved content with a
   fabricated provenance, invisible to a reviewer. Treat `file` in any digest
