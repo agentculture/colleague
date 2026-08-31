@@ -184,6 +184,7 @@ cortex/senses split ran.
 <!-- contract:keys:finish_record -->
 ```text
 finish_reason
+reasoning_effort
 seat
 state
 truncated
@@ -199,6 +200,9 @@ is `true` iff `state == "truncated"`. `finish_reason` is the raw
 backend-reported value for the seat's LAST completion (e.g. `"stop"` \|
 `"tool_calls"` \| `"length"`), or `""` when the backend/engine never reports
 one (e.g. the `"senses"` seat, which has no raw wire value of its own).
+`reasoning_effort` records the thinking-effort rung the seat ran at, or `""`
+(the stable sentinel) when it was never resolved — including artifacts written
+before the field existed, which load back as `""`.
 
 #### `Usage` (`usage` / `sub_results[].usage`)
 
