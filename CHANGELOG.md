@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.71.1] - 2026-08-31
+
+### Added
+
+- `docs/deliveries/2026-08-30-delegation-follow-ups-a7-p3-hire.md` updated to the COMPLETE run: all 23 plan tasks accounted for (22 delivered/partial, t19 blocked), the five approved deviations plus six uncovered mid-work decisions, eleven drift entries, and thirteen delivery claims of which three stay `unverified` (the amortisation test above the in-seat ceiling, nemotron-vs-cortex-low, and live negotiation dynamics). Supersedes the Phase-A-only version from PR #465.
+
 ## [1.71.0] - 2026-08-31
 
 ### Added
