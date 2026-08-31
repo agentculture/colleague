@@ -31,15 +31,16 @@ exit path and cannot extend the step budget.
 Module layout (plan hard-1000-line-file-limit, t15). The lanes live in
 ``colleague/loop_*.py`` siblings — ``loop_types`` (the ``_Work`` /
 ``ContextControls`` leaf), ``loop_wire``, ``loop_constants``, ``loop_progress``,
-``loop_toolexec``, ``loop_accounting``, ``loop_hooks``, ``loop_tae``,
-``loop_context``, ``loop_transport``, ``loop_turn``, ``loop_flight``,
-``loop_memory``, ``loop_outcomes``, ``loop_synthesis``, ``loop_senses``,
-``loop_setup``, ``loop_gatebase``, ``loop_gates``, ``loop_testgates`` and
-``loop_run_stages``. NO sibling imports ``colleague.loop``: this module is the
-top of the import DAG, which is why the gate lanes take their ``work_loop``
-re-entry point as a parameter. What stays here is what must: :func:`run`, the
-turn loop, the tool-call chain around the ``pre_tool``/``post_tool`` hook
-bindings, and the ONE flight-guidance injection point.
+``loop_toolexec``, ``loop_toolturn``, ``loop_accounting``, ``loop_hooks``,
+``loop_tae``, ``loop_context``, ``loop_transport``, ``loop_turn``,
+``loop_flight``, ``loop_memory``, ``loop_outcomes``, ``loop_synthesis``,
+``loop_senses``, ``loop_setup``, ``loop_gatebase``, ``loop_gates``,
+``loop_testgates`` and ``loop_run_stages``. NO sibling imports
+``colleague.loop``: this module is the top of the import DAG, which is why the
+gate lanes take their ``work_loop`` re-entry point as a parameter (and
+``loop_toolturn`` takes ``_fire_hooks`` the same way). What stays here is what
+must: :func:`run`, the turn loop, the ``_fire_hooks`` binding itself, and the
+ONE flight-guidance injection point.
 """
 
 from __future__ import annotations
@@ -59,11 +60,8 @@ from colleague import media, salvage
 from colleague import toolbatch_loop as _toolbatch_loop
 from colleague import webbudget
 from colleague.contract import (
-    DECISION_DENY,
-    DECISION_REWRITE,
     ERROR,
     OK,
-    Step,
     Task,
     TaskResult,
     prompt_digest_for,
@@ -171,6 +169,13 @@ from colleague.loop_toolexec import (  # noqa: F401 - also re-exported on this n
     _tool_protocol_broken,
     _track_unknown_tool,
 )
+from colleague.loop_toolturn import (  # noqa: F401 - also re-exported on this namespace
+    _fire_post_tool,
+    _gate_tool_call,
+    _record_denial,
+    _record_execution,
+    _run_tool_call,
+)
 from colleague.loop_transport import (  # noqa: F401 - also re-exported on this namespace
     _agents_begin,
     _agents_end,
@@ -206,7 +211,7 @@ from colleague.neighbours import NeighbourManager
 from colleague.policy import Policy, load_policy
 from colleague.prompttext import default_system as _default_system_text
 from colleague.telemetry import Telemetry, load_telemetry
-from colleague.tools import ToolError, ToolExecutor
+from colleague.tools import ToolExecutor
 
 # The default system prompt lives in colleague/prompttext.py (adopted qwen-code
 # structure + the COLLEAGUE_PROMPT_VARIANT=v1 floor). Built ONCE at import for the
@@ -262,128 +267,6 @@ def _tae_commit_initial_plan(ctx: _Work) -> None:
     _tae_drain(ctx)
 
 
-def _gate_tool_call(ctx: _Work, call: ToolCall) -> tuple[Any, str | None, bool]:
-    """The three gates, decision only: ``(arguments, deny_reason, hook_denied)``.
-
-    ``pre_tool`` hook (the only control-bearing event — first deny/rewrite wins, a
-    rewrite swaps the arguments) → the thought→action→evaluation boundary (t13:
-    the HOST classifies a consequential action; alignment is never permission) →
-    the operator's approval policy AFTER hooks so a rewrite is still gated. Every
-    gate runs on the MAIN thread in request order BEFORE any execution — the
-    batch path (:mod:`colleague.toolbatch_loop`) relies on that.
-    """
-    arguments = call.arguments
-    decision = _fire_hooks(
-        ctx.hooks,
-        ctx.result,
-        event="pre_tool",
-        task=ctx.task,
-        tool=call.name,
-        arguments=arguments,
-        policy=ctx.policy,
-    )
-    kind = decision.decision if decision is not None else None
-    if kind == DECISION_DENY:
-        return arguments, (decision and decision.reason) or "denied by a pre_tool hook", True
-    if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
-        arguments = decision.arguments
-    gated = ToolCall(call.id, call.name, arguments)
-    reason = _tae_verdict(ctx, gated)
-    if reason is None:
-        reason = _policy_verdict(ctx, gated)
-    return arguments, reason, False
-
-
-def _record_denial(
-    ctx: _Work, call: ToolCall, arguments: Any, span: Any, step_index: int, reason: str, hook: bool
-) -> None:
-    """Record a refused call — span, (hook-denial metric,) non-ok Step, tool message, progress."""
-    span.set(ok=False, denied=True, reason=reason)
-    if hook:
-        ctx.telemetry.on_hook_denial()
-    ctx.result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
-    ctx.messages.append(_tool_message(call.id, reason))
-    _emit_progress(ctx, step_index, call.name, arguments, ok=False)
-
-
-def _fire_post_tool(ctx: _Work, tool: str, arguments: Any) -> None:
-    """``post_tool`` fires after every tool *attempt*; observe-only this increment."""
-    _fire_hooks(
-        ctx.hooks,
-        ctx.result,
-        event="post_tool",
-        task=ctx.task,
-        tool=tool,
-        arguments=arguments,
-        policy=ctx.policy,
-    )
-
-
-def _record_execution(
-    ctx: _Work, call: ToolCall, arguments: Any, span: Any, step_index: int, outcome: Any, exc: Any
-) -> bool:
-    """Bookkeeping after ONE execute attempt (sequential AND batch paths); True on finish."""
-    if exc is not None:
-        msg = (
-            str(exc)
-            if isinstance(exc, ToolError)
-            else f"bad tool arguments: {type(exc).__name__}: {exc}"
-        )
-        _track_unknown_tool(ctx, call.name, exc)
-        _tae_close(ctx, call.name, False)
-        span.set(ok=False, error=msg)
-        ctx.result.steps.append(Step(step_index, call.name, arguments, f"error: {msg}", ok=False))
-        ctx.messages.append(_tool_message(call.id, f"error: {msg}"))
-        _emit_progress(ctx, step_index, call.name, arguments, ok=False)
-        _fire_post_tool(ctx, call.name, arguments)
-        return False
-    _track_unknown_tool(ctx, call.name, None)
-    _tae_close(ctx, call.name, True)
-    span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
-    ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
-    # Keep the executor's live step counter in step with the trace (Qodo #469/4):
-    # a hire minted by a handler reads ``created_step`` off it. Guarded — a
-    # loop driven without an executor (phase-notice doubles) has none.
-    if ctx.executor is not None:
-        ctx.executor.step_count = len(ctx.result.steps)
-    ctx.messages.append(_tool_message(call.id, outcome.result))
-    if outcome.media_part is not None:
-        # view_media fold (t5): the tool message stays a plain string (wire-safe);
-        # the image rides a follow-up user parts message the next turn sees.
-        ctx.messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"[{call.name}] {outcome.result}"},
-                    outcome.media_part,
-                ],
-            }
-        )
-    _emit_progress(ctx, step_index, call.name, arguments, ok=True)
-    _fire_post_tool(ctx, call.name, arguments)
-    if not outcome.finished:
-        return False
-    span.set(finished=True)
-    _apply_finish(ctx.result, outcome)
-    return True
-
-
-def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
-    """Run one tool call inside its own telemetry span; return whether it finished.
-
-    gate → execute → record, inside ONE ``with tool_span`` block so exactly one
-    step/tool-call metric is recorded per call — deny and error paths included.
-    """
-    step_index = len(ctx.result.steps)
-    with ctx.telemetry.tool_span(tool=call.name, step_index=step_index) as span:
-        arguments, reason, hook_denied = _gate_tool_call(ctx, call)
-        if reason is not None:
-            _record_denial(ctx, call, arguments, span, step_index, reason, hook_denied)
-            return False
-        outcome, exc = _execute_tool(ctx.executor, call.name, arguments)
-        return _record_execution(ctx, call, arguments, span, step_index, outcome, exc)
-
-
 def _run_tool_calls(ctx: _Work, calls: list[ToolCall]) -> bool:
     """Run every tool call in one model turn; return whether any finished.
 
@@ -397,8 +280,17 @@ def _run_tool_calls(ctx: _Work, calls: list[ToolCall]) -> bool:
     boundary: in-flight tools finish or hit their own timeout first (threads
     cannot be killed), so stop latency is up to the slowest in-flight tool's own
     timeout — never "immediate" (c36/h25).
+
+    The gate→execute→record chain itself lives in :mod:`colleague.loop_toolturn`
+    (t19) — ``_run_tool_call`` there needs this module's ``_fire_hooks`` binding
+    to fire ``pre_tool``/``post_tool``, so it is threaded in here rather than
+    imported back (that module never imports ``colleague.loop``).
     """
-    return _toolbatch_loop.run_turn_calls(ctx, calls, _run_tool_call)
+
+    def _run_one(ctx: _Work, call: ToolCall) -> bool:
+        return _run_tool_call(ctx, call, fire_hooks=_fire_hooks)
+
+    return _toolbatch_loop.run_turn_calls(ctx, calls, _run_one)
 
 
 def _advance_and_mark(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:

@@ -159,7 +159,9 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
 
     prepared: list[_Prepared] = []
     for call in batch:  # phase 1 — every gate on the main thread, request order
-        arguments, reason, hook_denied = _loop._gate_tool_call(ctx, call)
+        arguments, reason, hook_denied = _loop._gate_tool_call(
+            ctx, call, fire_hooks=_loop._fire_hooks
+        )
         prepared.append(_Prepared(call, arguments, reason, hook_denied))
     # A pre_tool REWRITE can turn a read-only call into a mutating one after the
     # partition (Qodo #441-13): re-check safety on the GATED arguments — a call
@@ -195,7 +197,14 @@ def _run_parallel_batch(ctx: Any, batch: Sequence[Any], width: int) -> bool:
                 continue
             span.set(batched=item in runnable, exec_seconds=item.seconds)
             if _loop._record_execution(
-                ctx, item.call, item.arguments, span, step_index, item.outcome, item.exc
+                ctx,
+                item.call,
+                item.arguments,
+                span,
+                step_index,
+                item.outcome,
+                item.exc,
+                fire_hooks=_loop._fire_hooks,
             ):
                 finished = True
     return finished
