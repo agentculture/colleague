@@ -73,12 +73,20 @@ class FinishRecord:
     ``state == FINISH_TRUNCATED``, kept as its own boolean (not re-derived at
     read time) so a caller filtering on truncation alone need not know the
     full state vocabulary.
+
+    ``reasoning_effort`` records the thinking-effort rung the seat actually
+    ran at (t2, contract only — the loop wiring that populates it is a later
+    task). The stable sentinel for "never resolved" is ``""`` (the default):
+    a seat whose effort was never determined — or an artifact written before
+    this field existed — reads back as ``""`` rather than raising, so old
+    artifacts stay loadable.
     """
 
     seat: str
     finish_reason: str = ""
     state: str = FINISH_DELIBERATE
     truncated: bool = False
+    reasoning_effort: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +94,7 @@ class FinishRecord:
             "finish_reason": self.finish_reason,
             "state": self.state,
             "truncated": self.truncated,
+            "reasoning_effort": self.reasoning_effort,
         }
 
     @classmethod
@@ -95,6 +104,7 @@ class FinishRecord:
             finish_reason=str(data.get("finish_reason", "")),
             state=str(data.get("state", FINISH_DELIBERATE)),
             truncated=bool(data.get("truncated", False)),
+            reasoning_effort=str(data.get("reasoning_effort", "")),
         )
 
 
