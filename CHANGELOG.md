@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.71.2] - 2026-08-31
+
+### Changed
+
+- The opt-in `[mcp]` extra (and its dev-group twin) now require `mcp>=1.28.1,<2` — the patched floor for GHSA-vj7q-gjh5-988w, with an explicit `<2` ceiling so the 2.x line stays a separate, deliberate decision (issue #470). Relocking with `--upgrade-package` also lifts the transitive `cryptography` (via `mcp → pyjwt[crypto]`) from 49.0.0 to 50.0.1, clearing GHSA-g6cj-pr64-35w5. The base install is untouched: `dependencies = ["agentfront>=0.20.0"]`, and `tests/test_zero_deps.py` still pins zero third-party beyond it.
+
 ## [1.71.1] - 2026-08-31
 
 ### Added

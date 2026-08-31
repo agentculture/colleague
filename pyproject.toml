@@ -1,6 +1,6 @@
 [project]
 name = "colleague"
-version = "1.71.1"
+version = "1.71.2"
 description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "Apache-2.0"
@@ -52,7 +52,7 @@ otel = [
 # single-dispatch server. Pin in lockstep with the dev group below.
 # Install with: pip install "colleague[mcp]"  (or: uv sync --extra mcp).
 mcp = [
-    "mcp>=1.28.0",
+    "mcp>=1.28.1,<2",
 ]
 tui = [
     "rich>=13",
@@ -143,7 +143,7 @@ dev = [
     # The [mcp] extra, installed in dev/CI so the MCP round-trip + lazy-import
     # guard run. The base package never imports mcp on its own path; this only
     # affects the dev environment. Keep the pin in lockstep with the [mcp] extra.
-    "mcp>=1.28.0",
+    "mcp>=1.28.1,<2",
     # The [otel] extra, installed in dev/CI so the telemetry tests run. The base
     # package keeps zero runtime deps; this only affects the dev environment.
     "opentelemetry-api>=1.25",
