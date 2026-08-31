@@ -170,13 +170,18 @@ def test_reap_artifacts_removes_empty_keeps_valid(tmp_path: Path) -> None:
     cdir.mkdir(parents=True)
     (cdir / "d8ca.x.json").write_bytes(b"")  # 0-byte crash leftover
     (cdir / "d8ca.x.trace.jsonl").write_bytes(b"")
+    (cdir / "d8ca.reasoning.jsonl").write_bytes(b"")  # 0-byte sidecar (c26 clean-parity)
     (cdir / "last_work").write_text("d8ca\n")  # points at the 0-byte artifact
     valid = cdir / "keepme.real.json"
     valid.write_text('{"task_id":"keepme","stats":{"request":"real"}}\n')
+    kept_sidecar = cdir / "keepme.reasoning.jsonl"
+    kept_sidecar.write_text('{"seat":"main","turn":1}\n')  # non-empty: never touched
 
     actions = {r["artifact"]: r["action"] for r in artifact.reap_artifacts(repo)}
     assert actions["d8ca.x.json"] == "reaped"
     assert actions["d8ca.x.trace.jsonl"] == "reaped"
+    assert actions["d8ca.reasoning.jsonl"] == "reaped"
+    assert kept_sidecar.exists()
     assert actions["last_work"] == "cleared"
     assert not (cdir / "last_work").exists()
     assert valid.exists()  # a non-empty (gradable) artifact is never touched

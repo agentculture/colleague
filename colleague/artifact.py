@@ -330,10 +330,11 @@ def _unlink_action(path: Path, *, dry_run: bool, dry_label: str, ok_label: str) 
 
 
 def _reap_empty_artifact_files(adir: Path, *, dry_run: bool) -> list[dict]:
-    """Reap 0-byte ``*.json`` / ``*.trace.jsonl`` under ``adir`` (truncated writes)."""
+    """Reap 0-byte ``*.json`` / ``*.trace.jsonl`` / ``*.reasoning.jsonl`` under
+    ``adir`` (truncated writes; the reasoning sidecar gets clean-parity, c26)."""
     results: list[dict] = []
     seen: set[Path] = set()
-    for pattern in ("*.json", "*.trace.jsonl"):
+    for pattern in ("*.json", "*.trace.jsonl", "*.reasoning.jsonl"):
         for path in sorted(adir.glob(pattern)):
             if path in seen or not _is_empty_file(path):
                 continue
