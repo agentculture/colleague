@@ -94,7 +94,11 @@ __all__ = [
 ]
 
 #: The curated allow-list of eidetic verbs the engine may invoke.
-#: Only ``recall`` and ``remember`` are reachable.
+#: Only ``recall`` and ``remember`` are reachable. The one-per-process
+#: ``eidetic --version`` capability probe (:func:`_rerank_supported`) is NOT a
+#: verb and sits deliberately outside this list: a fixed-argv, read-only
+#: metadata query with a PATH-only environment — it can neither read nor
+#: write the store (Qodo #478-2).
 ALLOWED_VERBS: frozenset[str] = frozenset({"recall", "remember"})
 
 #: Bound a runaway CLI so it cannot stall the loop indefinitely.
@@ -141,10 +145,15 @@ def _rerank_supported(cli_path: str, *, cwd: str | Path | None = None) -> bool:
             [cli_path, "--version"],
             capture_output=True,
             text=True,
+            errors="replace",  # never let a non-UTF-8 byte crash the probe
             timeout=_VERSION_PROBE_TIMEOUT_SECONDS,
             cwd=str(cwd) if cwd is not None else None,
+            # A version banner needs no operator environment: pass ONLY PATH
+            # (resolution) — unlike recall/remember, no identity/embedder env,
+            # no inherited secrets (Qodo #478-1).
+            env={"PATH": os.environ.get("PATH", "")},
         )
-    except (subprocess.TimeoutExpired, OSError):
+    except (subprocess.TimeoutExpired, OSError, ValueError):
         proc = None
     if proc is not None and proc.returncode == 0:
         # "eidetic-cli X.Y.Z" — tolerate surrounding text, require X.Y.Z.

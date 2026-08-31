@@ -637,6 +637,28 @@ def _make_versioned_eidetic(
 
 
 class TestRecallRerankProbe:
+    def test_probe_env_is_path_only(self, tmp_path: Path, monkeypatch) -> None:
+        """The --version probe passes ONLY PATH — no identity/embedder env, no
+        inherited secrets (Qodo #478-1). Pinned via a stub that dumps its env."""
+        script = tmp_path / "eidetic"
+        envdump = tmp_path / "env.dump"
+        script.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "--version" ]; then\n'
+            f"  env > {envdump}\n"
+            '  echo "eidetic-cli 0.14.0"\n'
+            "  exit 0\n"
+            "fi\n"
+        )
+        script.chmod(0o755)
+        monkeypatch.setenv("EIDETIC_API_SECRET", "hunter2")
+        monkeypatch.setattr(memory_mod, "_RERANK_PROBE_CACHE", {})
+        assert memory_mod._rerank_supported(str(script)) is True
+        dumped = envdump.read_text()
+        assert "hunter2" not in dumped
+        assert "EIDETIC_API_SECRET" not in dumped
+        assert "PATH=" in dumped
+
     def _arm(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
         # A fresh per-test cache: the probe result is cached per process,

@@ -288,6 +288,9 @@ def test_staged_warning_cleared_when_engine_raises(tmp_path, monkeypatch) -> Non
     repo = tmp_path / "r"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    # cwd-scoped identity: CI runners have no global git user (exit-128 otherwise).
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "--allow-empty", "-q", "-m", "x"], check=True)
 
     config = EngineConfig.resolve()

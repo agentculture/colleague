@@ -403,7 +403,11 @@ def test_embed_env_operator_set_var_survives_end_to_end(
 
     assert result.status == OK
     lines = [json.loads(line) for line in log.read_text().splitlines()]
-    assert all(line["env_value"] == "http://operator-set:1234/v1" for line in lines)
+    # The --version capability probe deliberately runs with a PATH-only env
+    # (Qodo #478-1); only the real verb calls carry the embed env.
+    verb_lines = [ln for ln in lines if ln["argv"][:1] != ["--version"]]
+    assert verb_lines
+    assert all(line["env_value"] == "http://operator-set:1234/v1" for line in verb_lines)
 
 
 def test_absent_embed_env_is_byte_identical(repo: Path, eidetic_log: Path) -> None:
