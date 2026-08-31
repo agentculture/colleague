@@ -91,6 +91,10 @@ def _act_effort(s: "_Session", rest: list[str]) -> str:
         raise
     except Exception as exc:  # noqa: BLE001 - CliError -> the dispatcher's ValueError
         raise ValueError(str(exc)) from exc
+    # An explicit /effort is an operator choice that outranks a /continue
+    # re-apply of the recorded rung (effort-v4 t8, c25): mark it so
+    # _slash_continue stands down instead of clobbering it.
+    s._effort_explicit = True
     return f"effort {seat} → {rung} (session-only)"
 
 

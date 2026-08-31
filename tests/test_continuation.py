@@ -245,6 +245,9 @@ class TestModuleConstraints:
             "colleague.contract",
             "colleague.agents.state",
             "colleague.editgate",
+            # effort-v4 t8 (c32): recorded_acting_effort reads the ladder to
+            # honor only real rungs; colleague.effort is pure stdlib.
+            "colleague.effort",
             "json",
             "pathlib",
             "typing",

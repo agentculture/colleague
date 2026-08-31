@@ -217,6 +217,17 @@ class _DispatchMixin:
         except ContinuationError as exc:
             self._error(f"error: {exc}")
             return
+        # Re-apply the prior run's recorded acting-seat rung (effort-v4 t8,
+        # c32) — the same leg work --continue takes. An explicit /effort this
+        # session wins (the _effort_explicit marker, c25): the re-apply
+        # stands down rather than clobbering the operator's choice. The
+        # mismatch warning (h19) is staged on config.continuation_warnings
+        # (drained onto TaskResult.warnings by _stamp_run_metadata) and
+        # printed with the other continuation diagnostics below.
+        if not getattr(self, "_effort_explicit", False):
+            from colleague.cli._commands._listing import reapply_recorded_effort
+
+            reapply_recorded_effort(self.config, self.repo, prior_id, warnings=warnings)
         for warning in warnings:
             self._error(f"continuation: {warning['detail']}")
         self._log(f"→ continue: resuming {prior_id}")

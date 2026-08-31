@@ -25,7 +25,7 @@ prose recap; a ledger present while unarmed records an "ignored" warning; no
 ledger at all is byte-identical to the pre-t17 behaviour.
 
 Pure stdlib. Imports only from
-``colleague.{artifact,feedback,escalation,contract,agents.state,editgate}``.
+``colleague.{artifact,feedback,escalation,contract,agents.state,editgate,effort}``.
 """
 
 from __future__ import annotations
@@ -48,6 +48,9 @@ from colleague.escalation import build_continuation
 
 #: The ``kind`` every continuation-ledger warning dict carries.
 LEDGER_WARNING_KIND = "continuation-ledger"
+
+#: The ``kind`` of the recorded-rung mismatch warning (effort-v4 t8, c32/h19).
+EFFORT_WARNING_KIND = "continuation-effort"
 
 #: Authority facts rendered from the ``operator_request`` / ``decision`` events
 #: (the ledger's ``AUTHORITY_KEYS`` plus ``profile``); latest event wins.
@@ -169,6 +172,44 @@ def resolve_continuation(
     seed_text = f"{preamble}{record}\n\nOriginal request:\n\n{request}{hires_note}"
 
     return (task_id, seed_text)
+
+
+def recorded_acting_effort(repo: str | Path, task_id: str) -> tuple[Optional[str], Optional[Path]]:
+    """The prior run's recorded ACTING-seat rung + its artifact path (t8, c32).
+
+    Reads the resumed artifact's top-level ``effort`` block first (the acting
+    seat's finish-record name, ``"main"``), falling back to the
+    ``finish_states`` record with ``seat == "main"`` and a non-empty
+    ``reasoning_effort``. A pre-#476 artifact carries neither ->
+    ``(None, path)`` — nothing to re-apply, behavior unchanged. Only real
+    ladder rungs are honored: an unknown/corrupt value reads as absent, never
+    a crash (this is a best-effort read on top of guards
+    :func:`resolve_continuation` already applied). ``(None, None)`` when no
+    artifact exists at all.
+    """
+    from colleague.effort import LADDER
+
+    path = find_artifact(Path(repo), task_id)
+    if path is None:
+        return (None, None)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return (None, path)
+    if not isinstance(data, dict):
+        return (None, path)
+    block = data.get("effort")
+    if isinstance(block, dict):
+        rung = block.get("main")
+        if isinstance(rung, str) and rung in LADDER:
+            return (rung, path)
+    for record in data.get("finish_states") or []:
+        if isinstance(record, dict) and record.get("seat") == "main":
+            rung = record.get("reasoning_effort")
+            if isinstance(rung, str) and rung in LADDER:
+                return (rung, path)
+            break  # the "main" finish record is unique per artifact
+    return (None, path)
 
 
 def _expire_hires(result: TaskResult) -> str:
