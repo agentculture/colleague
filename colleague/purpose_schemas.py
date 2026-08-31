@@ -354,9 +354,34 @@ _UNCITED = "[uncited digest: no path:start-end or url citation — verify before
 # ('(lines 79-1054)', '| 79-138 |' with en-dash) and never the colon form:
 # those are real citations, not uncited digests. The brief still demands
 # path:start-end; this regex only decides the advisory marker.
-_CITATION_RE = re.compile(
-    r"https?://\S+|\S+:\d+(?:-\d+)?|[Ll]ines?\s*:?\s*\d+|\d+\s*[\u2013\u2014]\s*\d+"
+#: One simple, independently readable pattern per accepted citation FORM,
+#: checked in turn \u2014 the earlier single mega-alternation was both hard to read
+#: and super-linear on backtracking (Sonar S8786/S5843). The accepted set is
+#: unchanged (pinned by
+#: ``test_table_and_en_dash_cited_digests_are_not_marked_uncited``).
+_CITATION_FORMS = (
+    re.compile(r"https?://\S+"),  # a url
+    re.compile(r"[^\s:]+:\d+(?:-\d+)?"),  # path:start[-end] (the pinned form)
+    re.compile(r"[Ll]ines?\b[\s:]*\d+"),  # "line 42" / "lines: 12"
+    re.compile(r"\d+[^\S\n]*[\u2013\u2014][^\S\n]*\d+"),  # an en/em-dash range
 )
+
+
+class _CitationDetector:
+    """A ``.search``-shaped detector over :data:`_CITATION_FORMS` \u2014 the same
+    call shape the renderer (and the tests) used for the old single regex."""
+
+    @staticmethod
+    def search(text: str) -> "re.Match[str] | None":
+        """The first form that matches *text*, or ``None`` (uncited)."""
+        for form in _CITATION_FORMS:
+            match = form.search(text)
+            if match is not None:
+                return match
+        return None
+
+
+_CITATION_RE = _CitationDetector()
 
 #: The two purposes whose briefs demand the digest shape — the marker applies
 #: to these only; the other purposes' templates are unchanged (c12/c24).

@@ -72,8 +72,16 @@ _CANDIDATE_SYSTEM = (
     "Read the offer and answer in the requested one-line form only."
 )
 
-_AMEND_PURPOSE_RE = re.compile(r"purpose\s*=\s*(.*?)\s*(?:;\s*when\s*=|$)", re.IGNORECASE)
-_AMEND_WHEN_RE = re.compile(r"when\s*=\s*(.*)\s*$", re.IGNORECASE)
+#: The two amendment terms' ``<name> =`` heads. Each field's VALUE is the text
+#: from the head to the next ``;`` (or end of line) — a plain slice, never a
+#: lazy quantifier: the earlier one-regex form
+#: (``purpose\s*=\s*(.*?)\s*(?:;\s*when\s*=|$)``) could satisfy itself with a
+#: ZERO-length capture against the ``$`` branch, so ``purpose=`` with no value
+#: parsed as a successful (empty) amendment (Sonar S6019).
+_AMEND_FIELD_HEADS = {
+    "purpose": re.compile(r"purpose\s*=\s*", re.IGNORECASE),
+    "when": re.compile(r"when\s*=\s*", re.IGNORECASE),
+}
 
 
 def _offer_text(purpose: str, when: str, base_role: str, prompt: str, *, round2: bool) -> str:
@@ -103,6 +111,31 @@ def _first_line(text: str) -> str:
     return ""
 
 
+def _amend_field(line: str, name: str) -> str:
+    """The amendment term *name*'s value: the text from its ``<name>=`` head to
+    the next ``;`` (or the end of the line), stripped. ``""`` when the head is
+    absent or its value is blank."""
+    match = _AMEND_FIELD_HEADS[name].search(line)
+    if match is None:
+        return ""
+    return line[match.end() :].split(";", 1)[0].strip()
+
+
+def _amend_terms(line: str) -> tuple[str, str]:
+    """``(purpose, when)`` for an ``amend:`` line, or ``("", "")`` when the
+    amendment is malformed.
+
+    BOTH terms are required and non-empty: the tool arguments require a
+    non-empty ``when``, so an amendment that drops it (or leaves either term
+    blank) would mint a live hire without its agreed clause (Qodo #469/5).
+    """
+    purpose = _amend_field(line, "purpose")
+    when = _amend_field(line, "when")
+    if not purpose or not when:
+        return ("", "")
+    return (purpose, when)
+
+
 def _parse_reply(text: str, *, allow_amend: bool) -> tuple[str, str, str]:
     """Tolerant one-line parse → ``(verdict, arg1, arg2)``.
 
@@ -118,15 +151,9 @@ def _parse_reply(text: str, *, allow_amend: bool) -> tuple[str, str, str]:
         reason = line.split(":", 1)[1].strip() if ":" in line else "declined"
         return ("decline", reason or "declined", "")
     if allow_amend and lowered.startswith("amend"):
-        purpose_match = _AMEND_PURPOSE_RE.search(line)
-        if purpose_match and purpose_match.group(1).strip():
-            when_match = _AMEND_WHEN_RE.search(line)
-            when = when_match.group(1).strip() if when_match else ""
-            # Both terms must survive an amendment: the tool arguments require a
-            # non-empty ``when``, so an amendment that drops it would mint a live
-            # hire without its agreed clause (Qodo #469/5). Treat as malformed.
-            if when:
-                return ("amend", purpose_match.group(1).strip(), when)
+        purpose, when = _amend_terms(line)
+        if purpose:
+            return ("amend", purpose, when)
     return ("malformed", line, "")
 
 
@@ -279,68 +306,126 @@ def _negotiate(
     )
 
 
-def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
-    """The ``hire_colleague`` :meth:`ToolExecutor.execute` handler, bound to
-    *executor* (the :func:`colleague.purpose_schemas.dispatch` shape)."""
-    from colleague.tools import ToolError, ToolOutcome  # local: avoids the import cycle
+def _armed_config(executor: Any) -> Any:
+    """The parent ``EngineConfig``, or the ONE readable ``ToolError`` an unarmed
+    call gets (h30)."""
+    from colleague.tools import ToolError  # local: avoids the import cycle
 
-    def handler(arguments: dict[str, Any]) -> Any:
-        config = getattr(getattr(executor, "_spawn", None), "parent_config", None)
-        if not getattr(config, "hire", False):
-            raise ToolError(
-                "hire_colleague is not armed for this run "
-                "(COLLEAGUE_HIRE=1 or config.json 'hire': true)"
-            )
-        for key in ("purpose", "when", "base_role", "prompt"):
-            value = arguments.get(key)
-            if not isinstance(value, str) or not value.strip():
-                raise ToolError(f"hire_colleague requires a non-empty '{key}' string")
+    config = getattr(getattr(executor, "_spawn", None), "parent_config", None)
+    if not getattr(config, "hire", False):
+        raise ToolError(
+            "hire_colleague is not armed for this run "
+            "(COLLEAGUE_HIRE=1 or config.json 'hire': true)"
+        )
+    return config
 
-        def _result(text: str) -> Any:
-            return ToolOutcome(result=executor._truncate(text, "hire_colleague"))
 
-        roster = _roster(executor)
-        reason = _refusal(arguments, roster)
-        if reason is not None:
-            return _result(f"not hired: {reason}")
-        base_role = str(arguments["base_role"])
-        try:
-            complete = _candidate_complete(executor, config, base_role)
-        except Exception as exc:  # no candidate seam -> readable, never a crash (h30)
-            return _result(f"not hired: no candidate completion available ({exc})")
-        try:
-            hired, purpose, when, reason, completions = _negotiate(
+def _require_arguments(arguments: dict[str, Any]) -> None:
+    """Every required tool argument must be a non-empty string (``ToolError``)."""
+    from colleague.tools import ToolError  # local: avoids the import cycle
+
+    for key in ("purpose", "when", "base_role", "prompt"):
+        value = arguments.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ToolError(f"hire_colleague requires a non-empty '{key}' string")
+
+
+def _negotiated(
+    executor: Any, config: Any, arguments: dict[str, Any], base_role: str
+) -> tuple[Optional[tuple[bool, str, str, str, int]], Optional[str]]:
+    """``(outcome, refusal)`` — the :func:`_negotiate` tuple, or a readable
+    refusal reason when the candidate seam is dead or the wire fails mid-round
+    (h30: never an exception out of the handler)."""
+    try:
+        complete = _candidate_complete(executor, config, base_role)
+    except Exception as exc:  # no candidate seam -> readable, never a crash (h30)
+        return (None, f"no candidate completion available ({exc})")
+    try:
+        return (
+            _negotiate(
                 complete,
                 str(arguments["purpose"]),
                 str(arguments["when"]),
                 base_role,
                 str(arguments["prompt"]),
-            )
-        except Exception as exc:  # a wire failure mid-round -> readable (h30)
-            return _result(f"not hired: candidate completion failed ({exc})")
+            ),
+            None,
+        )
+    except Exception as exc:  # a wire failure mid-round -> readable (h30)
+        return (None, f"candidate completion failed ({exc})")
+
+
+def _mint_onto_roster(
+    executor: Any,
+    roster: hire.Roster,
+    *,
+    base_role: str,
+    purpose: str,
+    when: str,
+    prompt: str,
+) -> tuple[Optional[hire.Hire], Optional[str]]:
+    """``(minted, refusal)`` — the roster is left unchanged on a refusal (e.g.
+    an over-cap AMENDED when clause)."""
+    try:
+        minted = hire.mint_hire(
+            agent_id=f"hire-{len(roster) + 1}",
+            hirer_id="cortex",
+            base_role=base_role,
+            purpose=purpose,
+            when=when,
+            prompt_fragment=prompt,
+            task_id=str(getattr(executor, "task_id", "") or ""),
+            created_step=int(getattr(executor, "step_count", 0) or 0),
+        )
+        roster.add(minted)
+    except hire.HireError as exc:
+        return (None, str(exc))
+    return (minted, None)
+
+
+def _hired_text(minted: hire.Hire, completions: int) -> str:
+    """The readable success result the hirer reads."""
+    return (
+        f"hired: {minted.agent_id} (base_role={minted.base_role}, "
+        f"{completions} negotiation completion(s))\n"
+        f"purpose: {minted.purpose}\nwhen: {minted.when}\n"
+        f"Assign it work with assign_to_colleague(agent_id={minted.agent_id!r}, task=...)."
+    )
+
+
+def dispatch(executor: Any) -> dict[str, Callable[[dict[str, Any]], Any]]:
+    """The ``hire_colleague`` :meth:`ToolExecutor.execute` handler, bound to
+    *executor* (the :func:`colleague.purpose_schemas.dispatch` shape)."""
+    from colleague.tools import ToolOutcome  # local: avoids the import cycle
+
+    def _result(text: str) -> Any:
+        return ToolOutcome(result=executor._truncate(text, "hire_colleague"))
+
+    def handler(arguments: dict[str, Any]) -> Any:
+        config = _armed_config(executor)
+        _require_arguments(arguments)
+        roster = _roster(executor)
+        refusal = _refusal(arguments, roster)
+        if refusal is not None:
+            return _result(f"not hired: {refusal}")
+        base_role = str(arguments["base_role"])
+        outcome, refusal = _negotiated(executor, config, arguments, base_role)
+        if outcome is None:
+            return _result(f"not hired: {refusal}")
+        hired, purpose, when, reason, completions = outcome
         if not hired:
             return _result(f"not hired: {reason}")
-        agent_id = f"hire-{len(roster) + 1}"
-        try:
-            minted = hire.mint_hire(
-                agent_id=agent_id,
-                hirer_id="cortex",
-                base_role=base_role,
-                purpose=purpose,
-                when=when,
-                prompt_fragment=str(arguments["prompt"]),
-                task_id=str(getattr(executor, "task_id", "") or ""),
-                created_step=int(getattr(executor, "step_count", 0) or 0),
-            )
-            roster.add(minted)
-        except hire.HireError as exc:  # e.g. an over-cap AMENDED when clause
-            return _result(f"not hired: {exc}")
-        _emit_hire_event(config, minted)  # t14: armed agents mode ledgers the hire
-        return _result(
-            f"hired: {agent_id} (base_role={base_role}, "
-            f"{completions} negotiation completion(s))\n"
-            f"purpose: {purpose}\nwhen: {when}\n"
-            f"Assign it work with assign_to_colleague(agent_id={agent_id!r}, task=...)."
+        minted, refusal = _mint_onto_roster(
+            executor,
+            roster,
+            base_role=base_role,
+            purpose=purpose,
+            when=when,
+            prompt=str(arguments["prompt"]),
         )
+        if minted is None:
+            return _result(f"not hired: {refusal}")
+        _emit_hire_event(config, minted)  # t14: armed agents mode ledgers the hire
+        return _result(_hired_text(minted, completions))
 
     return {"hire_colleague": handler}

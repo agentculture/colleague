@@ -667,4 +667,5 @@ def test_hire_step_in_a_mixed_batch_runs_outside_the_pool_in_request_order(
     # 'no live hire' tool result (ok=True), never a crashed drive.
     assert steps[1].ok is True
     assert "no live hire: " in steps[1].result
-    assert steps[0].ok is True and steps[2].ok is True
+    assert steps[0].ok is True
+    assert steps[2].ok is True

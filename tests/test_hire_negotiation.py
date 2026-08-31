@@ -172,6 +172,24 @@ def test_a_second_amend_is_malformed_never_a_third_round(tmp_path) -> None:
     assert len(engine.sent) == 2  # the bound: never a 3rd completion
 
 
+def test_amend_parse_requires_both_terms_non_empty() -> None:
+    """Sonar S6019: the old one-regex amend parse used a LAZY ``(.*?)`` against
+    a ``(?:; when=|$)`` alternation, so the purpose group could satisfy itself
+    with ZERO repetitions — ``purpose=`` with no value parsed as a successful
+    (empty) amendment. Both terms are now sliced to the next ``;`` (or the end
+    of the line) and BOTH must be non-empty."""
+    assert hire_dispatch._parse_reply(
+        "amend: purpose=audit one package; when=each package", allow_amend=True
+    ) == ("amend", "audit one package", "each package")
+    # An empty purpose is malformed, never an empty-purpose amendment.
+    verdict, _, _ = hire_dispatch._parse_reply("amend: purpose=; when=x", allow_amend=True)
+    assert verdict == "malformed"
+    # A dropped when clause is malformed (Qodo #469/5) — a live hire is never
+    # minted without its agreed clause.
+    verdict, _, _ = hire_dispatch._parse_reply("amend: purpose=x", allow_amend=True)
+    assert verdict == "malformed"
+
+
 def test_dispatch_binds_exactly_the_hire_colleague_name(tmp_path) -> None:
     handlers = hire_dispatch.dispatch(_executor(tmp_path, _FakeEngine([])))
     assert set(handlers) == {"hire_colleague"}

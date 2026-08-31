@@ -93,8 +93,9 @@ def test_hire_status_vocabulary_closed():
     assert expired.status == "expired"
     with pytest.raises(HireError):
         replace(hire, status="retired")
+    retired = {**hire.to_dict(), "status": "retired"}
     with pytest.raises(HireError):
-        Hire.from_dict({**hire.to_dict(), "status": "retired"})
+        Hire.from_dict(retired)
 
 
 def test_unknown_base_role_refused():
@@ -103,7 +104,8 @@ def test_unknown_base_role_refused():
     msg = str(exc.value)
     assert "ninja" in msg
     # A readable refusal names the valid choices.
-    assert "scout" in msg and "writer" in msg
+    assert "scout" in msg
+    assert "writer" in msg
 
 
 def test_roster_caps_at_fanout_and_refuses_fifth():
@@ -114,8 +116,9 @@ def test_roster_caps_at_fanout_and_refuses_fifth():
     for i in range(MAX_SUBAGENT_FANOUT):
         roster.add(_mint(agent_id=f"hire-{i}"))
     assert len(roster) == MAX_SUBAGENT_FANOUT
+    overflow = _mint(agent_id="hire-overflow")
     with pytest.raises(HireError) as exc:
-        roster.add(_mint(agent_id="hire-overflow"))
+        roster.add(overflow)
     msg = str(exc.value)
     assert str(MAX_SUBAGENT_FANOUT) in msg
     assert "hire" in msg.lower()
@@ -128,8 +131,9 @@ def test_roster_lookup_and_duplicate_id_refused():
     roster.add(hire)
     assert roster.get("hire-1") is hire
     assert roster.get("missing") is None
+    duplicate = _mint()  # same agent_id
     with pytest.raises(HireError):
-        roster.add(_mint())  # same agent_id
+        roster.add(duplicate)
 
 
 # ---------------------------------------------------------------------------

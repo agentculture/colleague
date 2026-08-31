@@ -29,7 +29,7 @@ from colleague.tools import ToolExecutor
 TASK_ID = "task-hire-1"
 
 
-@pytest.fixture()
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / ".colleague").mkdir()
     return tmp_path
