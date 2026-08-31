@@ -11,6 +11,7 @@
 - **Duration:** 26.93s
 
 All 4 file-length gate tests pass:
+
 - `test_tracked_source_files_stay_within_the_hard_line_limit` ✓
 - `test_the_grandfather_list_is_reaped` ✓
 - `test_the_scanner_actually_scans` ✓
