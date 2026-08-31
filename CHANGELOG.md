@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.73.0] - 2026-08-31
+
+### Added
+
+- v4 thinking-effort defaults (#475): SEAT_TABLE cortex/worker/evaluator medium->low, associate off->low; ROLE_TABLE writer/planner medium->low; ASSOCIATE_SEAT_TABLE and PURPOSE_TABLE all low; associate_seats.FALLBACK_EFFORT low->off (two models, one seat); deepthink/design stay xhigh, senses off
+- The resolved rung on the artifact (#476): FinishRecord.reasoning_effort (sentinel "" = never resolved) plus a top-level effort block {seat: rung} covering main/senses/subagent-children/distill and, when it fired, the deepthink seat — mock and vllm-openai record identical shape
+- Reasoning sidecar: per-turn model reasoning journaled to a gitignored .colleague/<task_id>.reasoning.jsonl (request timestamp + within-turn request index; a parallel tool batch shares one index, #474 at this arc's surfaces); children write tagged files into the operator repo; default-on with COLLEAGUE_REASONING_LOG=0 off-knob, 1 MiB cap with a truncation marker, clean-parity in the 0-byte reap; excluded from feedback export/handoff/mesh (pinned)
+- work --continue / session /continue re-apply the resumed artifact's recorded acting rung (explicit --effort or /effort wins); a rung differing from the current resolution lands a loud continuation-effort warning naming both values and the source artifact
+- eidetic recall --rerank opt-in behind a version probe: one eidetic --version call per process, the flag passed only on >= 0.14.0 (dark on the 0.13.0 rig); COLLEAGUE_RECALL_MIN_SCORE keeps reading the hybrid score field per #467's near-binary measurement
+
+### Changed
+
+- docs/features/thinking-effort.md renders the v4 table; the P0/P1/P2 prose overlays and the P2-0/P3 staged arms pin effort: low
+- A staged continuation warning is cleared even when the engine raises, so a session config never stamps a stale warning onto a later run
+
 ## [1.72.0] - 2026-08-31
 
 ### Added
