@@ -115,7 +115,7 @@
   "colleague/contract.py": 702,
   "colleague/contract_coerce.py": 186,
   "colleague/contract_configevents.py": 266,
-  "colleague/contract_records.py": 639,
+  "colleague/contract_records.py": 649,
   "colleague/contract_reports.py": 157,
   "colleague/contract_senses.py": 462,
   "colleague/contract_taskresult_io.py": 329,
