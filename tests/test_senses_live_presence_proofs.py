@@ -298,7 +298,9 @@ class TestFlightFileIsTheOnlyInjectionChannel:
         # with no relay at all is fine, a relay through some other channel is
         # not (the per-file absence checks above enforce that half).
         relaying = [
-            rel for rel in _session_surface_paths() if "flight.append_guidance(" in _read_source(rel)
+            rel
+            for rel in _session_surface_paths()
+            if "flight.append_guidance(" in _read_source(rel)
         ]
         assert relaying, (
             "no module of the session surface relays through flight.append_guidance -- "
