@@ -303,7 +303,7 @@ def test_reasoning_effort_kill_switch_overrides_the_purpose_table(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``reasoning_effort='default'`` (the global kill-switch) beats the
-    ``PURPOSE_TABLE`` row too — ``plan`` (normally ``medium``) runs at the
+    ``PURPOSE_TABLE`` row too — ``plan`` (normally ``low``, v4 #475) runs at the
     kill-switch floor."""
     eng = _CapturingEngine()
     monkeypatch.setattr(subagents.registry, "load", lambda _name: eng)

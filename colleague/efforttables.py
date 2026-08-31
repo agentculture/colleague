@@ -14,12 +14,13 @@ Two new tables (c8/c29), on top of :mod:`colleague.effort`'s
     A sub-seat table consulted per ``ASSOCIATE_SEATS`` member (scout,
     compact, synthesis, digest, distill) — each with its own env name
     ``COLLEAGUE_ASSOCIATE_REASONING_EFFORT_<SEAT>`` and its own
-    ``reasoning_effort_seats`` key, ``"associate.<seat>"``. Deliberately
-    agrees with :data:`colleague.effort.ROLE_TABLE`'s ``scout`` row (both
-    ``"off"``) — the purpose-called scout's rung is a PURPOSE_TABLE row (an
-    explicit override), while a MANUAL subagent ``role="scout"`` still
-    resolves through the seat machinery; ``test_effort.py`` pins that the two
-    rows agree.
+    ``reasoning_effort_seats`` key, ``"associate.<seat>"``. Under v4 (#475)
+    every sub-seat row is ``"low"`` (Nemotron's floor on the armed seat) and
+    DELIBERATELY diverges from :data:`colleague.effort.ROLE_TABLE`'s
+    ``scout`` row (the UNARMED scout, still ``"off"``); ``test_effort.py``
+    pins that relationship. The purpose-called scout's rung is a
+    PURPOSE_TABLE row (an explicit override); a MANUAL subagent
+    ``role="scout"`` still resolves through the seat machinery.
 
 ``PURPOSE_TABLE``
     The rung a purpose tool's spawn passes as its explicit override (no
@@ -41,26 +42,25 @@ from typing import Callable, Optional
 from colleague.effort import DEFAULT_SENTINEL, validate_effort
 
 #: Associate sub-seats (adopt-from-qwen-code's ``ASSOCIATE_SEATS`` five-tuple),
-#: each defaulting to the associate seat's own table row (``off``) except the
-#: detached distill child, which reasons at ``low`` (plumbing, not a rung
-#: choice — see the spec's s11).
+#: each at ``low`` under v4 (#475) — the armed seat's Nemotron floor; the
+#: distill row already reasoned at ``low`` and is unchanged.
 ASSOCIATE_SEAT_TABLE = {
-    "scout": "off",
-    "compact": "off",
-    "synthesis": "off",
-    "digest": "off",
+    "scout": "low",
+    "compact": "low",
+    "synthesis": "low",
+    "digest": "low",
     "distill": "low",
 }
 
-#: Purpose-tool default rungs (c29) — the spawn's explicit override, never a
-#: model-chosen 'effort' parameter.
+#: Purpose-tool default rungs (c29; all ``low`` under v4, #475) — the spawn's
+#: explicit override, never a model-chosen 'effort' parameter.
 PURPOSE_TABLE = {
-    "web_survey": "off",
-    "code_survey": "off",
+    "web_survey": "low",
+    "code_survey": "low",
     "review": "low",
     "validate": "low",
-    "plan": "medium",
-    "handover_to_colleague": "medium",
+    "plan": "low",
+    "handover_to_colleague": "low",
 }
 
 #: Each purpose's own step budget; ``None`` = no distinct cap (rides the

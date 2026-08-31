@@ -249,10 +249,21 @@ def _assert_acting_seat_prompt_carveout(
             assert cm == em
 
 
+def _assert_effort_v4_carveout(captured_kwargs, expected_kwargs):
+    """The effort-v4-rung-observability-rerank carve-out (#475): the acting
+    seat's table default moved "medium" -> "low", so every turn's
+    ``chat_template_kwargs`` differs from the recorded main baseline in
+    exactly that one way. Named and asserted, never normalized silently."""
+    if captured_kwargs == expected_kwargs:
+        return
+    assert captured_kwargs == {"reasoning_effort": "low"}
+    assert expected_kwargs == {"reasoning_effort": "medium"}
+
+
 def test_vllm_scenario_byte_identical_to_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Byte-identical EXCEPT the two documented carve-outs: (1) the
+    """Byte-identical EXCEPT the three documented carve-outs: (1) the
     purpose-tools-associate-seat swap on the wire tool surface (deviation d14
     fix, see ``_PURPOSE_TOOL_CARVEOUT_DROPPED`` above) — every payload's
     ``tools`` name list swaps subagent/subagents for five purpose tools; and
@@ -276,6 +287,10 @@ def test_vllm_scenario_byte_identical_to_main(
     for cp, ep in zip(captured_payloads, expected_payloads):
         _assert_purpose_tool_carveout(cp.pop("tools", []), ep.pop("tools", []))
         _assert_acting_seat_prompt_carveout(cp.pop("messages", []), ep.pop("messages", []))
+        # carve-out (3): the v4 effort tables (#475) moved the acting rung.
+        _assert_effort_v4_carveout(
+            cp.pop("chat_template_kwargs", None), ep.pop("chat_template_kwargs", None)
+        )
         assert cp == ep
 
 

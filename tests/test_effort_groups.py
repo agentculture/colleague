@@ -94,10 +94,10 @@ def test_config_show_json_reasoning_effort_resolved_has_three_groups() -> None:
         f"associate.{s}" for s in efforttables.ASSOCIATE_SEAT_TABLE
     }
     assert set(resolved["purposes"]) == set(efforttables.PURPOSE_TABLE)
-    # table defaults, nothing overridden
-    assert resolved["seats"]["cortex"] == "medium"
-    assert resolved["associate"]["associate.scout"] == "off"
-    assert resolved["purposes"]["web_survey"] == "off"
+    # table defaults, nothing overridden (v4, #475: all three at "low")
+    assert resolved["seats"]["cortex"] == "low"
+    assert resolved["associate"]["associate.scout"] == "low"
+    assert resolved["purposes"]["web_survey"] == "low"
 
 
 def test_config_show_json_additive_only_pre_existing_keys_still_present() -> None:
@@ -145,10 +145,11 @@ def test_config_show_json_resolved_kill_switch_all_none(
 def test_session_effort_listing_names_associate_and_purpose_rows(tmp_path: Path) -> None:
     s = _make_session(tmp_path)
     out = _session_actions._act_effort(s, [])
-    assert "associate.scout off" in out
+    # v4 (#475): associate sub-seats and purposes all list at "low"
+    assert "associate.scout low" in out
     assert "associate.distill low" in out
-    assert "web_survey off" in out
-    assert "plan medium" in out
+    assert "web_survey low" in out
+    assert "plan low" in out
 
 
 @pytest.mark.parametrize(

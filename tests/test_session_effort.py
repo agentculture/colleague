@@ -63,12 +63,12 @@ def test_effort_no_arg_lists_every_seat_and_acting_role(tmp_path: Path) -> None:
     for seat in ("cortex", "worker", "deepthink", "evaluator", "senses", "design"):
         assert f"{seat} " in out, f"seat {seat!r} missing from the table"
     assert "acting role" in out
-    # The seat-table defaults are what is sent when nothing is set.
-    assert "cortex medium" in out
+    # The seat-table defaults are what is sent when nothing is set (v4, #475).
+    assert "cortex low" in out
     assert "senses off" in out
     assert "deepthink xhigh" in out
     # The acting role (cortex, worker unarmed) resolves to the same rung.
-    assert "acting role (cortex) medium" in out
+    assert "acting role (cortex) low" in out
 
 
 def test_effort_no_arg_unset_under_kill_switch(tmp_path: Path) -> None:
@@ -79,7 +79,7 @@ def test_effort_no_arg_unset_under_kill_switch(tmp_path: Path) -> None:
     out = _session_actions._act_effort(s, [])
     assert "unset" in out
     # The kill-switch wins over the seat table: no seat shows its table rung.
-    assert "cortex medium" not in out
+    assert "cortex low" not in out
     assert "senses off" not in out
     assert "acting role (cortex) unset" in out
 
@@ -90,7 +90,7 @@ def test_effort_no_arg_reflects_a_seat_override(tmp_path: Path) -> None:
     s.config.reasoning_effort_seats = {"cortex": "high"}
     out = _session_actions._act_effort(s, [])
     assert "cortex high" in out
-    assert "cortex medium" not in out
+    assert "cortex low" not in out
     # The acting role (cortex) reflects the override too.
     assert "acting role (cortex) high" in out
 

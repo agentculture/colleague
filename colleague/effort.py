@@ -16,7 +16,9 @@ appears in the precedence chain (as a ``parent_override`` or
 sixth ladder rung; it never appears in :data:`LADDER` and never flows into a
 chat-template payload.
 
-Tables (v3, c36/c40) map a seat / role / design-site name to its ladder rung.
+Tables (v4, #475 — cortex/worker/evaluator/associate and writer/planner
+all ``low``, only deepthink/design keep ``xhigh``; v3 was c36/c40) map a
+seat / role / design-site name to its ladder rung.
 ``SEAT_TABLE`` covers persistent seats (cortex, worker, deepthink, evaluator,
 senses, design). ``ROLE_TABLE`` covers subagent roles when invoked as a
 child; ``TOP_LEVEL_ROLE_TABLE`` overrides a handful of those roles when
@@ -56,23 +58,22 @@ LADDER = ("off", "low", "medium", "high", "xhigh")
 
 DEFAULT_SENTINEL = "default"
 
-# Persistent-seat defaults (v3, c36/c40).
+# Persistent-seat defaults (v4, #475).
 SEAT_TABLE = {
-    "cortex": "medium",
-    "worker": "medium",
+    "cortex": "low",
+    "worker": "low",
     "deepthink": "xhigh",
-    "evaluator": "medium",
+    "evaluator": "low",
     "senses": "off",
     "design": "xhigh",
-    # The associate (fast non-coding scout) seat — adopt-from-qwen-code t18:
-    # thinking OFF (Nemotron spends its first tokens thinking; a scout must not).
-    "associate": "off",
+    # v4 (#475): Nemotron's floor on the armed seat (the cortex fallback: "off").
+    "associate": "low",
 }
 
-# Subagent-role defaults when invoked as a child (v3, c36/c40).
+# Subagent-role defaults when invoked as a child (v4, #475).
 ROLE_TABLE = {
-    "writer": "medium",
-    "planner": "medium",
+    "writer": "low",
+    "planner": "low",
     "reviewer": "low",
     "validator": "low",
     "explorer": "off",
@@ -84,10 +85,9 @@ ROLE_TABLE = {
 TOP_LEVEL_ROLE_TABLE = {
     "explorer": "low",
     # A top-level review on the acting seat (cortex fallback for the diff
-    # review) reasons at ``low``: the associate seat is the fast reviewer, and
-    # when it is not taken cortex at ``medium`` overflows its synthesis turn
-    # (2026-08-30: a 274k-char truncated turn on a 20 KB diff). ``off`` stays
-    # selectable via an explicit override.
+    # review) reasons at ``low``: cortex above ``low`` overflows its synthesis
+    # turn (2026-08-30, v3 ``medium``: a 274k-char truncated turn on a 20 KB
+    # diff — the v4 seat default now agrees). ``off`` stays selectable.
     "reviewer": "low",
 }
 
@@ -101,7 +101,7 @@ TOP_LEVEL_MODE_TABLE = {
     "review": "low",
 }
 
-# One-shot design/planning call sites (v3, c36/c40).
+# One-shot design/planning call sites (unchanged by v4 — still c36/c40).
 DESIGN_SITE_TABLE = {
     "plan.spec_stage": "xhigh",
     "plan.plan_stage": "high",
@@ -185,8 +185,8 @@ def resolve_acting_effort(
     (:data:`TOP_LEVEL_ROLE_TABLE`: explorer/reviewer "low" — "off" stays
     selectable via an explicit override) > the read-only ``--mode`` rule
     (:data:`TOP_LEVEL_MODE_TABLE`: explore/review "low", consulted only when
-    no top-level role applied) > the seat table default ("medium" for
-    cortex/worker alike). Pure function over already-resolved config state — the caller
+    no top-level role applied) > the seat table default ("low" for
+    cortex/worker alike, v4 #475). Pure function over already-resolved config state — the caller
     (``EngineConfig.reasoning_effort_effective``) supplies ``role`` because it
     is set by the CLI AFTER ``resolve()`` returns.
     """
