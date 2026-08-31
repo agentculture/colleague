@@ -12,13 +12,13 @@ import pytest
 from colleague import efforttables
 
 
-def test_unset_is_none(monkeypatch):
+def test_purpose_context_override_unset_is_none(monkeypatch):
     monkeypatch.delenv("COLLEAGUE_CODE_SURVEY_CONTEXT_BUDGET", raising=False)
     assert efforttables.purpose_context_override("code_survey") is None
 
 
 @pytest.mark.parametrize("raw", ["", "  ", "abc", "0", "-5", "1.5"])
-def test_invalid_values_are_ignored(monkeypatch, raw):
+def test_purpose_context_override_ignores_invalid_values(monkeypatch, raw):
     monkeypatch.setenv("COLLEAGUE_CODE_SURVEY_CONTEXT_BUDGET", raw)
     assert efforttables.purpose_context_override("code_survey") is None
 
