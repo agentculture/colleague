@@ -399,7 +399,10 @@ def _child_purpose(parent_config: EngineConfig, spec: ChildSpec) -> str:
 
 
 def _child_requested_tools(
-    spec: ChildSpec, child_purpose: str, role: Optional[str]
+    spec: ChildSpec,
+    child_purpose: str,
+    role: Optional[str],
+    parent_config: Optional[EngineConfig] = None,
 ) -> tuple[str, ...]:
     """Requested tools for the ``⊆`` check (t8, q3): a purpose spawn's FIXED
     role-allowlist-∩-environment surface (via ``curate_schemas``, the same
@@ -410,7 +413,7 @@ def _child_requested_tools(
         return tuple(sorted(s["function"]["name"] for s in curate_schemas(role)))
     from colleague.agents.tools import tools_for_purpose
 
-    return tuple(sorted(tools_for_purpose(child_purpose)))
+    return tuple(sorted(tools_for_purpose(child_purpose, parent_config)))
 
 
 def _delegation_bounds(

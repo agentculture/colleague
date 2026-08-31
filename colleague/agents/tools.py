@@ -37,7 +37,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 from colleague.hire_schemas import HIRE_TOOL_NAMES
 from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
@@ -195,6 +195,10 @@ THINKER_CODER_TOOLS: frozenset[str] = (
 #: The reserved fast coder (deviation d3): the coder-class surface.
 ASSOCIATE_TOOLS: frozenset[str] = THINKER_CODER_TOOLS
 
+#: The purposes whose surface may carry the hire pair (the coder-class seats:
+#: the talker never acts, the worker is dormant).
+_HIRE_BEARING_PURPOSES: frozenset[str] = frozenset({"thinker_coder", "associate"})
+
 #: Purpose → tool set (keys mirror ``colleague.agents.profile.PURPOSES``).
 PURPOSE_TOOLS: dict[str, frozenset[str]] = {
     "talker": TALKER_TOOLS,
@@ -204,12 +208,23 @@ PURPOSE_TOOLS: dict[str, frozenset[str]] = {
 }
 
 
-def tools_for_purpose(purpose: str) -> frozenset[str]:
-    """The purpose's tool set; unknown purposes refuse."""
+def tools_for_purpose(purpose: str, config: Any = None) -> frozenset[str]:
+    """The purpose's tool set; unknown purposes refuse.
+
+    ``config`` (optional) supplies the RESOLVED hire flag
+    (``EngineConfig.hire`` — env > config.json > OFF). Without it the static
+    env-only mirror above stands, which is why a config.json-only arming used
+    to strip the pair here while the wire gate offered it (Qodo #469/3). A
+    coder-class purpose with an armed config always carries the pair; every
+    other purpose, and an unarmed/absent config, is byte-identical.
+    """
     try:
-        return PURPOSE_TOOLS[purpose]
+        base = PURPOSE_TOOLS[purpose]
     except KeyError as exc:
         raise KeyError(f"unknown purpose: {purpose!r}") from exc
+    if config is not None and getattr(config, "hire", False) and purpose in _HIRE_BEARING_PURPOSES:
+        return base | frozenset(HIRE_TOOL_NAMES)
+    return base
 
 
 def effective_tools(

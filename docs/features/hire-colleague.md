@@ -87,6 +87,11 @@ larger-than-seat repeated-shape brief is the parked follow-up.
   — the same limit rows 51–58 recorded for the purpose tools.
 - One H attempt was VOIDED for a runner env bug (`hire=unset`), caught by
   the log's per-run env echo and re-run; details in row 65.
+- The row ran with a broken artifact instrument: `hires_block` was never
+  called by the run path (Qodo #469/2, fixed in the same PR), so
+  `TaskResult.hires` was structurally empty. The zero verdict rests on the
+  STEP trace instead (0 `hire_colleague` steps in 3/3 H runs) — a later
+  hire row can read the artifact block directly.
 
 ## Honest limits (build-time)
 

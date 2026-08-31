@@ -122,7 +122,11 @@ def _parse_reply(text: str, *, allow_amend: bool) -> tuple[str, str, str]:
         if purpose_match and purpose_match.group(1).strip():
             when_match = _AMEND_WHEN_RE.search(line)
             when = when_match.group(1).strip() if when_match else ""
-            return ("amend", purpose_match.group(1).strip(), when)
+            # Both terms must survive an amendment: the tool arguments require a
+            # non-empty ``when``, so an amendment that drops it would mint a live
+            # hire without its agreed clause (Qodo #469/5). Treat as malformed.
+            if when:
+                return ("amend", purpose_match.group(1).strip(), when)
     return ("malformed", line, "")
 
 

@@ -289,3 +289,97 @@ def test_over_cap_prompt_is_refused_readably_at_hire_time(tmp_path) -> None:
     ex = _armed(tmp_path, _Recorder())
     outcome = ex.execute("assign_to_colleague", {"agent_id": "hire-1", "task": "t"})
     assert outcome.result == "no live hire: hire-1"
+
+
+# ---------------------------------------------------------------------------
+# Qodo #469/2 + #469/4 — the artifact snapshot and the run's identity.
+# ---------------------------------------------------------------------------
+
+
+def _finish_only_complete(_messages, _tools=None, **_kw):
+    """One turn: call finish. Mirrors the loop-level doubles in test_loop.py."""
+    from colleague.loop import ModelResponse, ToolCall
+
+    return ModelResponse(
+        content="",
+        tool_calls=[ToolCall(id="c1", name="finish", arguments={"summary": "done"})],
+    )
+
+
+def test_hires_snapshot_lands_on_every_exit_path(tmp_path) -> None:
+    """A roster on the executor reaches ``TaskResult.hires`` through the same
+    every-exit-path snapshot ``sub_results`` uses — before this, hires_block
+    existed but nothing called it, so every real artifact was empty."""
+    import subprocess
+
+    from colleague import loop as _loop
+    from colleague.contract import Task
+    from colleague.hire import Hire, Roster
+    from colleague.tools import ToolExecutor
+
+    repo = tmp_path / "snap"
+    repo.mkdir()
+    (repo / "README.md").write_text("x\n")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+
+    executor = ToolExecutor(str(repo))
+    roster = Roster()
+    roster.add(
+        Hire(
+            agent_id="hire-1",
+            hirer_id="cortex",
+            base_role="explorer",
+            purpose="audit one package",
+            when="each package",
+            prompt_fragment="be terse",
+            prompt_digest="d" * 64,
+            status="live",
+            task_id="",
+            created_step=0,
+        )
+    )
+    executor.hire_roster = roster
+    task = Task.new(str(repo), "do work")
+    result = _loop.run(
+        _finish_only_complete,
+        task,
+        max_steps=3,
+        executor=executor,
+    )
+    assert [h["agent_id"] for h in result.hires] == ["hire-1"]
+    assert "hires" in result.to_dict()
+
+    # No roster → the key stays absent (omit-when-empty, byte-identical).
+    bare = _loop.run(
+        _finish_only_complete,
+        Task.new(str(repo), "do work"),
+        max_steps=3,
+        executor=ToolExecutor(str(repo)),
+    )
+    assert bare.hires == []
+    assert "hires" not in bare.to_dict()
+
+
+def test_executor_carries_the_runs_identity(tmp_path) -> None:
+    """``task_id``/``step_count`` on the executor — a hire's provenance and its
+    ledger ref read them (both were always ""/0 on the real run path)."""
+    import subprocess
+
+    from colleague import loop as _loop
+    from colleague.contract import Task
+    from colleague.tools import ToolExecutor
+
+    repo = tmp_path / "ident"
+    repo.mkdir()
+    (repo / "README.md").write_text("x\n")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    executor = ToolExecutor(str(repo))
+    task = Task.new(str(repo), "do work")
+    _loop.run(
+        _finish_only_complete,
+        task,
+        max_steps=3,
+        executor=executor,
+    )
+    assert executor.task_id == task.id
+    assert isinstance(executor.step_count, int)
