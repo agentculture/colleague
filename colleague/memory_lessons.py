@@ -272,6 +272,13 @@ def _threshold_exclusion(
     numerically comparable — a missing or non-numeric field fails open, so
     hygiene never silently drops a record it cannot judge.
     """
+    # min_score deliberately thresholds the hybrid ``score`` field — NEVER
+    # the ``rerank_score`` an eidetic >= 0.14 ``--rerank`` recall adds
+    # (#467, eidetic-cli#39). #467 measured the reranker as near-binary
+    # (~0.9998 for directly-answering records vs ~0.0048 for topically
+    # relevant supporting ones) while ``score`` keeps its hybrid/BM25 value;
+    # a hybrid-calibrated COLLEAGUE_RECALL_MIN_SCORE applied to rerank_score
+    # would cut the very records the reranker ranked first.
     for field, floor, reason in (
         ("score", min_score, "below-min-score"),
         ("signal", min_signal, "below-min-signal"),

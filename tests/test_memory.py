@@ -34,10 +34,19 @@ def _make_fake_eidetic(directory: Path) -> Path:
 
     The script records every invocation in ``eidetic.log`` (under cwd, which
     is the repo root) so tests can inspect argv, cwd, and environment.
+
+    ``--version`` is answered as 0.13.0 WITHOUT logging (so the per-process
+    rerank probe, #467, does not shift the log's line indices) — the argv the
+    existing assertions pin therefore stays byte-identical to the pre-rerank
+    surface (acceptance 1: an older CLI never sees ``--rerank``).
     """
     script = directory / "eidetic"
     script.write_text(
         "#!/bin/sh\n"
+        'if [ "$1" = "--version" ]; then\n'
+        '  echo "eidetic-cli 0.13.0"\n'
+        "  exit 0\n"
+        "fi\n"
         'LOG="$(pwd)/eidetic.log"\n'
         'echo "ARGV: $@" >> "$LOG"\n'
         'echo "CWD: $(pwd)" >> "$LOG"\n'
@@ -127,6 +136,9 @@ class TestRecallHappyPath:
         assert "colleague" in argv_line
         assert "--visibility" in argv_line
         assert "public" in argv_line
+        # The 0.13.0 stub must never see the opt-in rerank flag (#467):
+        # the argv stays byte-identical to the pre-rerank surface.
+        assert "--rerank" not in argv_line
 
     def test_recall_runs_with_cwd_at_repo_path(self, tmp_path: Path, monkeypatch) -> None:
         _make_fake_eidetic(tmp_path)
@@ -572,6 +584,138 @@ class TestFilterForInjectionEnvWrapper:
         monkeypatch.setenv("COLLEAGUE_RECALL_MIN_SCORE", "not-a-float")
         assert memory_mod.recall_min_score() is None
         assert "search" not in memory_mod.ALLOWED_VERBS
+
+
+# ---------------------------------------------------------------------------
+# eidetic --rerank opt-in behind a per-process version probe (#467,
+# eidetic-cli#39). recall passes --rerank iff ONE cached `eidetic --version`
+# probe parses >= 0.14.0; ANY probe failure or an older CLI withholds the
+# flag so a flag-rejecting 0.13 CLI can never silently yield recalled=0
+# (the #387-class failure).
+# ---------------------------------------------------------------------------
+
+
+def _make_versioned_eidetic(
+    directory: Path,
+    version_output: str,
+    *,
+    version_exit: int = 0,
+    reject_unknown_flags: bool = False,
+) -> Path:
+    """Write a fake eidetic that answers ``--version`` (logging each probe to
+    ``probe.log``) and answers ``recall`` with one item, logging its argv to
+    ``eidetic.log``. With *reject_unknown_flags*, any ``--rerank`` in the
+    recall argv exits 2 with no output — mimicking a 0.13 CLI's unknown-flag
+    rejection."""
+    script = directory / "eidetic"
+    reject = ""
+    if reject_unknown_flags:
+        reject = (
+            'for arg in "$@"; do\n'
+            '  if [ "$arg" = "--rerank" ]; then\n'
+            '    echo "Error: no such option: --rerank" >&2\n'
+            "    exit 2\n"
+            "  fi\n"
+            "done\n"
+        )
+    script.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "--version" ]; then\n'
+        '  echo "probe" >> "$(pwd)/probe.log"\n'
+        f'  echo "{version_output}"\n'
+        f"  exit {version_exit}\n"
+        "fi\n"
+        f"{reject}"
+        'echo "ARGV: $@" >> "$(pwd)/eidetic.log"\n'
+        'if [ "$1" = "recall" ]; then\n'
+        '  echo \'[{"id":"r1","text":"recalled"}]\'\n'
+        "fi\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return script
+
+
+class TestRecallRerankProbe:
+    def _arm(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+        # A fresh per-test cache: the probe result is cached per process,
+        # keyed by resolved CLI path.
+        monkeypatch.setattr(memory_mod, "_RERANK_PROBE_CACHE", {})
+
+    def test_013_cli_gets_no_rerank_and_items_are_returned(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        _make_versioned_eidetic(tmp_path, "eidetic-cli 0.13.0")
+        self._arm(tmp_path, monkeypatch)
+
+        result = memory_mod.recall(tmp_path, "q")
+
+        assert [r["id"] for r in result] == ["r1"]
+        argv_line = (tmp_path / "eidetic.log").read_text()
+        assert "--rerank" not in argv_line
+
+    def test_014_cli_gets_rerank(self, tmp_path: Path, monkeypatch) -> None:
+        _make_versioned_eidetic(tmp_path, "eidetic-cli 0.14.0")
+        self._arm(tmp_path, monkeypatch)
+
+        result = memory_mod.recall(tmp_path, "q")
+
+        assert [r["id"] for r in result] == ["r1"]
+        assert "--rerank" in (tmp_path / "eidetic.log").read_text()
+
+    def test_newer_cli_gets_rerank(self, tmp_path: Path, monkeypatch) -> None:
+        _make_versioned_eidetic(tmp_path, "eidetic-cli 1.2.3")
+        self._arm(tmp_path, monkeypatch)
+
+        memory_mod.recall(tmp_path, "q")
+
+        assert "--rerank" in (tmp_path / "eidetic.log").read_text()
+
+    def test_probe_nonzero_exit_withholds_rerank(self, tmp_path: Path, monkeypatch) -> None:
+        _make_versioned_eidetic(tmp_path, "eidetic-cli 0.14.0", version_exit=1)
+        self._arm(tmp_path, monkeypatch)
+
+        result = memory_mod.recall(tmp_path, "q")
+
+        assert [r["id"] for r in result] == ["r1"]
+        assert "--rerank" not in (tmp_path / "eidetic.log").read_text()
+
+    def test_unparseable_version_withholds_rerank(self, tmp_path: Path, monkeypatch) -> None:
+        _make_versioned_eidetic(tmp_path, "something with no version in it")
+        self._arm(tmp_path, monkeypatch)
+
+        result = memory_mod.recall(tmp_path, "q")
+
+        assert [r["id"] for r in result] == ["r1"]
+        assert "--rerank" not in (tmp_path / "eidetic.log").read_text()
+
+    def test_flag_rejecting_013_cli_can_never_yield_recalled_zero(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A 0.13 CLI that exits 2 on unknown flags still returns its items:
+        the WITHHOLD (not a retry) is what protects against the #387-class
+        silent recalled=0 failure."""
+        _make_versioned_eidetic(tmp_path, "eidetic-cli 0.13.0", reject_unknown_flags=True)
+        self._arm(tmp_path, monkeypatch)
+
+        result = memory_mod.recall(tmp_path, "q")
+
+        assert [r["id"] for r in result] == ["r1"]
+        assert "--rerank" not in (tmp_path / "eidetic.log").read_text()
+
+    def test_probe_runs_once_per_process(self, tmp_path: Path, monkeypatch) -> None:
+        """Two recalls fire exactly ONE `eidetic --version` probe (cached in
+        a module global, keyed by CLI path)."""
+        _make_versioned_eidetic(tmp_path, "eidetic-cli 0.14.0")
+        self._arm(tmp_path, monkeypatch)
+
+        memory_mod.recall(tmp_path, "q1")
+        memory_mod.recall(tmp_path, "q2")
+
+        probe_lines = (tmp_path / "probe.log").read_text().splitlines()
+        assert len(probe_lines) == 1
+        assert (tmp_path / "eidetic.log").read_text().count("--rerank") == 2
 
 
 # ── supersedes chains and cycles ─────────────────────────────────────────────
