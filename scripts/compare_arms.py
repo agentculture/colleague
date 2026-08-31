@@ -30,8 +30,16 @@ c14/h11/c32/h21) adds three per-artifact counters, printed as the
   separately — its web calls are folded into the PARENT's ``stats.web_calls``
   — so the step count alone would report zero for a purpose-only arm.
 
-All four numbers are read straight from the artifact's ``stats`` / ``steps`` /
-``associate`` / ``sub_results`` keys — never estimated from prose.
+Plan task t15 (plan ``delegation-follow-ups-a7-p3-hire``, covers c21/h11) adds
+two more columns, kept SEPARATE from ``delegations`` by decision D44:
+
+* ``hires`` — ``len(artifact['hires'])``, the hired-colleague records the hire
+  lane (t13) writes; 0 on every pre-field artifact;
+* ``assignments`` — the count of steps whose tool is ``assign_to_colleague``;
+  0 on every pre-field artifact.
+
+All the numbers are read straight from the artifact's ``stats`` / ``steps`` /
+``associate`` / ``sub_results`` / ``hires`` keys — never estimated from prose.
 
 The c28 bar (decision c28, per the arc spec): a non-baseline arm passes when its
 wall-clock ratio is <= 0.7 and its model-turns ratio is <= 0.8. A ratio above
@@ -97,6 +105,8 @@ class ArtifactStats:
     delegations: int = 0
     associate_calls: int = 0
     web_calls: int = 0
+    hires: int = 0
+    assignments: int = 0
 
 
 @dataclass
@@ -134,6 +144,18 @@ class ArmResult:
         """Total web calls across the arm's artifacts (t7 + t9: ``stats.web_calls``
         when present, else the top-level ``web`` step count)."""
         return sum(a.web_calls for a in self.artifacts)
+
+    @property
+    def hires(self) -> int:
+        """Total hired colleagues (``len(artifact['hires'])``) across the arm
+        (t15 — 0 on every pre-field artifact)."""
+        return sum(a.hires for a in self.artifacts)
+
+    @property
+    def assignments(self) -> int:
+        """Total ``assign_to_colleague`` steps across the arm (t15 — a SEPARATE
+        column from ``delegations`` by decision D44)."""
+        return sum(a.assignments for a in self.artifacts)
 
 
 def load_artifact_stats(repo: str | Path, task_id: str) -> ArtifactStats:
@@ -180,6 +202,8 @@ def load_artifact_stats(repo: str | Path, task_id: str) -> ArtifactStats:
         delegations=_count_delegations(data),
         associate_calls=_count_associate_calls(data),
         web_calls=_count_web_calls(data),
+        hires=_count_hires(data),
+        assignments=_count_assignments(data),
     )
 
 
@@ -258,6 +282,26 @@ def _count_associate_calls(data: dict) -> int:
     return count
 
 
+def _count_hires(data: dict) -> int:
+    """``len(artifact['hires'])`` — the hired-colleague records the hire lane
+    (plan t13) writes onto the artifact. A pre-field artifact carries no
+    ``hires`` key, and a malformed (non-list) value degrades the same way:
+    0, never an error (t15, decision D44)."""
+    hires = data.get("hires")
+    if not isinstance(hires, list):
+        return 0
+    return len(hires)
+
+
+def _count_assignments(data: dict) -> int:
+    """Steps whose tool is ``assign_to_colleague`` (t15).
+
+    A SEPARATE column from ``delegations`` by decision D44 — the delegations
+    definition (raw ``subagent``/``subagents`` OR the six purpose tools) is
+    deliberately unchanged. 0 on every pre-field artifact."""
+    return sum(1 for s in _steps(data) if _step_tool(s) == "assign_to_colleague")
+
+
 def load_arm(repo: str | Path, name: str, task_ids: Sequence[str]) -> ArmResult:
     """Load every artifact for one arm, in the order the ids were given."""
     artifacts = [load_artifact_stats(repo, task_id) for task_id in task_ids]
@@ -299,6 +343,7 @@ def format_table(arms: Sequence[ArmResult], bar_wall: float, bar_turns: float) -
     header = (
         f"{'arm':<24}{'n':>4}{'mean_wall_s':>14}{'mean_turns':>12}"
         f"{'delegations':>13}{'associate_calls':>17}{'web_calls':>11}"
+        f"{'hires':>7}{'assignments':>13}"
         f"{'wall_ratio':>12}{'turns_ratio':>13}  bar"
     )
     lines.append(header)
@@ -306,7 +351,8 @@ def format_table(arms: Sequence[ArmResult], bar_wall: float, bar_turns: float) -
     lines.append(
         f"{baseline.name:<24}{baseline.n:>4}{baseline.mean_wall:>14.2f}"
         f"{baseline.mean_turns:>12.2f}{baseline.delegations:>13}{baseline.associate_calls:>17}"
-        f"{baseline.web_calls:>11}{'—':>12}{'—':>13}  baseline"
+        f"{baseline.web_calls:>11}{baseline.hires:>7}{baseline.assignments:>13}"
+        f"{'—':>12}{'—':>13}  baseline"
     )
 
     any_miss = False
@@ -318,7 +364,8 @@ def format_table(arms: Sequence[ArmResult], bar_wall: float, bar_turns: float) -
         lines.append(
             f"{arm.name:<24}{arm.n:>4}{arm.mean_wall:>14.2f}"
             f"{arm.mean_turns:>12.2f}{arm.delegations:>13}{arm.associate_calls:>17}"
-            f"{arm.web_calls:>11}{wall_ratio:>12.3f}{turns_ratio:>13.3f}  {verdict}"
+            f"{arm.web_calls:>11}{arm.hires:>7}{arm.assignments:>13}"
+            f"{wall_ratio:>12.3f}{turns_ratio:>13.3f}  {verdict}"
         )
     lines.append("")
     lines.append(f"bar: wall_ratio <= {bar_wall}, turns_ratio <= {bar_turns} (decision c28)")

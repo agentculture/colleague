@@ -59,6 +59,10 @@ _SANCTIONED_ASSIGN_FILES = frozenset(
         "colleague/associate.py",
         # adopt-from-qwen-code t19: the associate seat consumers (fallback + scout).
         "colleague/associate_seats.py",
+        # delegation-follow-ups t12: the hire candidate seat builder — sets the
+        # ROLE_TABLE rung for the proposed base role ONCE where the candidate's
+        # tools-off completion is bound, never per turn.
+        "colleague/hire_dispatch.py",
     }
 )
 

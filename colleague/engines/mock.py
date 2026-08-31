@@ -93,26 +93,30 @@ def _script(task: Task) -> CompleteFn:
     # value itself — a scripted engine choosing to act/finish, never truncated
     # by a token cap — so `result.finish_states` stays populated with the same
     # shape a live backend produces (test_e2e_mock.py's shape parity).
-    turns = mock_scenarios.batch_turns_or_none(task) or [
-        ModelResponse(
-            content="writing the marker file",
-            reasoning="mock reasoning: decide to write the marker file",
-            tool_calls=[
-                ToolCall("mock-1", "write_file", {"path": OUTPUT_FILE, "content": content})
-            ],
-            prompt_tokens=1,
-            completion_tokens=1,
-            finish_reason="stop",
-        ),
-        ModelResponse(
-            content="done",
-            reasoning="mock reasoning: nothing left to do, finish",
-            tool_calls=[ToolCall("mock-2", "finish", {"summary": f"mock wrote {OUTPUT_FILE}"})],
-            prompt_tokens=1,
-            completion_tokens=1,
-            finish_reason="stop",
-        ),
-    ]
+    turns = (
+        mock_scenarios.batch_turns_or_none(task)
+        or mock_scenarios.survey_turns_or_none(task)
+        or [
+            ModelResponse(
+                content="writing the marker file",
+                reasoning="mock reasoning: decide to write the marker file",
+                tool_calls=[
+                    ToolCall("mock-1", "write_file", {"path": OUTPUT_FILE, "content": content})
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+                finish_reason="stop",
+            ),
+            ModelResponse(
+                content="done",
+                reasoning="mock reasoning: nothing left to do, finish",
+                tool_calls=[ToolCall("mock-2", "finish", {"summary": f"mock wrote {OUTPUT_FILE}"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+                finish_reason="stop",
+            ),
+        ]
+    )
     state = {"i": 0}
 
     def complete(_messages: list[dict]) -> ModelResponse:
@@ -257,3 +261,59 @@ class MockEngine(Engine):
         # the loop-authored block (when the loop wired it) wins; unarmed is a
         # strict no-op (key absent, byte-identical artifact).
         return fold_agents_block(result, config)
+
+
+# ---------------------------------------------------------------------------
+# hire_colleague candidate rule (delegation-follow-ups t12, spec c18/h9)
+# ---------------------------------------------------------------------------
+
+#: The offer's ``purpose:`` / ``when:`` lines, as rendered by
+#: :func:`colleague.hire_dispatch._offer_text`.
+#: ``[ \t]*`` rather than ``\s*`` (``\s`` spans the newline), and an explicit
+#: ``[^\n]*`` with no trailing ``$``: both remove the quantifier ambiguity the
+#: analyzer reads as super-linear backtracking (Sonar S8786). Same accepted
+#: text — these only parse the mock's OWN rendered offer.
+_HIRE_PURPOSE_RE = re.compile(r"^purpose:[ \t]*([^\n]*)", re.MULTILINE)
+_HIRE_WHEN_RE = re.compile(r"^when:[ \t]*([^\n]*)", re.MULTILINE)
+
+
+def _hire_candidate_complete(_config: EngineConfig) -> CompleteFn:
+    """The mock's DETERMINISTIC hire-candidate rule (documented contract):
+
+    * **decline** when the offered purpose contains ``'decline'`` (decline
+      wins over amend when both appear);
+    * else **amend** — round 1 only — when it contains ``'amend'`` (the
+      revision is ``"<purpose> (amended)"`` with the when clause kept);
+    * else **accept**.
+
+    Round 2 is recognized by the "Round 2" marker in the offer text and
+    parses accept/decline only, exactly like a live candidate. The mock has
+    no ``make_complete`` (that stays raising — plan mode still needs a live
+    backend); :mod:`colleague.hire_dispatch` falls back to THIS scripted
+    rule via ``engine.hire_candidate_complete``, so the negotiation runs
+    end-to-end on the contract-reference engine with zero network.
+    """
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        offer = str(messages[-1].get("content", "")) if messages else ""
+        purpose_match = _HIRE_PURPOSE_RE.search(offer)
+        purpose = purpose_match.group(1) if purpose_match else ""
+        when_match = _HIRE_WHEN_RE.search(offer)
+        when = when_match.group(1) if when_match else ""
+        round2 = "round 2" in offer.lower()
+        if "decline" in purpose.lower():
+            content = "decline: mock candidate rule — the purpose contains 'decline'"
+        elif "amend" in purpose.lower() and not round2:
+            content = f"amend: purpose={purpose} (amended); when={when}"
+        else:
+            content = "accept"
+        return ModelResponse(
+            content=content, prompt_tokens=1, completion_tokens=1, finish_reason="stop"
+        )
+
+    return complete
+
+
+# Bound as a method so ``colleague.hire_dispatch`` finds it on the loaded
+# engine instance (``getattr(engine, "hire_candidate_complete", None)``).
+MockEngine.hire_candidate_complete = staticmethod(_hire_candidate_complete)

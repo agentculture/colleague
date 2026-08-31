@@ -442,3 +442,36 @@ class TestIsWebPageVerb:
     def test_malformed_arguments_are_false(self) -> None:
         assert toolbatch.is_web_page_verb("web", None) is False
         assert toolbatch.is_web_page_verb("web", {}) is False
+
+
+# ---------------------------------------------------------------------------
+# Hire confinement (delegation-follow-ups t11, c19/h10): the hire pair is
+# excluded from the batch pool. CONCURRENCY_SAFE_TOOLS is an allow-list, so
+# toolbatch.py itself needed no change — this pin is the exclusion's test.
+# ---------------------------------------------------------------------------
+
+
+class TestHirePairNeverBatchSafe:
+    def test_hire_names_absent_from_the_allowlist(self) -> None:
+        from colleague.hire_schemas import HIRE_TOOL_NAMES
+
+        assert frozenset(HIRE_TOOL_NAMES).isdisjoint(CONCURRENCY_SAFE_TOOLS)
+
+    @pytest.mark.parametrize("tool_name", ["hire_colleague", "assign_to_colleague"])
+    def test_hire_calls_are_never_concurrency_safe(self, tool_name: str) -> None:
+        assert is_tool_call_concurrency_safe(tool_name, {}) is False
+
+    def test_mixed_batch_partitions_the_hire_step_alone(self) -> None:
+        class _Call:
+            def __init__(self, id: str, name: str, arguments: dict) -> None:
+                self.id, self.name, self.arguments = id, name, arguments
+
+        calls = [
+            _Call("r", "read_file", {"path": "a.txt"}),
+            _Call("h", "assign_to_colleague", {"agent_id": "hire-1", "task": "survey"}),
+            _Call("g", "grep_search", {"pattern": "body"}),
+        ]
+        batches = partition_by_concurrency_safety(
+            calls, lambda c: is_tool_call_concurrency_safe(c.name, c.arguments)
+        )
+        assert [[c.id for c in b] for b in batches] == [["r"], ["h"], ["g"]]

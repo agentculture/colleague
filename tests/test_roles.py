@@ -124,6 +124,7 @@ class TestWriterRole:
         assert BUILTIN_ROLES["writer"].read_only is False
 
     def test_writer_allowlist_equals_schemas(self) -> None:
+        from colleague.hire_schemas import HIRE_TOOL_NAMES
         from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
         from colleague.tools import DEEPTHINK, SCHEMAS
 
@@ -137,11 +138,16 @@ class TestWriterRole:
         # t11) briefly restored the raw delegation pair here; the arm matrix
         # measured zero raw-pair calls in 21 runs (A4: 0/3 delegation), so the
         # reversal was rejected and `dropped` is the #443 set again.
+        # Hire tools (delegation-follow-ups t10): on the allow-list like
+        # web_survey — hidden by hire_schemas.hidden_names unless config.hire.
         dropped = {"web", "subagent", "subagents"}
-        assert writer_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
+        assert writer_names == (schema_names - dropped) | {DEEPTHINK} | set(
+            PURPOSE_TOOL_NAMES
+        ) | set(HIRE_TOOL_NAMES)
 
     def test_writer_allowlist_stays_in_sync(self) -> None:
         """If SCHEMAS grows, writer's allowlist must grow too (t5 drops excepted)."""
+        from colleague.hire_schemas import HIRE_TOOL_NAMES
         from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
         from colleague.tools import DEEPTHINK, SCHEMAS
 
@@ -158,7 +164,7 @@ class TestWriterRole:
         # "deepthink" (plan t4), and the six purpose tools (plan t5) — all
         # deliberately curated extras; see test_writer_allowlist_equals_schemas).
         extra = writer_names - schema_names
-        allowed_extra = {"run_tests", DEEPTHINK, *PURPOSE_TOOL_NAMES}
+        allowed_extra = {"run_tests", DEEPTHINK, *PURPOSE_TOOL_NAMES, *HIRE_TOOL_NAMES}
         assert extra <= allowed_extra, f"writer allowlist has unexpected extras: {extra}"
 
 
@@ -297,6 +303,7 @@ class TestDefaultRole:
         assert role.read_only is False
 
     def test_default_allowlist_equals_schemas(self) -> None:
+        from colleague.hire_schemas import HIRE_TOOL_NAMES
         from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
         from colleague.tools import DEEPTHINK, SCHEMAS
 
@@ -307,7 +314,9 @@ class TestDefaultRole:
         # extras outside base SCHEMAS; web/subagent/subagents are dropped (t5).
         # Arm 4 (plan t11) restored the raw pair and was rejected on evidence.
         dropped = {"web", "subagent", "subagents"}
-        assert default_names == (schema_names - dropped) | {DEEPTHINK} | set(PURPOSE_TOOL_NAMES)
+        assert default_names == (schema_names - dropped) | {DEEPTHINK} | set(
+            PURPOSE_TOOL_NAMES
+        ) | set(HIRE_TOOL_NAMES)
 
     def test_default_skill_subset_is_none(self) -> None:
         role = default_role()

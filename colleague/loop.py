@@ -1111,6 +1111,11 @@ def _record_execution(
     _tae_close(ctx, call.name, True)
     span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
     ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
+    # Keep the executor's live step counter in step with the trace (Qodo #469/4):
+    # a hire minted by a handler reads ``created_step`` off it. Guarded — a
+    # loop driven without an executor (phase-notice doubles) has none.
+    if ctx.executor is not None:
+        ctx.executor.step_count = len(ctx.result.steps)
     ctx.messages.append(_tool_message(call.id, outcome.result))
     if outcome.media_part is not None:
         # view_media fold (t5): the tool message stays a plain string (wire-safe);
@@ -3670,7 +3675,7 @@ def curated_schemas(role, config, *, deepthink: bool = False) -> list[dict[str, 
     from colleague.delegation_text import apply_armed_facts
     from colleague.tools import curate_schemas
 
-    return apply_armed_facts(curate_schemas(role, deepthink=deepthink), config)
+    return apply_armed_facts(curate_schemas(role, deepthink=deepthink, config=config), config)
 
 
 def _tools_off_role(purpose: str):
@@ -5024,6 +5029,12 @@ def run(
     # engines build ``executor`` from ``task.repo_path`` alone); reading it
     # back here needs no wiring between continuation.py and the executor.
     executor.context_note = _editgate.continuation_id(task.instruction)
+    # The run's identity on the executor (Qodo #469/4): a hire mints with the
+    # real task id (its ledger ref is ``artifact:<task_id>#hires[...]``) instead
+    # of "" — the same no-wiring seam ``context_note`` uses. ``step_count`` is
+    # kept live by the step recorder below.
+    executor.task_id = task.id
+    executor.step_count = 0
     executor.web_calls, executor.web_failed = webbudget.resume_counts(task.instruction)
     # hooks/telemetry/policy each default from the repo (or the environment, for
     # telemetry) when not injected — see _resolve_runtime_defaults for the
@@ -5271,6 +5282,13 @@ def run(
     # budget / the aborted path below), so a delegation survives even a mid-loop
     # engine raise. Empty when nothing was delegated → omitted from the artifact.
     result.sub_results = list(executor.sub_results)
+    # hires (delegation-follow-ups t13/t14, Qodo #469/2): the SAME every-exit-path
+    # snapshot as sub_results — without it a successful hire lived only on the
+    # executor and the artifact promised evidence it never carried. Empty (no
+    # roster, or an unarmed run) → the omit-when-empty key stays absent.
+    from colleague import hire_assign as _hire_assign
+
+    result.hires = _hire_assign.hires_block(executor)
     # Finalize the always-on drive statistics — runs on every exit path (here,
     # the single place after changed_files is known), so even a partial/aborted
     # drive carries populated stats. The optional telemetry mirrors bytes_written.

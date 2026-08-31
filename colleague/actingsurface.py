@@ -157,9 +157,13 @@ CHILD_FORBIDDEN_TOOLS: tuple[str, ...] = ("subagent", "subagents")
 def strip_child_forbidden_tools(role: "Optional[Any]") -> "Optional[Any]":
     """Drop every never-inheritable name from *role*'s allow-list: the six
     purpose tools (q9 — a child never holds a purpose tool, no matter which
-    role/purpose named it) and :data:`CHILD_FORBIDDEN_TOOLS` (plan t11 — a
+    role/purpose named it), :data:`CHILD_FORBIDDEN_TOOLS` (plan t11 — a
     child never holds the raw ``subagent``/``subagents`` tools either; kept as
-    defence in depth now that the acting seat is purpose-only again).
+    defence in depth now that the acting seat is purpose-only again), and the
+    hire pair (:data:`colleague.hire_schemas.HIRE_TOOL_NAMES`,
+    ``delegation-follow-ups-a7-p3-hire`` t11, c41/h25 — a spawned child can
+    never hire or assign, so a hire can never hire: authority ⊆ hirer holds
+    by construction, whatever the acting seat's allow-list carries).
 
     ``None`` (no role at all) passes through unchanged; a role whose
     allow-list holds none of those names is returned unchanged (never a
@@ -167,9 +171,10 @@ def strip_child_forbidden_tools(role: "Optional[Any]") -> "Optional[Any]":
     """
     if role is None:
         return None
+    from colleague.hire_schemas import HIRE_TOOL_NAMES
     from colleague.purpose_schemas import PURPOSE_TOOL_NAMES
 
-    forbidden = set(PURPOSE_TOOL_NAMES) | set(CHILD_FORBIDDEN_TOOLS)
+    forbidden = set(PURPOSE_TOOL_NAMES) | set(CHILD_FORBIDDEN_TOOLS) | set(HIRE_TOOL_NAMES)
     if not (set(role.tool_allowlist) & forbidden):
         return role
     narrowed = tuple(t for t in role.tool_allowlist if t not in forbidden)

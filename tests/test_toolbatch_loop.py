@@ -625,3 +625,47 @@ def test_five_page_calls_through_the_real_loop_never_exceed_the_web_cap(
     web_steps = [s for s in result.steps if s.tool == "web"]
     assert [s.arguments.get("url") for s in web_steps] == [f"https://x/{i}" for i in range(5)]
     assert all("lifecycle_state: succeeded" in s.result for s in web_steps)
+
+
+# ---------------------------------------------------------------------------
+# Hire confinement (delegation-follow-ups t11, c19/h10): a mixed batch
+# [read_file, assign_to_colleague, grep_search] runs the hire/assign step
+# OUTSIDE the pool, in request order. The assign handler is t13 and is not in
+# this tree, so the step lands on the executor's unknown-tool path — the
+# ordering + outside-the-pool guarantee is what this pins, and the readable
+# per-step error is exactly the declared pre-t13 behavior.
+# ---------------------------------------------------------------------------
+
+
+def test_hire_step_in_a_mixed_batch_runs_outside_the_pool_in_request_order(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("COLLEAGUE_TOOL_CONCURRENCY", "10")
+    executor = _SpyExecutor(_repo(tmp_path))
+    calls = [
+        ToolCall("r", "read_file", {"path": "a.txt"}),
+        ToolCall("h", "assign_to_colleague", {"agent_id": "hire-1", "task": "survey"}),
+        ToolCall("g", "grep_search", {"pattern": "body"}),
+    ]
+    # The partition splits the unsafe hire call into its own single-item batch.
+    batches = toolbatch.partition_by_concurrency_safety(calls, toolbatch_loop.is_batch_safe)
+    assert [[c.id for c in b] for b in batches] == [["r"], ["h"], ["g"]]
+
+    task = Task.new(str(tmp_path), "hire mixed turn")
+    result = run(
+        _scripted([ModelResponse(tool_calls=calls), _FINISH]), task, max_steps=10, executor=executor
+    )
+    assert result.status == OK
+    # Request order end to end: execution order and step order both hold.
+    assert executor.started == ["a.txt", "assign_to_colleague", "grep_search"]
+    steps = result.steps[:3]
+    assert [s.tool for s in steps] == ["read_file", "assign_to_colleague", "grep_search"]
+    assert [s.index for s in steps] == [0, 1, 2]
+    # Outside the pool: the hire step ran on the main thread.
+    assert executor.threads["assign_to_colleague"] == threading.get_ident()
+    # t13's handler answers: without a live hire the step is a readable
+    # 'no live hire' tool result (ok=True), never a crashed drive.
+    assert steps[1].ok is True
+    assert "no live hire: " in steps[1].result
+    assert steps[0].ok is True
+    assert steps[2].ok is True

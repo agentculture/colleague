@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
+import colleague.hire_assign as hire_assign
+import colleague.hire_schemas as hire_schemas
 import colleague.purpose_schemas as purpose_schemas
 import colleague.search_schemas as search_schemas
 import colleague.web_schemas as web_schemas
@@ -579,7 +581,9 @@ DEEPTHINK_SCHEMA: dict[str, Any] = {
 }
 
 
-def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> list[dict[str, Any]]:
+def curate_schemas(
+    role: "Role | str | None", *, deepthink: bool = False, config: Any = None
+) -> list[dict[str, Any]]:
     """Return only the schemas whose tool name is in *role*'s allow-list.
 
     Accepts a :class:`Role` instance, a role name string (looked up in
@@ -627,6 +631,17 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
             purpose_schemas.PURPOSE_SCHEMAS[n]
             for n in purpose_schemas.PURPOSE_TOOL_NAMES
             if purpose_schemas.offered(n, allow)
+        ]
+        # Hire tools (delegation-follow-ups t10, c17/h8): appended exactly as
+        # the purpose schemas above, and hidden — BOTH names — unless the
+        # resolved ``config.hire`` flag is armed (``config`` is the resolved
+        # EngineConfig threaded from the caller; ``None`` = unarmed,
+        # byte-identical). The full raw surface (allow is None) stays pinned
+        # and never carries them, exactly like the purpose splice.
+        curated = curated + [
+            hire_schemas.HIRE_SCHEMAS[n]
+            for n in hire_schemas.HIRE_TOOL_NAMES
+            if hire_schemas.offered(n, allow, config)
         ]
     return curated
 
@@ -742,6 +757,16 @@ def _purpose_dispatch(executor: "ToolExecutor") -> dict[str, Callable[[dict[str,
         n: (lambda _a, _n=n: ToolOutcome(result=f"purpose tool '{_n}' not wired (t6)"))
         for n in purpose_schemas.PURPOSE_TOOL_NAMES
     }
+
+
+def _hire_dispatch(executor: "ToolExecutor") -> dict[str, Callable[[dict[str, Any]], Any]]:
+    """``hire_colleague``'s handler (delegation-follow-ups t12): the bounded
+    two-round negotiation in :func:`colleague.hire_dispatch.dispatch` —
+    registered exactly like the purpose handlers above; ``assign_to_colleague``
+    registers its own line when t13 lands (:mod:`colleague.hire_assign`)."""
+    from colleague import hire_dispatch  # local: mirrors purpose_schemas' lazy tools import
+
+    return hire_dispatch.dispatch(executor)
 
 
 def _require(arguments: dict[str, Any], key: str, tool: str) -> Any:
@@ -915,6 +940,8 @@ class ToolExecutor:
             **search_schemas.dispatch(self),
             **web_schemas.dispatch(self),
             **_purpose_dispatch(self),
+            **hire_assign.dispatch(self),
+            **_hire_dispatch(self),
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,

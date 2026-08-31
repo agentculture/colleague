@@ -215,6 +215,19 @@ HANDOVER_EXAMPLE = (
 #: PLUS the opt-in :data:`HANDOVER_EXAMPLE`. Introspection only; which of
 #: these join a given prompt is decided by :func:`_adopted_system` /
 #: :func:`default_system`, not by this table's membership.
+#: The ONE armed-only hiring sentence (delegation-follow-ups t10, c17/h8).
+#: Rendered ONLY when the resolved ``config.hire`` flag is armed (threaded via
+#: :func:`default_system`'s ``hire`` argument, env-fallback ``COLLEAGUE_HIRE``)
+#: — never part of the default join, so the v1 snapshot
+#: (``tests/snapshots/prompttext_v1.txt``) stays untouched byte-for-byte. One
+#: sentence, exactly: the armed/unarmed composed prompts differ by it alone.
+_HIRE = (
+    "You may hire a run-scoped colleague with hire_colleague (agreeing a "
+    "purpose and a when clause over one builtin base role) and later hand it "
+    "work with assign_to_colleague, whose digest comes back as the tool "
+    "result to review before you act on it."
+)
+
 SECTION_TABLE: dict[str, str] = {
     "DESTINATION": _DESTINATION,
     "PURPOSE_TOOLS": _PURPOSE_TOOLS,
@@ -222,6 +235,7 @@ SECTION_TABLE: dict[str, str] = {
     "TEST_INTEGRITY": _TEST_INTEGRITY,
     "AGENTFRONT": _AGENTFRONT,
     "HANDOVER_EXAMPLE": HANDOVER_EXAMPLE,
+    "HIRE": _HIRE,
 }
 
 #: Section names offered ONLY via opt-in (a named variant or
@@ -510,6 +524,7 @@ def default_system(
     variant: str | None = None,
     style_override: str | None = None,
     sections: str | None = None,
+    hire: bool | None = None,
 ) -> str:
     """Build the loop's default system prompt ONCE for a run.
 
@@ -524,6 +539,11 @@ def default_system(
       the identity sentence and the Questions guidance; no ask-style tool exists in
       either mode.
     * ``style_override`` (default ``COLLEAGUE_TOOL_CALL_STYLE``) → example family.
+    * ``hire`` (default: the ``COLLEAGUE_HIRE`` env knob's truthiness; the
+      engine threads the RESOLVED ``config.hire`` flag instead): armed appends
+      the ONE :data:`SECTION_TABLE` ``HIRE`` sentence — on the ``v1`` variant
+      after the pinned snapshot text, on adopted variants via the section
+      opt-in path. Unarmed renders nothing (byte-identical, spec c17/h8).
     * ``sections`` (default ``COLLEAGUE_PROMPT_SECTIONS``, unset → none): a
       comma-separated opt-in into :data:`_OPT_IN_SECTIONS` sections (t8) —
       currently only ``HANDOVER_EXAMPLE``. Ignored under the ``v1`` variant
@@ -535,8 +555,18 @@ def default_system(
     """
     if variant is None:
         variant = os.environ.get("COLLEAGUE_PROMPT_VARIANT", "v1")
+    # The armed-only HIRE sentence (delegation-follow-ups t10, c17/h8):
+    # ``hire`` carries the RESOLVED ``config.hire`` flag when the engine
+    # composes the prompt (``Engine.system_prompt`` threads it); ``None``
+    # (a config-less caller — the loop's import-time fallback, probes) falls
+    # back to the env half of the knob. Unarmed renders nothing — the v1
+    # snapshot and every existing composed prompt stay byte-identical.
+    if hire is None:
+        hire = _truthy(os.environ.get("COLLEAGUE_HIRE"))
     normalized_variant = variant.strip().lower()
     if normalized_variant not in _ADOPTED_VARIANTS:
+        if hire:
+            return V1_DEFAULT_SYSTEM + "\n\n" + _HIRE
         return V1_DEFAULT_SYSTEM
     if sections is None:
         sections = os.environ.get("COLLEAGUE_PROMPT_SECTIONS", "")
@@ -545,6 +575,8 @@ def default_system(
     } & _OPT_IN_SECTIONS
     if normalized_variant == "qwen-handover":
         extra_sections.add("HANDOVER_EXAMPLE")
+    if hire:
+        extra_sections.add("HIRE")
     if headless is None:
         headless = not _truthy(os.environ.get("COLLEAGUE_PROMPT_INTERACTIVE"))
     if style_override is None:

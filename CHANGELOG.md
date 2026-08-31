@@ -5,11 +5,21 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.71.0] - 2026-08-31
+
+### Added
+
+- The hire increment (t9-t18/t20, the twelfth sanctioned surface): `hire_colleague`/`assign_to_colleague` behind `COLLEAGUE_HIRE` (default OFF, byte-identical unset) — Hire/Roster (cap 4) with a prompt-never-grants hired role, a bounded two-round tools-off negotiation, one child per assignment, `TaskResult.hires` (omit-when-empty), a refs-not-payloads ledger event, hires dead at every continuation cut; confinement: children, agents-mode sets and the batch pool never hold the pair. Evidence-trail digests on the survey purposes (path:start-end + <=5-line excerpt + commands run; parent-side uncited marker). compare_arms hires/assignments columns. Rows 64c + 65 pre-registered, run and recorded: the digest shape PASSES its ranged rule 3/3 (26/28 ranged post-digest reads vs row 63 zero); the hire arm records hires 0/3 with the armed surface inside both cost bars — COLLEAGUE_HIRE stays default-OFF on that evidence.
+
+### Fixed
+
+- _CITATION_RE accepts table/en-dash citation formats (row 64c: 10/12 real digests were format false-negatives).
+
 ## [1.70.0] - 2026-08-30
 
 ### Added
 
-- `COLLEAGUE_<PURPOSE>_CONTEXT_BUDGET` — an opt-in per-purpose child context-window cap (#458 re-scoped after the steps-vs-turns correction: the 12-turn cap was applying all along; the cost was children inheriting the parent's window and re-sending a growing history — 300–846k tokens per child in rows 63/64). Wired `efforttables.purpose_context_override` → `spawn(context_budget_tokens=…)` → `ChildSpec` (explicit beats derived; the associate seat still takes min(child, seat)); unset/invalid = byte-identical. The row-64b experiment lever — **measured 2026-08-30 and NOT promoted** (row 64b: MISS on wall and child-token bars, PASS on ranged verification and task success; the burn is re-reading inside the window, not window size). Ships opt-in only.
+- `COLLEAGUE_<PURPOSE>_CONTEXT_BUDGET` — an opt-in per-purpose child context-window cap (#458 re-scoped after the steps-vs-turns correction: the 12-turn cap was applying all along; the cost was children inheriting the parent's window and re-sending a growing history — 300–846k tokens per child in rows 63/64). Wired `efforttables.purpose_context_override` → `spawn(context_budget_tokens=…)` → `ChildSpec` (explicit beats derived; the associate seat still takes min(child, seat)); unset/invalid = byte-identical. The row-64b experiment lever, promoted to a `PURPOSE_CONTEXT` default only if the arm wins.
 
 ### Fixed
 

@@ -77,7 +77,7 @@ def _lines(path: Path) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_event_kinds_is_the_closed_sixteen() -> None:
+def test_event_kinds_is_the_closed_seventeen() -> None:
     assert EVENT_KINDS == (
         "operator_request",
         "operator_input",
@@ -95,6 +95,7 @@ def test_event_kinds_is_the_closed_sixteen() -> None:
         "return",
         "invocation",
         "snapshot",
+        "hire",
     )
     assert LEDGER_SCHEMA_VERSION == 1
 

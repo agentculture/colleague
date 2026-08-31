@@ -226,3 +226,103 @@ def test_bare_top_level_run_resolves_to_the_writer_carveout(
     bare_names = {s["function"]["name"] for s in curate_schemas(bare_role)}
     writer_names = {s["function"]["name"] for s in curate_schemas(BUILTIN_ROLES["writer"])}
     assert bare_names == writer_names
+
+
+# ---------------------------------------------------------------------------
+# 3. Hire arming (delegation-follow-ups t10, c17/h8): COLLEAGUE_HIRE=1 with no
+#    hire call differs from unarmed by exactly the two hire tool names and
+#    exactly one composed-prompt sentence — nothing else moves.
+# ---------------------------------------------------------------------------
+
+
+def test_armed_hire_differs_by_exactly_two_tools_and_one_sentence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The armed-vs-unarmed live-capture diff (never a fixture diff): the SAME
+    vllm scenario run twice, once unarmed and once with ``COLLEAGUE_HIRE=1``
+    threaded onto the config the way ``EngineConfig.resolve`` threads it. The
+    armed run makes no hire call, so every captured field must compare equal
+    EXCEPT: each payload's ``tools`` names gain exactly
+    ``hire_schemas.HIRE_TOOL_NAMES``, and each payload's system message (and
+    the ``system_prompt`` probe) gain exactly the ONE ``SECTION_TABLE['HIRE']``
+    sentence."""
+    from colleague.config import _resolve_hire_enabled
+    from colleague.hire_schemas import HIRE_TOOL_NAMES
+    from colleague.prompttext import SECTION_TABLE
+
+    _apply_off_knobs(monkeypatch)
+    unarmed = scenario.capture_vllm_scenario(scenario.make_repo(tmp_path / "unarmed"))
+
+    monkeypatch.setenv("COLLEAGUE_HIRE", "1")
+    _resync_loop_default_system(monkeypatch)
+    # The scenario builder constructs EngineConfig directly (no resolve()), so
+    # thread the flag through the SAME resolver a real run uses — asserting the
+    # env knob is what armed it.
+    hire = _resolve_hire_enabled(None)
+    assert hire is True
+    monkeypatch.setattr(scenario, "_ENGINE_CONFIG_KW", {**scenario._ENGINE_CONFIG_KW, "hire": hire})
+    armed = scenario.capture_vllm_scenario(scenario.make_repo(tmp_path / "armed"))
+
+    sentence = "\n\n" + SECTION_TABLE["HIRE"]
+
+    def _strip_sentence(text: str) -> str:
+        assert text.count(SECTION_TABLE["HIRE"]) == 1
+        return text.replace(sentence, "", 1)
+
+    # The system_prompt probe: exactly the one sentence appended.
+    assert _strip_sentence(armed.pop("system_prompt")) == unarmed.pop("system_prompt")
+
+    armed_payloads = armed.pop("payloads")
+    unarmed_payloads = unarmed.pop("payloads")
+    assert armed == unarmed  # status, steps, schemas probe, tokenize/chat counts
+    assert len(armed_payloads) == len(unarmed_payloads)
+    for ap, up in zip(armed_payloads, unarmed_payloads):
+        a_tools = {t["function"]["name"] for t in ap.pop("tools", [])}
+        u_tools = {t["function"]["name"] for t in up.pop("tools", [])}
+        assert a_tools - u_tools == set(HIRE_TOOL_NAMES)
+        assert u_tools - a_tools == set()
+        a_messages = ap.pop("messages", [])
+        u_messages = up.pop("messages", [])
+        assert len(a_messages) == len(u_messages)
+        for am, um in zip(a_messages, u_messages):
+            if um.get("role") == "system":
+                assert _strip_sentence(am["content"]) == um["content"]
+                assert set(am) == set(um)
+            else:
+                assert am == um
+        assert ap == up
+
+
+def test_armed_hire_offered_tools_differ_by_exactly_the_two_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``TaskResult.offered_tools`` (t2) on the mock contract reference: two
+    otherwise-identical bare runs differing only in the resolved hire flag
+    differ on the artifact's offered list by exactly the two hire names."""
+    from colleague.config import EngineConfig
+    from colleague.contract import Task
+    from colleague.hire_schemas import HIRE_TOOL_NAMES
+    from colleague.registry import load
+
+    _apply_off_knobs(monkeypatch)
+    repo = scenario.make_repo(tmp_path / "mock")
+
+    def _offered(hire: bool) -> "list[str]":
+        config = EngineConfig(hire=hire, **scenario._ENGINE_CONFIG_KW)
+        task = Task(
+            id=f"t10-hire-{int(hire)}",
+            repo_path=str(repo),
+            instruction=scenario.MOCK_INSTRUCTION,
+            engine="mock",
+        )
+        result = load("mock").work(task, config)
+        assert result.offered_tools is not None
+        return result.offered_tools
+
+    unarmed = _offered(False)
+    armed = _offered(True)
+    assert set(armed) - set(unarmed) == set(HIRE_TOOL_NAMES)
+    assert set(unarmed) - set(armed) == set()
+    # Appended like the purpose schemas: order preserved, hire pair last.
+    assert armed[: len(unarmed)] == unarmed
+    assert armed[len(unarmed) :] == list(HIRE_TOOL_NAMES)

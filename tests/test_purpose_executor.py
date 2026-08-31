@@ -555,3 +555,128 @@ def test_all_engines_same_full_task_result_shape_for_a_purpose_step(
         shapes.append(_key_shape(result.to_dict()))
 
     assert shapes[0] == shapes[1]
+
+
+# ---------------------------------------------------------------------------
+# t20 (decision c47) — the parent-side 'uncited' marker on survey digests, and
+# the mock engine's scripted scout digest. The digest shape is DATA the parent
+# reads — never a tool the runtime calls on the parent's behalf.
+# ---------------------------------------------------------------------------
+
+
+def _survey_outcome(tmp_path, summary: str, name: str = "code_survey"):
+    rec = _Recorder(SubResult(task_id="c1", engine="mock", model="m", status=OK, summary=summary))
+    args = {"question": "q"}
+    return _executor(tmp_path, rec).execute(name, args)
+
+
+def test_uncited_survey_digest_gets_the_one_line_marker(tmp_path) -> None:
+    """A survey digest with no path:start-end (or url) citation is prefixed
+    with ONE 'uncited' line by the parent-side renderer — never dropped."""
+    outcome = _survey_outcome(tmp_path, "found things, trust me")
+    assert outcome.result.startswith("[uncited digest:")
+    assert outcome.result.count("[uncited digest:") == 1
+    assert "found things, trust me" in outcome.result  # content never dropped
+
+
+def test_path_cited_survey_digest_has_no_marker(tmp_path) -> None:
+    outcome = _survey_outcome(tmp_path, "finding: colleague/loop.py:120-140 — the windowing seam")
+    assert "[uncited digest:" not in outcome.result
+
+
+def test_url_cited_web_survey_digest_has_no_marker(tmp_path) -> None:
+    outcome = _survey_outcome(
+        tmp_path, "finding: https://example.invalid/docs#anchor — the page", name="web_survey"
+    )
+    assert "[uncited digest:" not in outcome.result
+
+
+def test_non_survey_purposes_never_get_the_uncited_marker(tmp_path) -> None:
+    """The digest shape belongs to the two surveys only — a review child's
+    citation-free summary is never marked."""
+    rec = _Recorder(
+        SubResult(task_id="c1", engine="mock", model="m", status=OK, summary="looks fine to me")
+    )
+    outcome = _executor(tmp_path, rec).execute("review", {"diff_ref": "HEAD"})
+    assert "[uncited digest:" not in outcome.result
+
+
+def test_uncited_marker_rides_behind_the_budget_marker(tmp_path) -> None:
+    """An exhausted AND uncited survey child keeps the budget marker outermost
+    (the existing AC4 pins) with the uncited line right behind it."""
+    sub = SubResult(
+        task_id="c9", engine="mock", model="m", status=INCOMPLETE, summary="partial, no cites"
+    )
+    sub.incompletion_reason = REASON_BUDGET_EXHAUSTED
+    rec = _Recorder(sub)
+    outcome = _executor(tmp_path, rec).execute("code_survey", {"question": "where?"})
+    assert outcome.result.startswith(f"[purpose budget exhausted: {PURPOSE_STEPS['code_survey']}")
+    assert "[uncited digest:" in outcome.result
+    assert "partial, no cites" in outcome.result
+
+
+def test_mock_survey_digests_carry_the_three_sections() -> None:
+    """The mock's scripted scout digests are in the required shape — one
+    cited finding + excerpt + trailing 'commands run:' list — as detected by
+    the SAME renderer regex the parent uses."""
+    from colleague.engines import mock_scenarios
+
+    for digest in (mock_scenarios.CODE_SURVEY_DIGEST, mock_scenarios.WEB_SURVEY_DIGEST):
+        assert purpose_schemas._CITATIONS.search(digest), digest
+        assert "excerpt:" in digest
+        assert "commands run:" in digest
+    assert "https://" in mock_scenarios.WEB_SURVEY_DIGEST
+
+
+def test_e2e_mock_scout_child_answers_in_the_digest_shape(tmp_path) -> None:
+    """AC2 e2e: a scripted mock parent's ``code_survey`` child (the REAL mock
+    engine, through ``run_subagent``) answers with the scripted digest, so the
+    rendered step result carries the digest sections and NO uncited marker."""
+    from colleague.engines import mock_scenarios
+    from colleague.loop import ModelResponse, Spawns, ToolCall, run
+
+    repo = _git_repo(tmp_path)
+    config = EngineConfig.resolve()
+    task = Task.new(str(repo), "parent task", engine="mock")
+    spawn = make_spawn(str(repo), config, "mock")
+
+    parent = _scripted(
+        [
+            ModelResponse(
+                tool_calls=[ToolCall("p-1", "code_survey", {"question": "where is the loop?"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            ModelResponse(
+                tool_calls=[ToolCall("p-2", "finish", {"summary": "surveyed"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    result = run(parent, task, max_steps=6, spawns=Spawns(single=spawn))
+
+    assert result.status == OK
+    assert result.steps[0].tool == "code_survey"
+    assert result.sub_results[0].summary == mock_scenarios.CODE_SURVEY_DIGEST
+    assert "commands run:" in result.steps[0].result
+    assert "[uncited digest:" not in result.steps[0].result
+
+
+def test_table_and_en_dash_cited_digests_are_not_marked_uncited(tmp_path) -> None:
+    """Row 64c (2026-08-31): 10/12 real Nemotron digests cited via markdown
+    tables and en-dash ranges — "(lines 79–1054)", "| 79–138 |" — and never
+    the colon form; the marker must treat those as cited (format, not
+    absence). The colon form and URLs still match; a digest with no numeric
+    trace at all is still marked."""
+    from colleague.purpose_schemas import _CITATIONS
+
+    assert _CITATIONS.search("### src/mod_a.py — 9 public functions (lines 79–1054)")
+    assert _CITATIONS.search("| `mod_a_step_00` | 79–138 | normalises payload |")
+    assert _CITATIONS.search("Line 42 defines the constant")
+    assert _CITATIONS.search("src/mod_a.py:79-138")
+    assert _CITATIONS.search("https://example.com/doc#anchor")
+    assert _CITATIONS.search("see lines: 12")
+    assert not _CITATIONS.search("the module normalises payloads and filters rows")
+    assert not _CITATIONS.search("I read every file and found the pairs")
