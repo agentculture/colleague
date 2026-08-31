@@ -18,7 +18,10 @@ unmodified.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:  # annotations only — a runtime import would cycle via contract.py
+    from colleague.contract import TaskResult
 
 # HookFiring.decision values.
 DECISION_ALLOW = "allow"
@@ -562,7 +565,7 @@ class ChainView:
     deferred_gate_episodes: tuple[str, ...] = ()
 
     @classmethod
-    def accumulate(cls, prior: Optional["ChainView"], result: Any) -> "ChainView":
+    def accumulate(cls, prior: Optional["ChainView"], result: "TaskResult") -> "ChainView":
         """The chain view for the episode that produced ``result``.
 
         ``prior`` is the view stamped on the previous episode's artifact
