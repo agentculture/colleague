@@ -269,11 +269,12 @@ class MockEngine(Engine):
 
 #: The offer's ``purpose:`` / ``when:`` lines, as rendered by
 #: :func:`colleague.hire_dispatch._offer_text`.
-#: ``[ \t]*`` rather than ``\s*``: ``\s`` spans the newline ``.`` cannot match
-#: under ``re.MULTILINE``, which made the two quantifiers ambiguous and the
-#: match super-linear on backtracking (Sonar S8786). Same accepted text.
-_HIRE_PURPOSE_RE = re.compile(r"^purpose:[ \t]*(.*)$", re.MULTILINE)
-_HIRE_WHEN_RE = re.compile(r"^when:[ \t]*(.*)$", re.MULTILINE)
+#: ``[ \t]*`` rather than ``\s*`` (``\s`` spans the newline), and an explicit
+#: ``[^\n]*`` with no trailing ``$``: both remove the quantifier ambiguity the
+#: analyzer reads as super-linear backtracking (Sonar S8786). Same accepted
+#: text — these only parse the mock's OWN rendered offer.
+_HIRE_PURPOSE_RE = re.compile(r"^purpose:[ \t]*([^\n]*)", re.MULTILINE)
+_HIRE_WHEN_RE = re.compile(r"^when:[ \t]*([^\n]*)", re.MULTILINE)
 
 
 def _hire_candidate_complete(_config: EngineConfig) -> CompleteFn:
