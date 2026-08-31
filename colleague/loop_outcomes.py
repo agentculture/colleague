@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter
 
 from colleague import associate
+from colleague import effortrecord as _effortrecord
 from colleague import loopguards as _loopguards
 from colleague import runcounts as _runcounts
 from colleague import webbudget
@@ -144,7 +145,9 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
-def _senses_finish_record(senses: "SensesBlock | None") -> "FinishRecord | None":
+def _senses_finish_record(
+    senses: "SensesBlock | None", reasoning_effort: str = ""
+) -> "FinishRecord | None":
     """Derive the "senses" seat's :class:`FinishRecord`, or ``None`` (t1, c4/h4/c30).
 
     :class:`SensesRecord` carries no raw wire ``finish_reason`` — senses.py's
@@ -164,7 +167,16 @@ def _senses_finish_record(senses: "SensesBlock | None") -> "FinishRecord | None"
         return None
     degraded = senses.records[-1].degraded
     state = FINISH_EMPTY if degraded else FINISH_DELIBERATE
-    return FinishRecord(seat="senses", finish_reason="", state=state, truncated=False)
+    # ``reasoning_effort`` (t5): the caller passes the already-resolved senses
+    # rung — the record is BUILT with it (the c3/h3 boundary: never assigned
+    # post-hoc, never recomputed here); "" stays the never-resolved sentinel.
+    return FinishRecord(
+        seat="senses",
+        finish_reason="",
+        state=state,
+        truncated=False,
+        reasoning_effort=reasoning_effort,
+    )
 
 
 def _finalize_finish_states(
@@ -201,12 +213,20 @@ def _finalize_finish_states(
             finish_reason=main_finish_reason,
             state=main_state,
             truncated=main_state == FINISH_TRUNCATED,
+            # t5 (c6/c14): the EFFECTIVE resolved rung the wire sends —
+            # resolved once in ContextControls.from_config, never recomputed;
+            # "" stays the honest never-resolved sentinel (t2).
+            reasoning_effort=ctx.reasoning_effort_main or "",
         )
     ]
-    senses_record = _senses_finish_record(ctx.result.senses)
+    senses_record = _senses_finish_record(ctx.result.senses, ctx.reasoning_effort_senses or "")
     if senses_record is not None:
         finish_states.append(senses_record)
     ctx.result.finish_states = finish_states
+    # t5 (h5/h6): the top-level {seat: rung} block — every seat built during
+    # the run that this point can see (main / senses / delegated children);
+    # the distill seat records at its own launch site (loop_memory).
+    _effortrecord.fold_run_seats(ctx)
 
 
 def _maybe_flag_incompletion(ctx: "_Work", outcome: str) -> None:

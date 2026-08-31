@@ -75,8 +75,9 @@ class FinishRecord:
     full state vocabulary.
 
     ``reasoning_effort`` records the thinking-effort rung the seat actually
-    ran at (t2, contract only — the loop wiring that populates it is a later
-    task). The stable sentinel for "never resolved" is ``""`` (the default):
+    ran at (t2 contract, populated by the loop since t5 — the EFFECTIVE
+    resolved value the wire sends, an operator ``--effort`` override
+    included). The stable sentinel for "never resolved" is ``""`` (the default):
     a seat whose effort was never determined — or an artifact written before
     this field existed — reads back as ``""`` rather than raising, so old
     artifacts stay loadable.
@@ -370,6 +371,12 @@ class SubResult:
     the cortex/main model (absent, not-ready, dormant per d3, or no gateway) —
     a RECORDED fallback, never silent. ``None`` when the child ran on its own
     ready role (or unarmed); omitted from ``to_dict`` when ``None``."""
+    reasoning_effort: Optional[str] = None
+    """The child seat's resolved thinking-effort rung (effort-v4 t5, c6) —
+    read off the built child config's ``reasoning_effort_seat`` at spawn,
+    never recomputed. ``None`` (send-nothing, or a pre-field artifact) is
+    omitted from ``to_dict``; the loop folds a non-``None`` value into the
+    parent artifact's top-level ``effort`` block under the child's role."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -395,6 +402,8 @@ class SubResult:
             d["resolved_model"] = self.resolved_model
         if self.fallback_from_role is not None:
             d["fallback_from_role"] = self.fallback_from_role
+        if self.reasoning_effort is not None:
+            d["reasoning_effort"] = self.reasoning_effort
         return d
 
     @classmethod
@@ -412,6 +421,7 @@ class SubResult:
             agent_id=data.get("agent_id"),
             resolved_model=data.get("resolved_model"),
             fallback_from_role=data.get("fallback_from_role"),
+            reasoning_effort=data.get("reasoning_effort"),
         )
 
 

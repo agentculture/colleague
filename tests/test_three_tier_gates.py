@@ -134,8 +134,15 @@ _SANCTIONED_FINISH_ADDITIONS = {"finish_states"}
 # offered_tools (delegation-follow-ups t2): the rendered tool names beside it.
 _SANCTIONED_PROMPT_DIGEST_ADDITION = {"prompt_digest", "offered_tools"}
 
+# effort (effort-v4 t5): the {seat: rung} block — likewise unconditional on a
+# default run (the v4 acting seat always resolves "low"), three-tier or not.
+_SANCTIONED_EFFORT_ADDITION = {"effort"}
+
 _EXPECTED_NOCONFIG_TASKRESULT_KEYS = (
-    _PRE_ARC_TASKRESULT_KEYS | _SANCTIONED_FINISH_ADDITIONS | _SANCTIONED_PROMPT_DIGEST_ADDITION
+    _PRE_ARC_TASKRESULT_KEYS
+    | _SANCTIONED_FINISH_ADDITIONS
+    | _SANCTIONED_PROMPT_DIGEST_ADDITION
+    | _SANCTIONED_EFFORT_ADDITION
 )
 
 # Fields the arc introduced elsewhere on TaskResult (t7's config event stream)

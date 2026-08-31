@@ -355,6 +355,8 @@ def test_mock_and_vllm_engines_record_deliberate_finish_states_on_a_clean_run(
         assert main.seat == "main"
         assert main.state == "deliberate"
         assert main.truncated is False
+        assert main.reasoning_effort == "low"  # t5: v4 acting default, identical both engines
+        assert result.effort == {"main": "low"}  # t5: the top-level {seat: rung} block
 
     # The mock's representative wire value survives verbatim; the un-set vLLM
     # fixture turns degrade to the honest "" default — both still classify
@@ -416,6 +418,9 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         # arm. Omitted only when the backend composed no prompt at all.
         "prompt_digest",
         "offered_tools",
+        # effort (effort-v4 t5): the {seat: rung} block — unconditional on a
+        # default run since the v4 acting seat always resolves ("low").
+        "effort",
     }
 
 
@@ -460,12 +465,9 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
         "command",
         "not_finished",
         "stopped_without_finish",
-        # prompt_digest (plan task t7): the sha256 of the composed system
-        # prompt is UNCONDITIONAL observability — every run that composes a
-        # prompt carries it, so a live-testing row can attribute its prose
-        # arm. Omitted only when the backend composed no prompt at all.
-        "prompt_digest",
+        "prompt_digest",  # unconditional observability (t7) — see the first pinned set
         "offered_tools",
+        "effort",  # t5: the resolved-rung block (v4 default always resolves)
     }
     assert set(serialized.keys()) == expected_keys
 
@@ -535,12 +537,9 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
         "command",
         "not_finished",
         "stopped_without_finish",
-        # prompt_digest (plan task t7): the sha256 of the composed system
-        # prompt is UNCONDITIONAL observability — every run that composes a
-        # prompt carries it, so a live-testing row can attribute its prose
-        # arm. Omitted only when the backend composed no prompt at all.
-        "prompt_digest",
+        "prompt_digest",  # unconditional observability (t7) — see the first pinned set
         "offered_tools",
+        "effort",  # t5: the resolved-rung block (v4 default always resolves)
     }
     assert (
         set(dict_a.keys()) == expected_keys
@@ -668,6 +667,7 @@ def test_batch_subresult_fields_identical_to_sequential_subresult(
         "summary",
         "changed_files",
         "usage",
+        "reasoning_effort",  # t5: the built child seat's rung (both spawn paths)
     }
     assert seq_keys == expected_sub_keys, (
         f"SubResult to_dict() key set has drifted from the expected shape:\n"
@@ -795,6 +795,10 @@ def test_batch_sub_results_present_in_taskresult_when_non_empty(
             "changed_files",
             "usage",
         }
+        if not sub.task_id.startswith("merge-"):
+            # t5: real children carry their built seat's rung; the merge child
+            # runs no model — no seat built, honestly no rung.
+            expected_sub_keys.add("reasoning_effort")
         assert sub_keys == expected_sub_keys, (
             f"SubResult key set from batch drive differs from expected:\n"
             f"  got:      {sub_keys}\n"

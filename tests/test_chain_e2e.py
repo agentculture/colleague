@@ -544,6 +544,7 @@ _PRE_FEATURE_ARTIFACT_KEYS = frozenset(
         "prompt_digest",
         # offered_tools (delegation-follow-ups t2): rendered tool names, omit-when-None.
         "offered_tools",
+        "effort",  # t5: the resolved-rung block (v4 default always resolves)
     }
 )
 

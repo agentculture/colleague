@@ -15,6 +15,8 @@ from typing import Any, Callable
 
 from colleague import backpressure
 from colleague import configlifecycle as _configlifecycle
+from colleague import effort as _effort
+from colleague import effortrecord as _effortrecord
 from colleague import flight as flightmod
 from colleague import tae_loop as _tae
 from colleague.agents import runtime as _agents_runtime
@@ -79,6 +81,10 @@ class _Work:
     # ContextControls, ``None`` for a single-model run (escalation points dormant).
     deepthink_run: Callable[..., Any] | None = None
     associate_complete: Any = None  # t19 seat-completion factory, None = unarmed
+    # Recorded seat rungs (effort-v4 t5) — threaded verbatim from the
+    # ContextControls fields of the same names; see their contract there.
+    reasoning_effort_main: "str | None" = None
+    reasoning_effort_senses: "str | None" = None
     # Media-comprehension bridge (t8, c24): armed only when the operator declared
     # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
     media_bridge: bool = False
@@ -658,6 +664,16 @@ class ContextControls:
     #: backend passes ``associate_seats.make_associate_complete(config, name)``;
     #: ``None`` (unarmed) keeps the acting completion for every seat.
     associate_complete: Any = field(default=None, compare=False, repr=False)
+    #: The acting (main) seat's resolved thinking-effort rung (effort-v4 t5,
+    #: c6/h5) — ``effort.effort_of(config)``, exactly what the wire sends
+    #: (``vllm_openai._effort_for``'s value), resolved ONCE in ``from_config``
+    #: and recorded on ``finish_states`` + the artifact ``effort`` block.
+    #: ``None`` (a direct ``run()`` caller, or send-nothing) records nothing.
+    reasoning_effort_main: "str | None" = None
+    #: The senses seat's rung when a senses config is armed — the SAME
+    #: ``effortrecord.seat_effort`` formula the senses seat builder uses, so
+    #: record and wire can never diverge. ``None`` = no senses config.
+    reasoning_effort_senses: "str | None" = None
 
     @classmethod
     def from_config(
@@ -719,6 +735,16 @@ class ContextControls:
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
             associate_complete=associate_complete,
+            # Recorded seat rungs (effort-v4 t5, c6/c14): resolved ONCE here —
+            # the acting seat via effort_of (exactly the wire's value, an
+            # operator --effort override included), the senses seat via the
+            # shared builder formula, only when a senses config is armed.
+            reasoning_effort_main=_effort.effort_of(config),
+            reasoning_effort_senses=(
+                _effortrecord.seat_effort(config, "senses")
+                if getattr(config, "senses", None) is not None
+                else None
+            ),
             # Continuation chaining armed (decision c23): an armed invocation's
             # episodes prefer finish-with-handoff over the lossy-windowing floor
             # when a compaction note is unrepairable — the chain driver restarts

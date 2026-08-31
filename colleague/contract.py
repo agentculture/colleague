@@ -617,6 +617,19 @@ class TaskResult:
     OMITTED (not null) when ``None``, so a run with no senses involvement
     serializes byte-identically to today's artifact. The packet's ``original``
     text round-trips verbatim."""
+    effort: Optional[dict[str, str]] = None
+    """Top-level ``{seat: rung}`` thinking-effort block (effort-v4 t5, c6/h5):
+    every seat BUILT during the run whose rung resolved — ``"main"`` (the
+    acting seat, matching its finish record's seat name), ``"senses"`` when
+    the senses lane ran, each delegated child under its role name (a
+    scout/purpose child included), and ``"distill"`` when the rung-2 pass
+    launched. A seat that resolved ``"off"`` records ``"off"``; a
+    never-resolved seat (``None`` = send nothing) is simply absent. Populated
+    by the loop from the ONE resolved value the wire sends
+    (:func:`colleague.effort.effort_of` / the child seat's built
+    ``reasoning_effort_seat``) — never recomputed per consumer. Like
+    ``incompletion``, the serialized key is OMITTED (not null) when ``None``,
+    so a run predating this field serializes byte-identically."""
     incompletion: Optional[IncompletionRecord] = None
     """Record of why a work item was incomplete, or ``None`` when the work item
     completed normally. A :class:`IncompletionRecord` of shape
