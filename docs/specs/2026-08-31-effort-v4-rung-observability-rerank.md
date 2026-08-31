@@ -44,6 +44,9 @@
   - honesty: `COLLEAGUE_REASONING_LOG`=0 leaves no sidecar file and the artifact/stats unchanged vs a pre-arc run
 - the c25 re-apply is loud, never silent: after v4 lands, continuing a pre-v4 run re-applies its recorded rung (e.g. medium) over the new low default — the continuation prints and records a warning naming the re-applied rung and its source artifact whenever it differs from what env/config would resolve, so an operator can see an old rung resurrected
   - honesty: a continuation test pins: recorded rung != current resolution -> warning on TaskResult.warnings naming both values; equal -> no warning
+- concurrency is visible in the records: sidecar entries and step-trace records carry the REQUEST timestamp plus the turn/request index, so two tool calls issued in the same model request share an index and show as parallel instead of rendering as a sequence (the #474 gap, fixed at this arc's surfaces)
+  - instruction: run a task that triggers a parallel read-only tool batch; assert the sidecar/step records for that turn share the request index and carry the request time
+  - honesty: a parallel batch of N read-only calls renders N records with ONE request timestamp/index; a sequential pair renders two distinct indices — pinned by a test over a mock run with a batch
 
 ## Honesty conditions
 

@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-31T16:24:00Z",
-  "updated": "2026-08-31T16:54:54Z",
+  "updated": "2026-08-31T16:59:59Z",
   "claims": [
     {
       "id": "c1",
@@ -533,6 +533,25 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "concurrency is visible in the records: sidecar entries and step-trace records carry the REQUEST timestamp plus the turn/request index, so two tool calls issued in the same model request share an index and show as parallel instead of rendering as a sequence (the #474 gap, fixed at this arc's surfaces)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "a parallel batch of N read-only calls renders N records with ONE request timestamp/index; a sequential pair renders two distinct indices \u2014 pinned by a test over a mock run with a batch",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "run a task that triggers a parallel read-only tool batch; assert the sidecar/step records for that turn share the request index and carry the request time",
       "revisions": []
     }
   ],
