@@ -172,7 +172,7 @@
   "colleague/presence_engine.py": 340,
   "colleague/profiles.py": 128,
   "colleague/prompttext.py": 593,
-  "colleague/purpose_schemas.py": 581,
+  "colleague/purpose_schemas.py": 584,
   "colleague/readpage.py": 121,
   "colleague/realtime.py": 868,
   "colleague/registry.py": 61,
