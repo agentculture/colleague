@@ -622,7 +622,7 @@ def test_mock_survey_digests_carry_the_three_sections() -> None:
     from colleague.engines import mock_scenarios
 
     for digest in (mock_scenarios.CODE_SURVEY_DIGEST, mock_scenarios.WEB_SURVEY_DIGEST):
-        assert purpose_schemas._CITATION_RE.search(digest), digest
+        assert purpose_schemas._CITATIONS.search(digest), digest
         assert "excerpt:" in digest
         assert "commands run:" in digest
     assert "https://" in mock_scenarios.WEB_SURVEY_DIGEST
@@ -670,13 +670,13 @@ def test_table_and_en_dash_cited_digests_are_not_marked_uncited(tmp_path) -> Non
     the colon form; the marker must treat those as cited (format, not
     absence). The colon form and URLs still match; a digest with no numeric
     trace at all is still marked."""
-    from colleague.purpose_schemas import _CITATION_RE
+    from colleague.purpose_schemas import _CITATIONS
 
-    assert _CITATION_RE.search("### src/mod_a.py — 9 public functions (lines 79–1054)")
-    assert _CITATION_RE.search("| `mod_a_step_00` | 79–138 | normalises payload |")
-    assert _CITATION_RE.search("Line 42 defines the constant")
-    assert _CITATION_RE.search("src/mod_a.py:79-138")
-    assert _CITATION_RE.search("https://example.com/doc#anchor")
-    assert _CITATION_RE.search("see lines: 12")
-    assert not _CITATION_RE.search("the module normalises payloads and filters rows")
-    assert not _CITATION_RE.search("I read every file and found the pairs")
+    assert _CITATIONS.search("### src/mod_a.py — 9 public functions (lines 79–1054)")
+    assert _CITATIONS.search("| `mod_a_step_00` | 79–138 | normalises payload |")
+    assert _CITATIONS.search("Line 42 defines the constant")
+    assert _CITATIONS.search("src/mod_a.py:79-138")
+    assert _CITATIONS.search("https://example.com/doc#anchor")
+    assert _CITATIONS.search("see lines: 12")
+    assert not _CITATIONS.search("the module normalises payloads and filters rows")
+    assert not _CITATIONS.search("I read every file and found the pairs")

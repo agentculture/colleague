@@ -370,5 +370,5 @@ def test_citation_regex_matches_ranged_paths_and_urls():
         "see tools.py:57",
         "finding: https://example.invalid/docs#anchor — the page",
     ):
-        assert purpose_schemas._CITATION_RE.search(cited), cited
-    assert purpose_schemas._CITATION_RE.search("I looked around, trust me") is None
+        assert purpose_schemas._CITATIONS.search(cited), cited
+    assert purpose_schemas._CITATIONS.search("I looked around, trust me") is None

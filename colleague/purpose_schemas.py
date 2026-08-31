@@ -381,7 +381,10 @@ class _CitationDetector:
         return None
 
 
-_CITATION_RE = _CitationDetector()
+#: The citation detector (NOT a ``re.Pattern`` — it fans out over the simple
+#: forms in ``_CITATION_FORMS``; only ``.search`` is offered, which is all the
+#: renderer and the tests use).
+_CITATIONS = _CitationDetector()
 
 #: The two purposes whose briefs demand the digest shape — the marker applies
 #: to these only; the other purposes' templates are unchanged (c12/c24).
@@ -460,7 +463,7 @@ def _render(name: str, sub: Any, steps: int) -> str:
     # t20 (c47): a survey digest with no citation gets ONE 'uncited' line
     # prefixed — before the status markers, so a budget-exhausted marker stays
     # outermost — and the content is never dropped.
-    if name in _SURVEY_PURPOSES and not _CITATION_RE.search(sub.summary or ""):
+    if name in _SURVEY_PURPOSES and not _CITATIONS.search(sub.summary or ""):
         text = _UNCITED + text
     if sub.status != OK:
         reason = getattr(sub, "incompletion_reason", None)
