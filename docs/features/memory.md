@@ -30,6 +30,8 @@ operator's (or Claude's) notes are mutually visible.
 | Recall hygiene | `colleague/memory.py` `filter_for_injection` / `filter_recall_records` | Colleague-side, injection-only: drops a below-threshold record (eidetic's returned `score`/`signal` fields) and a superseded sibling (eidetic's returned `supersedes` field) from what gets INJECTED — see the dedicated section below. |
 | Loop tool | `colleague/tools.py` `memory` | Model-callable mid-run (`verb=recall\|remember`). Offered to every backend (all-engines). Read-only roles get **recall only** — `remember` is a write-capable shell-out, refused by the role-aware executor. |
 
+A run also writes a reasoning sidecar — `<task_id>.reasoning.jsonl` beside the artifact — journaling the model's per-turn reasoning text (off-knob `COLLEAGUE_REASONING_LOG=0`).
+
 ## Arming — triple-gated, default-ON
 
 Memory fires only when **all three** hold:
