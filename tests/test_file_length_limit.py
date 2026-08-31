@@ -47,7 +47,6 @@ GRANDFATHERED: dict[str, int] = {
     "colleague/cli/_commands/work.py": 2854,
     "colleague/config.py": 4442,
     "colleague/contract.py": 2479,
-    "colleague/loop.py": 5392,
     "tests/test_boundary.py": 1144,
 }
 
