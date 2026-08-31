@@ -47,7 +47,6 @@ GRANDFATHERED: dict[str, int] = {
     "colleague/cli/_commands/work.py": 2854,
     "colleague/config.py": 4442,
     "colleague/contract.py": 2479,
-    "colleague/engines/vllm_openai.py": 1445,
     "colleague/explain/catalog.py": 1507,
     "colleague/handoff.py": 1037,
     "colleague/livecheck.py": 1481,
@@ -124,9 +123,7 @@ def test_tracked_source_files_stay_within_the_hard_line_limit() -> None:
             continue
         pinned = GRANDFATHERED.get(name)
         if pinned is None:
-            violations.append(
-                f"  {name}: {lines} lines (limit {MAX_SOURCE_FILE_LINES}) — split it"
-            )
+            violations.append(f"  {name}: {lines} lines (limit {MAX_SOURCE_FILE_LINES}) — split it")
         elif lines > pinned:
             violations.append(
                 f"  {name}: {lines} lines, grew past its pin of {pinned} — "
