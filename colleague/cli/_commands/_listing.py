@@ -256,6 +256,65 @@ def maybe_list_and_apply(
     return None
 
 
+def reapply_recorded_effort(
+    config: object,
+    repo: object,
+    task_id: str,
+    *,
+    warnings: Optional[list] = None,
+) -> Optional[dict[str, Any]]:
+    """Re-apply a continued run's recorded acting-seat rung onto *config* (t8, c32).
+
+    Reads the resumed artifact's recorded rung
+    (:func:`colleague.continuation.recorded_acting_effort`) and re-applies it
+    through :func:`apply_effort` on :func:`acting_seat` — the SAME
+    single-sourced precedence every operator effort switch uses. The
+    explicit-flag-wins rule (c25) lives in the CALLERS: they skip this call
+    entirely when the continue invocation carried an explicit ``--effort`` /
+    session ``/effort`` (call order in :func:`maybe_list_and_apply` runs the
+    flag FIRST, so a re-apply here would clobber it — standing down is the
+    precedence, pinned in tests).
+
+    Loud on mismatch (the v4-cutover trap, h19): when the recorded rung
+    differs from what env/config would currently resolve
+    (:func:`colleague.effort.effort_of` BEFORE the re-apply), the returned
+    warning dict names both values and the source artifact; it is appended to
+    *warnings* (when given) and staged on ``config.continuation_warnings``
+    for ``_stamp_run_metadata`` to drain onto ``TaskResult.warnings``.
+    Equal -> ``None``, nothing staged. No recorded rung (a pre-#476
+    artifact) -> no-op, no warning. ``config=None`` (test doubles) -> no-op.
+    """
+    from colleague.continuation import EFFORT_WARNING_KIND, recorded_acting_effort
+
+    if config is None:
+        return None
+    rung, artifact = recorded_acting_effort(repo, task_id)
+    if rung is None:
+        return None
+    current = _effort.effort_of(config)
+    apply_effort(config, rung, acting_seat(config))
+    if rung == current:
+        return None
+    current_desc = current if current is not None else "unset"
+    warning = {
+        "kind": EFFORT_WARNING_KIND,
+        "detail": (
+            f"continuation re-applied the recorded acting-seat effort '{rung}' "
+            f"from {artifact}; env/config would currently resolve "
+            f"'{current_desc}' — pass an explicit --effort to override"
+        ),
+        "recorded": rung,
+        "resolved": current,
+        "artifact": str(artifact),
+    }
+    if warnings is not None:
+        warnings.append(warning)
+    staged = list(getattr(config, "continuation_warnings", None) or [])
+    staged.append(warning)
+    config.continuation_warnings = staged
+    return warning
+
+
 #: (role name, the config attribute that shows it was consumed, the opt-in knob).
 OPT_IN_ROLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("senses", "senses", "COLLEAGUE_SENSES_MODEL=lobes"),

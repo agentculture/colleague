@@ -387,9 +387,12 @@ def _stamp_run_metadata(
     * ``continued_from`` — the one-way ``--continue`` lineage (#167).
     * ``chain`` — a chained episode's RUNNING :class:`ChainView`, accumulated
       before the write so every episode's artifact is self-describing (c20/h19).
-    * ``warnings`` — the stale-pin refresh warnings (t11, h21) and the
-      ladder-400 retry warnings (#416, Qodo #419 r4), folded so background /
-      one-shot runs surface them after the fact.
+    * ``warnings`` — the stale-pin refresh warnings (t11, h21), the
+      ladder-400 retry warnings (#416, Qodo #419 r4), and the continuation
+      recorded-rung mismatch warning (effort-v4 t8, c32/h19 — staged on
+      ``config.continuation_warnings`` by the continue path and DRAINED here
+      so a long-lived session config never re-stamps it), folded so
+      background / one-shot runs surface them after the fact.
     """
     result.command = command_name
     result.mode = mode
@@ -399,3 +402,7 @@ def _stamp_run_metadata(
     if config.model_refresh_warnings:
         result.warnings.extend(asdict(w) for w in config.model_refresh_warnings)
     result.warnings.extend(_vllm_openai.ladder_retry_warnings_as_dicts(config))
+    pending = getattr(config, "continuation_warnings", None)
+    if pending:
+        result.warnings.extend(pending)
+        config.continuation_warnings = []
