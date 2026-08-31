@@ -72,7 +72,8 @@ def test_p2_0_is_p2s_head_byte_for_byte() -> None:
     # P2-0 is exactly the effort line + P2's first paragraph, nothing more.
     p2_parts = p2.split("\n\n")
     first_para = p2_parts[1]
-    assert p2_0 == "effort: medium\n\n" + first_para + "\n"
+    # v4 (#475): the acting default the staged arms pin moved medium -> low.
+    assert p2_0 == "effort: low\n\n" + first_para + "\n"
 
 
 def test_p2_0_carries_no_instruction_paragraph() -> None:
@@ -85,7 +86,8 @@ def test_p2_0_carries_no_instruction_paragraph() -> None:
 
 def test_p2_0_pins_the_acting_seat_default_rung() -> None:
     effort, _ = _effort_and_body(_read("P2-0"))
-    assert effort == "effort: medium"
+    # v4 (#475): the acting default the staged arms pin moved medium -> low.
+    assert effort == "effort: low"
 
 
 # ---------------------------------------------------------------------------
