@@ -58,6 +58,7 @@ from colleague import loop_hooks as _loop_hooks
 from colleague import loop_run_stages as _run_stages
 from colleague import loopguards as _loopguards
 from colleague import media, salvage
+from colleague import tasktext as _tasktext
 from colleague import toolbatch_loop as _toolbatch_loop
 from colleague import webbudget
 from colleague.contract import (
@@ -607,6 +608,14 @@ def run(
     # the ``_DEFAULT_SYSTEM`` fallback, so a caller that composed no prompt
     # still leaves the key off the artifact — byte-identical.
     result.prompt_digest = prompt_digest_for(system_prompt)
+    # Task-text recording (#481) — the brief this run actually ran with,
+    # verbatim (capped/marked by tasktext.prepare_task_text), stamped
+    # alongside prompt_digest for the same reason: the interrupt-salvage and
+    # WorkAborted paths below never reach a later assignment point. ON by
+    # default (decision c15); COLLEAGUE_RECORD_TASK_TEXT=0 leaves the field
+    # unset, so the artifact stays byte-identical to today.
+    if _tasktext.recording_enabled():
+        result.task_text = _tasktext.prepare_task_text(task.instruction)
     # Interrupt salvage (#410): expose the live partial so the work CLI's
     # SIGTERM/SIGINT handler can write the artifact before the process unwinds.
     salvage.register(task.id, result)

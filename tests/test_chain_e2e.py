@@ -546,6 +546,7 @@ _PRE_FEATURE_ARTIFACT_KEYS = frozenset(
         "offered_tools",
         "effort",  # t5: the resolved-rung block (v4 default always resolves)
         "sampling",  # #479 t9: the resolved sampling profile (row + wire)
+        "task_text",  # #481: recording is ON by default (decision c15)
     }
 )
 

@@ -144,12 +144,18 @@ _SANCTIONED_EFFORT_ADDITION = {"effort"}
 # default model/rung pair matches the builtin Qwen3.8-27B thinking card.
 _SANCTIONED_SAMPLING_ADDITION = {"sampling"}
 
+# task_text (#481, decision c15): the run's own instruction text, recorded
+# verbatim (capped) beside prompt_digest — ON by default, so it is likewise
+# unconditional on a no-config run.
+_SANCTIONED_TASK_TEXT_ADDITION = {"task_text"}
+
 _EXPECTED_NOCONFIG_TASKRESULT_KEYS = (
     _PRE_ARC_TASKRESULT_KEYS
     | _SANCTIONED_FINISH_ADDITIONS
     | _SANCTIONED_PROMPT_DIGEST_ADDITION
     | _SANCTIONED_EFFORT_ADDITION
     | _SANCTIONED_SAMPLING_ADDITION
+    | _SANCTIONED_TASK_TEXT_ADDITION
 )
 
 # Fields the arc introduced elsewhere on TaskResult (t7's config event stream)

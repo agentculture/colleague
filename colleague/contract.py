@@ -714,6 +714,18 @@ class TaskResult:
     before this field). ``None`` when no surface was curated. Like
     ``prompt_digest``, the serialized key is OMITTED (not null) when ``None``,
     so a pre-field artifact loads and serializes byte-identically."""
+    task_text: Optional[str] = None
+    """The task's own instruction text, verbatim, as it actually ran (#481) —
+    ``prompt_digest`` proves WHICH prompt arm ran; this is WHAT brief the run
+    itself was given, so a measurement rerun never has to trust what the
+    operator remembers typing. Capped at
+    :data:`colleague.tasktext.MAX_CHARS` (16 KiB) via
+    :func:`colleague.tasktext.prepare_task_text` — an over-cap brief is
+    truncated with a literal, discoverable marker, never a silent cut.
+    Recording is ON by default (decision c15); ``COLLEAGUE_RECORD_TASK_TEXT=0``
+    (see :func:`colleague.tasktext.recording_enabled`) leaves this ``None``.
+    Like ``prompt_digest``, the serialized key is OMITTED (not null) when
+    ``None``, so a disabled/pre-field run serializes byte-identically."""
     tip_sha: Optional[str] = None
     """The ``colleague/<id>`` work branch's tip commit SHA after a successful
     handoff (plan task t5, covers c5), or ``None`` when the handoff produced no
