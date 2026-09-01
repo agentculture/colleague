@@ -27,7 +27,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
-from colleague import associate_config, sampling, samplingfile, streamguards
+from colleague import associate_config, sampling, samplingfile, samplingwire, streamguards
 from colleague.config import EngineConfig
 from colleague.engines.vllm_transport import (
     _CONTENT_TYPE_JSON,
@@ -197,31 +197,6 @@ def _effort_for(config: EngineConfig) -> "str | None":
 _SAMPLING_ENV_KEY = "COLLEAGUE_SAMPLING"
 _SAMPLING_DISABLING_VALUES = frozenset({"0", "false", "no", "off"})
 
-#: Known SERVER defaults for the sampling keys, filtered out before the wire (c8).
-#:
-#: Why: ``colleague.sampling``'s builtin rows record the model card VERBATIM,
-#: which means the Qwen3.8 thinking row explicitly sets ``min_p`` 0.0 and
-#: ``repetition_penalty`` 1.0 — values that already ARE the server default.
-#: Sending them changes nothing on the server while widening colleague's
-#: non-OpenAI surface for nothing, so the ROW keeps the card (it is the honest
-#: record of what the card says) and the ADAPTER drops any key whose value
-#: equals the default here. ``top_k`` is then the only vLLM extension the
-#: builtin table actually needs on the wire.
-#:
-#: ``temperature`` is deliberately ABSENT: the payload builder always writes a
-#: temperature (``config.temperature``), so a row's temperature is an
-#: OVERRIDE of an existing key rather than an addition — filtering it would
-#: leave the pre-#479 greedy 0.0 on the wire, the exact bug this arc fixes.
-#: ``top_k`` is absent too: vLLM spells "disabled" as -1 or 0 depending on
-#: version, so there is no single unambiguous default to compare against.
-_SERVER_DEFAULT_SAMPLING: "dict[str, Any]" = {
-    "top_p": 1.0,
-    "min_p": 0.0,
-    "presence_penalty": 0.0,
-    "repetition_penalty": 1.0,
-}
-
-_UNSET = object()
 
 #: ``models.json`` half labels → :mod:`colleague.sampling`'s two halves. The
 #: file format (t3) is intentionally uninterpreted at parse time; mapping its
@@ -232,17 +207,6 @@ _HALF_LABELS = {
     "non_thinking": sampling.NON_THINKING,
     "nonthinking": sampling.NON_THINKING,
     "instruct": sampling.NON_THINKING,
-}
-
-#: Recognised sampling keys and their coercion — the ``associate_config``
-#: tolerance precedent: an unparseable value is IGNORED, never a refusal.
-_SAMPLING_COERCERS: "dict[str, Callable[[Any], Any]]" = {
-    "temperature": float,
-    "top_p": float,
-    "top_k": int,
-    "min_p": float,
-    "presence_penalty": float,
-    "repetition_penalty": float,
 }
 
 
@@ -263,7 +227,7 @@ def _operator_profile(values: "dict[str, Any]") -> "sampling.SamplingProfile | N
     """
     fields: "dict[str, Any]" = {}
     for key, raw in values.items():
-        cast = _SAMPLING_COERCERS.get(key)
+        cast = samplingwire.SAMPLING_COERCERS.get(key)
         if cast is None or isinstance(raw, bool):
             continue
         try:
@@ -317,7 +281,8 @@ def _sampling_fragment(config: EngineConfig, rung: "str | None") -> "dict[str, A
     when the rung yields no half, or when no row claims the served model: a
     checkpoint colleague holds no card for is left at the server's own
     defaults. Otherwise: exactly the keys the resolved row explicitly set,
-    minus any whose value already equals :data:`_SERVER_DEFAULT_SAMPLING`.
+    minus any whose value already equals a server default
+    (:data:`colleague.samplingwire.SERVER_DEFAULT_SAMPLING`).
 
     Operator rows are layered AFTER :data:`~colleague.sampling.BUILTIN_SAMPLING_ROWS`
     so that :func:`~colleague.sampling.resolve_sampling`'s last-wins tie-break at
@@ -335,11 +300,7 @@ def _sampling_fragment(config: EngineConfig, rung: "str | None") -> "dict[str, A
     profile = sampling.resolve_sampling(
         config.model, role=getattr(config, "role", None), rung=rung, rows=rows
     )
-    return {
-        key: value
-        for key, value in sampling.sampling_payload(profile).items()
-        if _SERVER_DEFAULT_SAMPLING.get(key, _UNSET) != value
-    }
+    return samplingwire.wire_fragment(profile)
 
 
 @dataclass(frozen=True)

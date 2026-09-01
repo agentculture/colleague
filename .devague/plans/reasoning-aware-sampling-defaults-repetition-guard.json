@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-09-01T04:35:47Z",
-  "updated": "2026-09-01T10:26:57Z",
+  "updated": "2026-09-01T10:51:41Z",
   "targets": [
     {
       "id": "c1",
@@ -907,6 +907,30 @@
       "text": "Whether the official Qwen3.8 thinking sampler alone stops the spiral is unknown until t12 runs \u2014 the guard is specified independently precisely because sampling lowers the attractor's probability without proving it unreachable.",
       "kind": "unknown_nonblocking",
       "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "The repetition guard has a reproduced false-positive surface: an 83-char boilerplate narration line repeated 8 times back-to-back within one turn trips it (verified 2026-09-01 against the merged colleague/repetitionguard.py). Interleaving any varying text between the repeats does not trip. Cost is bounded \u2014 a trip cuts a turn into the existing retry, never ends the run \u2014 so the arc records the limit honestly rather than weakening the detector. Found by the wave-0 ask-colleague review, task 4754361a0229.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "The tail-only 8192-char window is a false NEGATIVE surface: a runaway that recovers within the last 8192 characters will not trip the guard. Record it in the guard docstring rather than implying full-stream coverage. Found by the wave-0 ask-colleague review, task 4754361a0229.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "BUILTIN_SAMPLING_ROWS deliberately contains no models=() any-model row, which is WHY an unmatched model sends no keys (claim c48). An operator any-model row in models.json would override that guarantee. The two statements must be reconciled explicitly in the feature doc (t11), not left implicit. Found by the wave-0 ask-colleague review, task 4754361a0229.",
+      "kind": "follow_up",
+      "task_id": "t11",
       "resolved": false,
       "resolution": ""
     }

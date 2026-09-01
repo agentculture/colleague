@@ -75,13 +75,29 @@ def test_per_value_overrides_replace_single_fields(monkeypatch):
     assert resolve_associate_profile({"thinking": "false", "top_p": "0.9"}).enable_thinking is False
 
 
-def test_cortex_payload_is_byte_identical(monkeypatch):
+def test_cortex_payload_carries_no_associate_leakage(monkeypatch):
+    """The associate machinery never leaks into the cortex payload.
+
+    Renamed from ``test_cortex_payload_is_byte_identical`` by #479 (arc
+    deviation d1). The guarantee this test exists for — an unarmed seat sees
+    NOTHING of the associate profile — is unchanged and still asserted below.
+    What changed is the baseline it is identical *to*: the cortex payload is no
+    longer greedy. ``_cfg`` resolves the served ``unsloth/Qwen3.8-27B-NVFP4``
+    at the default ``low`` rung, which the #479 builtin table holds a Qwen3.8
+    card for, so the payload now carries the card's thinking-half sampling.
+    Asserting ``temperature == cfg.temperature`` (0.0) here would re-assert the
+    greedy-in-thinking-mode defect #479 exists to remove.
+    """
     monkeypatch.delenv("COLLEAGUE_ASSOCIATE_PROFILE", raising=False)
     cfg = _cfg(monkeypatch)
     payload, _ = VllmOpenAIEngine._build_chat_payload(cfg, _MSGS, [])
-    assert payload["temperature"] == cfg.temperature
-    assert "top_p" not in payload
+    # The associate seat is unarmed — that is what this test guards.
     assert associate_mod.seat_profile(cfg) is None
+    # ...and the payload carries the model card's profile, not the associate's
+    # (associate depth is temperature 0.6 / top_p 0.95 and sends no top_k).
+    assert payload["temperature"] == 1.0
+    assert payload["top_p"] == 0.95
+    assert payload["top_k"] == 20
 
 
 def test_profile_rides_the_resolved_seat(monkeypatch):

@@ -36,7 +36,8 @@ import pytest
 
 from colleague.config import EngineConfig
 from colleague.engines.vllm_openai import VllmOpenAIEngine
-from colleague.engines.vllm_payload import _SERVER_DEFAULT_SAMPLING, _sampling_fragment
+from colleague.engines.vllm_payload import _sampling_fragment
+from colleague.samplingwire import SERVER_DEFAULT_SAMPLING as _SERVER_DEFAULT_SAMPLING
 
 #: The default served checkpoint — the one the builtin table holds a card for.
 _QWEN = "unsloth/Qwen3.8-27B-NVFP4"
@@ -79,13 +80,19 @@ def test_sampling_keys_are_written_in_exactly_one_module() -> None:
     also an eidetic recall argument in ``tools.py``/``tool_schemas.py``, and
     ``top_p`` belongs to the separate associate lane). No seat builder, loop
     module or CLI command may name them.
+
+    The owning module is :mod:`colleague.samplingwire` (#479 arc deviation
+    d2): t5 and t8 each landed a private copy of the server-default table, so
+    the two were reconciled into one leaf module both call sites import. The
+    criterion's intent — ONE definition of what goes on the wire — is what
+    this asserts; the adapter and the distill child both delegate to it.
     """
     owners = set()
     for path in sorted((_REPO_ROOT / "colleague").rglob("*.py")):
         text = path.read_text(encoding="utf-8")
         if '"min_p"' in text or '"repetition_penalty"' in text:
             owners.add(path.relative_to(_REPO_ROOT).as_posix())
-    assert owners == {"colleague/engines/vllm_payload.py"}
+    assert owners == {"colleague/samplingwire.py"}
 
 
 def test_the_fragment_has_a_single_call_site_in_the_payload_builder() -> None:

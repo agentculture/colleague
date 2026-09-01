@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from colleague import associate_seats as _associate_seats
-from colleague import background, distilleffort, lessons, memory, sampling
+from colleague import background, distilleffort, lessons, memory, sampling, samplingwire
 from colleague.lobes import LobesRoles
 
 
@@ -583,30 +583,6 @@ class DistillCompletion:
         return self.finish_reason == "length"
 
 
-#: Sampling keys whose value equals the server's own default and is therefore
-#: dropped from the wire (#479 t5 c8) — mirrors the adapter's identical filter
-#: in ``colleague/engines/vllm_payload.py``'s ``_build_chat_payload`` without
-#: importing it (distill.py is a detached-subprocess entry point and must not
-#: pull in the engines package). The two copies are a KNOWN duplication:
-#: reconcile into one shared helper when #479's t5 (adapter wiring) merges.
-_SAMPLING_SERVER_DEFAULTS: "dict[str, float]" = {
-    "min_p": 0.0,
-    "repetition_penalty": 1.0,
-}
-
-
-def _filtered_sampling_fragment(profile: "sampling.SamplingProfile | None") -> dict:
-    """Render *profile* into wire keys, dropping ones equal to the server's
-    own default (mirrors the adapter's filter, see
-    :data:`_SAMPLING_SERVER_DEFAULTS` above)."""
-    fragment = sampling.sampling_payload(profile)
-    return {
-        key: value
-        for key, value in fragment.items()
-        if not (key in _SAMPLING_SERVER_DEFAULTS and value == _SAMPLING_SERVER_DEFAULTS[key])
-    }
-
-
 def _openai_completion(
     model: str,
     base_url: str,
@@ -638,7 +614,7 @@ def _openai_completion(
 
     url = base_url.rstrip("/") + "/chat/completions"
     profile = sampling.resolve_sampling(model, role=None, rung=effort_rung)
-    sampling_fragment = _filtered_sampling_fragment(profile)
+    sampling_fragment = samplingwire.wire_fragment(profile)
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],

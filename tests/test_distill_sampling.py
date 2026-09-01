@@ -209,7 +209,10 @@ class TestCriterion2ChildResolvesItsOwnRung:
         # argument threaded from distilleffort's own COLLEAGUE_DISTILL_EFFORT
         # resolution (see distill.child_main / _child_env).
         assert low_body["temperature"] != off_body["temperature"]
-        assert low_body["presence_penalty"] == 0.0
+        # presence_penalty 0.0 IS the server default, so the reconciled wire
+        # filter (colleague/samplingwire.py, #479 arc deviation d2) drops it
+        # from the thinking half and keeps the non-thinking 1.5, which differs.
+        assert "presence_penalty" not in low_body
         assert off_body["presence_penalty"] == 1.5
 
     @staticmethod

@@ -1,0 +1,30 @@
+{
+  "plan_slug": "reasoning-aware-sampling-defaults-repetition-guard",
+  "schema_version": 2,
+  "created": "2026-09-01T10:52:03Z",
+  "updated": "2026-09-01T10:55:39Z",
+  "deviations": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/test_sampling_table.py + a direct interpreter probe of resolve_sampling",
+      "behavior_text": "unsloth/Qwen3.8-27B-NVFP4 and Qwen/Qwen3.8-27B both resolve to the same builtin row (temp 1.0 / top_p 0.95 / top_k 20 / min_p 0.0 / presence 0.0 / repetition 1.0); Qwen3.8-4B, Llama-3-70B, rung default and rung None each resolve to no keys at all",
+      "contract_text": "The match rule resolves the LIVE served id unsloth/Qwen3.8-27B-NVFP4 and the card id Qwen/Qwen3.8-27B to the same row, both pinned as fixtures; an unrelated model resolves to no row",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Not a coverage claim: 46 unit tests pass, AND I ran resolve_sampling in a fresh interpreter on the merged tree printing each case, AND the live rig at localhost:8001 /v1/models was confirmed to serve exactly unsloth/Qwen3.8-27B-NVFP4, so the fixture is the real served id rather than an assumed one. The task agent also reported seven mutants (loose prefix, kill-switch fallback, wrong card value, sending un-set keys, first-wins tie-break, role-outranks-model, lazy config import) each failing the suite.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T13:52:03+03:00",
+        "commit": "33b7cb44"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 1
+    }
+  ],
+  "deltas": [],
+  "supersessions": []
+}
