@@ -1,0 +1,401 @@
+{
+  "slug": "small-fixes-then-effort-balance",
+  "title": "small-fixes-then-effort-balance",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-09-01T17:05:31Z",
+  "updated": "2026-09-01T17:17:44Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague lands four small validity/observability fixes (#480-#483), then runs the pre-registered null-hypothesis arm before building #484 effort spikes",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Each of #480-#483 lands as its own revertible commit with its acceptance criteria asserted in tests; the spike machinery merges dark (opt-in) in the same arc; the A/B/C arms are recorded in docs/live-testing.md with a miss written as a miss",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Ship the four fixes as independent, individually revertible commits; build the spike surface dark behind an opt-in in the same arc; then run the A (feedback) / B (+decision barrier) / C (+medium at the barrier) arms \u2014 arming any spike by default requires C to beat B",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "#483 wiring: compose delta_heartbeat(ctx) INSIDE the loop (where _Work ctx exists) with any pre-armed config.on_delta \u2014 bare work already streams (_headless_streaming_enabled default True, vllm_openai.py:364 routes via _delta_sink to _noop_delta), so no transport change; the cockpit/session sink armed by _work_support._arm_delta_stream must keep receiving chunks",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A bare work run on a genuinely slow streamed completion writes flight-feed liveness records mid-turn; step_count never advances from them; an armed cockpit sink still receives every chunk; tests/test_boundary.py thread allow-list unchanged; streamguards bounds unchanged",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "#480 fix: in loop_testgates._maybe_run_affected_tests_gate, when report.status=='failed' and outcome != _EXIT_FINISHED, append a {'kind':'affected-tests-failed',...} dict to ctx.result.warnings (matching the existing step-stall/loop-guard warning shape) and surface it in the post-run line; finished runs unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Budget-exhausted + failing gate = one warning naming the gate and selection, printed once; passing/disabled gate on the same outcome = byte-identical; _EXIT_FINISHED behaviour (fix turns) unchanged",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "#481 fix: TaskResult.task_text with omit-when-None serialization mirroring prompt_digest (contract_taskresult_io.py:227-231), a truncation cap with an explicit marker, and an off-knob COLLEAGUE_RECORD_TASK_TEXT=0 \u2014 the verbatim brief today exists ONLY on the opt-in #411 agents ledger (operator_request events), never on the default artifact",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "A rerun dispatched from the recorded task_text reproduces the brief with no operator memory; over-cap briefs carry a discoverable truncation marker; off-knob artifact byte-identical; work --continue carries the original brief through",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "#482 fix: a new small module (py_compile + subprocess importlib smoke of changed .py files) running pre-finish on EVERY outcome incl. budget-exhausted, advisory warning-only, best-effort wrapped, off-knob; the module joins tests/test_boundary.py::_SUBPROCESS_ALLOWED with a stated reason",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The check fires on finished, budget-exhausted and stalled outcomes alike; asserted against the real hallucinated-import + broken-downstream-importer shape; no Python change = strict no-op; best-effort wrapped so it can never abort run(); off-knob byte-identical",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "assumption",
+      "text": "#484 is GATED on the small fixes: the pre-registered null-hypothesis arm (low effort + #482 importability check + #480 surfaced gate + one bounded fix turn, vs flat low and the 40k-planning-turn arm) decides whether spikes are needed at all \u2014 if cheap feedback reaches the same correctness, #484 closes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "assumption",
+      "text": "One #484 spike point already has policy but no consumer: DESIGN_SITE_TABLE['fillline.split']='xhigh' (effort.py:110) with no live call site (test_design_call_site) \u2014 wiring the existing design-seat contract beats adding duplicate spike policy for the fill-line point",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "#484 must stay the deepthink/PURPOSE_TABLE shape: rungs from a FIXED table at points enumerated in code and pinned by a boundary test (mirror tests/test_deepthink_boundary.py); no model-supplied rung, nothing reading turn CONTENT to pick a rung \u2014 that would be the excluded router; the thinking-effort invariant 'resolved where each seat is built, never per turn' survives",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "A drift test enumerates any spike surface and fails on an un-listed addition; no code path reads turn content or a model-supplied value to pick a rung",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Boundary test enumerates the spike surface module-level descriptor list (mirror tests/test_deepthink_boundary.py); grep-level assertion that no spike resolution reads message content; rung values only from the fixed table",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "non_goal",
+      "text": "No adaptive per-turn effort scheduling, no rotating turn-index quota (retracted in #484's own comments), no model-picked rung values, and no tightening of streamguards IDLE/LIFETIME bounds as a #483 'fix' (explicitly warned against in the issue)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "assumption",
+      "text": "#480 acceptance asks to check whether lint and test-integrity gates share the silent-failure shape on non-finished outcomes \u2014 loop_testgates.py:197 shows test-integrity uses the identical 'retries if _EXIT_FINISHED else 0' pattern, so yes for test-integrity",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "audience",
+      "text": "Colleague operators dispatching live runs on the rig, and the measurement arcs recorded in docs/live-testing.md \u2014 the people who read post-run lines, artifacts, and rerun briefs",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Every fix's acceptance test asserts the operator-observable surface (a warning line, an artifact key, a flight-feed record) \u2014 not only internal state",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Spec names both readers; each fix's acceptance is stated from the operator's observable surface (warning line, artifact key, flight feed record)",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "after_state",
+      "text": "A run can no longer know something the operator does not: a failing gate on any outcome lands a warning; a non-importing branch is named before handoff; every artifact carries the brief that produced it; a long streamed turn shows liveness \u2014 and the #484 spike question is answered by the pre-registered null arm, not assumption",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "A rerun of the row-67 failure shape demonstrates all four fixes at once: the gate warning, the importability warning, the recorded brief, and mid-turn liveness records",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Verify each clause against its issue's acceptance criteria (#480 AC1, #482 AC1, #481 AC1, #483 AC1, #484 comment ordering)",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "why_it_matters",
+      "text": "Row 67 shipped a non-importing branch while the harness had already run the failing gate and told no one, and row 67's own measurement was unreproducible because the brief was gone \u2014 the four fixes close both, and cheaply instrument the experiment that decides #484",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The arc's live-testing rows cite rows 66-68 as the motivating evidence and the rerun uses the recorded task_text, closing the reproducibility gap the arc exists for",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "docs/live-testing.md rows 66-68 + issues #480-#482 are the evidence trail",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "On a rerun of the row-67 failure shape: the artifact carries >=1 warning of kind affected-tests-failed AND >=1 importability warning naming the ImportError; a rerun is dispatchable from TaskResult.task_text alone; a slow streamed turn yields liveness records at <=3.5s spacing; with all off-knobs set, artifacts are byte-identical to v1.74.0",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The byte-identical clause is asserted by comparing serialized artifacts/payloads with every off-knob set, not by code review alone",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Assert against the real cc5d1f1a2c5f defect shape (hallucinated Policy import + lost ToolCall re-export), not synthetic stubs \u2014 #482 AC6",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "task_text: ~16KB cap, truncation marker, ON by default, COLLEAGUE_RECORD_TASK_TEXT=0",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "This arc ships the four fixes AND the #484 spike machinery (opt-in, unarmed = byte-identical); the pre-registered arms then measure feedback vs barrier vs rung on the same brief",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "Spike surface v0 = the lean set: (a) pre-mutation decision barrier, (b) repeated-gate-failure escalation to one medium replan (retry count as the signal), (c) fill-line via the existing DESIGN_SITE_TABLE['fillline.split'] consumer; forced synthesis EXCLUDED from the spike surface",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "With the opt-in unset, a byte-comparison of outgoing payloads against v1.74.0 passes; with it armed, the drift test enumerates exactly three points; the barrier turn never mutates and never advances step_count past its own bounded completion; no code path inspects turn content to choose a rung",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Spike machinery: a fixed table maps each of the three lean points to a rung; opt-in arming (unarmed = byte-identical, every outgoing payload matches today key for key); the decision barrier is a bounded tools-off completion with its own output ceiling and timeout; each fired spike is recorded on the artifact (point, rung, seat) with absence reading as did-not-fire; a drift boundary test mirrors test_deepthink_boundary.py and fails on any un-listed point",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "With the opt-in unset, outgoing payloads are byte-identical to v1.74.0; armed, the drift test enumerates exactly three points and fails on a fourth; the barrier completion is tools-off, bounded by its own output ceiling + timeout, and never mutates; no code path inspects turn content or a model-supplied value to choose a rung; each fired spike lands on the artifact as (point, rung, seat)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Table beside PURPOSE_TABLE in efforttables.py or a sibling module (file-length ratchet); no effort parameter reachable from the model; artifact key follows the effortrecord conventions",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether the fill-line spike point should be delivered by finally wiring the dormant DESIGN_SITE_TABLE['fillline.split'] consumer rather than any new spike table \u2014 depends on the null arm's outcome",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Model-invoked 'unsure' reset tool (closed reason vocabulary, table-fixed rung, rate-limited) \u2014 after the harness-side arms are measured",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "colleague/loop_progress.py + tests/test_delta_heartbeat.py",
+      "finding": "delta_heartbeat exists, throttled (COLLEAGUE_DELTA_HEARTBEAT_INTERVAL 3.0s), thread-free, proven against genuinely slow generators \u2014 zero production callers; grep shows only tests reference it",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "colleague/cli/_commands/_work_support.py::_arm_delta_stream + colleague/engines/vllm_openai.py:322-364",
+      "finding": "on_delta armed only for cockpit/session sinks; bare work leaves it None but transport still streams headlessly (default True, COLLEAGUE_STREAM=0 disables) into _noop_delta \u2014 wiring point must be in-loop where _Work ctx exists, composing with (not replacing) an armed sink",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "colleague/loop_testgates.py:246-300",
+      "finding": "affected-tests gate runs and records report on every outcome but grants fix turns only on _EXIT_FINISHED (line 290); no warning lands on result.warnings for a failed report on non-finished outcomes; test-integrity gate (line 197) shares the identical pattern",
+      "seeds": [
+        "c3",
+        "c10"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "colleague/contract.py + contract_taskresult_io.py + colleague/agents/state/ledger.py",
+      "finding": "TaskResult has prompt_digest with omit-when-None serialization (io lines 227-231) but no task text field; the verbatim brief is persisted only as operator_request events on the opt-in COLLEAGUE_AGENTS ledger \u2014 default artifacts carry no brief, confirming #481",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "tests/test_boundary.py::_SUBPROCESS_ALLOWED",
+      "finding": "any new importability-check module using subprocess must join the explicit allow-list with a stated reason \u2014 the sanctioned-consumer convention",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "colleague/effort.py:105-112 + colleague/efforttables.py",
+      "finding": "DESIGN_SITE_TABLE already assigns fillline.split=xhigh with no live consumer; PURPOSE_TABLE draws the 'model cannot pick a rung' line; resolve_effort precedence c32 is where any spike table would slot",
+      "seeds": [
+        "c7",
+        "c8"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "tests/test_deepthink_boundary.py",
+      "finding": "the four deepthink escalation points are pinned by a module-level descriptor list + drift test \u2014 the exact mirror #484 acceptance criterion 1 asks for on any spike surface",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "gh issues #480-#484 incl. comments",
+      "finding": "#482's comment pre-registers the deciding arm: low + importability check + fed-back fix turn vs flat low vs the planning-turn arm; #484's own comments correct the low-vs-medium evidence (both arms ran low; step budget was the variable) and retract the rotating quota \u2014 the null hypothesis (feedback, not depth) must run before spike work",
+      "seeds": [
+        "c6",
+        "c9"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
