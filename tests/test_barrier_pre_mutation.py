@@ -105,13 +105,13 @@ def _drive(tmp_path: Path, responses, *, seat=None, max_steps=8):
     return result, script
 
 
-@pytest.fixture()
+@pytest.fixture
 def armed(monkeypatch):
     monkeypatch.setenv(SPIKE_ENV, "1")
     monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKE_BARRIER_PRE_MUTATION", raising=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 def unarmed(monkeypatch):
     monkeypatch.delenv(SPIKE_ENV, raising=False)
 
@@ -363,7 +363,8 @@ class TestBarrierSeat:
         seat, tools = engine.calls[0]
         assert tools == []  # the honest tools-off invariant
         assert getattr(seat, "reasoning_effort_seat") == "medium"
-        assert seat.on_delta is None and seat.refresh_seat is None
+        assert seat.on_delta is None
+        assert seat.refresh_seat is None
 
     def test_the_seat_uses_the_unescalated_turn_timeout(self, armed):
         engine = _FakeEngine()
@@ -394,7 +395,8 @@ class TestBarrierSeat:
             EngineConfig(), engine_loader=lambda _n: engine
         )
         assert factory("mock", warnings.append) is None
-        assert len(warnings) == 1 and "mock" in warnings[0]
+        assert len(warnings) == 1
+        assert "mock" in warnings[0]
 
 
 # ---------------------------------------------------------------------------

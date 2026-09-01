@@ -131,9 +131,7 @@ class ImportCheckReport:
         if self.status == "passed":
             return f"import-check: passed — {len(self.checked)} file(s)"
         names = ", ".join(f"{f.module} ({f.stage})" for f in self.findings)
-        return (
-            f"import-check: failed — {len(self.findings)}/{len(self.checked)} " f"file(s): {names}"
-        )
+        return f"import-check: failed — {len(self.findings)}/{len(self.checked)} file(s): {names}"
 
 
 def _is_disabled() -> bool:

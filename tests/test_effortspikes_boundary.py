@@ -54,6 +54,7 @@ from pathlib import Path
 import pytest
 
 from colleague import effort, effortspikes
+from colleague.cli._errors import CliError
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 _TOOL_SCHEMAS_PATH: Path = _REPO_ROOT / "colleague" / "tool_schemas.py"
@@ -153,7 +154,7 @@ class TestResolveSpikeNoModelReachableParameter:
     def test_resolve_spike_rejects_an_out_of_ladder_env_override(self, monkeypatch) -> None:
         monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "1")
         monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKE_BARRIER_PRE_MUTATION", "not-a-rung")
-        with pytest.raises(Exception):
+        with pytest.raises(CliError):
             effortspikes.resolve_spike("barrier.pre_mutation")
 
     def test_no_tool_schema_mentions_spike_today(self) -> None:

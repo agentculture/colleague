@@ -96,7 +96,8 @@ def test_affected_tests_failed_warns_on_budget_exhausted(tmp_path: Path) -> None
     )
     assert result.status == INCOMPLETE
     report = result.affected_tests_report
-    assert report is not None and report.status == "failed"
+    assert report is not None
+    assert report.status == "failed"
     warning = _warning(result, "affected-tests-failed")
     assert warning is not None, "a failed report on a non-finished outcome must warn"
     assert "tests/test_via_hub.py" in warning["selection"]
@@ -153,7 +154,8 @@ def test_affected_tests_fix_turn_behaviour_unchanged_on_clean_finish(tmp_path: P
     )
     assert result.status == OK
     report = result.affected_tests_report
-    assert report is not None and report.status == "failed"
+    assert report is not None
+    assert report.status == "failed"
     assert _warning(result, "affected-tests-failed") is None
 
 
@@ -180,7 +182,8 @@ def test_test_integrity_flagged_warns_on_budget_exhausted(tmp_path: Path) -> Non
     )
     assert result.status == INCOMPLETE
     report = result.test_integrity_report
-    assert report is not None and report.findings
+    assert report is not None
+    assert report.findings
     warning = _warning(result, "test-integrity-flagged")
     assert warning is not None
     assert "response_error" in warning["symbols"]
@@ -220,5 +223,6 @@ def test_test_integrity_fix_turn_behaviour_unchanged_on_clean_finish(tmp_path: P
     )
     assert result.status == OK
     report = result.test_integrity_report
-    assert report is not None and report.findings
+    assert report is not None
+    assert report.findings
     assert _warning(result, "test-integrity-flagged") is None

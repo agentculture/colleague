@@ -88,6 +88,7 @@ from colleague.cli._commands._work_salvage import (
 )
 from colleague.cli._commands._work_support import (
     DisplayOptions,
+    Lineage,
     _announce_flight,
     _apply_affected_tests_optout,
     _apply_coherence_optout,
@@ -593,8 +594,7 @@ def execute_work(
     command_name: str | None = None,
     display: "DisplayOptions | None" = None,
     mode: str | None = None,
-    continued_from: str | None = None,
-    continuation_task_text: str | None = None,
+    lineage: "Lineage | None" = None,
     chain: "ChainEpisodeOptions | None" = None,
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
@@ -634,13 +634,10 @@ def execute_work(
         screen, replacing the auto-constructed cockpit); ``None`` (default)
         means every knob at its ``None`` default, byte-identical to the
         pre-bundle behavior.
-    continued_from:
-        The prior work item's task id when this run CONTINUES it (#167), else
-        ``None``. Recorded on the result before every artifact write — the
-        one-way lineage the continue path (``work --continue`` / session
-        ``/continue``) stamps; omit-when-None keeps ordinary runs byte-identical.
-    continuation_task_text:
-        Propagated original ``task_text`` (c22/h15/h3), overriding it when set.
+    lineage:
+        The continuation bundle (:class:`Lineage`, S107): the prior task id
+        (#167) plus the propagated original ``task_text`` (c22/h15/h3), both
+        stamped before every artifact write; ``None`` on ordinary runs.
     mode:
         Constraint-profile mode (t3 / spec R1 / #254). When set, the mode's
         profile (``colleague.profiles`` + operator overlays) fills the
@@ -676,6 +673,9 @@ def execute_work(
         On unknown engine or engine-level failure (artifact is still written
         before the exception is raised — honesty h5).
     """
+
+    continued_from = lineage.continued_from if lineage else None
+    continuation_task_text = lineage.task_text if lineage else None
     display = display or DisplayOptions()
     # Work-start auto-trigger (self-learning t12 AC3, c18/h15): colleague's own
     # action — this work item starting — is a trigger too, not just a grade.
@@ -940,8 +940,10 @@ def cmd_work(args: argparse.Namespace) -> int:
                 tui_events=getattr(args, "tui_events", None),
             ),
             mode=mode,
-            continued_from=getattr(args, "_continued_from_resolved", None),
-            continuation_task_text=getattr(args, "_continuation_task_text_resolved", None),
+            lineage=Lineage(
+                continued_from=getattr(args, "_continued_from_resolved", None),
+                task_text=getattr(args, "_continuation_task_text_resolved", None),
+            ),
         )
     except CliError as exc:
         # On a partial-bearing failure, surface the preserved partial TaskResult to

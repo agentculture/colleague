@@ -271,6 +271,20 @@ def _sampling_from_dict(data: dict[str, Any]) -> "list[dict[str, Any]] | None":
     return [dict(entry) for entry in raw if isinstance(entry, dict)]
 
 
+def _effort_spikes_from_dict(data: dict[str, Any]) -> "list[dict[str, str]]":
+    """Read back the #484 ``effort_spikes`` list, tolerantly.
+
+    Split out for the same reason as :func:`_sampling_from_dict` — holding
+    :func:`task_result_from_dict` under the SonarCloud S3776 ceiling. Same
+    tolerance as ``hires``: non-dict entries are dropped, an absent or
+    non-list key is the empty (omitted-when-empty) list.
+    """
+    raw = data.get("effort_spikes")
+    if not isinstance(raw, list):
+        return []
+    return [{str(k): str(v) for k, v in s.items()} for s in raw if isinstance(s, dict)]
+
+
 def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
     # Local import: the two lazy class getters live on colleague.contract
     # itself (they exist specifically to avoid importing colleague.testintegrity
@@ -305,15 +319,7 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
             for h in (data.get("hires") if isinstance(data.get("hires"), list) else [])
             if isinstance(h, dict)
         ],
-        # effort_spikes (#484): same tolerance as hires — non-dict entries are
-        # dropped, an absent key is the empty (omitted-when-empty) list.
-        effort_spikes=[
-            {str(k): str(v) for k, v in s.items()}
-            for s in (
-                data.get("effort_spikes") if isinstance(data.get("effort_spikes"), list) else []
-            )
-            if isinstance(s, dict)
-        ],
+        effort_spikes=_effort_spikes_from_dict(data),
         command=data.get("command"),
         destination=data.get("destination"),
         announcement=data.get("announcement"),

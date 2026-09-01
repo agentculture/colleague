@@ -29,6 +29,7 @@ import pytest
 
 from colleague import tasktext
 from colleague.cli._commands import work as work_mod
+from colleague.cli._commands._work_support import Lineage
 from colleague.cli._commands._work_task import _build_task
 from colleague.config import EngineConfig
 from colleague.continuation import prior_task_text
@@ -190,8 +191,10 @@ def test_work_continue_records_the_original_brief_not_the_seed(tmp_path: Path) -
         open_pr=False,
         base="main",
         config=config,
-        continued_from=getattr(args, "_continued_from_resolved", None),
-        continuation_task_text=getattr(args, "_continuation_task_text_resolved", None),
+        lineage=Lineage(
+            continued_from=getattr(args, "_continued_from_resolved", None),
+            task_text=getattr(args, "_continuation_task_text_resolved", None),
+        ),
     )
 
     assert result.continued_from == "prior-1"
@@ -218,8 +221,10 @@ def test_work_continue_records_nothing_when_prior_artifact_has_no_task_text(
         open_pr=False,
         base="main",
         config=config,
-        continued_from=getattr(args, "_continued_from_resolved", None),
-        continuation_task_text=getattr(args, "_continuation_task_text_resolved", None),
+        lineage=Lineage(
+            continued_from=getattr(args, "_continued_from_resolved", None),
+            task_text=getattr(args, "_continuation_task_text_resolved", None),
+        ),
     )
 
     assert result.continued_from == "prior-2"
@@ -245,8 +250,10 @@ def test_work_continue_knob_off_records_no_task_text(
         open_pr=False,
         base="main",
         config=config,
-        continued_from=getattr(args, "_continued_from_resolved", None),
-        continuation_task_text=getattr(args, "_continuation_task_text_resolved", None),
+        lineage=Lineage(
+            continued_from=getattr(args, "_continued_from_resolved", None),
+            task_text=getattr(args, "_continuation_task_text_resolved", None),
+        ),
     )
 
     assert result.task_text is None
@@ -319,10 +326,9 @@ def test_chain_episode_dispatch_threads_continuation_task_text(
         base="main",
         config=config,
         cap=1,
-        continued_from="prior-c1",
-        continuation_task_text=prior_task_text(repo, "prior-c1"),
+        lineage=Lineage(continued_from="prior-c1", task_text=prior_task_text(repo, "prior-c1")),
     )
 
     assert captured, "execute_work was never dispatched"
-    assert captured[0]["continuation_task_text"] == _ORIGINAL_BRIEF
+    assert captured[0]["lineage"].task_text == _ORIGINAL_BRIEF
     assert result.task_text == _ORIGINAL_BRIEF

@@ -15,15 +15,31 @@ import argparse
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from colleague import flight, tasktext, web_schemas
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
+
+
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.config import EngineConfig, apply_mode_profile
 from colleague.contract import INCOMPLETE, OK, ChainView, Task, TaskResult
 from colleague.engines import vllm_openai as _vllm_openai
 from colleague.handoff import working_tree_dirty
+
+
+class Lineage(NamedTuple):
+    """Continuation lineage threaded as ONE bundle (SonarCloud S107).
+
+    Bundles ``continued_from`` (the prior run's task id) with the propagated
+    original ``task_text`` (#481/c22 — never the synthesized seed), so
+    ``execute_work``/``execute_work_chain`` stay at 13 parameters. ``None``
+    means an ordinary, non-continuation dispatch.
+    """
+
+    continued_from: "str | None" = None
+    task_text: "str | None" = None
 
 
 def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:

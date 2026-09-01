@@ -41,13 +41,13 @@ SPIKE_ENV = "COLLEAGUE_EFFORT_SPIKES"
 SEAT_ATTR = "reasoning_effort_seat"
 
 
-@pytest.fixture()
+@pytest.fixture
 def armed(monkeypatch):
     monkeypatch.setenv(SPIKE_ENV, "1")
     monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKE_GATE_REPEAT_FAILURE", raising=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 def unarmed(monkeypatch):
     monkeypatch.delenv(SPIKE_ENV, raising=False)
 
@@ -177,9 +177,13 @@ class TestGateEscalation:
     def test_the_escalation_is_released_even_when_the_turn_raises(self, tmp_path, armed):
         ctx = _ctx(tmp_path)
         config = ctx.gate_escalation._config
-        with pytest.raises(RuntimeError):
+
+        def _blow_up_inside_escalation() -> None:
             with _esc.escalated_gate_turn(ctx, "affected_tests", 2):
                 raise RuntimeError("fix turn blew up")
+
+        with pytest.raises(RuntimeError):
+            _blow_up_inside_escalation()
         assert _seat(config) == "<absent>"
 
     def test_unarmed_is_a_strict_no_op(self, tmp_path, unarmed):

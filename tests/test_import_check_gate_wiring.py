@@ -219,12 +219,9 @@ def test_aborted_run_carries_no_report_and_no_warning(tmp_path: Path) -> None:
     def raising(_messages: list[dict]) -> ModelResponse:
         raise RuntimeError("engine blew up")
 
+    task = Task.new(str(tmp_path), "port hooks + loop into pkg")
     with pytest.raises(WorkAborted) as excinfo:
-        run(
-            raising,
-            Task.new(str(tmp_path), "port hooks + loop into pkg"),
-            max_steps=3,
-        )
+        run(raising, task, max_steps=3)
     result = excinfo.value.result
     assert result.importcheck_report is None
     assert _warning(result, "import-check-failed") is None

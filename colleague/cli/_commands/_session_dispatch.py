@@ -34,6 +34,7 @@ from colleague.cli._commands._session_slash import (
     _INTROSPECT,
 )
 from colleague.cli._commands._session_support import _T, _read_line, _resolve_selection
+from colleague.cli._commands._work_support import Lineage
 from colleague.cli._errors import CliError
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
@@ -471,7 +472,7 @@ class _DispatchMixin:
         # Passed ONLY when set: an ordinary dispatch keeps the exact work_fn
         # call shape stable for strict test doubles / injected work_fns.
         lineage_kwargs = (
-            {"continued_from": continued_from, "continuation_task_text": continuation_task_text}
+            {"lineage": Lineage(continued_from=continued_from, task_text=continuation_task_text)}
             if continued_from
             else {}
         )
