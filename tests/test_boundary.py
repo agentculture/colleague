@@ -531,6 +531,13 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   the allow-listed webglass CLI as a group-leader child
 #                   (start_new_session=True) and kills the whole group with
 #                   os.killpg on timeout; subprocess is the transport
+#   importcheck.py   — the importability-check gate (#482): py_compile is
+#                   in-process, but the actual import smoke of a changed
+#                   module must run in a child interpreter (with the run
+#                   worktree forced ahead on sys.path via PYTHONPATH, c20) so
+#                   a broken import can't crash or poison the caller's own
+#                   process; subprocess is the transport, no daemon, no
+#                   polling loop
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -552,6 +559,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/correction.py",
         "colleague/search_tools.py",
         "colleague/web.py",
+        "colleague/importcheck.py",
     }
 )
 
