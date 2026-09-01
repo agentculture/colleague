@@ -393,6 +393,7 @@ def test_subagent_drive_with_telemetry_off_is_noop(tmp_path: Path) -> None:
         "stopped_without_finish",
         "effort",  # t5: the resolved-rung block (v4 default always resolves)
         "sampling",  # #479 t9: the resolved sampling profile (row + wire)
+        "task_text",  # #481: recording is ON by default (decision c15)
     }
     assert (
         set(d.keys()) == expected_keys

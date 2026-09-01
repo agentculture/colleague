@@ -239,6 +239,10 @@ def _extra_fields_run_record(self: "TaskResult", extra: dict[str, Any]) -> dict[
     # the pre-tip_sha artifact (no extra key).
     if self.tip_sha is not None:
         extra["tip_sha"] = self.tip_sha
+    # task_text gets the same omit-when-None treatment as prompt_digest (#481):
+    # a disabled or pre-field run serializes byte-identically (no extra key).
+    if self.task_text is not None:
+        extra["task_text"] = self.task_text
     return extra
 
 
@@ -363,5 +367,6 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
             list(data["offered_tools"]) if isinstance(data.get("offered_tools"), list) else None
         ),
         tip_sha=data.get("tip_sha"),
+        task_text=data.get("task_text"),
         warnings=list(data.get("warnings", [])),
     )
