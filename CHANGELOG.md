@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.74.2] - 2026-09-01
+
+### Fixed
+
+- **`COLLEAGUE_TEMPERATURE` was ignored on a matched model** (Qodo review of PR #485, finding 5; reproduced: pinning 0.6 still sent the card's 1.0). The deprecated scalar still APPLIES this release — t7's back-compat guarantee — so a matched row no longer overwrites an explicit pin; the rest of the row still applies. The approved evidence for that obligation had verified `EngineConfig` resolution and the warning text, but never the payload — one layer too high.
+- **The artifact could record a sampling profile that was never sent** (finding 6). `TaskResult.sampling` now honours `COLLEAGUE_SAMPLING=0` — the kill switch sends no keys, so the record is absent rather than describing a request that never happened.
+- **`config show` and the artifact resolved builtin-only while the adapter layered operator rows** (finding 9, risk r7), so an operator `models.json` override showed one thing and sent another. The row conversion moved into `colleague/samplingwire.py` as `operator_rows()` beside the wire filter, and all three consumers — the payload builder, `config show`, and the recorder — now resolve against the same merged table. Same reconciliation the server-default table needed in deviation d2.
+- SonarCloud: `contract_taskresult_io.task_result_from_dict` (S3776, 16 → under 15) — the `sampling` field's inline conditional split into `_sampling_from_dict`.
+
+## [1.74.1] - 2026-09-01
+
+### Fixed
+
+- SonarCloud: all 10 findings on PR #485. Two were real complexity findings in runtime code — `contract_taskresult_io._extra_fields_tail` (S3776, 16 → under 15; the new `sampling` field added the branch that pushed it over, so the run-record tail split into `_extra_fields_run_record`) and `loop_transport._complete_with_degradation` (S3776, 24 → under 15; the budget-off pass-through that the repetition arms grew is now `_complete_without_budget`). Both splits are purely structural — serialized key order, omit-when-`None` behaviour and the byte-identical guarantees are unchanged. The other eight were test hygiene: three composite assertions split (S9073), three `pytest.raises` blocks reduced to one throwing call each (S5778), one assertion-order unification (S3415), one empty decorator paren (S9083).
+
+## [1.74.0] - 2026-09-01
+
+### Added
+
+- Reasoning-aware sampling defaults (#479): `colleague/sampling.py` holds a FIXED builtin table of the Qwen3.8 card profiles keyed by model + role + thinking half, with an ENUMERATED-id match rule — the served `unsloth/Qwen3.8-27B-NVFP4` and the card `Qwen/Qwen3.8-27B` resolve to one row while `Qwen3.8-4B` inherits nothing. An unmatched model sends no sampling keys at all (byte-identical to before).
+- `colleague/samplingwire.py` — the single module that names the vLLM extension keys: `SERVER_DEFAULT_SAMPLING`, `SAMPLING_COERCERS`, `wire_fragment()` and the `COLLEAGUE_SAMPLING` kill-switch predicate. Only keys whose value DIFFERS from the server default reach the wire, so `top_k` is the only vLLM extension the builtin table sends — the adapter's fourth carve-out stays one key.
+- A tracked `.colleague/models.json` operator table (`colleague/samplingfile.py`) with per-model merge granularity. Tracked, not gitignored, so an operator's rows survive into a work item's throwaway worktree at HEAD.
+- `colleague/repetitionguard.py` — a verbatim-tail repetition detector (48 characters × 8 repeats, KMP minimal-period guarded, bounded 8192-character window) wired into both the streaming and blocking transports. A trip cuts the TURN into the existing retry; only the third trip in one run ends it.
+- `TaskResult.sampling` — the profile each seat resolved, recording the card ROW and the WIRE separately so a reader can never mistake "the card says" for "the request carried". Omit-when-`None`, like `effort`.
+- `colleague/loop_progress.py::delta_heartbeat()` — a throttled, thread-free in-flight liveness callback. NOT yet armed on the work path; the wiring is #483.
+
+### Changed
+
+- The distill child resolves its own sampling profile from its own `distilleffort` rung instead of hard-coding `temperature: 0` beside an armed thinking rung.
+- `CONVERTIBLE_TEMPERATURE` is REMOVED and warns if set. `COLLEAGUE_TEMPERATURE` is DEPRECATED over one release — it still applies exactly as it does today and warns, naming `.colleague/models.json`, because a single value collapses BOTH the thinking and non-thinking halves to one temperature.
+- `config show` states the sampling match positively: the row that matched, what actually goes on the wire, and what was dropped for already being the server default — or an explicit no-row-matched line when a misspelt model resolves to nothing.
+
+### Fixed
+
+- `config show` and the adapter disagreed about the `COLLEAGUE_SAMPLING` kill switch: the adapter disabled on `0|false|no|off` while `config show` matched only the literal `"0"`, so `COLLEAGUE_SAMPLING=off` sent no sampling keys while `config show` cheerfully reported a match. Both now call one predicate (deviation d6, found by the documentation pass).
+- `loopguards.py`'s docstring records that the verbatim-tail repetition tier was ported after all, on which evidence (run `2bd306a6916a`, 271,486 characters), and which false-positive risk is accepted — rather than quietly dropping its earlier "NOT ported" claim.
+
 ## [1.73.0] - 2026-08-31
 
 ### Added

@@ -12,6 +12,7 @@ from colleague import associate
 from colleague import effortrecord as _effortrecord
 from colleague import loopguards as _loopguards
 from colleague import runcounts as _runcounts
+from colleague import samplingrecord as _samplingrecord
 from colleague import webbudget
 from colleague.context import classify_degradable
 from colleague.contract import (
@@ -227,6 +228,10 @@ def _finalize_finish_states(
     # the run that this point can see (main / senses / delegated children);
     # the distill seat records at its own launch site (loop_memory).
     _effortrecord.fold_run_seats(ctx)
+    # #479 t9 (c38/h30): fold each seat's resolved sampling profile (row +
+    # wire) onto result.warnings, mirroring effortrecord's presence rule —
+    # a seat whose model+rung matched no builtin row is simply absent.
+    _samplingrecord.fold_run_seats(ctx)
 
 
 def _maybe_flag_incompletion(ctx: "_Work", outcome: str) -> None:

@@ -545,6 +545,7 @@ _PRE_FEATURE_ARTIFACT_KEYS = frozenset(
         # offered_tools (delegation-follow-ups t2): rendered tool names, omit-when-None.
         "offered_tools",
         "effort",  # t5: the resolved-rung block (v4 default always resolves)
+        "sampling",  # #479 t9: the resolved sampling profile (row + wire)
     }
 )
 

@@ -189,6 +189,21 @@ def _extra_fields_tail(self: "TaskResult", extra: dict[str, Any]) -> dict[str, A
     # that resolved no seat rung serializes byte-identically (no extra key).
     if self.effort is not None:
         extra["effort"] = dict(self.effort)
+    if self.sampling:
+        extra["sampling"] = [dict(entry) for entry in self.sampling]
+    return _extra_fields_run_record(self, extra)
+
+
+def _extra_fields_run_record(self: "TaskResult", extra: dict[str, Any]) -> dict[str, Any]:
+    """The run-record tail of :func:`_extra_fields_to_dict` (same order).
+
+    Split off when the #479 ``sampling`` field pushed
+    :func:`_extra_fields_tail` past the SonarCloud S3776 ceiling — the same
+    purely-structural reason that split ``_extra_fields_tail`` from
+    :func:`_extra_fields_to_dict`. Every field here keeps its
+    omit-when-``None``/empty treatment, so the serialized key order and the
+    byte-identical guarantees are unchanged.
+    """
     # incompletion gets the same omit-when-None treatment: a completed
     # work item serializes byte-identically (no extra key).
     if self.incompletion is not None:
@@ -225,6 +240,21 @@ def _extra_fields_tail(self: "TaskResult", extra: dict[str, Any]) -> dict[str, A
     if self.tip_sha is not None:
         extra["tip_sha"] = self.tip_sha
     return extra
+
+
+def _sampling_from_dict(data: dict[str, Any]) -> "list[dict[str, Any]] | None":
+    """Read back the #479 ``sampling`` block, tolerantly.
+
+    A separate function purely to hold :func:`task_result_from_dict` under the
+    SonarCloud S3776 ceiling — this field's inline conditional was the branch
+    that pushed it from 15 to 16. A missing or non-list value reads back as
+    ``None`` (the omit-when-``None`` counterpart), and a non-dict entry inside
+    the list is skipped rather than raising.
+    """
+    raw = data.get("sampling")
+    if not isinstance(raw, list):
+        return None
+    return [dict(entry) for entry in raw if isinstance(entry, dict)]
 
 
 def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
@@ -316,6 +346,7 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         # effort (t5): best-effort like memory/evaluation_ledger — a non-dict
         # (or absent) key degrades to None, never raises on an old artifact.
         effort=(dict(data["effort"]) if isinstance(data.get("effort"), dict) else None),
+        sampling=_sampling_from_dict(data),
         incompletion=(
             IncompletionRecord.from_dict(data["incompletion"])
             if isinstance(data.get("incompletion"), dict)

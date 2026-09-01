@@ -240,6 +240,7 @@ class TestNoFinishResultFidelity:
             "not_finished",
             "stopped_without_finish",
             "warnings",
+            "sampling",
             "role",
             "mode",
             "acceptance_outcomes",

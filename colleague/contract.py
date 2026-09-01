@@ -630,6 +630,23 @@ class TaskResult:
     ``reasoning_effort_seat``) — never recomputed per consumer. Like
     ``incompletion``, the serialized key is OMITTED (not null) when ``None``,
     so a run predating this field serializes byte-identically."""
+
+    sampling: Optional[list[dict[str, Any]]] = None
+    """Top-level sampling block (#479 t9): one entry per seat whose sampling
+    profile RESOLVED, mirroring :mod:`colleague.effortrecord`'s presence rule -
+    a seat that resolved records, a seat that did not is simply ABSENT, never
+    an invented row. The serialized key is OMITTED (not null) when ``None``, so
+    a run whose model matched no table row serializes byte-identically to a
+    pre-#479 artifact, and absence reads as "nothing was sent" rather than "we
+    forgot to record it".
+
+    Each entry carries ``{seat, half, row, wire}``. ``row`` is what the model
+    CARD says; ``wire`` is what actually went out - the row minus every key
+    already at the server default
+    (:data:`colleague.samplingwire.SERVER_DEFAULT_SAMPLING`). They are labelled
+    apart deliberately: showing only the row would tell a reader that
+    ``min_p``/``repetition_penalty`` reached the server when they did not - the
+    same misstatement this arc had to fix in ``config show`` (deviation d4)."""
     incompletion: Optional[IncompletionRecord] = None
     """Record of why a work item was incomplete, or ``None`` when the work item
     completed normally. A :class:`IncompletionRecord` of shape

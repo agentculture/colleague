@@ -205,12 +205,24 @@ the seat's resolved setting is non-unset:
   as `"high"`, never silently upgraded to `"xhigh"`);
 - unset / `default` → no key at all (byte-identical body).
 
-Never both keys, never any other key (`preserve_thinking` is never sent — vLLM
-merges request kwargs per key, so lobes' `preserve_thinking: true` is never
-clobbered). `chat_template_kwargs` is a **vLLM extension**, so this is the
-**third** graceful-degrade carve-out to "the vLLM adapter only touches the
-OpenAI surface" (after `/tokenize` and the armed-lobes stale-pin refresh — see
-CLAUDE.md conventions): a server that ignores the key behaves exactly as today.
+Never both keys, and never any other key **inside `chat_template_kwargs`**
+(`preserve_thinking` is never sent — vLLM merges request kwargs per key, so
+lobes' `preserve_thinking: true` is never clobbered). `chat_template_kwargs` is
+a **vLLM extension**, so this is the **third** graceful-degrade carve-out to
+"the vLLM adapter only touches the OpenAI surface" (after `/tokenize` and the
+armed-lobes stale-pin refresh — see CLAUDE.md conventions): a server that
+ignores the key behaves exactly as today.
+
+**`chat_template_kwargs` is no longer the only per-seat body key.** Since #479
+the same payload also carries the resolved **per-model sampling profile**, and
+the rung this page resolves is exactly what selects its half — `off` is the
+model's non-thinking half, any live rung the thinking half, and unset /
+`default` selects no half and therefore no sampling key. On the builtin Qwen3.8
+table that adds `temperature`, `top_p` and `top_k` (plus `presence_penalty` on
+the non-thinking half); `top_k` is the only vLLM extension among them, and it
+is the **fourth** carve-out. The table, the wire filter, the operator
+`.colleague/models.json` and the honest limits live in
+[sampling.md](sampling.md) — this page owns the rung, not the values.
 
 ## Ladder-400 degrade
 
@@ -324,3 +336,5 @@ byte-identical.
   four-point escalation surface.
 - [subagent-roles.md](subagent-roles.md) — `Role.effort` and the child rows.
 - [engines.md](engines.md) — the third carve-out on the vLLM adapter.
+- [sampling.md](sampling.md) — the per-model sampling profile the same rung
+  selects the half of, and the fourth carve-out.

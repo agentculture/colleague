@@ -19,6 +19,7 @@ everything else the tokenize probe needs lives here, imported back in.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -26,7 +27,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
-from colleague import associate_config, streamguards
+from colleague import associate_config, sampling, samplingwire, streamguards
 from colleague.config import EngineConfig
 from colleague.engines.vllm_transport import (
     _CONTENT_TYPE_JSON,
@@ -176,6 +177,98 @@ def _effort_for(config: EngineConfig) -> "str | None":
     if "reasoning_effort_seat" in getattr(config, "__dict__", {}):
         return config.__dict__["reasoning_effort_seat"]
     return config.reasoning_effort_effective
+
+
+# ── per-model sampling profile on the wire (#479 t5, c1/c2/c8/c34/c37/c56) ──
+#
+# The ONE write site for sampling keys: :func:`_sampling_fragment` renders the
+# profile :func:`colleague.sampling.resolve_sampling` resolved for THIS
+# completion's model/role/rung, and ``_build_chat_payload``'s NON-associate
+# branch merges it into the outgoing body. Nothing else in ``colleague/``
+# writes a sampling key onto a payload (the associate seat's separate,
+# pre-existing lane — :func:`_apply_associate_profile` — is deliberately
+# untouched; its fold-in is a documented follow-up, not this task).
+
+#: The per-PROCESS kill switch (c37). Deliberately NOT a file switch:
+#: ``.colleague/models.json`` is TRACKED and therefore shared by every process
+#: on the checkout, so only an environment variable lets two concurrent arms
+#: (an A/B, or a byte-identical control) differ on one working tree. It carries
+#: no value — unlike a global temperature it cannot flatten a model's two halves.
+_SAMPLING_ENV_KEY = samplingwire.SAMPLING_ENV_KEY
+_SAMPLING_DISABLING_VALUES = samplingwire.SAMPLING_DISABLING_VALUES
+
+
+def _sampling_enabled() -> bool:
+    """False only under the explicit ``COLLEAGUE_SAMPLING`` kill switch."""
+    raw = os.environ.get(_SAMPLING_ENV_KEY)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in _SAMPLING_DISABLING_VALUES
+
+
+def _operator_sampling_rows(config: EngineConfig) -> "tuple[sampling.SamplingRow, ...]":
+    """The operator's ``.colleague/models.json`` rows as typed table rows (c56).
+
+    The conversion itself lives in :func:`colleague.samplingwire.operator_rows`
+    so that ``config show`` and the artifact recorder resolve against the SAME
+    merged table this payload builder does (Qodo #485 findings 6 and 9, and
+    risk r7) — the same reconciliation the server-default table needed in
+    deviation d2. This wrapper only supplies the root: ``config.memory_root``,
+    the OPERATOR repo the CLI stamps on every isolated run (an isolated run's
+    throwaway worktree is not where operator state lives), falling back to the
+    process CWD when no front set it.
+    """
+    return samplingwire.operator_rows(getattr(config, "memory_root", None) or os.getcwd())
+
+
+def _operator_pinned_temperature() -> bool:
+    """True when the operator explicitly pinned a temperature this release.
+
+    ``COLLEAGUE_TEMPERATURE`` is DEPRECATED but still APPLIES this release
+    (t7 acceptance 1/2 — "an operator config predating this arc resolves to
+    the same values in this release"). A matched card row must therefore NOT
+    overwrite it: the spec's recorded decision is that an explicit knob wins,
+    silently. Without this the guarantee was hollow — a Qwen operator setting
+    0.6 still got the row's 1.0 on the wire (Qodo #485 finding 5, reproduced).
+
+    Read from the environment at build time rather than from a resolved flag,
+    so it holds for a long-lived ``EngineConfig`` reused across work items.
+    """
+    return bool((os.environ.get("COLLEAGUE_TEMPERATURE") or "").strip())
+
+
+def _sampling_fragment(config: EngineConfig, rung: "str | None") -> "dict[str, Any]":
+    """The sampling keys THIS completion should carry — the single write site.
+
+    Empty (``{}`` — byte-identical to pre-#479) when the kill switch is set,
+    when the rung yields no half, or when no row claims the served model: a
+    checkpoint colleague holds no card for is left at the server's own
+    defaults. Otherwise: exactly the keys the resolved row explicitly set,
+    minus any whose value already equals a server default
+    (:data:`colleague.samplingwire.SERVER_DEFAULT_SAMPLING`).
+
+    Operator rows are layered AFTER :data:`~colleague.sampling.BUILTIN_SAMPLING_ROWS`
+    so that :func:`~colleague.sampling.resolve_sampling`'s last-wins tie-break at
+    equal specificity makes an operator row override the builtin it shadows.
+    The override is ROW-level, not key-level (the ladder returns one row's whole
+    profile), matching t2's resolution contract.
+
+    No retry path exists for a server that REFUSES these keys (c34): exposure
+    is already bounded — an unmatched model sends nothing — so a 400 surfaces
+    exactly as it does today.
+    """
+    if not _sampling_enabled():
+        return {}
+    rows = tuple(sampling.BUILTIN_SAMPLING_ROWS) + _operator_sampling_rows(config)
+    profile = sampling.resolve_sampling(
+        config.model, role=getattr(config, "role", None), rung=rung, rows=rows
+    )
+    fragment = samplingwire.wire_fragment(profile)
+    if _operator_pinned_temperature():
+        # The deprecated scalar still wins this release; the rest of the
+        # row (top_p/top_k/...) still applies.
+        fragment.pop("temperature", None)
+    return fragment
 
 
 @dataclass(frozen=True)

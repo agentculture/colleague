@@ -11,11 +11,37 @@ Two guards that halt a run instead of letting it grind:
 
 On a trip the loop records ONE named warning (``kind: loop-guard``) on
 ``TaskResult.warnings``, drops the turn's pending calls (none of them
-executes) and ends the run — never silently continues. Only the two
-always-on guards qwen-code keeps unconditional transfer; its heuristic
-content/thought-repetition tier is off upstream for false positives and is
-NOT ported (spec c17 / c20). colleague's existing unknown-tool streak guard
-(``loop._tool_protocol_broken``, #321) is untouched and runs beside these.
+executes) and ends the run — never silently continues. colleague's existing
+unknown-tool streak guard (``loop._tool_protocol_broken``, #321) is untouched
+and runs beside these.
+
+**The repetition tier was ported after all (#479, t6) — this docstring's
+earlier claim that it "is off upstream for false positives and is NOT ported
+(spec c17 / c20)" no longer holds, and is recorded here rather than quietly
+dropped.** Only HALF of qwen-code's repetition detector crossed over:
+
+* **ported** — the VERBATIM-TAIL content tier, as
+  :mod:`colleague.repetitionguard`, wired into the two transports by
+  :mod:`colleague.loop_transport`. The evidence that overturned the earlier
+  decision is colleague run ``2bd306a6916a``: at ``low`` effort it emitted
+  **271,486 characters** of ONE insight repeated verbatim until
+  ``finish_reason=length``, delivering no answer, while every existing guard
+  stood down (the stream guards' idle clock restarts on arriving payload bytes,
+  so a fast spiral looks maximally alive).
+* **still NOT ported** — the ENTROPY / content-heuristic tier, which remains off
+  upstream for false positives. Nothing here judges whether text is *repetitive
+  enough*; only exact verbatim recurrence trips.
+
+The false-positive risk being accepted: any turn whose reasoning genuinely ends
+with a >=48-character unit repeated >=8 times verbatim has its TURN CUT (not the
+run ended) and one ``repetition-guard`` warning recorded — legitimate output
+shaped that way (a repeated separator line, a generated table of identical rows
+emitted in the reasoning channel) would be cut too. The incident carried ~5
+orders of magnitude of margin over that threshold, and the trip semantics differ
+from this module's on purpose: a loop-guard trip ENDS the run, a repetition trip
+CUTS THE TURN into the existing tighter-window retry and only ends the run at
+:data:`colleague.repetitionguard.ESCALATION_TRIP_LIMIT` trips — so a false
+positive costs one retried turn, not a lost run.
 
 adapted-from: qwen-code packages/core/src/services/loopDetectionService.ts:35
 (TOOL_CALL_LOOP_THRESHOLD = 5), :140 (DEFAULT_MAX_TOOL_CALLS_PER_TURN = 100),

@@ -138,11 +138,18 @@ _SANCTIONED_PROMPT_DIGEST_ADDITION = {"prompt_digest", "offered_tools"}
 # default run (the v4 acting seat always resolves "low"), three-tier or not.
 _SANCTIONED_EFFORT_ADDITION = {"effort"}
 
+# #479 t9 (c38/h30): the resolved per-model sampling profile lands on its own
+# TaskResult.sampling field (arc deviation d5, matching effort's precedent) —
+# likewise unconditional on a default run, since EngineConfig.resolve()'s
+# default model/rung pair matches the builtin Qwen3.8-27B thinking card.
+_SANCTIONED_SAMPLING_ADDITION = {"sampling"}
+
 _EXPECTED_NOCONFIG_TASKRESULT_KEYS = (
     _PRE_ARC_TASKRESULT_KEYS
     | _SANCTIONED_FINISH_ADDITIONS
     | _SANCTIONED_PROMPT_DIGEST_ADDITION
     | _SANCTIONED_EFFORT_ADDITION
+    | _SANCTIONED_SAMPLING_ADDITION
 )
 
 # Fields the arc introduced elsewhere on TaskResult (t7's config event stream)
