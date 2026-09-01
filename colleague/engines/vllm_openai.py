@@ -59,6 +59,7 @@ from colleague.engines.vllm_payload import (
     _record_ladder_retry_warning,
     _record_transport_guarded,
     _refreshed_model_id,
+    _sampling_fragment,
     _tokenize_post,
     _tokenize_url,
 )
@@ -303,9 +304,19 @@ class VllmOpenAIEngine(Engine):
         if profile is not None:
             limit = _apply_associate_profile(payload, profile, limit)
         else:
-            effort_fragment = effort.to_chat_template_kwargs(_effort_for(config))
+            rung = _effort_for(config)
+            effort_fragment = effort.to_chat_template_kwargs(rung)
             if effort_fragment:
                 payload["chat_template_kwargs"] = effort_fragment
+            # Per-model sampling profile (#479 t5, c1/c2/c8/c37/c56): the SINGLE
+            # write site for temperature/top_p/top_k/min_p/penalty keys. Empty —
+            # byte-identical to pre-#479 — under COLLEAGUE_SAMPLING=0, for a rung
+            # with no half, or for a model no row claims. It consumes the rung
+            # ``_effort_for`` already resolved (never re-deriving thinking-ness)
+            # and merges AFTER "temperature" is written, so a row's temperature
+            # replaces the config default. No retry path when a server refuses
+            # these keys (c34) — a 400 surfaces exactly as today.
+            payload.update(_sampling_fragment(config, rung))
         if limit is not None:
             payload["max_tokens"] = limit
         streaming = config.on_delta is not None or _headless_streaming_enabled()

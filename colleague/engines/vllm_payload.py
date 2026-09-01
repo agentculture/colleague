@@ -19,6 +19,7 @@ everything else the tokenize probe needs lives here, imported back in.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -26,7 +27,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
-from colleague import associate_config, streamguards
+from colleague import associate_config, sampling, samplingfile, streamguards
 from colleague.config import EngineConfig
 from colleague.engines.vllm_transport import (
     _CONTENT_TYPE_JSON,
@@ -176,6 +177,169 @@ def _effort_for(config: EngineConfig) -> "str | None":
     if "reasoning_effort_seat" in getattr(config, "__dict__", {}):
         return config.__dict__["reasoning_effort_seat"]
     return config.reasoning_effort_effective
+
+
+# ── per-model sampling profile on the wire (#479 t5, c1/c2/c8/c34/c37/c56) ──
+#
+# The ONE write site for sampling keys: :func:`_sampling_fragment` renders the
+# profile :func:`colleague.sampling.resolve_sampling` resolved for THIS
+# completion's model/role/rung, and ``_build_chat_payload``'s NON-associate
+# branch merges it into the outgoing body. Nothing else in ``colleague/``
+# writes a sampling key onto a payload (the associate seat's separate,
+# pre-existing lane — :func:`_apply_associate_profile` — is deliberately
+# untouched; its fold-in is a documented follow-up, not this task).
+
+#: The per-PROCESS kill switch (c37). Deliberately NOT a file switch:
+#: ``.colleague/models.json`` is TRACKED and therefore shared by every process
+#: on the checkout, so only an environment variable lets two concurrent arms
+#: (an A/B, or a byte-identical control) differ on one working tree. It carries
+#: no value — unlike a global temperature it cannot flatten a model's two halves.
+_SAMPLING_ENV_KEY = "COLLEAGUE_SAMPLING"
+_SAMPLING_DISABLING_VALUES = frozenset({"0", "false", "no", "off"})
+
+#: Known SERVER defaults for the sampling keys, filtered out before the wire (c8).
+#:
+#: Why: ``colleague.sampling``'s builtin rows record the model card VERBATIM,
+#: which means the Qwen3.8 thinking row explicitly sets ``min_p`` 0.0 and
+#: ``repetition_penalty`` 1.0 — values that already ARE the server default.
+#: Sending them changes nothing on the server while widening colleague's
+#: non-OpenAI surface for nothing, so the ROW keeps the card (it is the honest
+#: record of what the card says) and the ADAPTER drops any key whose value
+#: equals the default here. ``top_k`` is then the only vLLM extension the
+#: builtin table actually needs on the wire.
+#:
+#: ``temperature`` is deliberately ABSENT: the payload builder always writes a
+#: temperature (``config.temperature``), so a row's temperature is an
+#: OVERRIDE of an existing key rather than an addition — filtering it would
+#: leave the pre-#479 greedy 0.0 on the wire, the exact bug this arc fixes.
+#: ``top_k`` is absent too: vLLM spells "disabled" as -1 or 0 depending on
+#: version, so there is no single unambiguous default to compare against.
+_SERVER_DEFAULT_SAMPLING: "dict[str, Any]" = {
+    "top_p": 1.0,
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "repetition_penalty": 1.0,
+}
+
+_UNSET = object()
+
+#: ``models.json`` half labels → :mod:`colleague.sampling`'s two halves. The
+#: file format (t3) is intentionally uninterpreted at parse time; mapping its
+#: labels is this consumer's job. An unrecognised label contributes no row.
+_HALF_LABELS = {
+    sampling.THINKING: sampling.THINKING,
+    sampling.NON_THINKING: sampling.NON_THINKING,
+    "non_thinking": sampling.NON_THINKING,
+    "nonthinking": sampling.NON_THINKING,
+    "instruct": sampling.NON_THINKING,
+}
+
+#: Recognised sampling keys and their coercion — the ``associate_config``
+#: tolerance precedent: an unparseable value is IGNORED, never a refusal.
+_SAMPLING_COERCERS: "dict[str, Callable[[Any], Any]]" = {
+    "temperature": float,
+    "top_p": float,
+    "top_k": int,
+    "min_p": float,
+    "presence_penalty": float,
+    "repetition_penalty": float,
+}
+
+
+def _sampling_enabled() -> bool:
+    """False only under the explicit ``COLLEAGUE_SAMPLING`` kill switch."""
+    raw = os.environ.get(_SAMPLING_ENV_KEY)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in _SAMPLING_DISABLING_VALUES
+
+
+def _operator_profile(values: "dict[str, Any]") -> "sampling.SamplingProfile | None":
+    """One ``models.json`` half → a typed profile, or ``None`` for "nothing usable".
+
+    Unrecognised keys and unparseable values are dropped individually
+    (``associate_config.resolve_associate_profile``'s posture), so one typo
+    never costs an operator the rest of their row — and never refuses a run.
+    """
+    fields: "dict[str, Any]" = {}
+    for key, raw in values.items():
+        cast = _SAMPLING_COERCERS.get(key)
+        if cast is None or isinstance(raw, bool):
+            continue
+        try:
+            fields[key] = cast(raw)
+        except (TypeError, ValueError):
+            continue
+    return sampling.SamplingProfile(**fields) if fields else None
+
+
+def _operator_sampling_rows(config: EngineConfig) -> "tuple[sampling.SamplingRow, ...]":
+    """The operator's ``.colleague/models.json`` rows as typed table rows (c56).
+
+    A dispatched work item must read the same sampling table the operator repo
+    declares, so the root is ``config.memory_root`` — the OPERATOR repo the CLI
+    stamps on every isolated run (the ``memory_root`` precedent: an isolated
+    run's throwaway worktree is not where operator state lives) — falling back
+    to the process CWD when no front set it.
+
+    KNOWN LIMITATION (t3's file shape): ``models.json`` nests model → half →
+    keys, with NO role level, so every operator row resolves with
+    ``role=None`` — it claims any seat. A per-seat operator row needs a file
+    format change; this consumer deliberately does not invent a role nesting.
+    """
+    root = getattr(config, "memory_root", None) or os.getcwd()
+    try:
+        raw = samplingfile.load_models_file(root)
+    except (OSError, ValueError):  # pragma: no cover - the loader promises not to raise
+        return ()
+    rows: "list[sampling.SamplingRow]" = []
+    for model_id, halves in raw.items():
+        model_key = sampling.normalize_model_id(model_id)
+        if not model_key or not isinstance(halves, dict):
+            continue
+        for label, values in halves.items():
+            half = _HALF_LABELS.get(str(label).strip().lower().replace("-", "_"))
+            if half is None or not isinstance(values, dict):
+                continue
+            profile = _operator_profile(values)
+            if profile is None:
+                continue
+            rows.append(
+                sampling.SamplingRow(models=(model_key,), role=None, half=half, profile=profile)
+            )
+    return tuple(rows)
+
+
+def _sampling_fragment(config: EngineConfig, rung: "str | None") -> "dict[str, Any]":
+    """The sampling keys THIS completion should carry — the single write site.
+
+    Empty (``{}`` — byte-identical to pre-#479) when the kill switch is set,
+    when the rung yields no half, or when no row claims the served model: a
+    checkpoint colleague holds no card for is left at the server's own
+    defaults. Otherwise: exactly the keys the resolved row explicitly set,
+    minus any whose value already equals :data:`_SERVER_DEFAULT_SAMPLING`.
+
+    Operator rows are layered AFTER :data:`~colleague.sampling.BUILTIN_SAMPLING_ROWS`
+    so that :func:`~colleague.sampling.resolve_sampling`'s last-wins tie-break at
+    equal specificity makes an operator row override the builtin it shadows.
+    The override is ROW-level, not key-level (the ladder returns one row's whole
+    profile), matching t2's resolution contract.
+
+    No retry path exists for a server that REFUSES these keys (c34): exposure
+    is already bounded — an unmatched model sends nothing — so a 400 surfaces
+    exactly as it does today.
+    """
+    if not _sampling_enabled():
+        return {}
+    rows = tuple(sampling.BUILTIN_SAMPLING_ROWS) + _operator_sampling_rows(config)
+    profile = sampling.resolve_sampling(
+        config.model, role=getattr(config, "role", None), rung=rung, rows=rows
+    )
+    return {
+        key: value
+        for key, value in sampling.sampling_payload(profile).items()
+        if _SERVER_DEFAULT_SAMPLING.get(key, _UNSET) != value
+    }
 
 
 @dataclass(frozen=True)
