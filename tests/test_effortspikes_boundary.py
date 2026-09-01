@@ -32,6 +32,17 @@ wire the barrier / gate-escalation / fill-line call sites). This file covers:
 This file deliberately does not test t8/t9's eventual barrier/gate/fillline
 consumers -- those land with their own tests when the sibling tasks wire
 them.
+
+5. **The amendment itself, pinned.** This surface AMENDS the recorded
+   thinking-effort invariant in ``docs/features/thinking-effort.md`` (line
+   11) and the CLAUDE.md "v0 -> v1 graduation" convention-change list (change
+   (7)): effort is resolved "never per turn FROM CONTENT -- per enumerated
+   point from a fixed table" (amended #484), not merely "never per turn" --
+   the older wording alone would not have ruled out a table keyed on turn
+   CONTENT. ``TestAmendedInvariantWording`` below asserts the module
+   docstring names both halves of that phrase, so a future edit that drops
+   the "FROM CONTENT" qualifier while leaving the rest of the surface intact
+   still fails a test.
 """
 
 from __future__ import annotations
@@ -204,3 +215,28 @@ class TestSpikeRecordShape:
             "rung": "medium",
             "seat": "cortex",
         }
+
+
+class TestAmendedInvariantWording:
+    """The spike surface's own module docstring pins the amended wording.
+
+    This is the drift guard for the amendment itself (see the module
+    docstring above): a future edit to ``colleague/effortspikes.py`` that
+    drops the amendment's language -- leaving only the pre-#484 "never per
+    turn" without the "FROM CONTENT" qualifier that actually rules out a
+    content-keyed table -- fails this test, independent of
+    ``tests/test_thinking_effort_boundary.py``'s own copy of the same phrase.
+    """
+
+    def test_module_docstring_names_the_amendment(self) -> None:
+        # Normalize whitespace first: the docstring wraps prose across lines,
+        # so a phrase spanning a line break (e.g. "never per\nturn FROM
+        # CONTENT") must still match a single-spaced needle.
+        doc = " ".join((effortspikes.__doc__ or "").split())
+        assert "amends the recorded thinking-effort invariant" in doc
+        assert "never per turn FROM CONTENT" in doc
+        assert "per enumerated point from a fixed table" in doc
+
+    def test_module_docstring_cites_the_doc_pointer(self) -> None:
+        doc = effortspikes.__doc__ or ""
+        assert "docs/features/thinking-effort.md" in doc

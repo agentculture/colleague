@@ -127,6 +127,21 @@ list of `MirrorFinding` objects (symbol, kind, test_file, impl_file). The field
 is **omitted** from the artifact when the gate found nothing (omit-when-None),
 so a no-finding run is byte-identical to a run without the gate.
 
+### The `test-integrity-flagged` warning on non-finished outcomes (#480)
+
+The gate's report was always recorded on `TaskResult.test_integrity_report`
+regardless of exit outcome (`loop_testgates.py` line ~197 shows the same
+"retries if `_EXIT_FINISHED` else 0" pattern the affected-tests gate uses),
+but a flagged finding on a **non-finished** outcome (budget-exhausted,
+stalled) never carried a `TaskResult.warnings` entry before #480 — only a
+clean finish got the bounded re-examine turn, and that turn was the only place
+a finding surfaced. Now, exactly once per gate, on a flagged finding AND
+`outcome != _EXIT_FINISHED`, `loop_testgates.py` appends
+`{"kind": "test-integrity-flagged", "symbols": [...], "count": N}` —
+mirroring the existing step-stall/loop-guard warning shape — naming the
+flagged symbols. A clean finish is untouched either way. Built by
+`colleague/loop_testgates_warnings.py`'s `build_test_integrity_warning`.
+
 ## Worked example
 
 The gate runs quietly inside the work item. The only thing it prints (to
@@ -170,5 +185,7 @@ response_error (attribute) co-introduced in tests/test_ec2.py & services/ec2.py
 ## See also
 
 - [`docs/features/lint-gate.md`](lint-gate.md) — the sibling pre-finish lint gate (#200)
+- [`docs/features/affected-tests.md`](affected-tests.md) — the sibling gate that shares the identical #480 non-finished-outcome warning fix
+- [`docs/features/import-check.md`](import-check.md) — the fifth pre-finish gate (#482)
 - [`docs/features/ask-colleague.md`](ask-colleague.md) — the `ask-colleague write --apply` path that triggers the gate
 - [`docs/features/agent-cli.md`](agent-cli.md) — `colleague work` and `colleague drive` entry points
