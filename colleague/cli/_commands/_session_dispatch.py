@@ -34,6 +34,7 @@ from colleague.cli._commands._session_slash import (
     _INTROSPECT,
 )
 from colleague.cli._commands._session_support import _T, _read_line, _resolve_selection
+from colleague.cli._commands._work_support import Lineage
 from colleague.cli._errors import CliError
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
@@ -203,7 +204,7 @@ class _DispatchMixin:
         ok-guard error text is the CLI's own (``ContinuationError`` verbatim),
         so an agent driving the session off-TTY parses one shape.
         """
-        from colleague.continuation import ContinuationError, resolve_continuation
+        from colleague.continuation import ContinuationError, prior_task_text, resolve_continuation
 
         ref = (ref or "last").strip() or "last"
         warnings: list[dict] = []
@@ -235,6 +236,9 @@ class _DispatchMixin:
             return
         task = Task.new(str(self.repo), seed, engine=self.engine_name)
         self._continued_from_next = prior_id
+        # c22/h15/h3: the ORIGINAL brief, propagated onto the resumed run's
+        # artifact — never this seed.
+        self._continuation_task_text_next = prior_task_text(self.repo, prior_id)
         self._run_work(task, None)
 
     def _consume_staged_attachments(self, task: Task) -> None:
@@ -463,9 +467,15 @@ class _DispatchMixin:
         self._heal_allow_dirty_once = False
         continued_from = self._continued_from_next
         self._continued_from_next = None
+        continuation_task_text = self._continuation_task_text_next
+        self._continuation_task_text_next = None
         # Passed ONLY when set: an ordinary dispatch keeps the exact work_fn
         # call shape stable for strict test doubles / injected work_fns.
-        lineage_kwargs = {"continued_from": continued_from} if continued_from else {}
+        lineage_kwargs = (
+            {"lineage": Lineage(continued_from=continued_from, task_text=continuation_task_text)}
+            if continued_from
+            else {}
+        )
 
         def _single_episode() -> tuple[TaskResult, Path]:
             return self.work_fn(

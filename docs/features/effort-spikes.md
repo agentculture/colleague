@@ -1,0 +1,222 @@
+# Effort spikes — the amended thinking-effort invariant's opt-in surface
+
+> Spec:
+> [`docs/specs/2026-09-01-small-fixes-then-effort-balance.md`](../specs/2026-09-01-small-fixes-then-effort-balance.md)
+> (c18/c8/h5/h7) — the arc that lands four small validity/observability fixes
+> (#480-#483) before this surface (#484).
+
+[`thinking-effort.md`](thinking-effort.md) states the invariant: a seat's
+reasoning rung is resolved **where the seat is built**, never per turn. #484
+**amends** that wording (recorded as convention change (7) in CLAUDE.md's
+"v0 → v1 graduation" list): the invariant now reads **"never per turn FROM
+CONTENT — per enumerated point from a fixed table."** The distinction
+matters — the old wording alone would not rule out a table keyed on turn
+*content* (a summary of what the model just did, a report's findings, the
+model's own text). Effort spikes key a rung by **POINT NAME only**: a fixed,
+enumerated string like `"barrier.pre_mutation"`, never anything read from the
+turn. This doc covers that surface; `thinking-effort.md` line 11 and CLAUDE.md
+carry the amended wording as pointers back here.
+
+**Opt-in, off by default.** `COLLEAGUE_EFFORT_SPIKES=1` arms the surface.
+Unarmed — the default — every function in `colleague/effortspikes.py` is a
+strict no-op and the run is byte-identical to v1.74.0: no `effort_spikes` key
+ever appears on the artifact, no seat is built, no config attribute is ever
+set.
+
+## The three enumerated points (`colleague/effortspikes.py`)
+
+Exactly three, no more — `SPIKE_POINTS`, a tuple both the table and the drift
+test (`tests/test_effortspikes_boundary.py`) key off:
+
+| Point | Rung | Fires in |
+|-------|------|----------|
+| `barrier.pre_mutation` | `"medium"` | `colleague/loop_barrier.py` |
+| `gate.repeat_failure` | `"medium"` | `colleague/loop_gateescalation.py` |
+| `fillline.decision` | delegated (see below) | `colleague/loop_gateescalation.py` |
+
+`SPIKE_TABLE` maps each point to its rung. Every non-delegated row is a member
+of the closed ladder (`colleague.effort.LADDER`) — `resolve_spike` re-validates
+through `colleague.effort.validate_effort`, so there is no path by which an
+out-of-ladder string reaches the wire. An explicit per-point override,
+`COLLEAGUE_EFFORT_SPIKE_<POINT>` (point name upper-cased, `.` → `_`), wins over
+the table row and is validated the same way.
+
+### `fillline.decision` is delegated, not duplicated
+
+`SPIKE_TABLE["fillline.decision"]` holds the sentinel `FILLLINE_DELEGATED`, not
+a rung — `resolve_spike` refuses to resolve it directly and always returns
+`None` for that point. The fill-line's decision point already had a rung:
+`colleague.effort.DESIGN_SITE_TABLE["fillline.split"]` = `"xhigh"` (`effort.py`
+line ~110), landed with the #416 design-site table but with **no live
+consumer** until this arc. Giving it a second, independent row in
+`SPIKE_TABLE` would let the two tables drift; the module instead documents
+"ask `DESIGN_SITE_TABLE['fillline.split']` instead," and
+`colleague/loop_gateescalation.py` (below) is the consumer that actually reads
+it, via the existing builder `colleague.fillline.design_seat_config` — so the
+operator override / `default` kill-switch precedence (c32) is honoured in the
+one place it was already honoured, never re-derived.
+
+### No model-reachable parameter
+
+`resolve_spike(point: str) -> Optional[str]` takes only a point name. No
+function in the module accepts an `effort`/`rung`/`reasoning_effort` keyword
+(swept by `tests/test_effortspikes_boundary.py`), and `colleague/tool_schemas.py`
+names no `spike` surface at all — there is no tool-parameter path by which a
+model could reach a rung.
+
+## Consumer 1 — the pre-mutation decision barrier (`colleague/loop_barrier.py`)
+
+The FIRST time a turn's requested tool calls include a **mutating** tool (tool
+NAME lookup only, via `colleague.roles.is_read_only_tool` — never argument or
+content inspection), after a run phase where every prior step named only
+read-only tools, the loop interposes one bounded, **tools-off** completion at
+the `barrier.pre_mutation` rung: same history, no tools offered, plus a system
+nudge (`BARRIER_PROMPT`) asking the model to name the files, invariants and
+seams it is about to touch before touching them.
+
+**The intercepted turn is replaced, not deferred.** Its tool calls are never
+executed and its assistant message is never appended — a deferred-then-replayed
+call would act on a plan the model had not yet written, and an appended
+assistant tool-call message with no matching `tool` results is not a valid
+OpenAI history. The model re-issues whatever it still wants to do on its next
+turn, now with the plan in context.
+
+**Accounting is honest (decision c23).** The barrier turn is a NORMAL step:
+its usage/reasoning/answer sizes fold into `WorkStats` via
+`loop_accounting._account_turn` and `model_turns` advances — it costs a turn
+like any other against `max_steps`. It appends one `Step` named
+`barrier.pre_mutation`, so `stats.step_count` advances by exactly one.
+
+**Bounds:** output capped to `max_output_chars // 8` (`PLAN_CHARS_DIVISOR`,
+8500 chars on the 68000 default) with the same discoverable
+`[truncated: original N chars]` marker `colleague/tasktext.py` uses; timeout is
+the STANDARD (un-escalated) turn timeout, never an escalated one.
+
+**Firing:** at most once per run (v0). The barrier's own `TaskResult
+.effort_spikes` entry for `barrier.pre_mutation` IS the already-fired marker —
+no separate state cell. Unarmed, `make_barrier_complete` returns `None` before
+it builds anything and `intercept` returns `False` before it looks at a tool
+name — a strict no-op, including on the `mock` backend (which has no one-shot
+completion seam; the caller warns once and proceeds without a barrier, never
+crashes — the all-engines rule holds because an armed `mock` run records why
+it skipped, rather than diverging in shape).
+
+## Consumer 2 — repeated-gate-failure + fill-line (`colleague/loop_gateescalation.py`)
+
+Both points here escalate a turn that must **keep the run's own tool
+surface** (a gate repair turn calls `edit_file`/`run_tests`; the fill-line
+declaring turn declares SPLIT by calling `subagents` or
+finish-with-handoff by calling `finish`) — the role-curated `offered_tools` the
+engine already captured when it built the acting completion. Building a new
+one-shot seat, the way the barrier and every other effort consumer
+(deepthink, associate, hire) does, would mean re-deriving that role/tool_set
+narrowing — the one thing the allow-list seam exists to keep single.
+
+**So the mechanism deviates on purpose, and the deviation is documented, not
+hidden:** `SeatEscalator` push/pops the acting config's optional
+`reasoning_effort_seat` attribute — the same plain attribute
+`vllm_payload._effort_for` reads and `loop_barrier.barrier_seat_config` sets —
+on the **LIVE config object** the acting completion closed over, for the
+duration of the escalated point, restoring its exact prior state (present-
+with-value vs absent) afterwards. It is a stack, so nested pushes are safe.
+
+### `gate.repeat_failure` — the REPEATED repair turn
+
+`escalated_gate_turn(ctx, gate, attempt)` is a context manager wrapping a
+gate's bounded fix-turn. The FIRST repair (`attempt` below
+`FIRST_REPEATED_ATTEMPT` = 2) keeps the seat's ordinary rung — unchanged,
+byte for byte. A REPEATED repair (the second and later iterations of the
+gate's `while report … and retries > 0` loop) escalates to
+`resolve_spike("gate.repeat_failure")`'s `"medium"`. The deterministic signal
+is the loop's own **iteration count** — nothing here inspects the failing
+report, the failing tests, or any model text. At most once per gate per run.
+
+**The unit of escalation is the repair ATTEMPT, not a single completion.** A
+gate's fix-turn is itself a bounded mini-loop (`_TESTINTEGRITY_FIX_STEPS` = 6
+/ `_AFFECTEDTESTS_FIX_STEPS` = 8 extra model turns in
+`colleague/loop_constants.py`), so the ONE escalated replan covers up to that
+many completions — the model may edit, run tests, and iterate inside its
+single escalated attempt. The artifact records one `gate.repeat_failure`
+`SpikeRecord` for that attempt (the point fired once); it does not count the
+attempt's individual completions. Exactly one attempt per gate per run ever
+escalates — `_fired` gates the rung itself, so third and later repair
+attempts run back at the ordinary rung.
+
+### `fillline.decision` — the DECLARING turn
+
+`arm_fillline_decision(ctx)` escalates the turn that will DECLARE the
+fill-line move (compact | split | finish-with-handoff), called where the
+decision prompt is injected (`loop_context._offer_fillline`) — the fill-line
+has no completion of its own to build a seat for (the honest limit
+`fillline.design_seat_config` has documented since #416 t6). Its rung comes
+from `SeatEscalator.fillline_rung()`, which calls
+`colleague.fillline.design_seat_config` to read the design-site table's
+`"xhigh"` — **this is the live consumer** the design-site table lacked before
+this arc. `disarm_fillline_decision(ctx)` releases the escalation the moment
+the declaration is recorded, so exactly the declaring turn — never the
+compaction turn that may follow it — carries the rung. At most once per run,
+even though the fill line re-arms per crossing (see
+[capacity-standard.md](capacity-standard.md)).
+
+**Unarmed** (`COLLEAGUE_EFFORT_SPIKES` unset): `make_escalator` returns `None`,
+every function is a strict no-op, no attribute on the acting config is ever
+touched.
+
+## The artifact field — `TaskResult.effort_spikes`
+
+A list of `{"point": ..., "rung": ..., "seat": ...}` dicts
+(`colleague.effortspikes.SpikeRecord.to_dict()`), one entry per point that
+actually fired this run. **Omit-when-empty** serialization (mirroring the
+`hires` field's convention): the key is absent from the JSON artifact when the
+list is empty — including every unarmed run — so a pre-#484 artifact and an
+armed-but-never-fired run are byte-identical to each other and to the
+pre-#484 shape. **Absence of an entry for a given point on a finished run
+reads as "did-not-fire"** — there is no separate off/false record.
+
+## Opt-in + per-point overrides
+
+- `COLLEAGUE_EFFORT_SPIKES=1` — the one arming switch for the whole surface
+  (checked by `spikes_enabled()`); anything else (unset, `"0"`, empty, any
+  other string) leaves it OFF.
+- `COLLEAGUE_EFFORT_SPIKE_<POINT>` (point upper-cased, `.` → `_`, e.g.
+  `COLLEAGUE_EFFORT_SPIKE_BARRIER_PRE_MUTATION`) — an explicit per-point rung
+  override, re-validated through the closed ladder like the table row it
+  replaces. An out-of-ladder override raises rather than silently falling
+  back.
+
+## Honest limits
+
+- **At most once per point per run (v0).** The barrier fires once; each gate
+  escalates once; the fill-line decision escalates once even across multiple
+  crossings. Repeated firing within a run is explicitly out of scope for this
+  arc.
+- **The measurement contract is the reason this ships opt-in.** Per the spec,
+  #484 is GATED on the four small fixes (#480-#483): the pre-registered
+  null-hypothesis arm (low effort + the #482 importability check + the #480
+  surfaced gate warning + one bounded fix turn) is compared against a flat
+  `low` baseline and the barrier/rung arms. **Arming any spike by default
+  requires the spike arm (C) to beat the cheap-feedback arm (B) on the same
+  measurement** — this doc records the surface as built and opt-in; it does
+  not itself constitute that evidence. See `docs/live-testing.md` for the
+  recorded arms once run.
+- **`gate.repeat_failure` and `fillline.decision` share one mechanism
+  (`SeatEscalator`) that mutates a live config object rather than building a
+  seat** — a deliberate deviation from every other effort consumer's pattern,
+  documented here and in the module docstring rather than hidden; the
+  push/pop discipline is what keeps it safe to nest.
+- **No tools-off seat for the gate/fillline points** — both need the run's
+  real tool surface, so unlike the barrier (which builds a genuinely tools-off
+  completion) these two points still offer the acting completion's ordinary
+  tools; only the reasoning rung changes.
+
+## See also
+
+- [`docs/features/thinking-effort.md`](thinking-effort.md) — the invariant
+  this surface amends (the amendment note at line 11).
+- [`docs/features/deepthink.md`](deepthink.md) — the enumerated escalation
+  precedent (`test_deepthink_boundary.py`'s descriptor-list style, mirrored by
+  `tests/test_effortspikes_boundary.py`).
+- [`docs/features/capacity-standard.md`](capacity-standard.md) — the fill-line
+  decision the third spike point escalates.
+- [`docs/features/work-and-loop.md`](work-and-loop.md) — the loop the barrier
+  and gate-escalation modules hook into.

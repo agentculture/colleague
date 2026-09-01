@@ -174,6 +174,43 @@ def resolve_continuation(
     return (task_id, seed_text)
 
 
+def prior_task_text(repo: str | Path, task_id: str) -> Optional[str]:
+    """The prior artifact's ``task_text``, propagated forward as the ORIGINAL
+    brief (c22/h15/h3 of ``docs/specs/2026-09-01-small-fixes-then-effort-balance.md``).
+
+    ``resolve_continuation`` builds a synthesized SEED for the resumed run's
+    ``Task.instruction`` — never a brief, and never what should land in the
+    resumed artifact's ``task_text``. This function is the other half: it
+    reads the prior artifact's own ``task_text`` field so the caller (the
+    ``work --continue`` CLI path, the session's ``/continue``, and the chain
+    driver) can stamp the ORIGINAL forward onto the new run's result instead
+    — via :func:`colleague.tasktext.apply_continuation_task_text`.
+
+    Because a prior artifact's ``task_text`` is itself already the propagated
+    original (this same function was used to stamp it, if that run was also a
+    continuation), a plain field read here is enough to always carry the
+    ORIGINAL — never a synthesized seed — however many times a run gets
+    continued.
+
+    Returns ``None`` when the artifact is missing, corrupt, not a JSON object,
+    or simply carries no ``task_text`` (an old pre-#481 artifact, or one
+    recorded with ``COLLEAGUE_RECORD_TASK_TEXT=0``) — a seed is never a brief,
+    so there is nothing honest to propagate and the caller records nothing
+    rather than inventing one.
+    """
+    path = find_artifact(Path(repo), task_id)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    text = data.get("task_text")
+    return text if isinstance(text, str) else None
+
+
 def recorded_acting_effort(repo: str | Path, task_id: str) -> tuple[Optional[str], Optional[Path]]:
     """The prior run's recorded ACTING-seat rung + its artifact path (t8, c32).
 

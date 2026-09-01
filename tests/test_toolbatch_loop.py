@@ -350,7 +350,7 @@ def test_thread_allowlist_and_claude_md_record_convention_change_six() -> None:
     assert '"colleague/toolbatch.py"' in boundary
     assert "convention change (6)" in boundary
     claude = (Path(__file__).resolve().parent.parent / "CLAUDE.md").read_text()
-    assert "Six deliberate, **recorded** convention changes" in claude
+    assert "Seven deliberate, **recorded** convention changes" in claude
     assert "(6)" in claude
     assert "COLLEAGUE_TOOL_CONCURRENCY" in claude
     assert "toolbatch_loop.py" in claude

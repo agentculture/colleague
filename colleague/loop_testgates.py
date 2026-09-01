@@ -15,6 +15,9 @@ from contextlib import suppress
 from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
+from colleague import importcheck as _importcheck
+from colleague import loop_gateescalation as _gateescalation
+from colleague import loop_testgates_warnings as _testgates_warnings
 from colleague import testintegrity as _testintegrity
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.loop_accounting import _account_turn
@@ -192,11 +195,21 @@ def _maybe_run_test_integrity_gate(
         if not report.findings:
             return
         ctx.result.test_integrity_report = report
-        _surface_test_integrity(report)
+        _testgates_warnings.surface_test_integrity(report)
+        # #480 AC2 (see loop_testgates_warnings.py): named once, non-finished only.
+        if outcome != _EXIT_FINISHED:
+            ctx.result.warnings.append(_testgates_warnings.build_test_integrity_warning(report))
         # Bounded re-examine turn(s) — only after a clean finish with budget left.
         retries = ctx.testintegrity_fix_retries if outcome == _EXIT_FINISHED else 0
+        attempt = 0
         while report.findings and retries > 0:
-            _run_test_integrity_fix_turn(ctx, complete, report.findings, work_loop=work_loop)
+            # #484 t9: the FIRST repair runs at the seat's ordinary rung; a
+            # REPEATED one (attempt >= 2 — the loop iteration count, never the
+            # report's content) escalates ONCE to the fixed
+            # ``gate.repeat_failure`` rung. A strict no-op when unarmed.
+            attempt += 1
+            with _gateescalation.escalated_gate_turn(ctx, "test_integrity", attempt):
+                _run_test_integrity_fix_turn(ctx, complete, report.findings, work_loop=work_loop)
             retries -= 1
             report = _testintegrity.detect_mirror(ctx.task.repo_path, _gate_changed_set(ctx))
             ctx.result.test_integrity_report = report if report.findings else None
@@ -286,10 +299,20 @@ def _maybe_run_affected_tests_gate(
         if report is None:
             return
         ctx.result.affected_tests_report = report
-        _surface_affected_tests(report)
+        _testgates_warnings.surface_affected_tests(report)
+        # #480 AC1 (see loop_testgates_warnings.py): named once, non-finished only.
+        if report.status == "failed" and outcome != _EXIT_FINISHED:
+            ctx.result.warnings.append(_testgates_warnings.build_affected_tests_warning(report))
         retries = ctx.affectedtests_fix_retries if outcome == _EXIT_FINISHED else 0
+        attempt = 0
         while report.status == "failed" and retries > 0:
-            _run_affected_tests_fix_turn(ctx, complete, report, work_loop=work_loop)
+            # #484 t9: identical wiring to the test-integrity fix turn above —
+            # the two loops share the shape, so they share the escalation. The
+            # signal is ``attempt`` (this loop's iteration count), never the
+            # report.
+            attempt += 1
+            with _gateescalation.escalated_gate_turn(ctx, "affected_tests", attempt):
+                _run_affected_tests_fix_turn(ctx, complete, report, work_loop=work_loop)
             retries -= 1
             next_report = _affectedtests.run_affected_tests(
                 ctx.task.repo_path,
@@ -302,7 +325,7 @@ def _maybe_run_affected_tests_gate(
                 break
             report = next_report
             ctx.result.affected_tests_report = report
-            _surface_affected_tests(report)
+            _testgates_warnings.surface_affected_tests(report)
 
 
 def _run_affected_tests_fix_turn(
@@ -341,23 +364,70 @@ def _run_affected_tests_fix_turn(
     ) = saved
 
 
-def _surface_affected_tests(report: "_affectedtests.AffectedTestsReport") -> None:
-    """Write the affected-tests summary to stderr (advisory; never raises)."""
-    with suppress(OSError):
-        sys.stderr.write(report.summary_line() + "\n")
+def _maybe_run_import_check_gate(
+    ctx: _Work,
+    aborted: Exception | None,
+) -> None:
+    """Run the pre-finish importability-check gate on EVERY outcome (#482/#480 t6 h4).
 
+    Takes no ``outcome`` argument (unlike the affected-tests/test-integrity gate
+    functions) — precisely BECAUSE it fires identically regardless of the exit
+    shape; mirrors :func:`_maybe_run_coherence_gate`'s ``(ctx, aborted)`` shape.
 
-def _surface_test_integrity(report: "_testintegrity.TestIntegrityReport") -> None:
-    """Write the mirror-signature findings to stderr (advisory; never raises)."""
-    detail = "; ".join(
-        f"{f.symbol} ({f.kind}) co-introduced in {f.test_file} & {f.impl_file}"
-        for f in report.findings
-    )
-    with suppress(OSError):
-        sys.stderr.write(
-            "test-integrity: possible self-confirming test(s) — mirror signature "
-            f"flagged: {detail}\n"
-        )
+    Run cc5d1f1a2c5f (docs/live-testing.md row 67) shipped a branch that did not
+    import — a hallucinated ``from colleague.hooks import Policy`` and a lost
+    ``ToolCall`` re-export breaking ``vllm_transport.py`` — on a BUDGET-EXHAUSTED
+    (``INCOMPLETE``) outcome. The affected-tests gate already caught it (reported
+    ``failed``), but a non-``_EXIT_FINISHED`` outcome got zero fix turns AND, before
+    #480, no ``TaskResult.warnings`` entry either, so the harness knew and the
+    operator did not. #480 fixed the second half for affected-tests/test-integrity;
+    this gate closes the first half for import-checking specifically, structured the
+    same way affected-tests/test-integrity already run their CHECK unconditionally
+    (only their bounded fix-turn is ``_EXIT_FINISHED``-gated): the import-check has
+    NO fix-turn at all (out of #482/t3's scope), so there is no clean-finish path
+    that surfaces a failure a different way — the warning below fires on every
+    failing outcome alike, finished included.
+
+    Unlike the other three gates this one carries no ``ContextControls`` enable
+    knob and no ``ctx.*_enabled`` flag: :func:`colleague.importcheck.run_import_check`
+    is already self-disabling (``COLLEAGUE_IMPORT_CHECK=0``, an empty/non-``.py``
+    changed set, or an internal error all degrade to ``status="skipped"`` without a
+    subprocess), so there is nothing extra to gate here — "always attempted,
+    self-disabling" mirrors :mod:`colleague.lint`'s stance more than the two other
+    test gates' explicit enable flags.
+
+    Chain-episode deferral: called from ``loop_gates._run_pre_finish_gates`` AFTER
+    the shared ``_gates_deferred_to_chain`` early-return (#335), the SAME point the
+    lint/coherence/test-integrity/affected-tests gates sit behind — a deliberate
+    choice (not an oversight) to mirror the affected-tests deferral: a
+    continuation-shaped chain episode's tree is about to be rewritten by the next
+    episode, so a mid-chain import-check would grade intermediate state the chain's
+    FINAL (finish-shaped) episode re-grades anyway over the accumulated union
+    (:func:`_gate_changed_set`).
+
+    Record shape: ``ctx.result.importcheck_report`` is set on both ``"passed"`` and
+    ``"failed"`` (mirroring ``lint_report``/``coherence_report`` — a clean run is
+    still visible on the artifact) and left ``None`` on ``"skipped"``. The
+    ``import-check-failed`` warning is appended only on ``"failed"``.
+
+    Best-effort + fail-safe (mirrors the sibling gates): wrapped in ``suppress`` so
+    a raising call (``run_import_check`` is already defensive internally, but a
+    subprocess consumer is never trusted twice) can NEVER abort ``run()``.
+    """
+    if aborted is not None:
+        return
+    with suppress(Exception):
+        changed = _gate_changed_set(ctx)
+        if not changed:
+            return
+        report = _importcheck.run_import_check(ctx.task.repo_path, changed)
+        if report.status == "skipped":
+            return
+        ctx.result.importcheck_report = report
+        if report.status != "failed":
+            return
+        _testgates_warnings.surface_import_check(report)
+        ctx.result.warnings.append(_testgates_warnings.build_import_check_warning(report))
 
 
 def _maybe_spawn_test_integrity_reviewer(

@@ -553,6 +553,9 @@ class _Session(
         # Lineage for the next dispatch when /continue seeded it (#167); consumed
         # (reset) by _dispatch_work, mirroring the heal waiver cell above.
         self._continued_from_next: Optional[str] = None
+        # Propagated original task_text (c22/h15/h3), consumed alongside the
+        # lineage cell above.
+        self._continuation_task_text_next: Optional[str] = None
         self._owned_line: Optional[OwnedInputLine] = None
         self._owned_line_streams: Optional[tuple[object, object]] = None
         self._owned_talk_queue: "deque[str]" = deque()

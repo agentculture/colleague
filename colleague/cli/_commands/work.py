@@ -88,6 +88,7 @@ from colleague.cli._commands._work_salvage import (
 )
 from colleague.cli._commands._work_support import (
     DisplayOptions,
+    Lineage,
     _announce_flight,
     _apply_affected_tests_optout,
     _apply_coherence_optout,
@@ -98,6 +99,7 @@ from colleague.cli._commands._work_support import (
     _emit_work_outcome,
     _moded_config,
     _render,
+    _stamp_lineage,
     _stamp_run_metadata,
     _step_progress,
 )
@@ -276,6 +278,7 @@ def _engine_failure_error(
     mode: str | None,
     work_span,
     continued_from: str | None = None,
+    continuation_task_text: str | None = None,
     worktree_path: str | None = None,
     presence: "object | None" = None,
     presence_fold_chat: bool = False,
@@ -314,13 +317,8 @@ def _engine_failure_error(
         original = exc
         # No partial result -> the trace is empty; don't claim otherwise.
         artifact_note = "a result artifact was still written"
-    result.command = command_name
-    # Mode (t7 / spec R3 / #256): recorded on the failure path too — a moded run
-    # that raises still carries the mode that drove it.
-    result.mode = mode
-    # Lineage (#167): the failure path keeps it too — a continued run that
-    # crashes still names what it was continuing.
-    result.continued_from = continued_from
+    # Lineage/mode/task_text on the failure path too (#167, #256, c22/h15/h3).
+    _stamp_lineage(result, command_name, mode, continued_from, continuation_task_text)
     if presence is not None:
         fold_presence_snapshot(result, presence, fold_chat=presence_fold_chat)
     work_span.set(status=result.status)
@@ -530,6 +528,7 @@ def _drive_engine(
     command_name: str | None,
     mode: str | None,
     continued_from: str | None,
+    continuation_task_text: str | None,
     work_span,
     presence: "object | None",
     presence_foreground: bool,
@@ -566,6 +565,7 @@ def _drive_engine(
             engine_name=engine_name,
             command_name=command_name,
             continued_from=continued_from,
+            continuation_task_text=continuation_task_text,
             mode=mode,
             work_span=work_span,
             worktree_path=worktree_path,
@@ -594,7 +594,7 @@ def execute_work(
     command_name: str | None = None,
     display: "DisplayOptions | None" = None,
     mode: str | None = None,
-    continued_from: str | None = None,
+    lineage: "Lineage | None" = None,
     chain: "ChainEpisodeOptions | None" = None,
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
@@ -634,11 +634,10 @@ def execute_work(
         screen, replacing the auto-constructed cockpit); ``None`` (default)
         means every knob at its ``None`` default, byte-identical to the
         pre-bundle behavior.
-    continued_from:
-        The prior work item's task id when this run CONTINUES it (#167), else
-        ``None``. Recorded on the result before every artifact write — the
-        one-way lineage the continue path (``work --continue`` / session
-        ``/continue``) stamps; omit-when-None keeps ordinary runs byte-identical.
+    lineage:
+        The continuation bundle (:class:`Lineage`, S107): the prior task id
+        (#167) plus the propagated original ``task_text`` (c22/h15/h3), both
+        stamped before every artifact write; ``None`` on ordinary runs.
     mode:
         Constraint-profile mode (t3 / spec R1 / #254). When set, the mode's
         profile (``colleague.profiles`` + operator overlays) fills the
@@ -674,6 +673,8 @@ def execute_work(
         On unknown engine or engine-level failure (artifact is still written
         before the exception is raised — honesty h5).
     """
+
+    continued_from, continuation_task_text = Lineage.unpack(lineage)
     display = display or DisplayOptions()
     # Work-start auto-trigger (self-learning t12 AC3, c18/h15): colleague's own
     # action — this work item starting — is a trigger too, not just a grade.
@@ -716,6 +717,7 @@ def execute_work(
         command_name=command_name,
         mode=mode,
         continued_from=continued_from,
+        continuation_task_text=continuation_task_text,
     )
     task = setup.task
 
@@ -761,6 +763,7 @@ def execute_work(
                 command_name=command_name,
                 mode=mode,
                 continued_from=continued_from,
+                continuation_task_text=continuation_task_text,
                 work_span=work_span,
                 presence=presence,
                 presence_foreground=presence_foreground,
@@ -799,6 +802,7 @@ def execute_work(
                 command_name=command_name,
                 mode=mode,
                 continued_from=continued_from,
+                continuation_task_text=continuation_task_text,
                 chain=chain,
             )
             artifact_path = write(result, artifact_dir(repo))
@@ -936,13 +940,15 @@ def cmd_work(args: argparse.Namespace) -> int:
                 tui_events=getattr(args, "tui_events", None),
             ),
             mode=mode,
-            continued_from=getattr(args, "_continued_from_resolved", None),
+            lineage=Lineage(
+                continued_from=getattr(args, "_continued_from_resolved", None),
+                task_text=getattr(args, "_continuation_task_text_resolved", None),
+            ),
         )
     except CliError as exc:
-        # On a partial-bearing failure, surface the preserved partial TaskResult to
-        # stdout (--json only) so machine consumers (e.g. ask-colleague.sh) can parse it.
-        # The diagnostic stays on stderr and the exit code stays non-zero — both are
-        # handled by the _dispatch layer that catches this re-raise.
+        # Partial-bearing failure: surface the preserved partial to stdout (--json
+        # only) for machine consumers (ask-colleague.sh); diagnostic stays on
+        # stderr, exit stays non-zero — the _dispatch layer catches this re-raise.
         if json_mode and exc.result is not None:
             emit_result(exc.result.to_dict(), json_mode=True)
         raise

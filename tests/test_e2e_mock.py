@@ -412,14 +412,11 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         "command",
         "not_finished",
         "stopped_without_finish",
-        # prompt_digest (plan task t7): the sha256 of the composed system
-        # prompt is UNCONDITIONAL observability — every run that composes a
-        # prompt carries it, so a live-testing row can attribute its prose
-        # arm. Omitted only when the backend composed no prompt at all.
-        "prompt_digest",
+        "prompt_digest",  # sha256 of the composed prompt (t7); omitted only when none composed
         "offered_tools",
         "effort",
-        "sampling",  # #479 t9: the resolved sampling profile (row + wire)
+        "sampling",
+        "task_text",  # #481: recording is ON by default (decision c15)
     }
 
 
@@ -467,7 +464,8 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
         "prompt_digest",  # unconditional observability (t7) — see the first pinned set
         "offered_tools",
         "effort",
-        "sampling",  # #479 t9: the resolved sampling profile (row + wire)
+        "sampling",
+        "task_text",  # #481: recording is ON by default (decision c15)
     }
     assert set(serialized.keys()) == expected_keys
 
@@ -540,7 +538,8 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
         "prompt_digest",  # unconditional observability (t7) — see the first pinned set
         "offered_tools",
         "effort",
-        "sampling",  # #479 t9: the resolved sampling profile (row + wire)
+        "sampling",
+        "task_text",  # #481: recording is ON by default (decision c15)
     }
     assert (
         set(dict_a.keys()) == expected_keys

@@ -228,6 +228,7 @@ class TestNoFinishResultFidelity:
             "hook_firings",
             "sub_results",
             "hires",  # hire roster + assignments block (delegation-follow-ups t13, c38/h22)
+            "effort_spikes",  # fired effort spikes (#484 t8), omitted when empty
             "command",
             "destination",
             "announcement",
@@ -237,6 +238,7 @@ class TestNoFinishResultFidelity:
             "coherence_report",  # the coherence gate report (#294)
             "test_integrity_report",
             "affected_tests_report",
+            "importcheck_report",  # importability-check gate report (#482, t6)
             "not_finished",
             "stopped_without_finish",
             "warnings",
@@ -261,6 +263,7 @@ class TestNoFinishResultFidelity:
             "evaluation_ledger",  # thought->action->evaluation chain (#397, plan task t11, c24/h17)
             "agents",  # model-bound-agents artifact block (#411, plan task t13, c17/h24)
             "effort",  # top-level {seat: rung} thinking-effort block (effort-v4 t5)
+            "task_text",  # the run's own brief, verbatim/capped (#481, decision c15)
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields

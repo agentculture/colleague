@@ -102,8 +102,26 @@ def finish_aborted(
     with suppress(Exception):
         _escalation.escalate(result, result.stats, task.repo_path, model=model)
     _agents_end(ctx)
+    _release_gate_escalation(ctx)
     salvage.unregister(task.id)
     raise WorkAborted(result) from aborted
+
+
+def _release_gate_escalation(ctx: _Work) -> None:
+    """Defensively release a still-armed fill-line escalation at run exit.
+
+    ``arm_fillline_decision`` pushes the design-site rung onto the LIVE acting
+    config; the normal release is ``_record_fillline_decision`` on the
+    declaring turn. A declaring completion that raises, or a run that exits
+    before any declaration, would otherwise leave the pushed rung on a config
+    object the caller may reuse (the session front reuses its config across
+    dispatches). Idempotent — a no-op when nothing is armed (Qodo #486
+    thread 7).
+    """
+    with suppress(Exception):
+        from colleague import loop_gateescalation as _gateescalation
+
+        _gateescalation.disarm_fillline_decision(ctx)
 
 
 def finish_clean(
@@ -150,4 +168,5 @@ def finish_clean(
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
     _agents_end(ctx)
+    _release_gate_escalation(ctx)
     salvage.unregister(task.id)

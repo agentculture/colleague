@@ -54,10 +54,13 @@ from colleague import editgate as _editgate
 from colleague import stallguard  # noqa: F401 - reached as ``loop.stallguard``
 from colleague import effortrecord
 from colleague import escalation as _escalation  # noqa: F401 - patched as ``loop._escalation``
+from colleague import loop_barrier as _barrier
+from colleague import loop_deltaheartbeat as _deltaheartbeat
 from colleague import loop_hooks as _loop_hooks
 from colleague import loop_run_stages as _run_stages
 from colleague import loopguards as _loopguards
 from colleague import media, salvage
+from colleague import tasktext as _tasktext
 from colleague import toolbatch_loop as _toolbatch_loop
 from colleague import webbudget
 from colleague.contract import (
@@ -316,6 +319,13 @@ def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, st
     if trip is not None:
         ctx.result.warnings.append(trip)
         return nudges, _EXIT_LOOP_GUARD
+    # Pre-mutation decision barrier (#484 t8): ONE bounded tools-off planning
+    # turn before this run's first MUTATING tool call. When it interposes it
+    # REPLACES this turn's execution — neither the assistant message nor the
+    # tool calls below run; the model re-issues them next turn with the plan in
+    # context. A strict no-op (False, no completion) unless armed.
+    if _barrier.intercept(ctx, resp.tool_calls):
+        return nudges, None
     ctx.messages.append(_assistant_message(resp))
     # Run the turn's tool calls; a finish on any of them ends the work item once the
     # turn completes (the remaining calls in the turn still run).
@@ -607,6 +617,14 @@ def run(
     # the ``_DEFAULT_SYSTEM`` fallback, so a caller that composed no prompt
     # still leaves the key off the artifact — byte-identical.
     result.prompt_digest = prompt_digest_for(system_prompt)
+    # Task-text recording (#481) — the brief this run actually ran with,
+    # verbatim (capped/marked by tasktext.prepare_task_text), stamped
+    # alongside prompt_digest for the same reason: the interrupt-salvage and
+    # WorkAborted paths below never reach a later assignment point. ON by
+    # default (decision c15); COLLEAGUE_RECORD_TASK_TEXT=0 leaves the field
+    # unset, so the artifact stays byte-identical to today.
+    if _tasktext.recording_enabled():
+        result.task_text = _tasktext.prepare_task_text(task.instruction)
     # Interrupt salvage (#410): expose the live partial so the work CLI's
     # SIGTERM/SIGINT handler can write the artifact before the process unwinds.
     salvage.register(task.id, result)
@@ -652,6 +670,8 @@ def run(
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
         associate_complete=_context.associate_complete,
+        barrier_complete=_context.barrier_complete,
+        gate_escalation=_context.gate_escalation,
         reasoning_effort_main=_context.reasoning_effort_main,
         reasoning_effort_senses=_context.reasoning_effort_senses,
         reasoning_effort_deepthink=_context.reasoning_effort_deepthink,
@@ -693,6 +713,9 @@ def run(
         tae=_context.tae_session,
         **_affectedtests_controls(_context),
     )
+    # In-flight liveness (#483): bind ctx into the on_delta chain from_config
+    # armed. No-op unarmed — incl. the blocking path, which gains no heartbeat.
+    _deltaheartbeat.bind(_context, ctx)
 
     # Thought->action->evaluation initial-plan commit (t13): the FRONT commits
     # the episode's first typed thought and it is injected as a user turn, so
@@ -714,29 +737,25 @@ def run(
     started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     start_monotonic = time.monotonic()
 
-    # #308 liveness: a run-start marker on the flight feed BEFORE the first
-    # completion, so a pilot / senses can say "<seat> started, working on <goal>"
-    # instead of "I don't know" during a slow first turn. Record the monotonic
-    # start so ``_emit_phase`` can stamp each heartbeat's elapsed. Strict no-op
-    # (and no feed line) when this is not a watchable flight. ``seat`` (t2,
-    # change-content-consumption-lane spec, c9/h9) names the acting seat —
-    # already resolved by the caller (``run()``'s own docstring); this call is
-    # the ONE place that value is used, keeping the rest of the turn loop
-    # untouched (h11).
+    # #308 liveness: a run-start marker on the flight feed BEFORE the first completion, so a
+    # pilot / senses can say "<seat> started, working on <goal>" instead of "I don't know"
+    # during a slow first turn. Record the monotonic start so ``_emit_phase`` can stamp each
+    # heartbeat's elapsed. Strict no-op (and no feed line) when this is not a watchable flight.
+    # ``seat`` (t2, change-content-consumption-lane spec, c9/h9) names the acting seat — already
+    # resolved by the caller (``run()``'s own docstring); this call is the ONE place that value
+    # is used, keeping the rest of the turn loop untouched (h11).
     if ctx.flight is not None:
         ctx._flight_started_monotonic.append(start_monotonic)
         with suppress(Exception):
             ctx.flight.append_run_start(goal=task.goal, max_steps=max_steps, seat=seat)
 
-    # The engine call (`complete`) may raise mid-loop. Catch it here so the
-    # partial work accumulated on `result` is preserved rather than discarded
-    # (#37); the finish hook + neighbour cleanup + changed_files snapshot below
-    # then run on *every* exit path, including this one.
+    # The engine call (`complete`) may raise mid-loop. Catch it here so the partial work accumulated
+    # on `result` is preserved rather than discarded (#37); the finish hook + neighbour cleanup +
+    # changed_files snapshot below then run on *every* exit path, including this one.
     aborted: Exception | None = None
     outcome = _EXIT_BUDGET
-    # Synthesis reserve (#197) — held back from the reading budget so the
-    # forced-synthesis verdict (#191) runs with fresher context. A strict no-op
-    # when no reserve is set (see _resolve_reading_budget).
+    # Synthesis reserve (#197) — held back from the reading budget so the forced-synthesis verdict
+    # (#191) runs with fresher context. No reserve set = a strict no-op (_resolve_reading_budget).
     reading_budget = _resolve_reading_budget(_context, max_steps)
     try:
         outcome = _work_loop(ctx, complete, reading_budget)

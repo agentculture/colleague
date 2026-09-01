@@ -147,6 +147,48 @@ own tool timeout first (`run_command` 300 s), then the remaining calls are
 recorded as skipped non-ok steps and the run ends; a single-batch turn stops
 at the turn boundary exactly as before. Nothing is silently dropped.
 
+### Delta heartbeat — wired into the work path (#483)
+
+Issue #479 (t10) shipped `loop_progress.delta_heartbeat` — a throttled,
+`EngineConfig.on_delta`-shaped liveness callback (`COLLEAGUE_DELTA_HEARTBEAT_INTERVAL`)
+that piggybacks a flight-feed heartbeat onto delta arrival with no timer
+thread — but nothing in the work path ever *armed* one, so a bare `colleague
+work` run still went silent for the whole length of a slow completion (the
+original "froze for 25 minutes" report). #483 is that missing half, composed
+in two beats because a live `EngineConfig` and the run's `_Work` ctx never
+exist at the same moment:
+
+1. `colleague/loop_deltaheartbeat.py`'s `arm(config)` runs at
+   `ContextControls.from_config` — the ONE config→loop forwarding seam both
+   backends share — and installs a CHAINED `on_delta`: the caller's
+   pre-armed sink (a cockpit/session display sink) first, then a still-empty
+   heartbeat cell.
+2. `bind(controls, ctx)` runs inside `colleague/loop.py`'s `run()` once `ctx`
+   exists, and fills that cell with `delta_heartbeat(ctx)`. From there every
+   arriving chunk gets a throttled chance to emit through the same
+   `_emit_phase` phase notices already use — so a heartbeat inherits their
+   invariants for free: a missing/raising sink is a no-op, and **no
+   heartbeat record ever advances `step_count`**.
+
+Both legs of the chain are independently best-effort: a raising cockpit sink
+cannot suppress the heartbeat, and a raising heartbeat cannot cost the
+cockpit a chunk.
+
+**Honest limits, stated rather than implied away:**
+
+- **The blocking path (`COLLEAGUE_STREAM=0`, no pre-armed sink) gets NO
+  liveness at all.** `arm` installs nothing there deliberately — an
+  `on_delta` would silently flip the adapter's `streaming = config.on_delta
+  is not None or headless` decision and turn an operator's explicit blocking
+  run into a streamed one.
+- **A fully silent stretch still gets no heartbeat** — it piggybacks on
+  arriving chunks, it does not poll a clock.
+- **The mock engine gains no heartbeat on a bare run** — `MockEngine.work`
+  captures `config.on_delta` to build its synthetic-delta wrapper *before*
+  `ContextControls.from_config` runs, so a bare mock run (no real transport
+  latency to be silent about) sees `None`. A mock run with a pre-armed sink
+  keeps delivering to it exactly as before.
+
 ### Finish recovery (#248 / #231)
 
 A work item's findings always survive to the caller. The loop re-parses a finish
@@ -198,12 +240,15 @@ change.
 
 ## Scope note: pre-finish gates grade model-authored edits only
 
-The pre-finish gates (lint, test-integrity, coherence, affected-tests) grade
-`write_file`/`edit_file` changes — plus subagent merges — that populate the
-changed set. Mutations via `run_command` (e.g. `git mv` renames, `sed -i`,
-codegen scripts) never enter `changed_files` and are the approval gate's domain.
-This is a deliberate, recorded scope decision (issue #342, 2a). A gate-time
-`git status` sweep is a filed follow-up.
+The pre-finish gates (lint, test-integrity, coherence, affected-tests,
+[import-check](import-check.md)) grade `write_file`/`edit_file` changes — plus
+subagent merges — that populate the changed set. Mutations via `run_command`
+(e.g. `git mv` renames, `sed -i`, codegen scripts) never enter `changed_files`
+and are the approval gate's domain. This is a deliberate, recorded scope
+decision (issue #342, 2a). A gate-time `git status` sweep is a filed
+follow-up. Unlike its four siblings, import-check has no `ContextControls`
+enable flag and no bounded fix-turn, and it runs on **every** exit outcome —
+see [import-check.md](import-check.md) for why.
 
 ## See also
 
@@ -212,3 +257,6 @@ This is a deliberate, recorded scope decision (issue #342, 2a). A gate-time
 - [artifact.md](artifact.md) — the JSON result + step trace the loop produces.
 - [hooks.md](hooks.md) and [telemetry.md](telemetry.md) — runtime behavior the
   loop owns for every backend.
+- [import-check.md](import-check.md) — the fifth pre-finish gate (#482).
+- [effort-spikes.md](effort-spikes.md) — the opt-in effort-spike surface
+  (`loop_barrier.py` / `loop_gateescalation.py`) hooked into this loop.

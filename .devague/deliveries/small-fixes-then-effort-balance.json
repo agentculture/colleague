@@ -1,0 +1,22 @@
+{
+  "plan_slug": "small-fixes-then-effort-balance",
+  "schema_version": 2,
+  "created": "2026-09-01T20:08:33Z",
+  "updated": "2026-09-01T20:08:33Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t13 A/B/C arms HELD; PR opens with waves 0-4 + t12/row-69 evidence; arms resume later via work --continue b702d8249dea",
+      "task_ref": "t13",
+      "reason": "arm-A dispatches externally stopped twice in a row (3a87abc231b1, b702d8249dea) while t12 ran 57 min undisturbed \u2014 operator approved holding the arms and opening the PR now (pre-recorded risk r1: arms may span sessions)",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

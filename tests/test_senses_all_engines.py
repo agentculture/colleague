@@ -78,6 +78,7 @@ _PRE_SENSES_TASKRESULT_KEYS = {
     # default run since the v4 acting seat always resolves ("low").
     "effort",
     "sampling",  # #479 t9: the resolved sampling profile (row + wire)
+    "task_text",  # #481: recording is ON by default (decision c15)
 }
 
 

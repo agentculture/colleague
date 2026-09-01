@@ -1,0 +1,464 @@
+{
+  "slug": "small-fixes-then-effort-balance",
+  "title": "small-fixes-then-effort-balance",
+  "frame_slug": "small-fixes-then-effort-balance",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-09-01T17:44:53Z",
+  "updated": "2026-09-01T17:46:48Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague lands four small validity/observability fixes (#480-#483), then runs the pre-registered null-hypothesis arm before building #484 effort spikes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Each of #480-#483 lands as its own revertible commit with its acceptance criteria asserted in tests; the spike machinery merges dark (opt-in) in the same arc; the A/B/C arms are recorded in docs/live-testing.md with a miss written as a miss",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "#483 wiring: compose delta_heartbeat(ctx) INSIDE the loop (where _Work ctx exists) with any pre-armed config.on_delta \u2014 bare work already streams (_headless_streaming_enabled default True, vllm_openai.py:364 routes via _delta_sink to _noop_delta), so no transport change; the cockpit/session sink armed by _work_support._arm_delta_stream must keep receiving chunks",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A bare work run on a genuinely slow streamed completion writes flight-feed liveness records mid-turn; step_count never advances from them; an armed cockpit sink still receives every chunk; tests/test_boundary.py thread allow-list unchanged; streamguards bounds unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "#480 fix: in loop_testgates._maybe_run_affected_tests_gate, when report.status=='failed' and outcome != _EXIT_FINISHED, append a {'kind':'affected-tests-failed',...} dict to ctx.result.warnings (matching the existing step-stall/loop-guard warning shape) and surface it in the post-run line; finished runs unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Budget-exhausted + failing gate = one warning naming the gate and selection, printed once; passing/disabled gate on the same outcome = byte-identical; _EXIT_FINISHED behaviour (fix turns) unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "#481 fix: TaskResult.task_text with omit-when-None serialization mirroring prompt_digest (contract_taskresult_io.py:227-231), a truncation cap with an explicit marker, and an off-knob COLLEAGUE_RECORD_TASK_TEXT=0 \u2014 the verbatim brief today exists ONLY on the opt-in #411 agents ledger (operator_request events), never on the default artifact",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A rerun dispatched from the recorded task_text reproduces the brief with no operator memory; over-cap briefs carry a discoverable truncation marker; off-knob artifact byte-identical; work --continue carries the original brief through",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "#482 fix: a new small module (py_compile + subprocess importlib smoke of changed .py files) running pre-finish on EVERY outcome incl. budget-exhausted, advisory warning-only, best-effort wrapped, off-knob; the module joins tests/test_boundary.py::_SUBPROCESS_ALLOWED with a stated reason",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The check fires on finished, budget-exhausted and stalled outcomes alike; asserted against the real hallucinated-import + broken-downstream-importer shape; no Python change = strict no-op; best-effort wrapped so it can never abort run(); off-knob byte-identical",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "#484 must stay the deepthink/PURPOSE_TABLE shape: rungs from a FIXED table at points enumerated in code and pinned by a boundary test (mirror tests/test_deepthink_boundary.py); no model-supplied rung, nothing reading turn CONTENT to pick a rung \u2014 that would be the excluded router; the thinking-effort invariant 'resolved where each seat is built, never per turn' survives",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A drift test enumerates any spike surface and fails on an un-listed addition; no code path reads turn content or a model-supplied value to pick a rung",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "audience",
+      "text": "Colleague operators dispatching live runs on the rig, and the measurement arcs recorded in docs/live-testing.md \u2014 the people who read post-run lines, artifacts, and rerun briefs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Every fix's acceptance test asserts the operator-observable surface (a warning line, an artifact key, a flight-feed record) \u2014 not only internal state",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "after_state",
+      "text": "A run can no longer know something the operator does not: a failing gate on any outcome lands a warning; a non-importing branch is named before handoff; every artifact carries the brief that produced it; a long streamed turn shows liveness \u2014 and the #484 spike question is answered by the pre-registered null arm, not assumption",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A rerun of the row-67 failure shape demonstrates all four fixes at once: the gate warning, the importability warning, the recorded brief, and mid-turn liveness records",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "why_it_matters",
+      "text": "Row 67 shipped a non-importing branch while the harness had already run the failing gate and told no one, and row 67's own measurement was unreproducible because the brief was gone \u2014 the four fixes close both, and cheaply instrument the experiment that decides #484",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The arc's live-testing rows cite rows 66-68 as the motivating evidence and the rerun uses the recorded task_text, closing the reproducibility gap the arc exists for",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "On a rerun of the row-67 failure shape: the artifact carries >=1 warning of kind affected-tests-failed AND >=1 importability warning naming the ImportError; a rerun is dispatchable from TaskResult.task_text alone; a slow streamed turn yields liveness records at <=3.5s spacing; with all off-knobs set, artifacts are byte-identical to v1.74.0",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The byte-identical clause is asserted by comparing serialized artifacts/payloads with every off-knob set, not by code review alone",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Spike machinery: a fixed table maps each of the three lean points to a rung; opt-in arming (unarmed = byte-identical, every outgoing payload matches today key for key); the decision barrier is a bounded tools-off completion with its own output ceiling and timeout; each fired spike is recorded on the artifact (point, rung, seat) with absence reading as did-not-fire; a drift boundary test mirrors test_deepthink_boundary.py and fails on any un-listed point",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "With the opt-in unset, outgoing payloads are byte-identical to v1.74.0; armed, the drift test enumerates exactly three points and fails on a fourth; the barrier completion is tools-off, bounded by its own output ceiling + timeout, and never mutates; no code path inspects turn content or a model-supplied value to choose a rung; each fired spike lands on the artifact as (point, rung, seat)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "#482's import smoke must resolve changed modules against the RUN WORKTREE, not the installed package: the subprocess needs the worktree root ahead on sys.path (affectedtests precedent: pytest runs with cwd=repo_path, affectedtests.py:414) \u2014 self-hosting runs (colleague editing colleague) otherwise import the installed harness and pass vacuously",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A test changes a module inside a throwaway worktree so it differs from the installed package and asserts the check reports the WORKTREE version's ImportError \u2014 proving resolution is not vacuous",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "The spike increment AMENDS the recorded thinking-effort invariant in docs/features/thinking-effort.md ('resolved where each seat is built, never per turn', line 11): the new wording is 'never per turn FROM CONTENT \u2014 per enumerated point from a fixed table'; the doc, CLAUDE.md bullet, and the drift test must all carry the amended line or docs and code drift silently",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "docs/features/thinking-effort.md, the CLAUDE.md effort bullet, and the spike drift test all carry the amended wording in the same PR that lands the machinery; the amendment is listed as a recorded convention change, not a silent breach",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "task_text on a CONTINUED run must propagate the ORIGINAL brief from the prior artifact, not the synthesized continuation seed (continuation.py builds preamble+record+request as the new task text) \u2014 otherwise #481 AC4 records the wrong text and a chained rerun is still unreproducible",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "A work --continue of a run with recorded task_text produces an artifact whose task_text equals the ORIGINAL brief verbatim, asserted in a continuation test",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Gate warnings on non-finished outcomes (#480, incl. test-integrity)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A budget-exhausted run whose affected-tests gate reports failed carries a {'kind':'affected-tests-failed'} warning naming the selection on TaskResult.warnings, printed once in the post-run line",
+        "Same treatment for the test-integrity gate's identical pattern; passing/disabled gates on the same outcome are byte-identical; _EXIT_FINISHED fix-turn behaviour unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h2"
+      ],
+      "instruction": "Owns colleague/loop_testgates.py + its tests. The zero-retry branch at line 290 (and 197 for test-integrity) is where the warning lands; mirror the step-stall/loop-guard warning dict shape from loop_outcomes.py"
+    },
+    {
+      "id": "t2",
+      "summary": "TaskResult.task_text recording (#481)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A run records its brief verbatim on the artifact under a ~16KB cap; over-cap briefs carry an explicit truncation marker, never a silent cut",
+        "COLLEAGUE_RECORD_TASK_TEXT=0 yields an artifact byte-identical to today; serialization is omit-when-None mirroring prompt_digest"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "h3"
+      ],
+      "instruction": "Owns colleague/contract.py, contract_taskresult_io.py (serialize beside prompt_digest, lines 227-231), and the knob resolution. Recording ON by default per decision c15"
+    },
+    {
+      "id": "t3",
+      "summary": "Importability check module (#482) with worktree resolution",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "py_compile + subprocess importlib smoke of changed .py files; a module importing a non-existent symbol yields a warning naming the module and ImportError",
+        "Resolution is against the RUN WORKTREE: a test makes the worktree module differ from the installed package and asserts the WORKTREE version's error is reported (no vacuous pass)",
+        "The module joins tests/test_boundary.py::_SUBPROCESS_ALLOWED with a stated reason; no Python change = strict no-op; off-knob restores today byte-for-byte"
+      ],
+      "deps": [],
+      "covers": [
+        "c5",
+        "c20",
+        "h13"
+      ],
+      "instruction": "New module (e.g. colleague/importcheck.py), pure function surface \u2014 loop wiring is t6's job. Subprocess runs with the worktree root ahead on sys.path (affectedtests precedent: cwd=repo_path, affectedtests.py:414)"
+    },
+    {
+      "id": "t4",
+      "summary": "Wire delta_heartbeat into the work path (#483)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A bare work run on a genuinely slow streamed completion writes flight-feed liveness records mid-turn at <=3.5s spacing; step_count never advances from them; an armed cockpit sink still receives every chunk",
+        "tests/test_boundary.py thread allow-list unchanged; streamguards bounds unchanged; a missing or raising sink stays a no-op; the blocking path's gap stays documented"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h1"
+      ],
+      "instruction": "EngineConfig is FROZEN (config.py:256) \u2014 compose via dataclasses.replace (or wrap where the loop hands config to the engine), chaining delta_heartbeat(ctx) with any pre-armed config.on_delta. Owns the loop-side composition seam + tests; do not touch vllm transport"
+    },
+    {
+      "id": "t5",
+      "summary": "Spike table + opt-in + drift boundary test",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A fixed table maps exactly the three lean points (pre-mutation barrier, repeated-gate-failure replan, fillline) to rungs; no effort parameter reachable from the model",
+        "A drift test mirroring tests/test_deepthink_boundary.py enumerates the surface and fails when a point is added without updating the list; with the opt-in unset, outgoing payloads are byte-identical"
+      ],
+      "deps": [],
+      "covers": [
+        "c18",
+        "c8",
+        "h5"
+      ],
+      "instruction": "New sibling module (e.g. colleague/effortspikes.py) beside efforttables.py under the file-length ratchet; opt-in env/config flag; artifact record shape (point, rung, seat) defined here for t8/t9 to emit"
+    },
+    {
+      "id": "t6",
+      "summary": "Wire importcheck into pre-finish on EVERY outcome + row-67 fixture",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The check fires on finished, budget-exhausted and stalled outcomes alike; best-effort wrapped so it can never abort run()",
+        "Asserted against the real cc5d1f1a2c5f shape: a hallucinated import name AND a lost re-export breaking a downstream importer \u2014 not synthetic stubs"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "h4"
+      ],
+      "instruction": "Touches loop_testgates.py (after t1 merges, avoiding same-wave collision); the fixture reproduces the Policy/ToolCall defect pair from docs/live-testing.md row 67"
+    },
+    {
+      "id": "t7",
+      "summary": "Continuation propagates the original brief",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "work --continue of a run with recorded task_text produces an artifact whose task_text equals the ORIGINAL brief verbatim, asserted in a continuation test \u2014 never the synthesized seed"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c22",
+        "h15",
+        "h3"
+      ],
+      "instruction": "Owns colleague/continuation.py + chain path; read the prior artifact's task_text and carry it onto the resumed run's result"
+    },
+    {
+      "id": "t8",
+      "summary": "Pre-mutation decision barrier",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Armed: one bounded tools-off completion interposes before the first mutating tool call after a read-only phase, with its own output ceiling and timeout; it never mutates and counts as a normal step (budget + WorkStats)",
+        "The trigger is tool-NAME based (existing read-only classification), never content; each firing lands on the artifact as (point, rung, seat); unarmed = byte-identical payloads"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c18",
+        "h7"
+      ],
+      "instruction": "Loop turn seam (loop_turn.py/loop_toolexec.py area); mutation detection via the existing read-only tool classification (tools.py:905 / roles.is_read_only); rung from t5's table only"
+    },
+    {
+      "id": "t9",
+      "summary": "Gate-failure escalation + fill-line spike wiring",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "First gate repair runs at the seat's ordinary rung; a REPEATED failure gets one medium replan with retry count as the signal; fired escalations land on the artifact",
+        "The fill-line point consumes the existing DESIGN_SITE_TABLE['fillline.split'] contract rather than duplicating policy; test_design_call_site updated to name the live consumer"
+      ],
+      "deps": [
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c18"
+      ],
+      "instruction": "Touches loop_testgates.py fix-turn path (after t6) and the fillline seam; rungs only from the fixed tables"
+    },
+    {
+      "id": "t10",
+      "summary": "Docs + the recorded invariant amendment",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/thinking-effort.md line 11, the CLAUDE.md effort bullet, and the spike drift test all carry the amended wording ('never per turn FROM CONTENT \u2014 per enumerated point from a fixed table') in the same PR; the amendment is listed as a recorded convention change",
+        "Feature docs for the four fixes updated (work-and-loop.md, artifact.md, affected-tests.md, test-integrity.md) naming the new warnings/keys/knobs"
+      ],
+      "deps": [
+        "t5",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c21",
+        "h14"
+      ],
+      "instruction": "Docs-only task; cite issues #480-#484 and this spec; keep the CLAUDE.md bullet a pointer, detail in the feature doc (trim discipline c17/h4)"
+    },
+    {
+      "id": "t11",
+      "summary": "Byte-identical off-knob assertion suite",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "With every off-knob set (COLLEAGUE_RECORD_TASK_TEXT=0, importcheck off, heartbeat off, spikes unarmed), serialized artifacts and outgoing payloads compare byte-identical to the pre-arc baseline \u2014 asserted by comparison, not code review"
+      ],
+      "deps": [
+        "t2",
+        "t4",
+        "t6",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "h12",
+        "c14"
+      ],
+      "instruction": "One test module comparing serialized TaskResult artifacts and captured wire payloads under all-off knobs against baseline fixtures"
+    },
+    {
+      "id": "t12",
+      "summary": "Live validation: row-67 rerun demonstrating all four fixes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A rig rerun of the row-67 failure shape shows: the gate warning on the artifact, the importability warning naming the ImportError, task_text recorded (rerun dispatchable from it alone), and mid-turn liveness records \u2014 recorded as a docs/live-testing.md row citing rows 66-68"
+      ],
+      "deps": [
+        "t7",
+        "t11"
+      ],
+      "covers": [
+        "h10",
+        "h11",
+        "c12",
+        "c13",
+        "c11",
+        "h9"
+      ],
+      "instruction": "Use the reconstructed row-67 brief; dispatch via uv run colleague work in a throwaway worktree; grade the work item before reaping (standing practice)"
+    },
+    {
+      "id": "t13",
+      "summary": "A/B/C measurement arms + #484 disposition",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Arms A (low + feedback), B (A + barrier), C (B with medium at the barrier) run on the same brief with the ordinary work budget fixed; correctness (import + pins + affected tests) primary, spend secondary; each arm a docs/live-testing.md row with a miss written as a miss",
+        "Each of #480-#483 landed as its own revertible commit; the arms' result decides what arms by default (arming any spike by default requires C to beat B) and the #484 disposition is posted to the issue"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c1",
+        "h8"
+      ],
+      "instruction": "Pre-registered readings from #482's comment apply verbatim; do not choose the reading after the fact. GPU serializes \u2014 run arms sequentially, COLLEAGUE_TIMEOUT=300"
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Rig availability + GPU serialization bound the live arms; arms run sequentially and may span sessions",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "Prose-shape confound: rows 51-58 showed brief wording moves outcomes more than some effect sizes \u2014 arms must reuse the recorded task_text verbatim",
+      "kind": "unknown_nonblocking",
+      "task_id": "t13",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}

@@ -15,8 +15,9 @@ import argparse
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import NamedTuple
 
-from colleague import flight, web_schemas
+from colleague import flight, tasktext, web_schemas
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
@@ -24,6 +25,27 @@ from colleague.config import EngineConfig, apply_mode_profile
 from colleague.contract import INCOMPLETE, OK, ChainView, Task, TaskResult
 from colleague.engines import vllm_openai as _vllm_openai
 from colleague.handoff import working_tree_dirty
+
+
+class Lineage(NamedTuple):
+    """Continuation lineage threaded as ONE bundle (SonarCloud S107).
+
+    Bundles ``continued_from`` (the prior run's task id) with the propagated
+    original ``task_text`` (#481/c22 — never the synthesized seed), so
+    ``execute_work``/``execute_work_chain`` stay at 13 parameters. ``None``
+    means an ordinary, non-continuation dispatch.
+    """
+
+    continued_from: "str | None" = None
+    task_text: "str | None" = None
+
+    @staticmethod
+    def unpack(lineage: "Lineage | None") -> "tuple[str | None, str | None]":
+        """``(continued_from, task_text)`` from an optional bundle — the one
+        conditional, held here so callers stay branch-free (SonarCloud S3776)."""
+        if lineage is None:
+            return None, None
+        return lineage.continued_from, lineage.task_text
 
 
 def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
@@ -367,6 +389,28 @@ def _arm_progress_sink(
     return cockpit_sink
 
 
+def _stamp_lineage(
+    result: TaskResult,
+    command_name: str | None,
+    mode: str | None,
+    continued_from: str | None,
+    continuation_task_text: str | None,
+) -> None:
+    """``command``/``mode``/``continued_from``/``task_text`` — the four fields
+    every write path (success ``_stamp_run_metadata`` and the engine-failure
+    handler) records identically before an artifact write. ``task_text`` is
+    OVERRIDDEN with the propagated original brief on a continuation
+    (:func:`colleague.tasktext.apply_continuation_task_text`, c22/h15/h3) —
+    never the synthesized seed the loop's own stamp would otherwise record.
+    """
+    result.command = command_name
+    result.mode = mode
+    result.continued_from = continued_from
+    tasktext.apply_continuation_task_text(
+        result, continued_from=continued_from, continuation_task_text=continuation_task_text
+    )
+
+
 def _stamp_run_metadata(
     result: TaskResult,
     *,
@@ -375,6 +419,7 @@ def _stamp_run_metadata(
     mode: str | None,
     continued_from: str | None,
     chain: "object | None",
+    continuation_task_text: str | None = None,
 ) -> None:
     """Record the run's origin/lineage/accounting on *result* before the write.
 
@@ -385,6 +430,10 @@ def _stamp_run_metadata(
     * ``command`` — the originating template name (R5 / c12).
     * ``mode`` — the constraint profile that drove the run (t7 / R3 / #256).
     * ``continued_from`` — the one-way ``--continue`` lineage (#167).
+    * ``task_text`` — on a continuation, OVERRIDDEN with the propagated
+      ORIGINAL brief (:func:`colleague.tasktext.apply_continuation_task_text`,
+      c22/h15/h3) — never the synthesized seed the loop's own stamp would
+      otherwise record from ``task.instruction``.
     * ``chain`` — a chained episode's RUNNING :class:`ChainView`, accumulated
       before the write so every episode's artifact is self-describing (c20/h19).
     * ``warnings`` — the stale-pin refresh warnings (t11, h21), the
@@ -396,9 +445,7 @@ def _stamp_run_metadata(
       never re-stamps it), folded so background / one-shot runs surface
       them after the fact.
     """
-    result.command = command_name
-    result.mode = mode
-    result.continued_from = continued_from
+    _stamp_lineage(result, command_name, mode, continued_from, continuation_task_text)
     if chain is not None:
         result.chain = ChainView.accumulate(chain.prior_view, result)
     if config.model_refresh_warnings:

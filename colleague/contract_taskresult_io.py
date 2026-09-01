@@ -124,8 +124,9 @@ def task_result_to_dict(self: "TaskResult") -> dict[str, Any]:
 
 def _extra_fields_to_dict(self: "TaskResult") -> dict[str, Any]:
     """The omit-when-None extras added after the original destination/lint
-    convention — ``mode``, ``affected_tests_report``, ``acceptance_outcomes``,
-    ``deepthink``, ``finish_recovered``, ``memory``, ``media``, ``senses``.
+    convention — ``mode``, ``affected_tests_report``, ``importcheck_report``,
+    ``acceptance_outcomes``, ``deepthink``, ``finish_recovered``, ``memory``,
+    ``media``, ``senses``.
 
     Split out of :func:`task_result_to_dict` purely to hold its cognitive
     complexity under the SonarCloud S3776 ceiling (15) — pure extraction, no
@@ -141,6 +142,11 @@ def _extra_fields_to_dict(self: "TaskResult") -> dict[str, Any]:
         extra["mode"] = self.mode
     if self.affected_tests_report is not None:
         extra["affected_tests_report"] = self.affected_tests_report.to_dict()
+    # importcheck_report gets the same omit-when-None treatment (#482/t6): a
+    # run where the gate never fired (off-knob, no changed .py, aborted)
+    # serializes byte-identically to the pre-t6 artifact (no extra key).
+    if self.importcheck_report is not None:
+        extra["importcheck_report"] = self.importcheck_report.to_dict()
     # acceptance_outcomes gets the same omit-when-None treatment (spec R6): a
     # work item with no acceptance criteria serializes byte-identically to
     # today's artifact (no extra key).
@@ -239,6 +245,14 @@ def _extra_fields_run_record(self: "TaskResult", extra: dict[str, Any]) -> dict[
     # the pre-tip_sha artifact (no extra key).
     if self.tip_sha is not None:
         extra["tip_sha"] = self.tip_sha
+    # task_text gets the same omit-when-None treatment as prompt_digest (#481):
+    # a disabled or pre-field run serializes byte-identically (no extra key).
+    if self.task_text is not None:
+        extra["task_text"] = self.task_text
+    # effort_spikes gets the same omit-when-EMPTY treatment as hires (#484):
+    # an unarmed run (the default) carries no key at all.
+    if self.effort_spikes:
+        extra["effort_spikes"] = [dict(entry) for entry in self.effort_spikes]
     return extra
 
 
@@ -255,6 +269,30 @@ def _sampling_from_dict(data: dict[str, Any]) -> "list[dict[str, Any]] | None":
     if not isinstance(raw, list):
         return None
     return [dict(entry) for entry in raw if isinstance(entry, dict)]
+
+
+def _hires_from_dict(data: dict[str, Any]) -> "list[dict[str, Any]]":
+    """Read back the t13 ``hires`` list, tolerantly (S3776 split, like its
+    ``_effort_spikes_from_dict`` sibling): non-dict entries are dropped, an
+    absent or non-list key is the empty (omitted-when-empty) list."""
+    raw = data.get("hires")
+    if not isinstance(raw, list):
+        return []
+    return [_copy_hire_entry(h) for h in raw if isinstance(h, dict)]
+
+
+def _effort_spikes_from_dict(data: dict[str, Any]) -> "list[dict[str, str]]":
+    """Read back the #484 ``effort_spikes`` list, tolerantly.
+
+    Split out for the same reason as :func:`_sampling_from_dict` — holding
+    :func:`task_result_from_dict` under the SonarCloud S3776 ceiling. Same
+    tolerance as ``hires``: non-dict entries are dropped, an absent or
+    non-list key is the empty (omitted-when-empty) list.
+    """
+    raw = data.get("effort_spikes")
+    if not isinstance(raw, list):
+        return []
+    return [{str(k): str(v) for k, v in s.items()} for s in raw if isinstance(s, dict)]
 
 
 def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
@@ -284,13 +322,8 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         pr_url=data.get("pr_url"),
         hook_firings=[HookFiring.from_dict(h) for h in data.get("hook_firings", [])],
         sub_results=[SubResult.from_dict(s) for s in data.get("sub_results", [])],
-        # hires (t13): tolerant of a malformed artifact — non-dict entries
-        # are dropped, an absent key is the empty (omitted-when-empty) list.
-        hires=[
-            _copy_hire_entry(h)
-            for h in (data.get("hires") if isinstance(data.get("hires"), list) else [])
-            if isinstance(h, dict)
-        ],
+        hires=_hires_from_dict(data),
+        effort_spikes=_effort_spikes_from_dict(data),
         command=data.get("command"),
         destination=data.get("destination"),
         announcement=data.get("announcement"),
@@ -321,6 +354,11 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         affected_tests_report=(
             _contract._get_affected_tests_report_class().from_dict(data["affected_tests_report"])
             if data.get("affected_tests_report")
+            else None
+        ),
+        importcheck_report=(
+            _contract._get_import_check_report_class().from_dict(data["importcheck_report"])
+            if data.get("importcheck_report")
             else None
         ),
         not_finished=bool(data.get("not_finished", False)),
@@ -363,5 +401,6 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
             list(data["offered_tools"]) if isinstance(data.get("offered_tools"), list) else None
         ),
         tip_sha=data.get("tip_sha"),
+        task_text=data.get("task_text"),
         warnings=list(data.get("warnings", [])),
     )

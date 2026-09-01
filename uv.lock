@@ -271,7 +271,7 @@ wheels = [
 
 [[package]]
 name = "colleague"
-version = "1.74.1"
+version = "1.75.0"
 source = { editable = "." }
 dependencies = [
     { name = "agentfront" },

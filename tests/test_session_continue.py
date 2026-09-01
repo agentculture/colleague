@@ -66,7 +66,7 @@ def test_bare_continue_defaults_to_last(tmp_path: Path) -> None:
     task = h.calls[0]["task"]
     assert "CONTINUING work item cut1" in task.instruction
     assert "the original request" in task.instruction
-    assert h.calls[0]["continued_from"] == "cut1"
+    assert h.calls[0]["lineage"].continued_from == "cut1"
 
 
 def test_continue_explicit_id(tmp_path: Path) -> None:
@@ -74,7 +74,7 @@ def test_continue_explicit_id(tmp_path: Path) -> None:
     h = _Harness(tmp_path)
     assert h.session._slash("/continue cut2") is True
     assert len(h.calls) == 1
-    assert h.calls[0]["continued_from"] == "cut2"
+    assert h.calls[0]["lineage"].continued_from == "cut2"
 
 
 def test_continue_with_no_history_is_a_clean_error(tmp_path: Path) -> None:
@@ -100,9 +100,9 @@ def test_lineage_cell_is_consumed_per_dispatch(tmp_path: Path) -> None:
     h.session._slash("/continue")
     h.session._work_line("a fresh unrelated goal")
     assert len(h.calls) == 2
-    assert h.calls[0]["continued_from"] == "cut4"
+    assert h.calls[0]["lineage"].continued_from == "cut4"
     # An ordinary dispatch passes NO lineage kwarg at all (stable stub shape).
-    assert "continued_from" not in h.calls[1]
+    assert "lineage" not in h.calls[1]
 
 
 def test_continue_is_in_the_slash_catalog() -> None:

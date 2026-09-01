@@ -496,6 +496,7 @@ class TestAnnouncementHonesty:
             "command",
             "not_finished",
             "stopped_without_finish",
+            "task_text",  # #481: recording is ON by default (decision c15)
         }
         assert set(serialized.keys()) == expected_keys, (
             f"Extra/missing keys in no-policy run: " f"{set(serialized.keys()) ^ expected_keys}"

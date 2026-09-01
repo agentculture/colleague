@@ -546,6 +546,7 @@ _PRE_FEATURE_ARTIFACT_KEYS = frozenset(
         "offered_tools",
         "effort",  # t5: the resolved-rung block (v4 default always resolves)
         "sampling",  # #479 t9: the resolved sampling profile (row + wire)
+        "task_text",  # #481: recording is ON by default (decision c15)
     }
 )
 
@@ -617,6 +618,11 @@ def test_boundary_sanctioned_lists_unchanged() -> None:
             # web-scout arc (task t1): the curated `web` tool shells out to the
             # operator-installed `webglass` CLI in its own process group.
             "colleague/web.py",
+            # importability-check gate (#482): import smoke of a changed
+            # module runs in a child interpreter (worktree forced ahead on
+            # sys.path via PYTHONPATH, c20) — reasons pinned in
+            # test_boundary.py.
+            "colleague/importcheck.py",
         }
     )
     # colleague/realtime.py joined this list under the realtime-speech arc

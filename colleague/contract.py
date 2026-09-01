@@ -79,6 +79,7 @@ from colleague.contract_taskresult_io import task_result_from_dict, task_result_
 
 if TYPE_CHECKING:
     from colleague.affectedtests import AffectedTestsReport
+    from colleague.importcheck import ImportCheckReport
     from colleague.testintegrity import TestIntegrityReport
 
 __all__ = [
@@ -417,6 +418,13 @@ class TaskResult:
     :func:`colleague.hire_assign.hires_block`. Like ``sub_results``, the
     serialized key is OMITTED (not an empty list) when empty, so a hire-less
     run serializes byte-identically to today."""
+    effort_spikes: list[dict[str, str]] = field(default_factory=list)
+    """Effort spikes that FIRED on this run (#484), in firing order — each entry
+    a :meth:`colleague.effortspikes.SpikeRecord.to_dict` ``{point, rung, seat}``.
+    Absence of a point reads as did-not-fire; there is no off/false record. Like
+    ``hires``, the key is OMITTED (not an empty list) when empty, so a run with
+    the ``COLLEAGUE_EFFORT_SPIKES`` opt-in unset — the default — serializes
+    byte-identically to v1.74.0."""
     command: Optional[str] = None
     """The command-template name that originated this task, or ``None`` for
     an ad-hoc instruction (e.g. plain ``colleague work "<text>"``).
@@ -473,6 +481,19 @@ class TaskResult:
     produced no findings. Like lint_report, the serialized key is OMITTED
     (not null) when ``None``, so a work item with no affected-tests findings is
     byte-identical to pre-artifacts."""
+    importcheck_report: Optional["ImportCheckReport"] = None
+    """The importability-check pre-finish gate's report (#482/#480 t6), or
+    ``None`` when the gate did not run at all (``COLLEAGUE_IMPORT_CHECK=0``, no
+    changed ``.py`` files, or an aborted run — ``status="skipped"`` degrades to
+    ``None`` here too). Unlike ``test_integrity_report``/``affected_tests_report``
+    (which stay ``None`` on a clean PASS with no findings), this field is set on
+    BOTH ``"passed"`` and ``"failed"`` so a clean import-check run is still
+    visible on the artifact — mirroring ``lint_report``/``coherence_report``.
+    Runs on EVERY exit outcome (finished, budget-exhausted, stalled, ...), never
+    only ``_EXIT_FINISHED`` — the h4 fix (row 67 shipped a non-importing branch
+    on a budget-exhausted outcome that told no one). Like the sibling gate
+    reports, the serialized key is OMITTED (not null) when ``None``, so a
+    pre-t6 artifact stays byte-identical."""
     not_finished: bool = False
     """True iff the work item exhausted the step budget without calling ``finish`` AND
     without raising :class:`WorkAborted` (i.e. the model ran out of turns but the
@@ -714,6 +735,18 @@ class TaskResult:
     before this field). ``None`` when no surface was curated. Like
     ``prompt_digest``, the serialized key is OMITTED (not null) when ``None``,
     so a pre-field artifact loads and serializes byte-identically."""
+    task_text: Optional[str] = None
+    """The task's own instruction text, verbatim, as it actually ran (#481) —
+    ``prompt_digest`` proves WHICH prompt arm ran; this is WHAT brief the run
+    itself was given, so a measurement rerun never has to trust what the
+    operator remembers typing. Capped at
+    :data:`colleague.tasktext.MAX_CHARS` (16 KiB) via
+    :func:`colleague.tasktext.prepare_task_text` — an over-cap brief is
+    truncated with a literal, discoverable marker, never a silent cut.
+    Recording is ON by default (decision c15); ``COLLEAGUE_RECORD_TASK_TEXT=0``
+    (see :func:`colleague.tasktext.recording_enabled`) leaves this ``None``.
+    Like ``prompt_digest``, the serialized key is OMITTED (not null) when
+    ``None``, so a disabled/pre-field run serializes byte-identically."""
     tip_sha: Optional[str] = None
     """The ``colleague/<id>`` work branch's tip commit SHA after a successful
     handoff (plan task t5, covers c5), or ``None`` when the handoff produced no
@@ -762,3 +795,17 @@ def _get_affected_tests_report_class():
     from colleague.affectedtests import AffectedTestsReport
 
     return AffectedTestsReport
+
+
+def _get_import_check_report_class():
+    """Return the ImportCheckReport class via a lazy import.
+
+    ``colleague.importcheck`` does not import ``colleague.contract`` today, but
+    the lazy-getter pattern is kept identical to its two siblings above for one
+    reason: consistency for whoever reads/edits this trio next, and to leave
+    the door open if importcheck ever needs a contract type later without a
+    surprise cycle.
+    """
+    from colleague.importcheck import ImportCheckReport
+
+    return ImportCheckReport

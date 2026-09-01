@@ -63,6 +63,30 @@ _SANCTIONED_ASSIGN_FILES = frozenset(
         # ROLE_TABLE rung for the proposed base role ONCE where the candidate's
         # tools-off completion is bound, never per turn.
         "colleague/hire_dispatch.py",
+        # #484 t8: the pre-mutation decision barrier's seat builder. This is the
+        # AMENDED invariant (spec 2026-09-01-small-fixes-then-effort-balance,
+        # c18/h7): effort is resolved "never per turn FROM CONTENT — per
+        # enumerated point from a fixed table". ``barrier_seat_config`` sets the
+        # rung ONCE where the barrier's one-shot seat is built, and the value
+        # comes only from ``effortspikes.resolve_spike('barrier.pre_mutation')``
+        # — a fixed table keyed by POINT NAME. Nothing there reads turn content
+        # or accepts a model-supplied rung (pinned in
+        # tests/test_barrier_pre_mutation.py).
+        "colleague/loop_barrier.py",
+        # #484 t9: the repeated-gate / fill-line escalator. The ONE consumer
+        # that cannot build its own seat — both its points escalate a turn that
+        # must keep the run's role-curated tool surface (a gate repair calls
+        # edit_file/run_tests; the fill-line declaring turn declares SPLIT by
+        # calling `subagents`) — so instead of a new seat it push/pops
+        # ``reasoning_effort_seat`` on the LIVE acting config for the duration
+        # of the enumerated point and restores its exact prior state. Still
+        # never per turn FROM CONTENT: the gate signal is the fix-turn loop's
+        # ITERATION COUNT and the fill-line's is the crossing itself; the two
+        # rungs come from ``effortspikes.SPIKE_TABLE['gate.repeat_failure']``
+        # and ``effort.DESIGN_SITE_TABLE['fillline.split']`` (via
+        # ``fillline.design_seat_config``) and nowhere else (pinned in
+        # tests/test_gate_escalation.py).
+        "colleague/loop_gateescalation.py",
     }
 )
 

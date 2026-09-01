@@ -94,6 +94,23 @@ The gate is **ON by default**. Disable it with:
 **omitted** from the artifact when the gate did not run (omit-when-None), so a
 no-op run is byte-identical to a run without the gate.
 
+### The `affected-tests-failed` warning on non-finished outcomes (#480)
+
+The gate's `report` was always recorded on `TaskResult.affected_tests_report`
+regardless of exit outcome, but before #480 a `failed` status on a
+**non-finished** outcome (budget-exhausted, stalled) never carried a
+`TaskResult.warnings` entry — only a clean `_EXIT_FINISHED` exit got the
+bounded fix-turn, and the fix-turn was the only place a failure surfaced. Run
+`cc5d1f1a2c5f` (`docs/live-testing.md` row 67) shipped a broken branch on a
+budget-exhausted outcome with an empty `warnings: []`, and the operator never
+learned. Now, exactly once per gate, on `report.status == "failed"` AND
+`outcome != _EXIT_FINISHED`, `loop_testgates.py` appends
+`{"kind": "affected-tests-failed", "selection": [...], "failed": N,
+"passed": N}` — mirroring the existing step-stall/loop-guard warning shape — so
+the operator sees the failure without opening the full report. A clean finish
+is untouched either way; its existing bounded fix-turn owns that path. Built
+by `colleague/loop_testgates_warnings.py`'s `build_affected_tests_warning`.
+
 ## Worked example
 
 The gate runs quietly inside the work item. The only thing it prints (to
@@ -139,6 +156,7 @@ Disable the gate for a run with `--no-affected-tests`.
 ## See also
 
 - [`docs/features/lint-gate.md`](lint-gate.md) — the sibling pre-finish lint gate (#200)
-- [`docs/features/test-integrity.md`](test-integrity.md) — the sibling test-integrity gate (#203)
+- [`docs/features/test-integrity.md`](test-integrity.md) — the sibling test-integrity gate (#203), which shares the identical #480 non-finished-outcome warning fix
+- [`docs/features/import-check.md`](import-check.md) — the fifth pre-finish gate (#482), which the same run (`cc5d1f1a2c5f`) motivated
 - [`docs/features/ask-colleague.md`](ask-colleague.md) — the `ask-colleague write --apply` path that triggers the gate
 - [`docs/features/agent-cli.md`](agent-cli.md) — `colleague work` and `colleague drive` entry points
