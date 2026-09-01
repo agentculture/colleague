@@ -238,6 +238,12 @@ if TYPE_CHECKING:
     # forward-compatibly), and any object exposing the same read surface
     # (a frozen child view, a future adapter) is accepted, never just this
     # concrete class.
+    # Annotation-only (temperature-knob deprecation, reasoning-aware-sampling
+    # arc, plan task t7): types ``temperature_deprecation_warnings`` below.
+    # No runtime import needed — ``config_resolve`` is already imported
+    # eagerly at module scope above, this is purely to keep the annotation
+    # string resolvable under a type checker.
+    from colleague.config_resolve import TemperatureDeprecationWarning
     from colleague.configlifecycle import EpisodeConfigLifecycle
 
     # Annotation-only (same-role stale-pin refresh, plan task t9): types
@@ -612,6 +618,19 @@ class EngineConfig:
         default=(), compare=False, repr=False
     )
 
+    # Temperature-knob deprecation/removal records (reasoning-aware-sampling
+    # arc, plan task t7, spec c9/h11): set by
+    # :func:`colleague.config_resolve._resolve_temperature_deprecation`
+    # inside :func:`colleague.config_resolve.resolve_scalar_knobs` — ``()``
+    # (the default) when neither ``CONVERTIBLE_TEMPERATURE`` (removed) nor
+    # ``COLLEAGUE_TEMPERATURE`` (deprecated, still applied) is set, matching
+    # today byte-for-byte. Runtime-derived plumbing like
+    # ``model_refresh_warnings`` above — excluded from eq/repr/to_dict; the
+    # CLI work front folds this onto ``TaskResult.warnings`` the same way.
+    temperature_deprecation_warnings: "tuple[TemperatureDeprecationWarning, ...]" = field(
+        default=(), compare=False, repr=False
+    )
+
     # Which seat the call-time stale-pin refresh may act for (d5, issue 375):
     # ``"main"`` — the default — arms the vLLM engine's 404 catch for the
     # acting MAIN seat only (the c8/c11 scoping). The replaced-config twins
@@ -686,9 +705,15 @@ class EngineConfig:
         passes them, so their precedence is simply ``COLLEAGUE_*`` env var >
         built-in default. Keeping them off the signature holds ``resolve`` under
         the parameter ceiling (SonarCloud S107); the dataclass still carries the
-        fields, and the ``COLLEAGUE_TEMPERATURE`` / ``COLLEAGUE_TIMEOUT`` /
-        ``COLLEAGUE_SUBAGENT_DEPTH`` / ``COLLEAGUE_SUBAGENT_TOTAL`` env vars (with
-        ``CONVERTIBLE_*`` fallbacks) override them as before.
+        fields, and the ``COLLEAGUE_TIMEOUT`` / ``COLLEAGUE_SUBAGENT_DEPTH`` /
+        ``COLLEAGUE_SUBAGENT_TOTAL`` env vars (with ``CONVERTIBLE_*`` fallbacks)
+        override them as before. ``temperature`` is the one exception
+        (reasoning-aware-sampling arc, plan task t7, spec c9/h11):
+        ``CONVERTIBLE_TEMPERATURE`` is REMOVED — its value is ignored and a run
+        that sets it gets a loud warning — and ``COLLEAGUE_TEMPERATURE`` alone
+        resolves the scalar, itself DEPRECATED for one release (still applied,
+        still warns, names ``.colleague/models.json`` as the per-half
+        replacement). See :func:`colleague.config_resolve.resolve_scalar_knobs`.
 
         *overrides* bundles eight secondary numeric-knob explicit-override slots
         (``context_budget_tokens``, ``max_output_chars``, ``subagent_concurrency``,
