@@ -237,6 +237,7 @@ class TestNoFinishResultFidelity:
             "coherence_report",  # the coherence gate report (#294)
             "test_integrity_report",
             "affected_tests_report",
+            "importcheck_report",  # importability-check gate report (#482, t6)
             "not_finished",
             "stopped_without_finish",
             "warnings",

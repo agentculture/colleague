@@ -79,6 +79,7 @@ from colleague.contract_taskresult_io import task_result_from_dict, task_result_
 
 if TYPE_CHECKING:
     from colleague.affectedtests import AffectedTestsReport
+    from colleague.importcheck import ImportCheckReport
     from colleague.testintegrity import TestIntegrityReport
 
 __all__ = [
@@ -473,6 +474,19 @@ class TaskResult:
     produced no findings. Like lint_report, the serialized key is OMITTED
     (not null) when ``None``, so a work item with no affected-tests findings is
     byte-identical to pre-artifacts."""
+    importcheck_report: Optional["ImportCheckReport"] = None
+    """The importability-check pre-finish gate's report (#482/#480 t6), or
+    ``None`` when the gate did not run at all (``COLLEAGUE_IMPORT_CHECK=0``, no
+    changed ``.py`` files, or an aborted run — ``status="skipped"`` degrades to
+    ``None`` here too). Unlike ``test_integrity_report``/``affected_tests_report``
+    (which stay ``None`` on a clean PASS with no findings), this field is set on
+    BOTH ``"passed"`` and ``"failed"`` so a clean import-check run is still
+    visible on the artifact — mirroring ``lint_report``/``coherence_report``.
+    Runs on EVERY exit outcome (finished, budget-exhausted, stalled, ...), never
+    only ``_EXIT_FINISHED`` — the h4 fix (row 67 shipped a non-importing branch
+    on a budget-exhausted outcome that told no one). Like the sibling gate
+    reports, the serialized key is OMITTED (not null) when ``None``, so a
+    pre-t6 artifact stays byte-identical."""
     not_finished: bool = False
     """True iff the work item exhausted the step budget without calling ``finish`` AND
     without raising :class:`WorkAborted` (i.e. the model ran out of turns but the
@@ -774,3 +788,17 @@ def _get_affected_tests_report_class():
     from colleague.affectedtests import AffectedTestsReport
 
     return AffectedTestsReport
+
+
+def _get_import_check_report_class():
+    """Return the ImportCheckReport class via a lazy import.
+
+    ``colleague.importcheck`` does not import ``colleague.contract`` today, but
+    the lazy-getter pattern is kept identical to its two siblings above for one
+    reason: consistency for whoever reads/edits this trio next, and to leave
+    the door open if importcheck ever needs a contract type later without a
+    surprise cycle.
+    """
+    from colleague.importcheck import ImportCheckReport
+
+    return ImportCheckReport

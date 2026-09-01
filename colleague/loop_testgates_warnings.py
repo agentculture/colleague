@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from colleague import affectedtests as _affectedtests
+    from colleague import importcheck as _importcheck
     from colleague import testintegrity as _testintegrity
 
 
@@ -47,6 +48,31 @@ def build_test_integrity_warning(report: "_testintegrity.TestIntegrityReport") -
         "symbols": [f.symbol for f in report.findings],
         "count": len(report.findings),
     }
+
+
+def build_import_check_warning(report: "_importcheck.ImportCheckReport") -> dict[str, Any]:
+    """The ``import-check-failed`` warning (#482/t6 h4) — naming every failing
+    module + the exception text per finding, so the operator sees the SAME
+    detail the row-67 postmortem needed (a hallucinated import name AND a lost
+    re-export) without opening the full report. Unlike
+    ``build_affected_tests_warning``/``build_test_integrity_warning`` (which
+    are non-finished-outcome-only, #480), this warning is appended on EVERY
+    outcome the gate fails on — the import-check gate has no bounded fix-turn,
+    so there is no clean-finish path that already surfaces the failure another
+    way."""
+    return {
+        "kind": "import-check-failed",
+        "findings": [
+            {"module": f.module, "stage": f.stage, "error": f.error} for f in report.findings
+        ],
+        "count": len(report.findings),
+    }
+
+
+def surface_import_check(report: "_importcheck.ImportCheckReport") -> None:
+    """Write the import-check failure summary to stderr (advisory; never raises)."""
+    with suppress(OSError):
+        sys.stderr.write(report.summary_line() + "\n")
 
 
 def surface_affected_tests(report: "_affectedtests.AffectedTestsReport") -> None:
