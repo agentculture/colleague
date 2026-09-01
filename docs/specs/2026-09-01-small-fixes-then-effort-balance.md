@@ -31,6 +31,12 @@
 - Spike machinery: a fixed table maps each of the three lean points to a rung; opt-in arming (unarmed = byte-identical, every outgoing payload matches today key for key); the decision barrier is a bounded tools-off completion with its own output ceiling and timeout; each fired spike is recorded on the artifact (point, rung, seat) with absence reading as did-not-fire; a drift boundary test mirrors `test_deepthink_boundary.py` and fails on any un-listed point
   - instruction: Table beside `PURPOSE_TABLE` in efforttables.py or a sibling module (file-length ratchet); no effort parameter reachable from the model; artifact key follows the effortrecord conventions
   - honesty: With the opt-in unset, outgoing payloads are byte-identical to v1.74.0; armed, the drift test enumerates exactly three points and fails on a fourth; the barrier completion is tools-off, bounded by its own output ceiling + timeout, and never mutates; no code path inspects turn content or a model-supplied value to choose a rung; each fired spike lands on the artifact as (point, rung, seat)
+- \#482's import smoke must resolve changed modules against the RUN WORKTREE, not the installed package: the subprocess needs the worktree root ahead on sys.path (affectedtests precedent: pytest runs with cwd=`repo_path`, affectedtests.py:414) — self-hosting runs (colleague editing colleague) otherwise import the installed harness and pass vacuously
+  - honesty: A test changes a module inside a throwaway worktree so it differs from the installed package and asserts the check reports the WORKTREE version's ImportError — proving resolution is not vacuous
+- The spike increment AMENDS the recorded thinking-effort invariant in docs/features/thinking-effort.md ('resolved where each seat is built, never per turn', line 11): the new wording is 'never per turn FROM CONTENT — per enumerated point from a fixed table'; the doc, CLAUDE.md bullet, and the drift test must all carry the amended line or docs and code drift silently
+  - honesty: docs/features/thinking-effort.md, the CLAUDE.md effort bullet, and the spike drift test all carry the amended wording in the same PR that lands the machinery; the amendment is listed as a recorded convention change, not a silent breach
+- `task_text` on a CONTINUED run must propagate the ORIGINAL brief from the prior artifact, not the synthesized continuation seed (continuation.py builds preamble+record+request as the new task text) — otherwise #481 AC4 records the wrong text and a chained rerun is still unreproducible
+  - honesty: A work --continue of a run with recorded `task_text` produces an artifact whose `task_text` equals the ORIGINAL brief verbatim, asserted in a continuation test
 
 ## Honesty conditions
 
@@ -57,6 +63,7 @@
 - \#484 is GATED on the small fixes: the pre-registered null-hypothesis arm (low effort + #482 importability check + #480 surfaced gate + one bounded fix turn, vs flat low and the 40k-planning-turn arm) decides whether spikes are needed at all — if cheap feedback reaches the same correctness, #484 closes
 - One #484 spike point already has policy but no consumer: `DESIGN_SITE_TABLE`\['fillline.split'\]='xhigh' (effort.py:110) with no live call site (`test_design_call_site`) — wiring the existing design-seat contract beats adding duplicate spike policy for the fill-line point
 - \#480 acceptance asks to check whether lint and test-integrity gates share the silent-failure shape on non-finished outcomes — `loop_testgates.py`:197 shows test-integrity uses the identical 'retries if `_EXIT_FINISHED` else 0' pattern, so yes for test-integrity
+- EngineConfig is a frozen dataclass (config.py:256) — the loop cannot assign config.`on_delta` at ctx time; #483's composition must wrap via dataclasses.replace or wire the heartbeat at the seam where the loop already owns the callback flow, keeping the armed cockpit sink chained
 
 ## Scope exploration
 
@@ -76,14 +83,27 @@
   - seeds: `c8`
 - `s8` — `gh issues #480-#484 incl. comments`: \#482's comment pre-registers the deciding arm: low + importability check + fed-back fix turn vs flat low vs the planning-turn arm; #484's own comments correct the low-vs-medium evidence (both arms ran low; step budget was the variable) and retract the rotating quota — the null hypothesis (feedback, not depth) must run before spike work
   - seeds: `c6`, `c9`
+- `s9` — `challenge pass / adjacent-systems lens: colleague/config.py EngineConfig`: frozen=True at line 256; naive config.`on_delta` assignment in the loop would raise — composition mechanism is a design point, not free
+  - seeds: `c19`
+- `s10` — `challenge pass / hidden-dependency lens: colleague/affectedtests.py:414 + site-packages resolution`: pytest gate already runs cwd=worktree; a bare importlib subprocess would NOT inherit that resolution for package imports — the vacuous-pass failure mode is real for self-hosted runs
+  - seeds: `c20`
+- `s11` — `challenge pass / unstated-assumption lens: docs/features/thinking-effort.md line 11`: the spec as exported builds machinery that contradicts the invariant's literal wording; an explicit recorded amendment is required — this is a convention change to record, not a silent breach
+  - seeds: `c21`
+- `s12` — `challenge pass / lifecycle lens: colleague/continuation.py seed synthesis`: the resumed Task's text is the built seed, not the operator brief; propagation from the prior artifact's `task_text` is the fix
+  - seeds: `c22`
+- `s13` — `challenge pass / security lens: .gitignore:247-249 + .colleague artifact dir`: artifacts (and thus `task_text`) are local-only — .colleague/\* ignored except commands/ and skills/; residual exposure is feedback export and manual artifact copies, bounded by the off-knob
+- `s14` — `challenge pass / failure-mode lens: colleague/tools.py:905 + roles.is_read_only`: a read-only tool/role classification already exists — the barrier's first-mutation trigger can be tool-NAME based, satisfying the never-content-routed boundary; clean pass on the router risk for this trigger
+  - seeds: `c18`
 
 ## Decisions
 
 - `task_text`: ~16KB cap, truncation marker, ON by default, `COLLEAGUE_RECORD_TASK_TEXT`=0
 - This arc ships the four fixes AND the #484 spike machinery (opt-in, unarmed = byte-identical); the pre-registered arms then measure feedback vs barrier vs rung on the same brief
 - Spike surface v0 = the lean set: (a) pre-mutation decision barrier, (b) repeated-gate-failure escalation to one medium replan (retry count as the signal), (c) fill-line via the existing `DESIGN_SITE_TABLE`\['fillline.split'\] consumer; forced synthesis EXCLUDED from the spike surface
+- Barrier completion counts as a normal step (budget + WorkStats); never hidden from the declared bound
 
 ## Open parks
 
 - [unknown_nonblocking] Whether the fill-line spike point should be delivered by finally wiring the dormant `DESIGN_SITE_TABLE`\['fillline.split'\] consumer rather than any new spike table — depends on the null arm's outcome
+- [unknown_nonblocking] Blocking (non-streaming, `COLLEAGUE_STREAM`=0) path keeps no in-flight liveness — stays documented as uncovered per #483 AC5; revisit only if operators actually run blocking
 - [follow_up] Model-invoked 'unsure' reset tool (closed reason vocabulary, table-fixed rung, rate-limited) — after the harness-side arms are measured

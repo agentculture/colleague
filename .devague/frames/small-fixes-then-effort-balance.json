@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-01T17:05:31Z",
-  "updated": "2026-09-01T17:17:44Z",
+  "updated": "2026-09-01T17:23:34Z",
   "claims": [
     {
       "id": "c1",
@@ -305,6 +305,87 @@
       "links": [],
       "instruction": "Table beside PURPOSE_TABLE in efforttables.py or a sibling module (file-length ratchet); no effort parameter reachable from the model; artifact key follows the effortrecord conventions",
       "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "assumption",
+      "text": "EngineConfig is a frozen dataclass (config.py:256) \u2014 the loop cannot assign config.on_delta at ctx time; #483's composition must wrap via dataclasses.replace or wire the heartbeat at the seam where the loop already owns the callback flow, keeping the armed cockpit sink chained",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "#482's import smoke must resolve changed modules against the RUN WORKTREE, not the installed package: the subprocess needs the worktree root ahead on sys.path (affectedtests precedent: pytest runs with cwd=repo_path, affectedtests.py:414) \u2014 self-hosting runs (colleague editing colleague) otherwise import the installed harness and pass vacuously",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A test changes a module inside a throwaway worktree so it differs from the installed package and asserts the check reports the WORKTREE version's ImportError \u2014 proving resolution is not vacuous",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "The spike increment AMENDS the recorded thinking-effort invariant in docs/features/thinking-effort.md ('resolved where each seat is built, never per turn', line 11): the new wording is 'never per turn FROM CONTENT \u2014 per enumerated point from a fixed table'; the doc, CLAUDE.md bullet, and the drift test must all carry the amended line or docs and code drift silently",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "docs/features/thinking-effort.md, the CLAUDE.md effort bullet, and the spike drift test all carry the amended wording in the same PR that lands the machinery; the amendment is listed as a recorded convention change, not a silent breach",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "task_text on a CONTINUED run must propagate the ORIGINAL brief from the prior artifact, not the synthesized continuation seed (continuation.py builds preamble+record+request as the new task text) \u2014 otherwise #481 AC4 records the wrong text and a chained rerun is still unreproducible",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "A work --continue of a run with recorded task_text produces an artifact whose task_text equals the ORIGINAL brief verbatim, asserted in a continuation test",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "Barrier completion counts as a normal step (budget + WorkStats); never hidden from the declared bound",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -321,6 +402,15 @@
       "id": "v2",
       "text": "Model-invoked 'unsure' reset tool (closed reason vocabulary, table-fixed rung, rate-limited) \u2014 after the harness-side arms are measured",
       "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Blocking (non-streaming, COLLEAGUE_STREAM=0) path keeps no in-flight liveness \u2014 stays documented as uncovered per #483 AC5; revisit only if operators actually run blocking",
+      "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
       "resolution": "",
@@ -393,6 +483,52 @@
       "seeds": [
         "c6",
         "c9"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "challenge pass / adjacent-systems lens: colleague/config.py EngineConfig",
+      "finding": "frozen=True at line 256; naive config.on_delta assignment in the loop would raise \u2014 composition mechanism is a design point, not free",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "challenge pass / hidden-dependency lens: colleague/affectedtests.py:414 + site-packages resolution",
+      "finding": "pytest gate already runs cwd=worktree; a bare importlib subprocess would NOT inherit that resolution for package imports \u2014 the vacuous-pass failure mode is real for self-hosted runs",
+      "seeds": [
+        "c20"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "challenge pass / unstated-assumption lens: docs/features/thinking-effort.md line 11",
+      "finding": "the spec as exported builds machinery that contradicts the invariant's literal wording; an explicit recorded amendment is required \u2014 this is a convention change to record, not a silent breach",
+      "seeds": [
+        "c21"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / lifecycle lens: colleague/continuation.py seed synthesis",
+      "finding": "the resumed Task's text is the built seed, not the operator brief; propagation from the prior artifact's task_text is the fix",
+      "seeds": [
+        "c22"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / security lens: .gitignore:247-249 + .colleague artifact dir",
+      "finding": "artifacts (and thus task_text) are local-only \u2014 .colleague/* ignored except commands/ and skills/; residual exposure is feedback export and manual artifact copies, bounded by the off-knob",
+      "seeds": []
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / failure-mode lens: colleague/tools.py:905 + roles.is_read_only",
+      "finding": "a read-only tool/role classification already exists \u2014 the barrier's first-mutation trigger can be tool-NAME based, satisfying the never-content-routed boundary; clean pass on the router risk for this trigger",
+      "seeds": [
+        "c18"
       ]
     }
   ],
