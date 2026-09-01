@@ -2,7 +2,7 @@
   "plan_slug": "reasoning-aware-sampling-defaults-repetition-guard",
   "schema_version": 2,
   "created": "2026-09-01T10:52:03Z",
-  "updated": "2026-09-01T14:22:42Z",
+  "updated": "2026-09-01T16:26:18Z",
   "deviations": [
     {
       "id": "d1",
@@ -106,7 +106,7 @@
         "commit": "822ae77b"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 8
     },
@@ -125,7 +125,7 @@
         "commit": "822ae77b"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 9
     },
@@ -144,7 +144,7 @@
         "commit": "822ae77b"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 10
     },
@@ -163,7 +163,7 @@
         "commit": "822ae77b"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 11
     },
@@ -182,7 +182,7 @@
         "commit": "822ae77b"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 12
     },
@@ -201,7 +201,7 @@
         "commit": "822ae77b"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 13
     },
@@ -220,7 +220,7 @@
         "commit": "822ae77b"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 14
     }

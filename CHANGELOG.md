@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.74.0] - 2026-09-01
+
+### Added
+
+- Reasoning-aware sampling defaults (#479): `colleague/sampling.py` holds a FIXED builtin table of the Qwen3.8 card profiles keyed by model + role + thinking half, with an ENUMERATED-id match rule — the served `unsloth/Qwen3.8-27B-NVFP4` and the card `Qwen/Qwen3.8-27B` resolve to one row while `Qwen3.8-4B` inherits nothing. An unmatched model sends no sampling keys at all (byte-identical to before).
+- `colleague/samplingwire.py` — the single module that names the vLLM extension keys: `SERVER_DEFAULT_SAMPLING`, `SAMPLING_COERCERS`, `wire_fragment()` and the `COLLEAGUE_SAMPLING` kill-switch predicate. Only keys whose value DIFFERS from the server default reach the wire, so `top_k` is the only vLLM extension the builtin table sends — the adapter's fourth carve-out stays one key.
+- A tracked `.colleague/models.json` operator table (`colleague/samplingfile.py`) with per-model merge granularity. Tracked, not gitignored, so an operator's rows survive into a work item's throwaway worktree at HEAD.
+- `colleague/repetitionguard.py` — a verbatim-tail repetition detector (48 characters × 8 repeats, KMP minimal-period guarded, bounded 8192-character window) wired into both the streaming and blocking transports. A trip cuts the TURN into the existing retry; only the third trip in one run ends it.
+- `TaskResult.sampling` — the profile each seat resolved, recording the card ROW and the WIRE separately so a reader can never mistake "the card says" for "the request carried". Omit-when-`None`, like `effort`.
+- `colleague/loop_progress.py::delta_heartbeat()` — a throttled, thread-free in-flight liveness callback. NOT yet armed on the work path; the wiring is #483.
+
+### Changed
+
+- The distill child resolves its own sampling profile from its own `distilleffort` rung instead of hard-coding `temperature: 0` beside an armed thinking rung.
+- `CONVERTIBLE_TEMPERATURE` is REMOVED and warns if set. `COLLEAGUE_TEMPERATURE` is DEPRECATED over one release — it still applies exactly as it does today and warns, naming `.colleague/models.json`, because a single value collapses BOTH the thinking and non-thinking halves to one temperature.
+- `config show` states the sampling match positively: the row that matched, what actually goes on the wire, and what was dropped for already being the server default — or an explicit no-row-matched line when a misspelt model resolves to nothing.
+
+### Fixed
+
+- `config show` and the adapter disagreed about the `COLLEAGUE_SAMPLING` kill switch: the adapter disabled on `0|false|no|off` while `config show` matched only the literal `"0"`, so `COLLEAGUE_SAMPLING=off` sent no sampling keys while `config show` cheerfully reported a match. Both now call one predicate (deviation d6, found by the documentation pass).
+- `loopguards.py`'s docstring records that the verbatim-tail repetition tier was ported after all, on which evidence (run `2bd306a6916a`, 271,486 characters), and which false-positive risk is accepted — rather than quietly dropping its earlier "NOT ported" claim.
+
 ## [1.73.0] - 2026-08-31
 
 ### Added
