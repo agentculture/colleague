@@ -1,0 +1,313 @@
+{
+  "slug": "measure-effort-spikes-484",
+  "title": "measure-effort-spikes-484",
+  "frame_slug": "measure-effort-spikes-484",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-09-01T21:39:54Z",
+  "updated": "2026-09-01T22:01:03Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague measures the #484 effort-spike surface: arms A (low + feedback) / B (+ barrier at low) / C (+ barrier at medium) run on the row-69 recorded brief, each a docs/live-testing.md row with a miss written as a miss, and the pre-registered C-beats-B rule decides whether any spike arms by default \u2014 the #484 disposition posts to the issue",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "every arm's artifact records effort {main: low}, sampling row matched, max_steps 90, and task_text byte-equal to 39661f2af608's \u2014 read off the artifact, not the shell history",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "The three arms dispatch FRESH from the row-69 artifact's recorded task_text (39661f2af608, 700 chars, the verbatim dispatch brief) \u2014 NOT via work --continue b702d8249dea: that chain holds zero prior progress (3a87abc231b1 SIGTERM'd at 0 steps, b702 at 2 read_file steps) and b702's task_text is the synthesized continuation SEED (2,943 chars, 'You are CONTINUING\u2026'), recorded by a build predating the Qodo-thread-5 salvage fix, so continuing it would propagate the seed as the arms' brief",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "sha256 of each arm artifact's task_text equals sha256 of 39661f2af608's task_text",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Before the arms, ONE pre-flight smoke of the armed barrier on a throwaway repo: t12/row 69 ran spikes OFF and the barrier has never fired live \u2014 proof is unit-level only (tests/test_barrier_pre_mutation.py). The smoke must show a barrier.pre_mutation Step + effort_spikes record on the artifact, chat_template_kwargs reasoning_effort=medium on that one completion, and NO effort-spike-barrier warning",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "the smoke artifact carries effort_spikes == [{point: barrier.pre_mutation, rung: medium, seat: cortex}], a Step named barrier.pre_mutation, and no effort-spike-barrier warning; the smoke's reasoning sidecar shows the barrier turn's reasoning larger than the surrounding low turns",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Barrier validity is checked per arm, never assumed: loop_barrier caps the barrier turn at the STANDARD timeout (min(base_timeout, timeout) = COLLEAGUE_TIMEOUT) and on timeout/failure warns effort-spike-barrier and lets the turn proceed unbarriered \u2014 arm C would silently degrade into arm A. An arm whose artifact carries that warning or lacks the barrier.pre_mutation Step is recorded VOID and rerun, not written as a miss",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "arms B and C each carry the barrier.pre_mutation Step and record; any arm carrying an effort-spike-barrier warning is marked VOID in its row and rerun once before any comparison is drawn",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (importcheck_report), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 70-72 cite rows 67-69",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "correctness is asserted by commands run on the result branch checked out in a fresh worktree (python -c 'import colleague.loop', the six pin greps, uv run pytest -n auto -q), with their output quoted in the row; never by the run's own summary",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "The arms MEASURE; they change no code and no default. The only default change the arc licenses is the pre-registered one \u2014 arming a spike by default requires C to beat B \u2014 and a miss is written as a miss. Deliverables: three docs/live-testing.md rows, the effort-spikes.md 'Honest limits' pointer to them, the #484 disposition comment, a patch version bump for the docs PR, the memory file update",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "git diff 4405d07b -- colleague/ after the arc is empty; the only code-adjacent edits are docs/, CHANGELOG.md and the version bump",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "Nothing in the arms inspects turn content to pick a rung and no new spike point is added: the fixed three-point SPIKE_TABLE, the per-point env overrides and the opt-in are the entire surface used; the excluded router stays excluded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "tests/test_effortspikes_boundary.py still enumerates exactly three points and passes unchanged after the arc",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "audience",
+      "text": "colleague's operator deciding the #484 disposition, and the next colleague/Claude session that reads docs/live-testing.md rows 70-72 to know whether any spike may arm by default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "a reader with only rows 70-73 and the #484 comment can reproduce each arm's env and brief source without this session's memory file",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "before_state",
+      "text": "the spike surface is merged dark (v1.75.0) with unit proof only; the barrier has never fired live; #484 is open with a pre-registered rule and no measurement",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "before dispatch, grep 'barrier.pre_mutation' across docs/live-testing.md returns nothing and no artifact anywhere under sf-t12-target/.colleague carries an effort_spikes key",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "after_state",
+      "text": "one barrier smoke row + three arm rows (A/B/C) sit in docs/live-testing.md, effort-spikes.md points at them, and #484 carries a disposition comment that applies the pre-registered rule verbatim \u2014 the spike default is either unchanged (miss) or a follow-up issue is filed to arm it (C beat B)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "colleague/effortspikes.py SPIKE_TABLE and spikes_enabled() are byte-identical to 4405d07b at PR time; any default change is a follow-up issue, not this PR",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "each of the 3 arms yields a verified correctness verdict (import + 6 pins + affected tests + full suite, checked on the result branch) and 4 spend figures (reasoning chars, wall s, model turns, longest turn); zero arms VOID by barrier degradation after at most 1 rerun each; the disposition names exactly one of the three pre-registered readings",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the disposition comment quotes the three arms' correctness verdicts and spend figures verbatim from the rows and names the reading with the pre-registered wording from #482",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 barrier smoke on a throwaway repo (DONE: artifact 2db5bb0ae410, row 70)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "row 70 in docs/live-testing.md quotes effort_spikes [{barrier.pre_mutation, medium, cortex}], the barrier Step, zero warnings and the per-turn reasoning sizes"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3",
+        "c12",
+        "h11"
+      ],
+      "instruction": "already executed; the row is written on branch measure/effort-spikes-484"
+    },
+    {
+      "id": "t2",
+      "summary": "t2 arm A \u2014 low, spikes OFF, MAX_STEPS 90, TIMEOUT 600, fresh dispatch from row-69 task_text; verify the result branch",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "artifact task_text sha256 == 815f5c3f\u20261ac9 (brief.txt); effort {main: low}; max_steps 90; correctness verified via verify_branch.sh (import, 6 pins, suite) with outputs saved; spend figures read off the artifact; the row states whether the run FINISHED and quotes importcheck_report + the affected-tests warning"
+      ],
+      "deps": [],
+      "covers": [
+        "c1",
+        "h1",
+        "c2",
+        "h2",
+        "c7",
+        "h5"
+      ],
+      "instruction": "scratchpad/run_arm.sh A (running as 26d71865aeee); then scratchpad/verify_branch.sh <id>; save outputs to scratchpad/arm-A.verify"
+    },
+    {
+      "id": "t3",
+      "summary": "t3 arm B \u2014 spikes ON, barrier pinned low, gate/fillline pinned low; verify",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "artifact carries exactly one effort_spikes entry {barrier.pre_mutation, low, cortex} (extra pinned-low entries quoted); no effort-spike-barrier warning else VOID + one rerun; barrier fire step index recorded; same correctness + spend procedure as t2"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c4",
+        "h4"
+      ],
+      "instruction": "scratchpad/run_arm.sh B after A finishes (GPU serializes); verify_branch.sh; record the step index of the barrier.pre_mutation Step"
+    },
+    {
+      "id": "t4",
+      "summary": "t4 arm C \u2014 spikes ON, barrier medium from the table, gate/fillline pinned low; verify",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "artifact carries {barrier.pre_mutation, medium, cortex}; no effort-spike-barrier warning else VOID + one rerun; fire step index recorded; same correctness + spend procedure as t2"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c4",
+        "h4"
+      ],
+      "instruction": "scratchpad/run_arm.sh C after B finishes; verify_branch.sh; record the fire step index"
+    },
+    {
+      "id": "t5",
+      "summary": "t5 rows 71-73 in docs/live-testing.md + effort-spikes.md Honest-limits pointer + memory update",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "three rows each with a correctness verdict, four spend figures, env, brief source (39661f2af608), budget, barrier fire position, n=1 stated; effort-spikes.md 'Honest limits' cites rows 70-73; markdownlint clean"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c11",
+        "h10",
+        "c13",
+        "c14"
+      ],
+      "instruction": "mirror row 69's shape; a miss is written as a miss; quote verify outputs; cite rows 67-69"
+    },
+    {
+      "id": "t6",
+      "summary": "t6 patch version bump + PR via cicd (docs-only diff)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "git diff 4405d07b -- colleague/ is empty except colleague/__init__.py version; tests/test_effortspikes_boundary.py passes; PR opened via the cicd skill and CI green"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c8",
+        "h6",
+        "c9",
+        "h9",
+        "h12"
+      ],
+      "instruction": "version-bump skill patch (v1.75.1); cicd skill pr open; do not touch effortspikes.py / loop_barrier.py"
+    },
+    {
+      "id": "t7",
+      "summary": "t7 #484 disposition comment applying the pre-registered rule",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the comment quotes the three arms' verdicts and spend figures verbatim from rows 71-73, names exactly one of #482's three readings (close #484 / #484 proceeds / reframe), and files the barrier-trigger follow-up if any arm fired at step <=2"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c14",
+        "h13",
+        "c13"
+      ],
+      "instruction": "gh issue comment 484 signed '- colleague (Claude)'; C beats B only by lower spend at equal correctness (q4)"
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Rig availability + GPU serialization: three 90-step arms at ~1-1.5 h each may span sessions",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "n=1 per arm at temperature 1.0 \u2014 spend differences may be noise; rows state it, disposition must not overclaim",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}

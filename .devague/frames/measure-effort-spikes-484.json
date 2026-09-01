@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-01T20:45:24Z",
-  "updated": "2026-09-01T21:35:29Z",
+  "updated": "2026-09-01T21:39:16Z",
   "claims": [
     {
       "id": "c1",
@@ -324,6 +324,18 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "decision",
+      "text": "q6: arms B and C measure the barrier AS SHIPPED (name-only trigger, run_command mutating); rows record the fire position; a step<=2 fire files a follow-up issue on the trigger",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -412,6 +424,14 @@
       "finding": "lobes armed localhost:8001, cortex Qwen3.8-27B-NVFP4 ready, sampling row matched, cortex low, GPU idle, no colleague work in flight",
       "seeds": [
         "c10"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "colleague/roles.py:78-97 (_WRITE_TOOLS / _READONLY_TOOLS) + arm A trace step 1",
+      "finding": "run_command \u2208 _WRITE_TOOLS; the barrier's name-only lookup fires on it; arm A ran 'wc -l' at step 1 so B/C will barrier at step 1 unless the model happens not to shell out",
+      "seeds": [
+        "c4"
       ]
     }
   ],
