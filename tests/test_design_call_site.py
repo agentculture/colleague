@@ -14,11 +14,16 @@ Covers:
 * One payload test per plan stage (``plan.spec_stage`` / ``plan.plan_stage``)
   proving the completion built for that stage actually carries the design
   effort in the wire payload / the ``make_complete`` build.
-* ``autosplit.design_seat_config`` / ``fillline.design_seat_config`` /
-  ``subagents.decomposition_seat_config`` / ``plan.workforce.design_seat_config``
-  are pinned at the BUILDER level (the current architecture dispatches those
-  sites as ordinary per-turn messages or full child ``Task``s with their own
-  role effort — see each module's own docstring for the honest limit).
+* ``autosplit.design_seat_config`` / ``subagents.decomposition_seat_config`` /
+  ``plan.workforce.design_seat_config`` are pinned at the BUILDER level (the
+  current architecture dispatches those sites as ordinary per-turn messages or
+  full child ``Task``s with their own role effort — see each module's own
+  docstring for the honest limit).
+* ``fillline.design_seat_config`` is pinned at the builder level too AND named
+  with its LIVE consumer (#484 t9): ``loop_gateescalation.SeatEscalator``
+  reads this builder's resolved rung — table, operator override and kill
+  switch alike — and pushes it onto the acting config for exactly the
+  fill-line declaring turn.
 * A structural guard: every call to :func:`colleague.design.design_seat_config`
   anywhere in :mod:`colleague` (outside ``design.py`` itself) passes a site
   string literal that is a member of :data:`DESIGN_CALL_SITES` — adding a
@@ -35,6 +40,7 @@ import pytest
 
 from colleague import autosplit as _autosplit
 from colleague import fillline as _fillline
+from colleague import loop_gateescalation as _gateescalation
 from colleague import subagents as _subagents
 from colleague.cli._commands.plan import run_plan_request
 from colleague.cli._errors import CliError
@@ -254,9 +260,14 @@ def test_run_plan_request_spec_stage_build_carries_design_effort_when_not_quick(
 
 
 # ---------------------------------------------------------------------------
-# Builder-level pins: autosplit / fillline.split / subagents.decompose /
-# plan.workforce (no live call site consumes these today — see each module's
-# own docstring for the honest limit).
+# Builder-level pins: autosplit / subagents.decompose / plan.workforce (no live
+# call site consumes THOSE THREE today — see each module's own docstring for
+# the honest limit).
+#
+# ``fillline.split`` is the exception as of #484 t9: it HAS a live consumer,
+# :meth:`colleague.loop_gateescalation.SeatEscalator.fillline_rung`, which
+# reads this builder's rung and pushes it onto the acting config for exactly
+# the fill-line declaring turn. Named below.
 # ---------------------------------------------------------------------------
 
 
@@ -270,6 +281,27 @@ def test_fillline_design_seat_config_pinned_at_builder_level() -> None:
     seat = _fillline.design_seat_config(_config())
     assert _effort(seat) == "xhigh"
     assert seat.model == "cortex-model"
+
+
+def test_fillline_design_seat_config_has_a_live_consumer() -> None:
+    """The ``fillline.split`` row is no longer consumer-less (#484 t9).
+
+    ``SeatEscalator.fillline_rung`` is the live consumer: it must return
+    exactly what ``fillline.design_seat_config`` resolves — the table rung, the
+    operator override, and ``None`` under the kill switch — because it reads
+    that builder rather than the table (so the two can never drift).
+    """
+    cfg = _config()
+    assert _gateescalation.SeatEscalator(cfg).fillline_rung() == _effort(
+        _fillline.design_seat_config(cfg)
+    )
+    assert _gateescalation.SeatEscalator(cfg).fillline_rung() == design_effort("fillline.split")
+
+    override = _config(reasoning_effort_seats={"design": "low"})
+    assert _gateescalation.SeatEscalator(override).fillline_rung() == "low"
+
+    killed = _config(reasoning_effort="default", reasoning_effort_seats={"design": "xhigh"})
+    assert _gateescalation.SeatEscalator(killed).fillline_rung() is None
 
 
 def test_subagents_decomposition_seat_config_pinned_at_builder_level() -> None:

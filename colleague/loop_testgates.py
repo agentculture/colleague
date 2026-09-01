@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
 from colleague import importcheck as _importcheck
+from colleague import loop_gateescalation as _gateescalation
 from colleague import loop_testgates_warnings as _testgates_warnings
 from colleague import testintegrity as _testintegrity
 from colleague.config import MAX_SUBAGENT_FANOUT
@@ -200,8 +201,15 @@ def _maybe_run_test_integrity_gate(
             ctx.result.warnings.append(_testgates_warnings.build_test_integrity_warning(report))
         # Bounded re-examine turn(s) — only after a clean finish with budget left.
         retries = ctx.testintegrity_fix_retries if outcome == _EXIT_FINISHED else 0
+        attempt = 0
         while report.findings and retries > 0:
-            _run_test_integrity_fix_turn(ctx, complete, report.findings, work_loop=work_loop)
+            # #484 t9: the FIRST repair runs at the seat's ordinary rung; a
+            # REPEATED one (attempt >= 2 — the loop iteration count, never the
+            # report's content) escalates ONCE to the fixed
+            # ``gate.repeat_failure`` rung. A strict no-op when unarmed.
+            attempt += 1
+            with _gateescalation.escalated_gate_turn(ctx, "test_integrity", attempt):
+                _run_test_integrity_fix_turn(ctx, complete, report.findings, work_loop=work_loop)
             retries -= 1
             report = _testintegrity.detect_mirror(ctx.task.repo_path, _gate_changed_set(ctx))
             ctx.result.test_integrity_report = report if report.findings else None
@@ -296,8 +304,15 @@ def _maybe_run_affected_tests_gate(
         if report.status == "failed" and outcome != _EXIT_FINISHED:
             ctx.result.warnings.append(_testgates_warnings.build_affected_tests_warning(report))
         retries = ctx.affectedtests_fix_retries if outcome == _EXIT_FINISHED else 0
+        attempt = 0
         while report.status == "failed" and retries > 0:
-            _run_affected_tests_fix_turn(ctx, complete, report, work_loop=work_loop)
+            # #484 t9: identical wiring to the test-integrity fix turn above —
+            # the two loops share the shape, so they share the escalation. The
+            # signal is ``attempt`` (this loop's iteration count), never the
+            # report.
+            attempt += 1
+            with _gateescalation.escalated_gate_turn(ctx, "affected_tests", attempt):
+                _run_affected_tests_fix_turn(ctx, complete, report, work_loop=work_loop)
             retries -= 1
             next_report = _affectedtests.run_affected_tests(
                 ctx.task.repo_path,

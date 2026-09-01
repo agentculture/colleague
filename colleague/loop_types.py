@@ -85,6 +85,20 @@ class _Work:
     # (``loop_barrier.make_barrier_complete``); ``None`` = the spike opt-in is
     # unset, so ``loop_barrier.intercept`` is a strict no-op.
     barrier_complete: Any = None
+    # Repeated-gate / fill-line effort spikes (#484 t9): the bound
+    # ``loop_gateescalation.SeatEscalator`` over the LIVE acting config;
+    # ``None`` = the ``COLLEAGUE_EFFORT_SPIKES`` opt-in is unset, so every
+    # function in that module is a strict no-op.
+    gate_escalation: Any = None
+    # Single-element/append-only cells the frozen ``_Work`` flips through the
+    # binding (the ``_split_recommended`` pattern): ``_effort_spikes_fired``
+    # holds the at-most-once keys of the t9 spikes that already fired
+    # ("gate:<gate>", "fillline") — needed because the artifact record shape
+    # ``(point, rung, seat)`` cannot distinguish one gate from the other;
+    # ``_fillline_escalated`` marks that a declaring-turn escalation is
+    # currently pushed and must be popped when the declaration is recorded.
+    _effort_spikes_fired: list[str] = field(default_factory=list)
+    _fillline_escalated: list[bool] = field(default_factory=list)
     # Recorded seat rungs (effort-v4 t5) — threaded verbatim from the
     # ContextControls fields of the same names; see their contract there.
     reasoning_effort_main: "str | None" = None
@@ -662,6 +676,11 @@ class ContextControls:
     #: ``from_config`` from the live config, ``None`` unless the
     #: ``COLLEAGUE_EFFORT_SPIKES`` opt-in is armed (byte-identical default).
     barrier_complete: Any = field(default=None, compare=False, repr=False)
+    #: The repeated-gate / fill-line seat escalator (#484 t9) — built in
+    #: ``from_config`` over the SAME live config object the backend's acting
+    #: completion closed over, ``None`` unless the ``COLLEAGUE_EFFORT_SPIKES``
+    #: opt-in is armed (byte-identical default).
+    gate_escalation: Any = field(default=None, compare=False, repr=False)
     #: The acting (main) seat's resolved thinking-effort rung (effort-v4 t5,
     #: c6/h5) — ``effort.effort_of(config)``, exactly what the wire sends
     #: (``vllm_openai._effort_for``'s value), resolved ONCE in ``from_config``
@@ -709,11 +728,14 @@ class ContextControls:
         """
         from colleague import loop_barrier as _loopbarrier
         from colleague import loop_deltaheartbeat as _deltaheartbeat
+        from colleague import loop_gateescalation as _gateescalation
 
         return cls(
             delta_binder=_deltaheartbeat.arm(config),
             # #484 t8: ``None`` (and nothing built) unless the spike opt-in is armed.
             barrier_complete=_loopbarrier.make_barrier_complete(config),
+            # #484 t9: likewise ``None`` unless the SAME opt-in is armed.
+            gate_escalation=_gateescalation.make_escalator(config),
             budget=config.context_budget_tokens,
             count_tokens=count_tokens,
             agents_run=_agents_runtime.make_agents_run(config),
