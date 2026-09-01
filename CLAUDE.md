@@ -26,23 +26,28 @@ minds. The architecture, part by part:
   `contract_senses`/`contract_taskresult_io` siblings, split under the 1000-line
   hard ceiling: `Task`/`TaskResult`); optional `Task.goal`/`acceptance` → an
   **advisory** acceptance self-check (never flips status). Doc: `task-goals.md`.
-- **Tool loop** — the bounded agentic loop (`colleague/loop.py`, split into 21
+- **Tool loop** — the bounded agentic loop (`colleague/loop.py`, split into 26
   `loop_*` siblings — `loop_types`/`loop_transport`/`loop_context`/`loop_senses`/
-  `loop_testgates`/`loop_constants`/`loop_outcomes`/`loop_memory`/`loop_synthesis`/
-  `loop_gates`/`loop_run_stages`/`loop_setup`/`loop_gatebase`/`loop_hooks`/
-  `loop_flight`/`loop_wire`/`loop_toolexec`/`loop_tae`/`loop_progress`/`loop_turn`/
-  `loop_accounting` — under the 1000-line hard ceiling, `loop.py` itself stays the
-  entry point) over repo-confined tools (`colleague/tools.py` + `tool_schemas`:
-  base six + `culture`). Hooks, the progress sink
-  (#38), phase notices (#206), finish recovery (#248/#231) live here (all-engines);
-  **a phase notice never advances `step_count`**. Doc: `work-and-loop.md`.
+  `loop_testgates`/`loop_testgates_warnings`/`loop_constants`/`loop_outcomes`/
+  `loop_memory`/`loop_synthesis`/`loop_gates`/`loop_run_stages`/`loop_setup`/
+  `loop_gatebase`/`loop_hooks`/`loop_flight`/`loop_wire`/`loop_toolexec`/
+  `loop_toolturn`/`loop_tae`/`loop_progress`/`loop_turn`/`loop_accounting`/
+  `loop_barrier`/`loop_gateescalation`/`loop_deltaheartbeat` — under the
+  1000-line hard ceiling, `loop.py` itself stays the entry point) over
+  repo-confined tools (`colleague/tools.py` + `tool_schemas`: base six +
+  `culture`). Hooks, the progress sink (#38, wired to a real work path since
+  #483's `loop_deltaheartbeat`), phase notices (#206), finish recovery
+  (#248/#231) live here (all-engines); **a phase notice never advances
+  `step_count`**. Doc: `work-and-loop.md`.
 - **Plugins** — backends discovered via the `colleague.engines` entry-point group
   (`colleague/registry.py`).
 - **Run report + feedback (ROI loop)** — JSON artifact + step trace + always-on
   `WorkStats` (`colleague/artifact.py`; tokens exact from `usage`, never estimated),
   plus a per-work-item feedback store (`colleague/feedback.py`) with a per-repo
-  `last_work` pointer (writes-only across ask-colleague, #132). Docs: `artifact.md`,
-  `stats-and-feedback.md`.
+  `last_work` pointer (writes-only across ask-colleague, #132); `TaskResult.task_text`
+  records the verbatim brief (16 KiB cap, ON by default, `COLLEAGUE_RECORD_TASK_TEXT=0`,
+  a continuation propagates the ORIGINAL brief, never the synthesized seed, #481).
+  Docs: `artifact.md`, `stats-and-feedback.md`.
 - **Telemetry** — opt-in OpenTelemetry, loop-instrumented; off by default, the lazy
   `[otel]` extra. Doc: `telemetry.md`.
 - **Mesh-member integration** — process identity (`colleague/identity.py`, via `COLLEAGUE_IDENTITY`), read-only neighbour clones from a `.colleague/neighbours.json` allow-list (`colleague/neighbours.py`), and a curated `culture` tool (`colleague/culture.py`) shelling out to `agtag`/`devex`. Doc:
@@ -72,6 +77,15 @@ minds. The architecture, part by part:
   v3 default table is pinned row-for-row and rendered once in the feature doc
   (pointer, not duplicate); a ladder-400 retries once without the key;
   byte-identical under the kill-switch. Doc: `thinking-effort.md`.
+- **Effort spikes (#484)** — the AMENDED thinking-effort invariant's opt-in
+  spike surface (`COLLEAGUE_EFFORT_SPIKES=1`): exactly THREE enumerated points
+  keyed by point name against a FIXED table (`colleague/effortspikes.py`) —
+  `barrier.pre_mutation` (a one-shot pre-mutation planning turn,
+  `loop_barrier.py`), `gate.repeat_failure` (a repeated gate-repair turn,
+  `loop_gateescalation.py`), and `fillline.decision` (delegated to the
+  already-shipped `effort.DESIGN_SITE_TABLE['fillline.split']`, same module);
+  recorded on `TaskResult.effort_spikes` (omit-when-empty); unarmed =
+  byte-identical to v1.74.0. Doc: `effort-spikes.md`.
 - **Per-model sampling defaults + repetition guard (#479)** — every seat's
   completion carries its MODEL CARD's sampling values for the half the
   already-resolved effort rung selects (`off` = the non-thinking half, any rung
@@ -261,10 +275,20 @@ minds. The architecture, part by part:
   non-blocking. Doc: `lint-gate.md`.
 - **Test-integrity gate (#203)** — flags the **mirror signature** (a novel id
   co-introduced in a changed test + its module, found nowhere else) onto
-  `TaskResult.test_integrity_report`; + a diverse-model reviewer; advisory. Doc:
-  `test-integrity.md`.
+  `TaskResult.test_integrity_report`; + a diverse-model reviewer; advisory; a
+  flagged finding on a non-finished outcome now also appends a
+  `test-integrity-flagged` warning (#480). Doc: `test-integrity.md`.
 - **Affected-tests gate (#213)** — runs the tests that **transitively import** the changed module(s) (`ast` graph, depth 3, capped 20); default-ON,
-  degrade-to-skipped without pytest. Doc: `affected-tests.md`.
+  degrade-to-skipped without pytest; a `failed` report on a non-finished
+  outcome now also appends an `affected-tests-failed` warning (#480) so the
+  operator sees it without opening the artifact. Doc: `affected-tests.md`.
+- **Import-check gate (#482)** — a fifth pre-finish gate (`py_compile` and a
+  subprocess import smoke of every changed `.py` file, worktree-resolved so
+  colleague-on-colleague self-hosting can't pass vacuously against an
+  installed copy); runs on EVERY exit outcome, no bounded fix-turn;
+  `TaskResult.importcheck_report` (set on pass and fail alike, omit-when-None)
+  and an `import-check-failed` warning; off-knob `COLLEAGUE_IMPORT_CHECK=0`.
+  Doc: `import-check.md`.
 - **Cleanup / reap** — `colleague clean` self-heals a repo a crashed `work` wedged
   (#162); the git reap lives in `colleague/handoff.py`; scoped to `colleague/*` refs + `.colleague/` artifacts. Doc: `cleanup-reap.md`.
 - **Command templates** — named recipes in `.colleague/commands/*.md`, via `work --command <name>`. Doc: `command-templates.md`.
@@ -348,7 +372,7 @@ minds. The architecture, part by part:
 
 ## v1 scope (hold this line)
 
-**v0 → v1 graduation.** Six deliberate, **recorded** convention changes since v0
+**v0 → v1 graduation.** Seven deliberate, **recorded** convention changes since v0
 — never silent breaches: (1) *"no LLM-generated summary"* superseded by the
 fill-line `compact` move (lossy windowing retained as the floor, #156); (2) *"zero
 base dependencies"* superseded by **one** sanctioned base dep, `agentfront` (base
@@ -370,7 +394,13 @@ extended once more to ONE bounded read-only tool-batch pool —
 10; `1` = the sequential loop, byte-identical), the batch orchestration in
 `colleague/toolbatch_loop.py` (gates on the main thread before the pool, only
 `executor.execute` inside it, bookkeeping in request order after the join),
-plan `adopt-from-qwen-code`. Everything else holds.
+plan `adopt-from-qwen-code`; (7) the thinking-effort invariant **amended**
+(#484, spike surface: exactly THREE enumerated points against a FIXED table,
+opt-in `COLLEAGUE_EFFORT_SPIKES`, unarmed byte-identical) — "resolved where
+each seat is built, never per turn" now reads "never per turn FROM CONTENT —
+per enumerated point from a fixed table," since a spike point keys a rung by
+POINT NAME, never by inspecting turn content or a model-supplied value.
+Everything else holds.
 
 **In scope:** the runtime + every architecture part listed above (each added via an
 explicit re-spec under `docs/specs/` / `docs/plans/`), within the zero-deps /
