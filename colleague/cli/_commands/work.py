@@ -98,6 +98,7 @@ from colleague.cli._commands._work_support import (
     _emit_work_outcome,
     _moded_config,
     _render,
+    _stamp_lineage,
     _stamp_run_metadata,
     _step_progress,
 )
@@ -276,6 +277,7 @@ def _engine_failure_error(
     mode: str | None,
     work_span,
     continued_from: str | None = None,
+    continuation_task_text: str | None = None,
     worktree_path: str | None = None,
     presence: "object | None" = None,
     presence_fold_chat: bool = False,
@@ -314,13 +316,8 @@ def _engine_failure_error(
         original = exc
         # No partial result -> the trace is empty; don't claim otherwise.
         artifact_note = "a result artifact was still written"
-    result.command = command_name
-    # Mode (t7 / spec R3 / #256): recorded on the failure path too — a moded run
-    # that raises still carries the mode that drove it.
-    result.mode = mode
-    # Lineage (#167): the failure path keeps it too — a continued run that
-    # crashes still names what it was continuing.
-    result.continued_from = continued_from
+    # Lineage/mode/task_text on the failure path too (#167, #256, c22/h15/h3).
+    _stamp_lineage(result, command_name, mode, continued_from, continuation_task_text)
     if presence is not None:
         fold_presence_snapshot(result, presence, fold_chat=presence_fold_chat)
     work_span.set(status=result.status)
@@ -530,6 +527,7 @@ def _drive_engine(
     command_name: str | None,
     mode: str | None,
     continued_from: str | None,
+    continuation_task_text: str | None,
     work_span,
     presence: "object | None",
     presence_foreground: bool,
@@ -566,6 +564,7 @@ def _drive_engine(
             engine_name=engine_name,
             command_name=command_name,
             continued_from=continued_from,
+            continuation_task_text=continuation_task_text,
             mode=mode,
             work_span=work_span,
             worktree_path=worktree_path,
@@ -595,6 +594,7 @@ def execute_work(
     display: "DisplayOptions | None" = None,
     mode: str | None = None,
     continued_from: str | None = None,
+    continuation_task_text: str | None = None,
     chain: "ChainEpisodeOptions | None" = None,
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
@@ -639,6 +639,8 @@ def execute_work(
         ``None``. Recorded on the result before every artifact write — the
         one-way lineage the continue path (``work --continue`` / session
         ``/continue``) stamps; omit-when-None keeps ordinary runs byte-identical.
+    continuation_task_text:
+        Propagated original ``task_text`` (c22/h15/h3), overriding it when set.
     mode:
         Constraint-profile mode (t3 / spec R1 / #254). When set, the mode's
         profile (``colleague.profiles`` + operator overlays) fills the
@@ -761,6 +763,7 @@ def execute_work(
                 command_name=command_name,
                 mode=mode,
                 continued_from=continued_from,
+                continuation_task_text=continuation_task_text,
                 work_span=work_span,
                 presence=presence,
                 presence_foreground=presence_foreground,
@@ -799,6 +802,7 @@ def execute_work(
                 command_name=command_name,
                 mode=mode,
                 continued_from=continued_from,
+                continuation_task_text=continuation_task_text,
                 chain=chain,
             )
             artifact_path = write(result, artifact_dir(repo))
@@ -937,6 +941,7 @@ def cmd_work(args: argparse.Namespace) -> int:
             ),
             mode=mode,
             continued_from=getattr(args, "_continued_from_resolved", None),
+            continuation_task_text=getattr(args, "_continuation_task_text_resolved", None),
         )
     except CliError as exc:
         # On a partial-bearing failure, surface the preserved partial TaskResult to

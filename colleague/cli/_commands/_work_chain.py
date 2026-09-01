@@ -467,6 +467,7 @@ def execute_work_chain(
     progress_sink: "CockpitProgressSink | None" = None,
     mode: str | None = None,
     continued_from: str | None = None,
+    continuation_task_text: str | None = None,
 ) -> tuple[TaskResult, Path]:
     """The ``--until-done`` episode chain loop (indefinite-run t5/t9).
 
@@ -505,6 +506,9 @@ def execute_work_chain(
       ``--continue`` combines: episode 1 is the continued task (dispatched at
       HEAD, exactly like an unchained ``--continue``), and a cut CHAINED
       run's accounting resumes via :func:`~colleague.artifact.read_chain_view`.
+      Every episode also re-resolves :func:`colleague.continuation.prior_task_text`
+      for its OWN ``continued_from`` (c22/h15/h3) so the ORIGINAL brief — never
+      a synthesized seed — rides every episode's artifact ``task_text``.
 
     A halted chain returns its last episode's honest result (#313 stays
     intact) — the CLI adapter maps it to the exit code (0 ok / 2 incomplete /
@@ -530,6 +534,7 @@ def execute_work_chain(
     read_only_chain = is_read_only(getattr(config, "role", None)) or mode in _READ_ONLY_MODES
     # Lazy import: the chain path is opt-in; keep work's import graph flat.
     from colleague import chain as chainmod
+    from colleague import continuation
 
     # Config-plane arming (change-content consumption lane, t9): ONE
     # lifecycle for the WHOLE chain (h22 — an armed --until-done chain is
@@ -572,6 +577,7 @@ def execute_work_chain(
             display=display,
             mode=mode,
             continued_from=continued_from,
+            continuation_task_text=continuation_task_text,
             chain=ChainEpisodeOptions(
                 base_ref=prior_branch,
                 prior_view=prior_view,
@@ -621,6 +627,9 @@ def execute_work_chain(
             f"{verdict.reason!r} — continuing (episode {state.episode_count + 1})"
         )
         continued_from, seed_text = seed
+        # c22/h15/h3: re-resolve for THIS episode's own prior artifact so the
+        # original brief — never the seed just built — rides every episode.
+        continuation_task_text = continuation.prior_task_text(repo, continued_from)
         prior_branch = episode_branch
         episode_task = Task.new(
             str(repo),
@@ -695,6 +704,7 @@ def _run_chain(
             ),
             mode=mode,
             continued_from=getattr(args, "_continued_from_resolved", None),
+            continuation_task_text=getattr(args, "_continuation_task_text_resolved", None),
         )
     except CliError as exc:
         # An episode crash halts the chain like a single run's failure —
