@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from colleague import associate_seats as _associate_seats
-from colleague import background, distilleffort, lessons, memory
+from colleague import background, distilleffort, lessons, memory, sampling
 from colleague.lobes import LobesRoles
 
 
@@ -583,6 +583,30 @@ class DistillCompletion:
         return self.finish_reason == "length"
 
 
+#: Sampling keys whose value equals the server's own default and is therefore
+#: dropped from the wire (#479 t5 c8) — mirrors the adapter's identical filter
+#: in ``colleague/engines/vllm_payload.py``'s ``_build_chat_payload`` without
+#: importing it (distill.py is a detached-subprocess entry point and must not
+#: pull in the engines package). The two copies are a KNOWN duplication:
+#: reconcile into one shared helper when #479's t5 (adapter wiring) merges.
+_SAMPLING_SERVER_DEFAULTS: "dict[str, float]" = {
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+}
+
+
+def _filtered_sampling_fragment(profile: "sampling.SamplingProfile | None") -> dict:
+    """Render *profile* into wire keys, dropping ones equal to the server's
+    own default (mirrors the adapter's filter, see
+    :data:`_SAMPLING_SERVER_DEFAULTS` above)."""
+    fragment = sampling.sampling_payload(profile)
+    return {
+        key: value
+        for key, value in fragment.items()
+        if not (key in _SAMPLING_SERVER_DEFAULTS and value == _SAMPLING_SERVER_DEFAULTS[key])
+    }
+
+
 def _openai_completion(
     model: str,
     base_url: str,
@@ -591,25 +615,51 @@ def _openai_completion(
     *,
     max_tokens: int = _DISTILL_MAX_TOKENS,
     chat_template_kwargs: dict | None = None,
+    effort_rung: str | None = None,
 ) -> DistillCompletion:
     """ONE bounded chat completion over urllib (the vLLM-adapter convention).
 
     HTTPError policy — the one-shot ladder-400 retry (its warning rides the
     returned completion) and the legible body-folded re-raise — lives in
     ``distilleffort.handle_http_error``.
+
+    Sampling (#479 t8): the second greedy site. Rather than hard-coding
+    ``temperature: 0`` unconditionally, *effort_rung* (the CHILD's own
+    resolved distill rung — never the acting seat's, see
+    :func:`colleague.distilleffort.apply_child_effort_env`) is resolved
+    through :func:`colleague.sampling.resolve_sampling` exactly the way an
+    acting turn resolves its profile. Only when the resolved profile sets no
+    ``temperature`` (no matching row, or a rung that yields no half) does the
+    original ``0`` default apply — the byte-identical floor for an unmatched
+    model / unarmed rung.
     """
     import urllib.error
     import urllib.request
 
     url = base_url.rstrip("/") + "/chat/completions"
+    profile = sampling.resolve_sampling(model, role=None, rung=effort_rung)
+    sampling_fragment = _filtered_sampling_fragment(profile)
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "temperature": 0,
     }
+    if "temperature" not in sampling_fragment:
+        payload["temperature"] = 0
+    payload.update(sampling_fragment)
     if chat_template_kwargs:
         payload["chat_template_kwargs"] = chat_template_kwargs
+    if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
+        # Best-effort: a diagnostic dump must NEVER break a work item (#184,
+        # mirrors the adapter's identical dump in vllm_openai.py).
+        try:
+            sys.stderr.write(
+                "colleague: outgoing distill request payload:\n"
+                + json.dumps(payload, indent=2)
+                + "\n"
+            )
+        except OSError:  # nosec B110 - diagnostic only; never mask the real work
+            pass
 
     def _dispatch() -> dict:
         req = urllib.request.Request(
@@ -774,6 +824,7 @@ def child_main(argv: list[str] | None = None) -> int:
             _compose_child_prompt(artifact),
             max_tokens=max_tokens,
             chat_template_kwargs=distilleffort.chat_template_fragment(effort_rung),
+            effort_rung=effort_rung,
         )
         parsed = lessons.parse_lesson_json(completion.text)
         verdict = lessons.validate_lesson(parsed if parsed is not None else completion.text)
