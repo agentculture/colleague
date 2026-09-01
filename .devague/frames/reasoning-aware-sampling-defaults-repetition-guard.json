@@ -1,0 +1,1520 @@
+{
+  "slug": "reasoning-aware-sampling-defaults-repetition-guard",
+  "title": "reasoning-aware sampling defaults + repetition guard (#479)",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-09-01T02:29:45Z",
+  "updated": "2026-09-01T04:38:46Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague sends each model's recommended sampling profile on every turn \u2014 a thinking profile when a reasoning rung is armed, a non-thinking profile when effort is off \u2014 instead of hard-coded greedy decoding; a model-independent guard cuts a turn whose reasoning has started repeating itself instead of riding it into the output budget; and a long turn keeps reporting liveness while it runs, so a runaway is visible while it happens rather than at the post-mortem.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "With every new knob unset and no model profile matched, an outgoing payload is byte-identical to today's \u2014 same keys, same order, same values.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "The whole change is provable offline from two request bodies plus one guard unit test; the live arm proves it was worth doing, not that it works.",
+      "revisions": [
+        {
+          "text": "Colleague sends each model's recommended sampling profile on every turn \u2014 a thinking profile when a reasoning rung is armed, a non-thinking profile when effort is off \u2014 instead of hard-coded greedy decoding, and a model-independent guard cuts a turn whose reasoning has started repeating itself instead of riding it into the output budget.",
+          "kind": "announcement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "The sampling keys land in exactly one place: vllm_openai._build_chat_payload (colleague/engines/vllm_openai.py:288-300), the SINGLE payload builder every seat's _make_complete passes through \u2014 today it writes only {\"model\", \"messages\", \"temperature\": config.temperature} and never sends top_p, top_k, min_p, presence_penalty or repetition_penalty.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "A grep for the new sampling keys finds exactly one write site in the adapter; no seat builder, loop module or CLI command writes them directly.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "grep the new sampling key names across colleague/ \u2014 exactly one write site should match, in the adapter's payload builder.",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "assumption",
+      "text": "The mechanism is the SHIPPED associate precedent, copied rather than absorbed: colleague/associate_config.py defines a frozen profile dataclass, a FIXED table, a recognised config key set and a resolver that ignores unparseable values. The new sampling table follows that shape for the effort-driven seats while associate_config.py keeps running its own lane, so the arc ships a proven pattern twice rather than an unproven unification once.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The mechanism is the SHIPPED associate precedent, not a new one: colleague/associate_config.py defines a frozen AssociateProfile dataclass + a FIXED ASSOCIATE_PROFILES table (depth: temp 0.6 / top_p 0.95 / enable_thinking True; triage: 0.2 / 0.95 / False) with per-value env+config.json overrides, and engines/vllm_payload.py::_apply_associate_profile writes it onto the payload. The main-seat profile copies that shape (fixed table, per-value overrides, applied in the payload builder).",
+          "kind": "assumption",
+          "reason": ""
+        },
+        {
+          "text": "The associate profile machinery is ABSORBED, not merely imitated. colleague/associate_config.py already carries the frozen profile dataclass, the fixed table, the recognised config key set and the resolver that ignores unparseable values \u2014 the exact shape the new sampling table needs. Folding associate in as role=associate means that code becomes the table's implementation rather than a parallel system beside it, which is why the arc ends with one sampling surface instead of two.",
+          "kind": "assumption",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "The associate seat's existing sampling path is untouched: _build_chat_payload's associate.seat_profile(config) branch already REPLACES temperature/top_p and sends an enable_thinking boolean instead of the Qwen ladder key. With the fold deferred, the original guarantee holds in full \u2014 an armed associate seat's payload must stay BYTE-IDENTICAL after this change, and the new table applies only to the non-associate branch (engines/vllm_payload.py:129-150).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "An armed associate seat's payload is asserted byte-identical before and after, by the existing tests/test_associate_sampling.py fixture.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Run tests/test_associate_sampling.py unchanged; an armed associate payload must be identical before and after.",
+      "revisions": [
+        {
+          "text": "The associate seat's existing sampling path is untouched: _build_chat_payload's  branch already REPLACES temperature/top_p and sends {\"enable_thinking\": ...} instead of the Qwen ladder key. An armed associate seat's payload must stay byte-identical after this change \u2014 the new main-seat profile applies only to the non-associate branch.",
+          "kind": "boundary",
+          "reason": ""
+        },
+        {
+          "text": "The associate seat's existing sampling path is untouched: _build_chat_payload's associate.seat_profile(config) branch already REPLACES temperature/top_p and sends an enable_thinking boolean instead of the Qwen ladder key. An armed associate seat's payload must stay byte-identical after this change \u2014 the new main-seat profile applies only to the non-associate branch (engines/vllm_payload.py:129-150).",
+          "kind": "boundary",
+          "reason": ""
+        },
+        {
+          "text": "The associate lane's VALUES are preserved exactly while its mechanism is absorbed. Folding associate in as role=associate changes the code path, so the earlier byte-identical-payload guarantee no longer holds as written; what must hold instead is that the measured profiles survive intact as table rows \u2014 depth at temperature 0.6 / top_p 0.95 / thinking on, triage at 0.2 / 0.95 / thinking off, max_tokens omitted for depth \u2014 so an armed associate payload is identical BY VALUE to what engines/vllm_payload.py::_apply_associate_profile sends today. tests/test_associate_sampling.py is the pin, and it must pass unchanged.",
+          "kind": "boundary",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "The thinking/non-thinking discriminator is the ALREADY-RESOLVED effort rung, not a new signal: effort.to_chat_template_kwargs (colleague/effort.py:223) renders \"off\" as {\"enable_thinking\": False} \u2014 exactly the model's non-thinking mode \u2014 and any live rung as {\"reasoning_effort\": rung}. _effort_for(config) (engines/vllm_payload.py:153) already computes that rung per payload, so the profile is selected beside it with no new resolution.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "No new resolution function is introduced for thinking-vs-not: the profile lookup consumes _effort_for's existing return value.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Confirm the profile lookup consumes _effort_for's return value; no second rung resolution may appear in the diff.",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "colleague/effort.py's module docstring pins the import direction \u2014 'this module imports nothing from colleague.loop or colleague.config; config imports effort, never the reverse'. A sampling table that keys off the rung must obey that direction (leaf module, stdlib only), which is why it cannot simply be more lines in config.py.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The new module imports nothing from colleague.config or colleague.loop; tests/test_boundary.py-style import checking proves the direction rather than a comment claiming it.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Assert the new module's imports directly, the way tests/test_boundary.py asserts the subprocess/thread allow-lists.",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Two model-recommended profiles per model, not one 'effort >= low gets sampling' rule (operator comments 2 and 3 on #479): for Qwen3.8-27B, thinking = temperature 1.0 / top_p 0.95 / top_k 20 / min_p 0.0 / presence_penalty 0.0 / repetition_penalty 1.0, and non-thinking (effort=off) = 0.7 / 0.80 / top_k 20 / presence_penalty 1.5. The issue body's 0.6 and its 'keep temperature 0.0 for effort=off' line are both superseded.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "The shipped table's numbers match the Qwen/Qwen3.8-27B model card as quoted in the issue, and the issue body's 0.6 figure appears nowhere in the code or docs.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Diff the shipped table against the model card values quoted in issue #479; grep the tree for 0.6 to prove the stale figure is gone.",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Only keys that DIFFER from the server default are sent, which shrinks the fourth carve-out to essentially one key. The Qwen3.8 rows set min_p 0.0 and repetition_penalty 1.0 \u2014 both already the server default \u2014 so sending them widens the non-OpenAI surface for nothing; top_k is the only vLLM extension the builtin table actually needs on the wire, while temperature, top_p and presence_penalty are plain OpenAI keys needing no carve-out at all. min_p and repetition_penalty stay RECOGNISED config fields an operator may set, sent only when a row sets them. The carve-out recorded in CLAUDE.md beside /tokenize, the stale-pin refresh and chat_template_kwargs is therefore 'sampling keys a row explicitly sets', and a server ignoring them behaves exactly as today.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "A server that rejects or ignores top_k/min_p/repetition_penalty leaves the run working \u2014 proven the way the ladder-400 retry is, with a scripted refusal, not only by assertion.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Add the fourth carve-out to CLAUDE.md's vLLM-adapter convention bullet beside /tokenize, the stale-pin refresh and chat_template_kwargs, and cover it with a scripted-refusal test modelled on tests/test_vllm_thinking_effort.py's ladder-400 cases.",
+      "revisions": [
+        {
+          "text": "top_k, min_p and repetition_penalty are vLLM extensions, not OpenAI-surface keys \u2014 sending them is a FOURTH graceful-degrade carve-out to CLAUDE.md's 'the vLLM adapter only touches the OpenAI surface' convention, after /tokenize, the armed-lobes stale-pin refresh and chat_template_kwargs. It must be recorded in CLAUDE.md's conventions the way the other three are, never added silently; a server that ignores the keys behaves exactly as today. temperature, top_p and presence_penalty are plain OpenAI keys and need no carve-out.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The flat scalar knob lane SHRINKS rather than grows. config_resolve.py:_scalar_knobs loses the CONVERTIBLE_TEMPERATURE alias now and the COLLEAGUE_TEMPERATURE entry one release later; the five mirrored surfaces \u2014 the resolver, the EngineConfig field at config.py:348, config_snapshot.py:24, the config show renderer at cli/_commands/config.py:76 and explain/catalog_ops.py:122 \u2014 are walked to remove, never to add twelve new ones. EngineConfig keeps a resolved temperature for the payload builder; only its environment source eventually goes. COLLEAGUE_SAMPLING=0 is a boolean kill switch, not a value, and does not join the scalar lane.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "Each new knob is readable back through config show and appears in the explain catalog, not only in the resolver.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Walk the five surfaces to REMOVE the temperature entry and its CONVERTIBLE_TEMPERATURE alias; EngineConfig keeps a resolved value, only the env source goes.",
+      "revisions": [
+        {
+          "text": "The knob lane is the scalar env>config.json>builtin block in config_resolve.py:_scalar_knobs (COLLEAGUE_TEMPERATURE / CONVERTIBLE_TEMPERATURE at line 372) plus the EngineConfig field (config.py:348), config_snapshot.py:24, the config show renderer (cli/_commands/config.py:76) and explain/catalog_ops.py:122. Any new top-level knob (COLLEAGUE_TOP_P, COLLEAGUE_TOP_K, ...) must be added to all five surfaces, not just the resolver \u2014 the issue's 'missing knobs' framing is a five-file change per knob.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "The knob lane has two shapes and this arc uses the second. Flat top-level scalars cost five surfaces each \u2014 the env>config>builtin block in config_resolve.py:_scalar_knobs (COLLEAGUE_TEMPERATURE at line 372), the EngineConfig field (config.py:348), config_snapshot.py:24, the config show renderer (cli/_commands/config.py:76) and explain/catalog_ops.py:122 \u2014 which is why twelve split sampling knobs do NOT go there. The nested-section shape (associate_config.py) carries a recognised key set as a unit. The existing COLLEAGUE_TEMPERATURE stays in the flat lane where it already lives.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "The flat scalar knob lane SHRINKS in this arc rather than growing. config_resolve.py:_scalar_knobs loses the temperature entry and its CONVERTIBLE_TEMPERATURE alias, and the five mirrored surfaces \u2014 the resolver, the EngineConfig field at config.py:348, config_snapshot.py:24, the config show renderer at cli/_commands/config.py:76 and explain/catalog_ops.py:122 \u2014 must be walked to remove it, not to add twelve new ones. EngineConfig keeps a resolved temperature value for the payload builder to send; only its environment source goes away.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "Fix (2) re-opens a guard this repo DELIBERATELY declined: loopguards.py's docstring records that only qwen-code's two always-on guards were ported and that 'its heuristic content/thought-repetition tier is off upstream for false positives and is NOT ported (spec c17 / c20)'. A reasoning-repetition guard is therefore a reversal of a recorded decision and needs its own justification, threshold and false-positive story \u2014 not an extension of loopguards.check, which sees only tool calls.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "The decision to port a repetition guard after loopguards.py's docstring recorded declining one is written down in that docstring and in the spec, naming the false-positive risk it accepts.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Amend loopguards.py's docstring where it records declining the repetition tier: say it was ported after all, on which evidence, accepting which false-positive risk.",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "assumption",
+      "text": "An IN-turn cut is only possible on the streaming path: engines/vllm_transport.py accumulates reasoning deltas frame by frame (_emit_content_and_reasoning_deltas, _StreamAcc.reasoning_parts) so a tail-n-gram detector has incremental input there, while the blocking path only sees the finished message. Headless streaming is on by default (COLLEAGUE_STREAM=0 opts out), so the streaming path is the normal one \u2014 but the guard must degrade to post-turn detection when it is not.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "non_goal",
+      "text": "This arc does not make sampling a per-turn or per-task decision. The profile is resolved WHERE THE SEAT IS BUILT (the thinking-effort precedent, CLAUDE.md #416) and keyed only by model + already-resolved rung; nothing inspects the task to pick values. Picking sampling per turn would be the excluded router in a new costume.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "Fix (3) is largely ALREADY LANDED and should shrink: loop_transport.py:398 _record_truncated_turn already appends {kind: truncated-turn, finish_reason, reasoning_chars, step_index} plus a phase notice on the acting seat, and the #479 evidence quotes that exact live line. The residual gap is only (a) a named human reason line mirroring distilleffort.reasoning_exhausted_reason (distilleffort.py:173) and (b) the case where content is non-empty, which _is_truncated_turn (line 393) excludes.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "No second warning duplicates truncated-turn: a run that trips the reasoning-exhaustion case carries exactly one warning for it.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Do not re-derive the truncated-turn warning. Add only the named reason line mirroring distilleffort.reasoning_exhausted_reason, and decide separately whether _is_truncated_turn's empty-content predicate widens.",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "distill.py:609 is a SECOND greedy site with thinking armed: the distill child posts temperature: 0 hard-coded in the same payload that may carry distilleffort.chat_template_fragment(effort_rung) (distill.py:776) \u2014 greedy decoding in thinking mode, exactly the failure mode #479 documents. Whatever profile the acting seat gets must reach this call site too, or the arc fixes one of two known sites.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The distill child's request body carries the same profile as an equivalently-runged acting turn, verified from one dumped distill payload.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "distill.py has NO COLLEAGUE_DUMP_REQUEST path (only the adapter does), so either add one to its bounded completion or verify the distill child's sampling keys another way \u2014 the dump as written is unfulfillable.",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "boundary",
+      "text": "New logic lands in a NEW leaf module, never as growth in an existing one: tests/test_file_length_ratchet.py pins every colleague/**/*.py at a checked-in per-file baseline that only tightens, and tests/test_file_length_limit.py is the hard 1000-line ceiling with an empty shrink-only escape hatch. This is exactly why associate_config.py, effortrecord.py and distilleffort.py exist \u2014 the sampling table and the repetition detector follow the same pattern.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "tests/test_file_length_ratchet.py passes without a baseline bump for any pre-existing module.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Run tests/test_file_length_ratchet.py with no baseline bump for any pre-existing module; new logic lands in new leaf modules.",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "assumption",
+      "text": "Per-seat propagation is free: seat builders set a plain reasoning_effort_seat attribute on their own dataclasses.replace copy (vllm_payload.py:153-180) and _build_chat_payload reads it per call, so a profile derived from that rung automatically follows deepthink, senses, evaluator, scout and subagent children without any new threading.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "boundary",
+      "text": "The mock engine and the all-engines rule are unaffected: sampling is adapter-level payload construction, so TaskResult shape does not change. If the repetition guard records a warning it must be a LOOP-level warning (like loopguards' kind: loop-guard) so it fires identically on every backend, never an adapter-only artifact.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The mock engine's e2e result shape is unchanged (tests/test_e2e_mock.py), and any guard warning is produced by loop-level code that mock exercises too.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Run tests/test_e2e_mock.py; any guard warning must be produced by loop-level code the mock backend exercises too.",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "assumption",
+      "text": "The wire is pinned by fixture tests, so the payload change is provable offline: tests/test_thinking_effort_payload_fixture.py and tests/test_associate_sampling.py already assert exact request bodies, and COLLEAGUE_DUMP_REQUEST (vllm_openai.py:314) dumps the outgoing payload for a live check.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "The stream guards were NOT broken, and the arc must not ship a fix for a bug that is not there. Read against the code: streamguards' idle bound restarts on any arriving payload BYTES, and the origin in task 97419283d0b5 was generating continuously at 96 percent GPU, so idle correctly did not fire; the lifetime bound is 1800 s and the observed silence was about 25 minutes, so it had not been reached either. Both guards behaved exactly as specified. What is genuinely missing is a bound on a productive-LOOKING runaway, which is the repetition guard's job, not a transport guard's.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "The reading is checkable from the code rather than the incident: streamguards' idle clock restarts on payload bytes and the lifetime default is 1800 s, so a byte-producing 25-minute turn trips neither. If a fix is nonetheless made to either bound, the spec says which measurement justified it.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Do not ship a stream-guard fix without a measurement that justifies it. Re-read streamguards.py's idle-restart rule and the 1800 s lifetime default against the incident timings before touching either bound.",
+      "revisions": [
+        {
+          "text": "A separate defect surfaced in the same measurement and may or may not belong to this arc: streamguards.py's idle (240s) and lifetime (1800s) watchdogs BOTH failed to fire on a 25-minute silent stream while the origin GPU sat at 96 percent (issue comment 4, task 97419283d0b5, VOIDED). docs/live-testing.md row 46 records the same shape once before ('lifetime guard did NOT fire \u2014 blocking-fallback path, #438'). Sampling cannot fix a guard that does not fire.",
+          "kind": "open_question",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "The measurement is pre-registered in the issue and lands in docs/live-testing.md (row 66 is the greedy low evidence; the temp-1.0 arm is labelled INTERMEDIATE, not the definitive sampled arm). The definitive arm reruns the preserved brief at the full Qwen3.8 thinking profile and compares completion, reasoning chars, longest-turn chars, wall time and whether any repetition guard fired \u2014 against low+greedy, medium+greedy (2851 s incomplete) and the Claude control (506 s complete).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "The row lands in docs/live-testing.md with every figure it compares against, and the voided temp-1.0 attempt stays recorded as voided rather than deleted.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Add the numbered row to docs/live-testing.md with every comparison figure; leave the voided temp-1.0 attempt recorded as voided.",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "non_goal",
+      "text": "Penalty tuning is explicitly deferred: Qwen's thinking recommendation is presence_penalty 0.0 / repetition_penalty 1.0, and the operator's comment 3 says an elevated thinking-mode presence penalty is only tested if the official sampler still loops \u2014 so the sampler change is isolated first and penalties are a clean later variable, never confounded into this arm.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "boundary",
+      "text": "Diagnostic probes keep their greedy settings: oilcheck/tool_calling.py:131 and oilcheck/three_tier.py:315 hard-code temperature 0.0 for deterministic capability probes, not for reasoning work. They are out of scope; only real reasoning turns get the model profile.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "The oilcheck probes' request bodies are unchanged, asserted rather than assumed.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Assert the oilcheck probes' request bodies are unchanged rather than assuming the profile cannot reach them.",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "Documentation surfaces that must move with the code: CLAUDE.md's vLLM-adapter convention bullet (the fourth carve-out), docs/features/thinking-effort.md section 'The wire' (which today enumerates chat_template_kwargs as the ONLY per-seat body key), docs/features/model-selection.md's resolution table, docs/features/config-resolution.md, and a new sampling feature doc covering models.json \u2014 its schema, its merge granularity, the naming rationale against agents.json, and the tracked-at-HEAD rule. tests/test_thinking_effort_docs.py already gates doc and table agreement for the effort ladder and is the pattern to follow.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "tests/test_thinking_effort_docs.py-style gating covers the new table too, so a shipped value and its documented value cannot drift.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Move CLAUDE.md, thinking-effort.md's The wire section, model-selection.md and config-resolution.md with the code, and gate the new table the way tests/test_thinking_effort_docs.py gates the effort ladder.",
+      "revisions": [
+        {
+          "text": "Documentation surfaces that must move with the code: CLAUDE.md's vLLM-adapter convention bullet (the fourth carve-out), docs/features/thinking-effort.md section 'The wire' (which today enumerates chat_template_kwargs as the ONLY per-seat body key), docs/features/model-selection.md's resolution table, docs/features/config-resolution.md, and a sampling section or new feature doc. tests/test_thinking_effort_docs.py already gates doc/table agreement for the effort ladder.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c24",
+      "kind": "audience",
+      "text": "The colleague operator running work items on a Qwen3.8 vLLM rig, and every seat colleague builds (cortex, worker, deepthink, senses, evaluator, scout, subagent children, the distill child) \u2014 each of which today inherits one hard-coded temperature 0.0 regardless of whether its thinking is on or off.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Every seat listed resolves its profile through the same function; no seat has a private sampling path except the associate seat, which is explicitly excluded.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Check that the resolved profile is observable for a named seat via config show and the run artifact, not only inferable from a request dump.",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "before_state",
+      "text": "Every acting-seat completion posts temperature 0.0 with no top_p, top_k, min_p or penalty key, so an armed reasoning rung runs the model greedily in thinking mode \u2014 the decoding mode Qwen explicitly warns against. Measured consequence (docs/live-testing.md row 66, run 2bd306a6916a at low): turn 14 emitted 271,486 characters of one insight repeated verbatim until finish_reason=length killed the turn before any answer; run 4b74a1bd5a9b tripped the identical-calls guard with five identical write_file calls.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "The 271,486-character turn and the five-identical-call trip are both re-readable from the committed evidence (docs/live-testing.md row 66 and the named run ids), not only from the issue text.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Reproduce from the preserved brief before changing anything, so the arm has a baseline it owns.",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "after_state",
+      "text": "Each seat's completion carries its model's recommended sampling profile chosen by the already-resolved effort rung \u2014 Qwen3.8 thinking (1.0 / 0.95 / top_k 20) when a rung is armed, Qwen3.8 non-thinking (0.7 / 0.80 / top_k 20 / presence 1.5) when effort is off \u2014 declared in the tracked .colleague/models.json so every clone and worktree reads the same table, and a model-independent guard ends a turn whose reasoning has begun repeating instead of letting it ride to the output budget.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "COLLEAGUE_DUMP_REQUEST on an armed turn and an off-rung turn yields two bodies differing in exactly the profile keys and the chat_template_kwargs fragment, nothing else.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Verify with COLLEAGUE_DUMP_REQUEST on one armed and one off-rung turn; the two bodies must differ in exactly the profile keys.",
+      "revisions": [
+        {
+          "text": "Each seat's completion carries its model's recommended sampling profile chosen by the already-resolved effort rung \u2014 Qwen3.8 thinking (1.0 / 0.95 / top_k 20) when a rung is armed, Qwen3.8 non-thinking (0.7 / 0.80 / top_k 20 / presence 1.5) when effort is off \u2014 with COLLEAGUE_TOP_P and COLLEAGUE_TOP_K knobs beside the existing COLLEAGUE_TEMPERATURE, and a model-independent guard ends a turn whose reasoning has begun repeating instead of letting it ride to the output budget.",
+          "kind": "after_state",
+          "reason": ""
+        },
+        {
+          "text": "Each seat's completion carries its model's recommended sampling profile chosen by the already-resolved effort rung \u2014 Qwen3.8 thinking (1.0 / 0.95 / top_k 20) when a rung is armed, Qwen3.8 non-thinking (0.7 / 0.80 / top_k 20 / presence 1.5) when effort is off \u2014 configured entirely through the sampling section of the repo-level .colleague/config.json, and a model-independent guard ends a turn whose reasoning has begun repeating instead of letting it ride to the output budget.",
+          "kind": "after_state",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c27",
+      "kind": "why_it_matters",
+      "text": "The repetition is not a model capability limit \u2014 turns 1 through 11 of the same run reasoned sharply and the model snapped back to 70-300 character turns after the harness retried with a tighter window. A decoding default nobody chose is burning entire work items, and it does so silently enough that only the #476 reasoning sidecar made the diagnosis a three-command read.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "The same run's turns 1-11 and its post-retry turns are inspectable in the reasoning sidecar, so the claim that the model was looping rather than failing is checkable, not asserted.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Re-read the run's turns 1-11 and its post-retry turns in the reasoning sidecar before writing any claim about the model looping rather than failing.",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "success_signal",
+      "text": "The definitive arm \u2014 the preserved brief rerun at the full Qwen3.8 thinking profile \u2014 completes inside its bound where low+greedy did not, with longest-turn reasoning under 50,000 characters (against 271,486 measured) and zero repetition-guard trips; and with the sampling change reverted the guard alone still cuts a synthetic repeating stream within 5 detections instead of riding to finish_reason=length.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The two halves are independently falsifiable: the sampling arm can complete while the guard never fires, and the guard test passes with sampling reverted.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Record the arm as a numbered row in docs/live-testing.md against low+greedy, medium+greedy (2851 s incomplete) and the Claude control (506 s complete).",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "decision",
+      "text": "Sampling profiles are a built-in model-id keyed table in a new leaf module (Qwen3.8 first); an unmatched model id sends NO new sampling keys, keeping its payload byte-identical to today. Operator overrides layer on top from the tracked .colleague/models.json, resolved per value the way associate_config.py resolves its section \u2014 an unparseable value is ignored rather than refusing a run. There is no environment override rung for sampling values. Colleague never guesses a profile for a model it has not measured.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Sampling profiles are a built-in model-id keyed table in a new leaf module (Qwen3.8 first); an unmatched model id sends NO new sampling keys, keeping its payload byte-identical to today. Per-value env and config.json overrides layer on top, following the associate_config.py resolution pattern. Colleague never guesses a profile for a model it has not measured.",
+          "kind": "decision",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "The repetition guard runs in-turn on the streaming path \u2014 a tail-n-gram detector over the reasoning accumulator aborts the SSE read past a repeat threshold \u2014 and post-turn on the blocking path, where the same detector runs once on the finished reasoning text and records the same warning. One detector, two call sites, one warning shape.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "The detector is one function with no import from the adapter or the loop, so the streaming and blocking call sites cannot drift into two different definitions of repetition.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "decision",
+      "text": "The stream-liveness work folds into this arc rather than a separate issue.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "The 25-minute silence was an observability gap, not a stall: loop_progress._emit_phase writes a flight heartbeat only when a phase notice fires, never during a completion, so a long turn is silent on the flight feed by construction. Liveness must therefore piggyback on DELTA ARRIVAL on the streaming path, throttled \u2014 never a timer thread, which CLAUDE.md's thread-confinement list and tests/test_boundary.py forbid. On the blocking path no in-flight liveness is possible without a thread, and the arc says so rather than implying coverage it does not have.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "The periodic liveness is observability only: a missing or raising sink stays a no-op, and no heartbeat record ever advances step_count, exactly as append_heartbeat already guarantees.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Prove it against a real slow turn, not a fake: the feed must gain records while one completion is still in flight.",
+      "revisions": [
+        {
+          "text": "The 25-minute silence was an observability gap, not a stall: loop_progress._emit_phase writes a flight heartbeat only when a phase notice fires \u2014 that is, at the boundaries around a completion, never during one \u2014 so a single long turn is silent on the flight feed by construction. A long in-flight completion must emit periodic liveness (elapsed, and the reasoning volume seen so far) so an operator can see a runaway while it runs.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "The repetition guard does NOT inherit loopguards' trip semantics. loopguards.check drops the turn's pending calls and ENDS the run; the reasoning guard instead cuts only the TURN and hands it to the recovery path that already exists \u2014 the same tighter-window retry _record_truncated_turn announces, which is what recovered run 2bd306a6916a: after the retry the model returned to 70-300 character turns. A false positive therefore costs one turn, not one work item. To stay bounded, a repeat trip is escalated: after a small fixed number of guard-cut turns in one run the run ends with the warning, so the guard can never cycle forever.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "A single guard trip leaves the run alive and the artifact carries both the warning and the subsequent turns, so the cost of a false positive is observable as one lost turn rather than inferred.",
+          "status": "confirmed",
+          "instruction": ""
+        },
+        {
+          "id": "h26",
+          "text": "The escalation bound is a constant in the guard module, not a magic number at the call site, and a run that trips it ends with the warning rather than silently continuing.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Assert both halves: one trip continues the run through the retry path, and the Nth trip ends it.",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "boundary",
+      "text": "No retry-without-sampling-keys path ships. The ladder-400 precedent is deliberately NOT copied here because c29 already bounds the exposure: a model id matching no profile row sends no new sampling keys at all, so only an operator who explicitly matched or declared a profile can present the vLLM extension keys to a server that refuses them, and that 400 surfaces exactly as today. If a future server makes this a real degrade case, it earns its own retry path and its own measurement \u2014 never a speculative one.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "A default-configuration run against a server that rejects unknown body keys is byte-identical to today, because no profile matched and no key was added \u2014 provable by the same unmatched-model test that backs c29.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "State this limit in the feature doc beside the fourth carve-out, so the asymmetry with the ladder-400 retry is explained rather than looking like an omission.",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "decision",
+      "text": "PROBED 2026-09-01 against the live gateway at localhost:8001 (Qwen3.8-27B-NVFP4): the lobes gateway forwards the vLLM extension keys and vLLM honours them. A completion carrying temperature 1.0 / top_p 0.95 / top_k 20 / min_p 0.0 / presence_penalty 0.0 / repetition_penalty 1.0 plus chat_template_kwargs returned HTTP 200, and the discriminating probe settles that they are not merely tolerated: top_k 1 at temperature 2.0 returned three BYTE-IDENTICAL completions, while the same request without top_k returned three entirely different ones. The fourth carve-out therefore rests on a measurement, not an expectation.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "A 200 does NOT prove the sampling keys were applied, so no test may treat it as proof. Probed 2026-09-01: the same gateway returned 200 for a payload carrying an invented key, colleague_bogus_key \u2014 unknown body keys are silently ignored, exactly the property that makes the degrade story safe and makes a status-code assertion worthless. Any test or live arm claiming the profile took effect must use a BEHAVIOURAL discriminator (the top_k 1 determinism check, or an equivalent), never the response status.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "The discriminator is run as a test or a recorded probe, so a future rig change that stops honouring top_k is caught rather than silently reinterpreted as a sampling result.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Reuse the probed discriminator: three completions at temperature 2.0 with top_k 1 must be identical; the same three without top_k must not be.",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "The off-knob is COLLEAGUE_SAMPLING=0 \u2014 a per-process environment kill switch restoring the pre-change payload byte for byte, matching the convention every adopted mechanism here keeps (COLLEAGUE_STREAM=0, COLLEAGUE_WEB=0, COLLEAGUE_TOOL_CONCURRENCY=1, the reasoning log's 0, the effort ladder's default sentinel). It must be per-process rather than file-based: models.json is tracked but still SHARED by every colleague process on the checkout, so a file-based off-state cannot give two concurrent arms different sampling, and file-absence is not an off-state for a model the builtin table matches.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "With the off-knob set, one dumped payload equals the pre-change payload key for key.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Assert the off-state produces the pre-change payload byte for byte, the way tests already assert the kill-switched effort payload.",
+      "revisions": [
+        {
+          "text": "The sampling profile gets ONE off-knob that is byte-identical to today, following the convention every adopted mechanism in this repo already keeps (COLLEAGUE_STREAM=0, COLLEAGUE_WEB=0, COLLEAGUE_TOOL_CONCURRENCY=1, the reasoning log's 0, and the effort ladder's default sentinel). Without it an operator who hits a sampling regression mid-arc has no way back to the measured baseline except editing code.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "The off-knob is file-based like everything else in this arc: a sampling section explicitly disabled in .colleague/config.json restores the pre-change payload byte for byte. It cannot be an environment variable any more, and absence of the section is NOT the off-state \u2014 a matched model such as Qwen3.8 gets the builtin profile by default, so without an explicit disable there is no way back to the measured greedy baseline. The convention every adopted mechanism here keeps \u2014 COLLEAGUE_STREAM=0, COLLEAGUE_WEB=0, COLLEAGUE_TOOL_CONCURRENCY=1, the reasoning log's 0, the effort ladder's default sentinel \u2014 is one reachable off-state, not one environment variable.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "The off-knob is COLLEAGUE_SAMPLING=0 \u2014 a per-process environment kill switch restoring the pre-change payload byte for byte, matching the convention every adopted mechanism here keeps (COLLEAGUE_STREAM=0, COLLEAGUE_WEB=0, COLLEAGUE_TOOL_CONCURRENCY=1, the reasoning log's 0, the effort ladder's default sentinel). It must be per-process rather than file-based: .colleague/config.json is gitignored and shared by every colleague process on the checkout, so a file-only off-state cannot give two concurrent arms different sampling, and section-absence is not an off-state for a model the builtin table matches.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "The resolved profile is recorded on the run artifact as trace data, the way colleague/effortrecord.py records each seat's resolved rung for #476. Without it a run cannot answer which sampling values it actually ran at, and the whole diagnosis loop that found this bug \u2014 read the artifact, read the sidecar, name the failure \u2014 does not close for sampling.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "A run whose model matched no profile row carries no sampling record at all, so absence is readable as 'nothing was sent' rather than 'not recorded'.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Follow effortrecord's presence rule: a seat that resolved a profile records it; a seat that matched no model row is simply absent, never an invented row.",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "The repetition detector's state is TURN-SCOPED, never module-global. colleague/subagents_batch.py runs children in a ThreadPoolExecutor when fan-out width exceeds 1, so several loops run concurrently in one process; a detector holding its n-gram window in module state would mix two children's reasoning streams and could trip on neither or both.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "A concurrent two-child run trips the guard exactly once, on the repeating child, and the healthy child completes.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Prove it with two concurrent children rather than by inspection: one repeating stream and one healthy stream must produce exactly one trip, on the repeating child.",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "decision",
+      "text": "PROBED 2026-09-01: presence_penalty 1.5 does not suppress tool calling on the non-thinking profile. Six completions on one tool-using brief (two tools offered, enable_thinking false, temperature 0.7 / top_p 0.80 / top_k 20) emitted two well-formed parallel tool calls every time, at presence_penalty 1.5 and at the 0.0 control alike \u2014 no degradation, no malformed arguments. The Qwen card's instruct profile is therefore safe to apply to colleague's effort=off seats, which are exactly its tool-calling seats. Honest limit: six samples on ONE brief shape, not a guarantee across every tool surface.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "decision",
+      "text": "Precedence: an explicit flag beats the .colleague/models.json table, which beats the builtin model profile, which beats the existing default. COLLEAGUE_SAMPLING=0 short-circuits the whole chain to send nothing. The only value-carrying environment rung is the DEPRECATED COLLEAGUE_TEMPERATURE, which keeps its current meaning for one release and then goes; no new value-carrying environment knob is added, which is what stops a single scalar collapsing a model's two halves.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Sampling knobs keep the repo's ordinary precedence with no special case and no warning: flag > env > config.json > matched model profile > builtin default. A matched profile is simply the new layer beneath the operator's own values, never above them. The measurement problem an explicit pin could cause is solved by setting the pins to the card values, not by making the profile authoritative.",
+          "kind": "decision",
+          "reason": ""
+        },
+        {
+          "text": "Precedence, with the environment layer gone for sampling: an explicit flag beats the .colleague/config.json sampling section, which beats the builtin model profile, which beats the existing default. There is no environment rung for sampling values at all \u2014 that is the point of the file-based decision, not an omission \u2014 and an unmatched model still sends nothing.",
+          "kind": "decision",
+          "reason": ""
+        },
+        {
+          "text": "Precedence: an explicit flag beats the .colleague/config.json sampling section, which beats the builtin model profile, which beats the existing default. COLLEAGUE_SAMPLING=0 short-circuits the whole chain to send nothing. The only value-carrying environment rung is the DEPRECATED COLLEAGUE_TEMPERATURE, which keeps its current meaning for one release and then goes; no new value-carrying environment knob is added, which is what stops a single scalar collapsing a model's two halves.",
+          "kind": "decision",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "The two-halves flattening trap is bounded but not yet gone: no NEW value-carrying environment knob is added, so nothing new can collapse a model's thinking and non-thinking halves \u2014 but the deprecated COLLEAGUE_TEMPERATURE still can during its one-release grace, and it is set to 1.0 in the operator environment today, matching the card's thinking value while silently overriding the non-thinking 0.7. The deprecation warning is what makes that visible, and the trap closes for good when the variable does.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "A run with the global pin set records enough for a reader to tell that both halves collapsed to one value, rather than the artifact implying the card profile was applied.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Check the live environment before the definitive arm: COLLEAGUE_TEMPERATURE is currently set to 1.0, which matches the card's thinking value but silently overrides the non-thinking 0.7.",
+      "revisions": [
+        {
+          "text": "Because a single global COLLEAGUE_TEMPERATURE applies to BOTH halves of a model profile, an operator pinning it flattens the thinking and non-thinking seats to one value \u2014 with the Qwen3.8 card that turns the off-rung seats' recommended 0.7 into whatever the global pin says. The knobs must therefore either address the two halves separately, or the arc must document that measuring the card means UNSETTING the global pin rather than setting it to the thinking value.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "A single global sampling value applies to BOTH halves of a model profile and therefore flattens them: with the Qwen3.8 card, a global temperature pin turns the off-rung seats' recommended 0.7 into whatever the pin says. RESOLVED by the split-knob decision \u2014 every profile field is settable per half. The live trap remains and must be checked before the definitive arm: COLLEAGUE_TEMPERATURE is currently set to 1.0 in the operator environment, which matches the card's thinking value and silently overrides the non-thinking 0.7.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "The two-halves flattening trap is removed BY CONSTRUCTION rather than mitigated: with no global sampling environment variable left, there is no single value that can collapse a model's thinking and non-thinking halves into one number. The live consequence still needs acting on before the definitive arm \u2014 COLLEAGUE_TEMPERATURE is currently set to 1.0 in the operator environment and will become inert, which is exactly what the set-but-ignored warning exists to surface.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c43",
+      "kind": "decision",
+      "text": "The sampling knobs are SPLIT by half: a thinking value and a non-thinking value are separately settable for every field in the profile. A single value that silently applies to both halves is not acceptable \u2014 it collapses a two-halved model card into one number and makes an arm that looks like it measured the card actually measure something else.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "Adding a field to the profile touches the nested section only \u2014 not five separate resolution surfaces \u2014 so the shape is checkable by counting the files a new field's diff touches.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c44",
+      "kind": "requirement",
+      "text": "The table lands in its OWN tracked file, .colleague/models.json, with its own loader and discovery path \u2014 allow-listed in the auto-written .gitignore beside commands/ and skills/. It follows associate_config.py's shape: a recognised key set loaded as a unit, per-value resolution that ignores an unparseable value rather than refusing a run. It deliberately does NOT live in config.json: that file stays untracked because it carries the machine-specific endpoint and can carry an api_key at five levels, while the sampling table must be committed so it reaches every clone and every worktree.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "An operator config that predates this arc resolves to the same values it does today, proven by test rather than by reading the precedence chain.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Model the section on _ASSOCIATE_CONFIG_KEYS and resolve_associate_profile; config show renders the resolved halves, not sixty individual fields.",
+      "revisions": [
+        {
+          "text": "The split knobs land as a NESTED config.json section plus per-half environment variables, following colleague/associate_config.py exactly \u2014 a recognised key set loaded as a unit, per-value overrides resolved through config._pick, unparseable values ignored so a misspelt knob never refuses a run. They do NOT land as flat top-level scalars: six fields across two halves is twelve knobs, and the flat lane costs five surfaces each (resolver, EngineConfig field, snapshot, config show, explain catalog). The nested section is both the cheaper shape and the one this repo already proved.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "The table lands as a sampling section inside the existing repo-level .colleague/config.json \u2014 no new file, no new discovery path. It reuses configdir.py's repo-over-user resolution, the machine-wide per-key merge from the at-home arc, and config show's existing rendering. The recognised key set is loaded as a unit the way associate_config.py's _ASSOCIATE_CONFIG_KEYS already is, and an unparseable value is ignored rather than refusing a run. There are no per-half environment variables: the file is the only surface.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c45",
+      "kind": "requirement",
+      "text": "Removing CONVERTIBLE_TEMPERATURE immediately and DEPRECATING COLLEAGUE_TEMPERATURE over one release is a recorded breaking change, staged rather than abrupt. CONVERTIBLE_TEMPERATURE is rename back-compat that has had its grace period; COLLEAGUE_TEMPERATURE appears in docs/features/associate-validation.md and is set to 1.0 in the operator's live measurement arms right now, so removing it in the same release that changes default sampling would pull the rug mid-arm. It therefore keeps working for one release with a deprecation warning, and the set-but-ignored warning becomes the NEXT release's behaviour.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h35",
+          "text": "COLLEAGUE_TEMPERATURE alone still sets both halves and a per-half knob beside it overrides only its own half \u2014 both pinned by test, not by reading the precedence chain.",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h44",
+          "text": "An operator config that predates this arc still resolves to the same values in the deprecation release, with a warning, and only changes behaviour in the release that removes the variable.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Write the migration note in CHANGELOG.md and the feature doc naming both removed variables and the config.json section that replaces them.",
+      "revisions": [
+        {
+          "text": "The existing COLLEAGUE_TEMPERATURE keeps working and keeps its current meaning \u2014 it is a shipped, documented knob with a CONVERTIBLE_TEMPERATURE alias, live in the operator's own measurement arms and in docs/features/associate-validation.md. It applies to both halves; a per-half knob, where set, is more specific and wins. Nothing about this arc may make an existing operator config silently stop working.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "Removing COLLEAGUE_TEMPERATURE and CONVERTIBLE_TEMPERATURE is a deliberate BREAKING change, recorded as one rather than absorbed quietly. Both are shipped and documented; CONVERTIBLE_TEMPERATURE is part of the convertible-to-colleague rename back-compat, and COLLEAGUE_TEMPERATURE appears in docs/features/associate-validation.md and in the operator's live arms. The arc owes a migration note in CHANGELOG.md and the feature doc, plus the set-but-ignored warning, so no operator config stops working silently.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c46",
+      "kind": "decision",
+      "text": "Sampling is configured by FILE, with one environment escape hatch. The table lives in the tracked .colleague/models.json \u2014 JSON, not YAML, because PyYAML is forbidden here (stated in identity.py, tui.py, identity_mint.py and explain/catalog_ops.py) and tests/test_zero_deps.py allow-lists exactly agentfront. COLLEAGUE_SAMPLING=0 is a PERMANENT per-process kill switch sending no sampling keys at all: it carries no value, so unlike a global temperature it cannot flatten a model's two halves, and it is what makes parallel A/B arms and a byte-identical control possible on a file every process on the checkout shares. CONVERTIBLE_TEMPERATURE is removed immediately; COLLEAGUE_TEMPERATURE is DEPRECATED for one release \u2014 still read, still applied, plus a loud warning naming the file that replaces it \u2014 and removed the release after.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h38",
+          "text": "After the arc, a grep for COLLEAGUE_TEMPERATURE and CONVERTIBLE_TEMPERATURE across colleague/ finds only the removal warning's own reference \u2014 no resolution path reads either.",
+          "status": "confirmed",
+          "instruction": ""
+        },
+        {
+          "id": "h45",
+          "text": "COLLEAGUE_SAMPLING=0 produces the pre-change payload key for key, and two concurrent processes on the same checkout can differ in sampling without touching a shared file.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Sampling is configured by FILE, not by environment. COLLEAGUE_TEMPERATURE, its CONVERTIBLE_TEMPERATURE alias, and the COLLEAGUE_ASSOCIATE_TEMPERATURE / _TOP_P knobs are removed; the single surface is a sampling section in the repo-level .colleague/config.json, keyed by model, then role, then thinking versus non-thinking. JSON, not YAML \u2014 PyYAML is forbidden in this repo (stated in identity.py, tui.py, identity_mint.py and explain/catalog_ops.py) and tests/test_zero_deps.py allow-lists exactly agentfront, so a YAML file would need a second base dependency and its own re-spec.",
+          "kind": "decision",
+          "reason": ""
+        },
+        {
+          "text": "Sampling is configured by FILE, with one environment escape hatch. The table lives in a sampling section of the repo-level .colleague/config.json \u2014 JSON, not YAML, because PyYAML is forbidden here (stated in identity.py, tui.py, identity_mint.py and explain/catalog_ops.py) and tests/test_zero_deps.py allow-lists exactly agentfront. COLLEAGUE_SAMPLING=0 is a PERMANENT per-process kill switch sending no sampling keys at all: it carries no value, so unlike a global temperature it cannot flatten a model's two halves, and it is what makes parallel A/B arms and a byte-identical control possible on a repo-scoped, gitignored config file. CONVERTIBLE_TEMPERATURE is removed immediately; COLLEAGUE_TEMPERATURE is DEPRECATED for one release \u2014 still read, still applied, plus a loud warning naming the section that replaces it \u2014 and removed the release after.",
+          "kind": "decision",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c47",
+      "kind": "decision",
+      "text": "The associate fold-in is DEFERRED to a follow-up, not shipped here. colleague/associate_config.py stays untouched: its AssociateProfile carries enable_thinking and max_tokens, which are a template toggle and a budget rather than sampling keys; its half is selected by profile NAME (depth/triage) and never by the effort rung; and its branch in _build_chat_payload runs before the effort fragment entirely \u2014 so role=associate rows would need private semantics and a second half-selection authority inside the supposedly single system. The lane is also measured on different hardware with reruns still pending. The arc ends with TWO sampling surfaces, documented honestly as two, and the fold happens once the table has a live arm behind it.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h39",
+          "text": "There is exactly ONE module that turns a resolved row into payload keys; no seat retains a private sampling path.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The associate seat folds into the same table as role=associate. Its depth and triage profiles become rows rather than a separate system, and colleague ends the arc with ONE place where a sampling value can come from.",
+          "kind": "decision",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "Row resolution is most-specific-wins and every rung names a half: model plus role plus half beats model plus half, which beats role plus half, which beats the builtin default. There are no half-less rungs \u2014 a row that named neither half would be exactly the single-value-applies-to-both shape the split-knob decision rejects. Two further cases must be written down rather than left to reading order: an unmatched model sends NO sampling keys at all, and a rung that resolves to None or the default kill-switch sentinel \u2014 neither armed nor off, since to_chat_template_kwargs emits no key at all \u2014 likewise sends no sampling keys.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h36",
+          "text": "Two rows that both match a request resolve to the more specific one, demonstrated by test rather than asserted by comment.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Pin the order with a table-driven test that exercises each rung, including two rows that both match and the more specific one winning.",
+      "revisions": [
+        {
+          "text": "Row resolution is most-specific-wins, stated explicitly rather than left to reading order: model plus role plus half beats model plus half, which beats model, which beats role, which beats the builtin default; and an unmatched model still sends NO sampling keys at all, preserving the byte-identical off-state.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "A sampling environment variable that is deprecated or removed must speak, never go quietly inert. This release: COLLEAGUE_TEMPERATURE still applies and warns that it is deprecated, naming .colleague/models.json as what replaces it; CONVERTIBLE_TEMPERATURE is gone and warns if set. Next release: COLLEAGUE_TEMPERATURE joins it. Silence would repeat this operator's own recorded gotcha, where a stale environment pin won invisibly and cost real debugging time \u2014 only inverted, with the pin losing invisibly instead.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h37",
+          "text": "A run with a removed variable still set carries the warning on TaskResult.warnings and prints it once, and a run without it is silent.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Fire it once per run on TaskResult.warnings and on stderr, for each removed variable found set.",
+      "revisions": [
+        {
+          "text": "A sampling environment variable that is set but no longer read must WARN, never go quietly inert. COLLEAGUE_TEMPERATURE is set to 1.0 in the operator's live environment right now and is used in the running measurement arms; silently ignoring it would repeat this operator's own recorded gotcha, where a stale environment pin kept winning invisibly and cost real debugging time. The warning names the variable and the config.json section that replaces it.",
+          "kind": "requirement",
+          "reason": ""
+        },
+        {
+          "text": "A sampling environment variable that is deprecated or removed must speak, never go quietly inert. This release: COLLEAGUE_TEMPERATURE still applies and warns that it is deprecated, naming the config.json section that replaces it; CONVERTIBLE_TEMPERATURE is gone and warns if set. Next release: COLLEAGUE_TEMPERATURE joins it. Silence would repeat this operator's own recorded gotcha, where a stale environment pin won invisibly and cost real debugging time \u2014 only inverted, with the pin losing invisibly instead.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c50",
+      "kind": "decision",
+      "text": "PROBED 2026-09-01, closing the parked unknown: aborting the SSE read DOES stop generation at the origin. A streaming completion was cut client-side mid-stream and GPU utilisation fell from 95 percent to 3 within about six seconds and stayed there. The repetition guard's cut therefore saves real GPU time on a shared rig, not merely colleague's wall-clock. Caveat: utilisation was already 95 from a prior killed request, so what is measured is that closing every client connection returns the origin to idle.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c51",
+      "kind": "decision",
+      "text": "PROBED 2026-09-01: presence_penalty 1.5 does not degrade bulk code emission on the non-thinking profile. Asked for a ~120-line Python module at temperature 0.7 / top_p 0.80 / top_k 20, the 1.5 arm produced 154 and 198 line files with ZERO non-ASCII characters \u2014 no language mixing, the specific degradation Qwen's card warns about \u2014 against a 158-line control at presence 0.0, with comparable def and class density. Honest limits: two samples against one control, one task shape, and structural metrics only; correctness of the generated code was not evaluated.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c52",
+      "kind": "requirement",
+      "text": "The model-id MATCH RULE is specified explicitly, because getting it wrong fails silently by design. The rig that produced the incident serves unsloth/Qwen3.8-27B-NVFP4; the card the profile values come from is Qwen/Qwen3.8-27B; the frame's own probe record names Qwen3.8-27B-NVFP4 \u2014 three strings for one model, and an exact-match rule matches NONE of them on the operator's own rig. Combined with the unmatched-model-sends-nothing off-state, a keying miss ships as a green feature over an unchanged greedy payload: the #479 failure with a spec claiming it fixed. The rule must normalise (organisation prefix and quantisation suffix stripped, case-insensitive family match), must be pinned in test against the LIVE id and not only the card id, and must not silently swallow same-family variants with different cards.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h41",
+          "text": "The matching test fails if the live served id stops matching, so a rig rename cannot silently disarm the profile.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Pin unsloth/Qwen3.8-27B-NVFP4 as a test fixture id, and enumerate the ids a row claims rather than relying on a loose prefix.",
+      "revisions": []
+    },
+    {
+      "id": "c53",
+      "kind": "requirement",
+      "text": "config show states the sampling match POSITIVELY \u2014 the row that matched and the model it matched for, or an explicit no-row-matched line. Artifact absence is diagnosable but nobody reads for an absence; a silent miss on the operator's own model is the failure mode this whole arc exists to prevent.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h40",
+          "text": "A deliberately misspelt model row renders as no-row-matched in config show rather than resolving quietly to the default.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Render it beside the effort lines config show already prints.",
+      "revisions": []
+    },
+    {
+      "id": "c54",
+      "kind": "requirement",
+      "text": "A guard-cut turn must not report zero tokens. Aborting the SSE read discards the final usage frame \u2014 include_usage delivers usage on the LAST chunk (engines/vllm_transport.py) \u2014 while CLAUDE.md pins that tokens are exactly what usage reports and are never estimated. A turn cut after a quarter-million characters of generation would otherwise cost nothing on the artifact. The guard's warning carries reasoning_chars the way loop_transport.py's truncated-turn warning already does, and the arc states plainly that a cut turn's tokens are unrecorded rather than zero.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h42",
+          "text": "A guard-cut run's artifact makes the unrecorded-token state readable, so nobody mistakes a cut turn for a free one.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Check what the existing StreamGuardTripped path records today and match it; do not invent an estimate.",
+      "revisions": []
+    },
+    {
+      "id": "c55",
+      "kind": "boundary",
+      "text": "models.json needs its OWN merge story, decided deliberately rather than inherited. config.json merges PER TOP-LEVEL KEY (config_files.py, itself the fix for an older whole-file shadow bug), and a new file gets whatever granularity this arc builds. Because a repo-level models.json is tracked while a user-level one is not, a repo file that names one model must not silently erase a rig-wide row for a DIFFERENT model \u2014 so per-model-key merge is the safer default. Whichever is chosen is documented with a worked example rather than discovered.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h47",
+          "text": "The shadowing is documented beside the file with a worked example, so an operator who keeps rig-wide values in a user-level file learns it from the docs rather than from a run that silently dropped them.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Decide deliberately whether sampling deserves deeper merge granularity than one top-level key; if not, say so in the doc.",
+      "revisions": [
+        {
+          "text": "The sampling section inherits config.json's PER-TOP-LEVEL-KEY merge, which means a repo-level sampling key wholly shadows a machine-wide one \u2014 config_files.py documents this granularity explicitly as the fix for an older whole-file shadow bug. An operator keeping rig-wide profiles in ~/.colleague/config.json loses every one of them the moment a repo file mentions sampling at all. This is inherited behaviour, not a new bug, but it must be documented beside the section rather than discovered.",
+          "kind": "boundary",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c56",
+      "kind": "requirement",
+      "text": "A dispatched work item must read the same sampling table the operator repo declares. Because models.json is TRACKED it exists inside the throwaway worktree at HEAD \u2014 unlike config.json, which is gitignored and does not \u2014 and that is precisely why tracking it was chosen. The requirement is that the worktree run resolves the operator's declared rows, whether it reads the worktree copy at HEAD or the operator repo path; an uncommitted edit reaches neither, which is c59's boundary.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h43",
+          "text": "A work item dispatched into a worktree sends the operator repo's sampling row, proven by test rather than by reading the resolution path.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Pin it with a test that runs a work item in a worktree and asserts the operator repo's sampling row still applies.",
+      "revisions": [
+        {
+          "text": "Sampling resolves against the OPERATOR repo, not the throwaway worktree. .colleague/config.json is gitignored (.colleague/.gitignore), so it does not exist inside the worktree at HEAD that work and drive run in \u2014 a resolution that reads the working directory would find no sampling section at all and silently send nothing, which is indistinguishable from an unmatched model.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c57",
+      "kind": "decision",
+      "text": "The sampling table lives in its OWN tracked file under .colleague/, not in config.json. It is added to the auto-written .gitignore allow-list the way commands/ and skills/ already are, so it is committed, shared with the team, and present in every clone and every throwaway worktree. config.json stays ignored and keeps the machine-specific endpoint and any api_key, so nothing in this arc can carry a secret or a localhost URL into git.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h46",
+          "text": "models.json is present inside a throwaway worktree created by a work item, so a dispatched run reads the same sampling table the operator repo declares.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c58",
+      "kind": "requirement",
+      "text": "The naming rationale is recorded beside the file so a later arc does not quietly rename it back: agents.json would collide with the established meaning of the agents key in config.json (the #411 mode arm), would put default-on sampling behind an opt-in mode's surface, and would scatter one model card's published values across every seat that shares that model.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h48",
+          "text": "The four reasons live in the feature doc, so a later arc proposing to rename or fold the file finds the argument it has to answer rather than re-deriving it.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Put the four reasons in the feature doc; a reader who wonders why sampling is not in the agents surface should find the answer without re-deriving it.",
+      "revisions": [
+        {
+          "text": "The file is named models.json, not agents.json. The name agents is already taken in this codebase and taken loudly: config_seats.py:203 registers an agents config key for the #411 model-bound-agents mode, COLLEAGUE_AGENTS arms it, colleague/agents/ is a nine-module package, and AgentProfile is a different object entirely \u2014 a purpose-to-role-to-model binding with a tool profile and an authority ceiling. A sampling file called agents.json would read as configuration for that mode and be wrong; the table is keyed first by model and its values come from model cards.",
+          "kind": "requirement",
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "c59",
+      "kind": "boundary",
+      "text": "A tracked file reaches a worktree at HEAD, so an UNCOMMITTED edit to models.json does not reach a running work item \u2014 the worktree is created at HEAD on colleague/<id>. Tuning sampling mid-arc therefore means committing the change, and the arc says so rather than letting an operator wonder why an edit had no effect.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h49",
+          "text": "An uncommitted edit to models.json demonstrably does not reach a dispatched work item, and the documentation says so where an operator tuning sampling will read it.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "State it beside the file's documentation; it is the same rule every tracked file follows, but it will surprise someone mid-measurement.",
+      "revisions": []
+    },
+    {
+      "id": "c60",
+      "kind": "decision",
+      "text": "The file is .colleague/models.json \u2014 tracked, allow-listed in the auto-written .gitignore beside commands/ and skills/, keyed by model then role then thinking-versus-non-thinking half. The name is settled against agents.json for four recorded reasons: agents is already a live boolean key inside config.json arming the #411 execution mode (config_seats.py:203), so the word has a settled and different meaning in this config directory; sampling is default-on while #411 is opt-in and byte-identical when unarmed, so a default-on path must not read an opt-in mode's file; card values are facts about a MODEL and many roles share one model, so keying by agent would duplicate one published fact across every seat that uses it and let the copies drift; and AgentProfile.resolved_model is explicitly trace data filled from RoleInfo, so #411 discovers models rather than declaring them. If an agents definition file is ever built, it REFERENCES models.json rather than absorbing it.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether the official Qwen3.8 thinking sampler alone stops the spiral is unknown until the definitive arm runs \u2014 the operator's position is that sampling reduces the attractor's probability but never proves it cannot happen, which is why the guard is specified independently of the sampling fix.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Whether presence_penalty 1.5 on the non-thinking profile interacts badly with tool-call emission is untested \u2014 the Qwen card recommends it for instruct use, but colleague's effort=off seats are exactly the tool-calling seats (senses, scouts, explorers), and a presence penalty discourages repeated tokens including the structured, repetitive JSON of a tool call.",
+      "kind": "unknown_blocking",
+      "claim_id": null,
+      "resolved": true,
+      "resolution": "Settled by probe, not by argument: presence_penalty 1.5 emitted well-formed parallel tool calls 3/3, identical to the 0.0 control (see c40). Residual breadth risk \u2014 one brief shape only \u2014 remains as a nonblocking note rather than a blocking unknown.",
+      "resolution_claim_id": "c40"
+    },
+    {
+      "id": "v3",
+      "text": "Whether aborting the SSE read actually stops generation at the origin, or merely stops colleague reading it, is inferred from one incident observation and was not probed in this pass. If generation continues, the guard saves wall-clock for colleague but not GPU time on a shared rig.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": true,
+      "resolution": "Probed directly rather than inferred: client abort returns the origin to idle within seconds (c50).",
+      "resolution_claim_id": "c50"
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "colleague/engines/vllm_openai.py::_build_chat_payload",
+      "finding": "The single payload builder for every seat; writes model/messages/temperature only, plus tools, chat_template_kwargs (or the associate profile), max_tokens and the stream keys. No top_p/top_k/min_p/penalty key exists anywhere on this path.",
+      "seeds": [
+        "c2",
+        "c4",
+        "c18"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "colleague/associate_config.py + engines/vllm_payload.py::_apply_associate_profile",
+      "finding": "A shipped, measured precedent for exactly this shape: frozen AssociateProfile, a FIXED two-entry profile table, per-value env/config.json overrides that ignore unparseable values, applied in the payload builder. The main seat needs the same thing keyed by model+rung.",
+      "seeds": [
+        "c3",
+        "c4"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "colleague/effort.py + engines/vllm_payload.py::_effort_for",
+      "finding": "The rung is already resolved per payload and off already means enable_thinking False \u2014 the model's non-thinking mode \u2014 so the thinking/non-thinking discriminator exists; effort.py's pinned import direction (config imports effort, never the reverse) constrains where a rung-keyed table may live.",
+      "seeds": [
+        "c5",
+        "c6",
+        "c16"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "colleague/config_defaults.py + config_resolve.py::_scalar_knobs + config.py:348 + config_snapshot.py + cli/_commands/config.py + explain/catalog_ops.py",
+      "finding": "_DEFAULT_TEMPERATURE = 0.0 is the greedy default; COLLEAGUE_TEMPERATURE is resolved in the scalar block with a CONVERTIBLE_ alias, and every scalar knob is mirrored in the dataclass field, the snapshot, config show and the explain catalog \u2014 five surfaces per new knob.",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "colleague/loopguards.py",
+      "finding": "Records that only qwen-code's two always-on guards were ported and that the content/thought-repetition tier was deliberately NOT ported (off upstream for false positives, spec c17/c20); check() is tool-call-only and cannot see reasoning text.",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "colleague/engines/vllm_transport.py (streaming accumulator) + streamguards.py",
+      "finding": "Reasoning arrives as incremental deltas on the streaming path (reasoning/reasoning_content both honoured), so an in-turn detector has input there and only there; the existing idle/lifetime stream guards were observed NOT firing on a 25-minute silent stream, a separate defect.",
+      "seeds": [
+        "c11",
+        "c19"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "colleague/loop_transport.py::_is_truncated_turn/_record_truncated_turn + distilleffort.py::reasoning_exhausted_reason",
+      "finding": "The acting seat already records a truncated-turn warning carrying finish_reason and reasoning_chars plus a live phase notice \u2014 the exact line the issue quotes as evidence \u2014 so fix (3) is mostly landed; only the named reason text and the non-empty-content case remain.",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "colleague/distill.py::_openai_completion",
+      "finding": "Posts temperature: 0 hard-coded in the same body that may carry an armed thinking rung via distilleffort.chat_template_fragment \u2014 a second greedy-in-thinking-mode site outside the adapter.",
+      "seeds": [
+        "c14"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "tests/test_file_length_ratchet.py + tests/test_file_length_limit.py",
+      "finding": "A checked-in per-file baseline that only tightens plus a hard 1000-line ceiling; growing config.py or vllm_openai.py fails CI, which is why every recent increment shipped as a new leaf module.",
+      "seeds": [
+        "c15"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "CLAUDE.md conventions + docs/features/thinking-effort.md + model-selection.md + per-model-configuration.md",
+      "finding": "The vLLM-adapter convention enumerates exactly three graceful-degrade carve-outs and thinking-effort.md's 'The wire' names chat_template_kwargs as the only per-seat body key; per-model configuration is an exact-path hooks/AGENTS overlay with no value table, so model-keyed sampling values are a new keying concept.",
+      "seeds": [
+        "c8",
+        "c23"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "docs/live-testing.md + issue #479 comments",
+      "finding": "Row 66 is the greedy-low evidence; the operator's three comments supersede the issue body (1.0 not 0.6, two profiles not one, penalties deferred) and void the first temp-1.0 arm as a rig failure.",
+      "seeds": [
+        "c7",
+        "c20",
+        "c21"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "colleague/oilcheck/tool_calling.py + oilcheck/three_tier.py + tests/test_thinking_effort_payload_fixture.py + tests/test_associate_sampling.py",
+      "finding": "Two diagnostic probes hard-code temperature 0.0 deliberately (determinism, not reasoning), and two fixture tests already pin exact request bodies \u2014 the offline proof surface for a payload change.",
+      "seeds": [
+        "c22",
+        "c18"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / adjacent-systems lens: colleague/profiles.py ModeProfile",
+      "finding": "Clean. ModeProfile carries max_steps, context_budget_fraction, synthesis_reserve_steps, timeout and fillline_threshold \u2014 no temperature or sampling field \u2014 so apply_mode_profile cannot collide with the new profile's precedence. Examined, nothing found.",
+      "seeds": []
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / adjacent-systems lens: colleague/realtime.py",
+      "finding": "Clean. The realtime lane is the ears-only WebSocket client; its session.update handshake carries turn detection and PCM16 audio format, never sampling parameters, and it never calls response.create. Out of the profile's reach by construction.",
+      "seeds": []
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / adjacent-systems lens: the full set of payload builders",
+      "finding": "Enumerated: the adapter's _build_chat_payload (its associate branch already separate), distill.py::_openai_completion, and the two oilcheck probes. No other module in colleague/ constructs a messages payload, so the profile's reach is a closed set of four call sites.",
+      "seeds": [
+        "c14",
+        "c22"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / lifecycle lens: work --continue and tests/test_continue_effort_reapply.py",
+      "finding": "A continued run re-applies the rung recorded on the prior artifact and warns loudly when it differs from what env/config would now resolve. Sampling derives from that rung plus the model id, so it follows automatically \u2014 but only if the profile is recorded, which is why the artifact-recording requirement matters for continuation and not only for diagnosis.",
+      "seeds": [
+        "c38"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / concurrency lens: colleague/subagents_batch.py ThreadPoolExecutor",
+      "finding": "Fan-out above width 1 runs children concurrently in one process, so any detector state must be turn-scoped; the sampling profile itself is immutable per-payload and is not a hazard.",
+      "seeds": [
+        "c39"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / live probe: gateway localhost:8001, Qwen3.8-27B-NVFP4",
+      "finding": "Two probes. Extension keys accepted and honoured (top_k 1 at temperature 2.0 gives three identical completions; without top_k, three different ones). An invented key also returns 200, so unknown keys are silently ignored and a status code proves nothing about application.",
+      "seeds": [
+        "c35",
+        "c36"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / reversibility lens: the repo's off-knob convention",
+      "finding": "Every adopted mechanism here keeps one off-knob byte-identical to main; the sampling change had none proposed until this pass. Gap, now routed.",
+      "seeds": [
+        "c37"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / security and migration lenses",
+      "finding": "Clean and not applicable respectively: sampling parameters carry no credential or user data and widen no trust boundary, and no persisted state or schema changes, so there is nothing to migrate and no downgrade path to design. Examined, nothing found.",
+      "seeds": []
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / failure-mode lens: aborting an SSE read mid-stream",
+      "finding": "Partially examined only. The incident evidence shows killing the client dropped the origin GPU to 0 percent instantly, which suggests closing the connection does stop generation, but this pass did NOT probe an abort directly and the guard's cut depends on it. Residual risk parked rather than claimed.",
+      "seeds": []
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / dependency lens: tests/test_zero_deps.py + the PyYAML-forbidden docstrings",
+      "finding": "YAML is unavailable without breaching the single-base-dependency convention: four modules state PyYAML is forbidden and the guard allow-lists exactly agentfront. JSON is the only stdlib option, which settles the file format by constraint rather than preference.",
+      "seeds": [
+        "c46"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / configuration lens: colleague/configdir.py + .colleague/config.json",
+      "finding": "The repo-level config file already resolves repo-over-user with a machine-wide per-key merge and is already rendered by config show, so a sampling section inherits all of it; a dedicated file would have needed a second discovery path and a second merge story.",
+      "seeds": [
+        "c44"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / reversibility lens, second look: the off-state after removing the environment knobs",
+      "finding": "Removing the environment layer removed the off-knob with it, and section-absence is not an off-state for a model the builtin table matches. Gap found by re-walking a lens after a design change, and routed.",
+      "seeds": [
+        "c37"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / configuration lens, RE-EXAMINED after the tracked-file decision",
+      "finding": "s23's conclusion was superseded by evidence found later: .colleague/config.json is auto-gitignored by colleague itself and its schema accepts api_key at five levels, so it can neither be committed nor reach a worktree. The second discovery path s23 counted as a cost is what buys a tracked, shareable, secret-free table \u2014 .colleague/models.json, allow-listed beside commands/ and skills/. Recorded as a supersession rather than an edit to s23, which stands as what was known then.",
+      "seeds": [
+        "c60",
+        "c44"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}

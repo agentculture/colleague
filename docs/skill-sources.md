@@ -6,15 +6,16 @@ AgentCulture **skills supplier** after the steward → guildmaster cutover
 (`steward doctor`, the sibling-pattern baseline); only the skills-supplier role
 moved. This file tracks provenance so re-syncs stay deterministic.
 
-Seven skills (`scope`, `think`, `challenge`, `spec-to-plan`,
-`assign-to-workforce`, `deviate`, `summarize-delivery` — listed in devague
-flow order) originate in
+Eight skills (`scope`, `think`, `challenge`, `spec-to-plan`,
+`assign-to-workforce`, `deviate`, `validate-delivery`, `summarize-delivery` —
+listed in devague flow order) originate in
 [`agentculture/devague`](https://github.com/agentculture/devague); guildmaster
 only **re-broadcasts** them. Cite guildmaster's copy where it has re-broadcast
 (currently `think`, `spec-to-plan`, `assign-to-workforce`); track devague as the
-true origin. The four not yet re-broadcast — `summarize-delivery`, `scope`,
-`challenge`, `deviate` — are cited **directly from devague** and should be
-re-pointed at guildmaster's copy once that broadcast lands.
+true origin. The five not yet re-broadcast — `summarize-delivery`, `scope`,
+`challenge`, `deviate`, `validate-delivery` — are cited **directly from
+devague** and should be re-pointed at guildmaster's copy once that broadcast
+lands.
 
 One skill is **first-party**: `ask-colleague` is **authored here** (origin =
 colleague), not vendored. It is the inverse of the rest — when it stabilizes,
@@ -43,6 +44,7 @@ is load-bearing, even where guildmaster's upstream copy omits it.
 | `scope` | `../devague/.claude/skills/scope/` | **devague** (cited direct — not yet re-broadcast) | idea→scope leg: the optional opening move ahead of `/think` — surveys the surfaces an idea touches (code, docs, skills, CI, siblings) and seeds boundary / non-goal / assumption claims for the coming frame. Method-only (SKILL.md, no script). Verbatim (carries `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-15 (devague 0.19.1) |
 | `challenge` | `../devague/.claude/skills/challenge/` | **devague** (cited direct — not yet re-broadcast) | blind-spot discovery pass **between** `/think` and `/spec-to-plan`: pressure-tests the converged, exported frame through structured lenses, routing every finding back through devague's deterministic moves as proposed-only content the human adjudicates. Method-only (SKILL.md, no script). Verbatim (carries `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-15 (devague 0.19.1) |
 | `deviate` | `../devague/.claude/skills/deviate/` | **devague** (cited direct — not yet re-broadcast) | mid-run divergence leg: stops an in-flight `assign-to-workforce` run when execution must diverge from the confirmed plan, gets explicit human approval, and records an append-only deviation via `devague deviate` before resuming. Method-only (SKILL.md, no script). Verbatim (carries `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-15 (devague 0.19.1) |
+| `validate-delivery` | `../devague/.claude/skills/validate-delivery/` | **devague** (cited direct — not yet re-broadcast) | behavioral-validation leg **between** `assign-to-workforce` and `summarize-delivery`: runs the confirmed plan's behavioral tests agent-side once waves merge, then files evidence records and behavioral deltas as first-class, record-only entries via `devague evidence` / `devague delta`, each landing `proposed` until the user adjudicates. Never runs a test inside the CLI (#20); never smooths a failing outcome. Method-only (SKILL.md, no script). Verbatim (carries `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-09-01 (devague 0.24.0) |
 | `ask-colleague` | — (first-party) | **colleague** | Authored here, not vendored: a portable wrapper (`scripts/ask-colleague.sh`) that drives the `colleague` CLI for `explore`/`review`/`write` — hand a scoped task to a different backend/mind. Carries `type: command`. | n/a (origin) |
 
 ## Re-sync procedure
