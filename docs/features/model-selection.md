@@ -96,6 +96,29 @@ colleague doctor --repo . --probe    # adds a live provider_reachable ping to th
 colleague config show --repo .       # resolved provider config (api_key redacted)
 ```
 
+## What the resolved model id ALSO selects (#479)
+
+Since #479 the resolved model id is not only where the request goes — it is the
+match key for the **per-model sampling profile** the request carries. The
+adapter normalises it (organisation prefix dropped, quantisation suffix
+stripped, lowercased), so `unsloth/Qwen3.8-27B-NVFP4`, `Qwen/Qwen3.8-27B` and
+`qwen3.8-27B-W8A8-INT8` all land on one row, while `Qwen/Qwen3.8-4B` matches
+nothing and therefore **sends no sampling keys at all**. Which half of the card
+applies is the seat's already-resolved effort rung, never a second resolution.
+
+Two consequences worth knowing while choosing a model id:
+
+- **Setting `--model` to a checkpoint colleague holds no card for is a silent
+  opt-out of sampling** (its payload is byte-identical to pre-#479) — the honest
+  degrade, not a fallback to some default profile. `config show` states the
+  match, or the miss, positively.
+- **Operator rows live in the tracked `.colleague/models.json`**, keyed by model
+  id then half, merged per model key — a separate file from `config.json`
+  precisely because it must be committed and reach a throwaway worktree, while
+  `config.json` stays gitignored and can carry an `api_key`.
+
+Full table, wire filter, knobs and honest limits: [sampling.md](sampling.md).
+
 ## Pointing at an OpenAI-compatible server
 
 The `vllm-openai` engine works with **any** OpenAI-compatible

@@ -69,6 +69,43 @@ the precedence order, and the honest limits live in
 [thinking-effort.md](thinking-effort.md) — this doc points at them, it does not
 duplicate the table.
 
+## The sampling table — a second, TRACKED file (#479)
+
+Sampling values do **not** live in `config.json`. They live in
+`.colleague/models.json`, which is the one thing under `.colleague/` that
+colleague's auto-written `.gitignore` allow-lists (`!models.json`, beside
+`commands/` and `skills/`), because it must be **committed** to reach a clone
+and a throwaway worktree. `config.json` stays gitignored: it carries the
+machine-specific endpoint and can carry an `api_key`.
+
+It has its own discovery path (`colleague/samplingfile.py`) and its own merge
+story — **per model key** across the same configdir roots (repo before user), so
+a repo file naming one model never erases a rig-wide row for a different model;
+inside one model id the entry is taken wholesale.
+
+Precedence for the sampling values themselves:
+
+```text
+COLLEAGUE_SAMPLING=0 (kill switch, sends nothing)
+  >  .colleague/models.json row  >  the builtin model profile  >  no keys at all
+```
+
+There is **no value-carrying environment rung** for sampling — that is what
+stops a single scalar collapsing a model's thinking and non-thinking halves.
+Two flat knobs shrank rather than grew:
+
+- **`CONVERTIBLE_TEMPERATURE`** — **removed**. Its value is ignored and a run
+  that sets it gets a loud warning.
+- **`COLLEAGUE_TEMPERATURE`** — **deprecated for one release**: still read,
+  still applied, plus a warning naming `.colleague/models.json` as the
+  replacement. It is removed the release after.
+
+`colleague config show` states the sampling match positively beside the effort
+lines (the row that matched, what goes on the wire, what was dropped as already
+the server default — or an explicit no-row-matched line). The table, the schema,
+the naming rationale and the honest limits of that rendering live in
+[sampling.md](sampling.md).
+
 ## Per-key merge for all override loaders (#339)
 
 All `config.json` override loaders now read via the per-key merge: user-level
@@ -103,6 +140,8 @@ coverage uploads 404 until it is.
 
 - [thinking-effort.md](thinking-effort.md) — the per-seat thinking-effort
   ladder and its knobs.
+- [sampling.md](sampling.md) — the per-model sampling table, `models.json`, and
+  the `COLLEAGUE_SAMPLING` kill switch.
 - [model-selection.md](model-selection.md) — the `--model` / `--base-url` surface.
 - [layered-config.md](layered-config.md) — AGENTS + skills composition.
 - [per-model-configuration.md](per-model-configuration.md) — per-model overlays.

@@ -38,6 +38,7 @@ colleague's skills from a peer, [learn-from.md](learn-from.md).
 | Adopted harness mechanics | [adopt-from-qwen-code.md](adopt-from-qwen-code.md) | Mechanics ported from Qwen Code / Gemini CLI: clamp, batches, search tools, paging, guards, associate seat; credit in `NOTICE` | `doctor` (`harness_*`), `config show`, knobs |
 | Backends & plugins | [engines.md](engines.md) | Backend + adapter + plugin discovery | `backends list`, `--engine` |
 | Model & endpoint selection | [model-selection.md](model-selection.md) | Backend config (model + endpoint) | `--model`, `--base-url`, env |
+| Per-model sampling + repetition guard | [sampling.md](sampling.md) | The model card's sampling values per effort half, the tracked `.colleague/models.json`, and the verbatim-tail turn guard | `config show`, `COLLEAGUE_SAMPLING` |
 | Git/PR handoff | [handoff.md](handoff.md) | Branch/commit/push/PR, gated for offline/CI | `work` (`--no-pr`, `--base`) |
 | Write isolation | [write-isolation.md](write-isolation.md) | A work item runs in a throwaway worktree; never touches your working tree | runtime (no verb) |
 | Cleanup / reap | [cleanup-reap.md](cleanup-reap.md) | Self-heal a repo a crashed run left wedged | `clean` |

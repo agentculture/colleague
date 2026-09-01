@@ -71,6 +71,21 @@ minds. The architecture, part by part:
   v3 default table is pinned row-for-row and rendered once in the feature doc
   (pointer, not duplicate); a ladder-400 retries once without the key;
   byte-identical under the kill-switch. Doc: `thinking-effort.md`.
+- **Per-model sampling defaults + repetition guard (#479)** — every seat's
+  completion carries its MODEL CARD's sampling values for the half the
+  already-resolved effort rung selects (`off` = the non-thinking half, any rung
+  = thinking), instead of the old hard-coded greedy `temperature 0.0`: a FIXED
+  builtin table (`colleague/sampling.py`, Qwen3.8 both halves) + a
+  server-default wire filter (`colleague/samplingwire.py`, the ONE module that
+  names the vLLM extension keys) + the tracked, per-model-merged
+  `.colleague/models.json` operator table (`colleague/samplingfile.py`). Keyed
+  by model + rung ONLY — nothing inspects the task, so it is never the excluded
+  router. An unmatched model sends NO key; `COLLEAGUE_SAMPLING=0` is the
+  per-process kill switch; `CONVERTIBLE_TEMPERATURE` is removed (warns) and
+  `COLLEAGUE_TEMPERATURE` deprecated for one release (warns). Beside it a
+  verbatim-tail **repetition guard** (`colleague/repetitionguard.py`) cuts a
+  TURN — never the run, until the third trip — whose reasoning has begun
+  repeating. Doc: `sampling.md`.
 - **Single-model default — qwen-direct (v1.63)** — **1 colleague instance = 1
   model = 1 agent**: a bare run on a lobes-armed rig resolves exactly ONE served
   model (the `cortex` role) and dials nothing else — senses and muse lobes
@@ -470,17 +485,26 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   stay colleague-owned via the legacy-parser shim in `main()`. Doc: `cli-on-agentfront.md`.
 - **The vLLM adapter only touches the OpenAI surface** — retargeting any
   OpenAI-compatible server must stay a config change, never a code change.
-  TWO per-turn carve-outs, both graceful-degrade so a server without them stays
+  THREE per-turn carve-outs, all graceful-degrade so a server without them stays
   a config change: — only when lobes is ARMED — the call-time stale-pin
   refresh's one same-role lookup against the gateway (c11/h8; lobes unarmed =
-  the original error surfaces unchanged, zero non-OpenAI calls); and the
+  the original error surfaces unchanged, zero non-OpenAI calls); the
   per-seat `chat_template_kwargs` body key on the existing `/chat/completions`
   call (the thinking-effort ladder, #416 — a vLLM extension a server may
-  ignore; unset = byte-identical, a ladder-400 retries once without the key).
+  ignore; unset = byte-identical, a ladder-400 retries once without the key);
+  and — the **fourth carve-out**, beside `/tokenize`, the stale-pin refresh and
+  `chat_template_kwargs` — **the per-model sampling keys a matched row
+  explicitly sets** (#479): `temperature`/`top_p`/`presence_penalty` are plain
+  OpenAI keys, so on the builtin Qwen3.8 table `top_k` is the ONLY vLLM
+  extension key that reaches the wire (`min_p`/`repetition_penalty` are card
+  values already at the server default and are filtered off it). A model
+  matching no row sends NO sampling key — byte-identical to pre-#479 — which is
+  why NO retry-without-the-keys path ships (the asymmetry with the ladder-400
+  retry is deliberate); `COLLEAGUE_SAMPLING=0` is the per-process kill switch.
   Plus ONE run-scoped probe, never per turn: a single `/tokenize` POST at run
   start (exact turn-1 count + `max_model_len` window discovery, `None` on
   error; `COLLEAGUE_EXACT_TOKENS=1` restores the per-turn call — the
-  adopt-from-qwen-code arc, t12). Docs: `thinking-effort.md`,
+  adopt-from-qwen-code arc, t12). Docs: `thinking-effort.md`, `sampling.md`,
   `graceful-degradation.md`.
 - **Hook commands run as subprocesses, never imported.** `colleague/hooks.py` uses
   `subprocess.run` (shell=True) in the repo working dir; command templates are
