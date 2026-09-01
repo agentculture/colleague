@@ -122,7 +122,7 @@ def _build_continued_task(
     test double that never resolved a config) keeps the unarmed prose path.
     """
     # Lazy import: the continue path is opt-in; keep work's import graph flat.
-    from colleague.continuation import ContinuationError, resolve_continuation
+    from colleague.continuation import ContinuationError, prior_task_text, resolve_continuation
 
     if getattr(args, "command_name", None):
         raise CliError(
@@ -167,6 +167,12 @@ def _build_continued_task(
     if positional_tokens:
         instruction += "\n\nAdditional operator guidance:\n" + " ".join(positional_tokens)
     args._continued_from_resolved = prior_id
+    # Propagate the ORIGINAL brief forward (c22/h15/h3): the resumed run's
+    # artifact must record the prior artifact's own task_text, never this
+    # seed. Resolved here (repo is in hand) and consumed by cmd_work via
+    # execute_work's continuation_task_text kwarg, applied at the same seam
+    # continued_from is stamped.
+    args._continuation_task_text_resolved = prior_task_text(repo, prior_id)
     task = Task.new(str(repo), instruction, engine=engine, attachments=_collect_attachments(args))
     return task
 
