@@ -65,6 +65,7 @@ from colleague.cockpit_run import (
 )
 from colleague.config import EngineConfig
 from colleague.contract import Task
+from colleague.loop_deltaheartbeat import pre_armed_sink
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -369,10 +370,22 @@ class TestWorkSinkOnDelta:
 
 
 class TestExecuteWorkArmsOnDelta:
+    """The CLI arming site's contract, asked through ``pre_armed_sink`` (#483).
+
+    Since #483 the LOOP also composes ``config.on_delta`` — it chains the
+    in-flight delta heartbeat onto whatever the work path armed
+    (``colleague/loop_deltaheartbeat.py``) — so after a run a bare
+    ``config.on_delta is None`` no longer answers "did execute_work arm a
+    display sink?". :func:`~colleague.loop_deltaheartbeat.pre_armed_sink`
+    unwraps that chain and answers exactly the question these tests have always
+    asked; the contract itself is unchanged — the two live paths arm a sink,
+    nothing else does, and the loop's wrapper never invents one.
+    """
+
     def test_explicit_tui_arms_it(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         repo = _git_repo(tmp_path)
         config = EngineConfig.resolve()
-        assert config.on_delta is None
+        assert pre_armed_sink(config.on_delta) is None
         task = Task.new(str(repo), "do a small thing")
         execute_work(
             repo=repo,
@@ -383,7 +396,7 @@ class TestExecuteWorkArmsOnDelta:
             config=config,
             display=DisplayOptions(tui=True),
         )
-        assert config.on_delta is not None
+        assert pre_armed_sink(config.on_delta) is not None
 
     def test_no_tui_never_arms_it(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         repo = _git_repo(tmp_path)
@@ -398,7 +411,7 @@ class TestExecuteWorkArmsOnDelta:
             config=config,
             display=DisplayOptions(tui=False),
         )
-        assert config.on_delta is None
+        assert pre_armed_sink(config.on_delta) is None
 
     def test_plain_work_off_tty_never_arms_it(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -417,7 +430,7 @@ class TestExecuteWorkArmsOnDelta:
             config=config,
             display=DisplayOptions(tui=None),
         )
-        assert config.on_delta is None
+        assert pre_armed_sink(config.on_delta) is None
 
     def test_tui_events_alone_never_arms_it(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -434,7 +447,7 @@ class TestExecuteWorkArmsOnDelta:
             config=config,
             display=DisplayOptions(tui=False, tui_events=str(tmp_path / "ev.jsonl")),
         )
-        assert config.on_delta is None
+        assert pre_armed_sink(config.on_delta) is None
 
     def test_session_ansi_sink_arms_it(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -452,8 +465,7 @@ class TestExecuteWorkArmsOnDelta:
             config=config,
             display=DisplayOptions(sink=sink),
         )
-        assert config.on_delta is not None
-        assert config.on_delta == sink.on_delta
+        assert pre_armed_sink(config.on_delta) == sink.on_delta
 
     def test_session_markdown_sink_also_arms_it(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -474,8 +486,7 @@ class TestExecuteWorkArmsOnDelta:
             config=config,
             display=DisplayOptions(sink=sink),
         )
-        assert config.on_delta is not None
-        assert config.on_delta == sink.on_delta
+        assert pre_armed_sink(config.on_delta) == sink.on_delta
 
     def test_deltas_never_appear_in_tui_events_stream(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

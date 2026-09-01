@@ -97,28 +97,25 @@ class _Work:
     # ``TaskResult.senses``); absent → the deepthink path is byte-identical.
     senses_run: Callable[..., Any] | None = None
     senses_media_bridge: bool = False
-    # Reactive auto-split (#151): when armed (a positive ``context_budget`` AND a
-    # positive ``autosplit_target``), an EXHAUSTED context-overflow injects ONE
-    # split recommendation — pointing the model at the existing ``subagents`` tool
-    # — *before* the error would propagate to run()'s abort+escalate path.
-    # ``None``/0 leaves the feature dormant (a strict no-op). Backend-judged: the
-    # loop only recommends; the model decides whether to split.
+    # Reactive auto-split (#151): when armed (a positive ``context_budget`` AND a positive
+    # ``autosplit_target``), an EXHAUSTED context-overflow injects ONE split recommendation —
+    # pointing the model at the existing ``subagents`` tool — *before* the error would propagate
+    # to run()'s abort+escalate path. ``None``/0 leaves the feature dormant (a strict no-op).
+    # Backend-judged: the loop only recommends; the model decides whether to split.
     autosplit_target: int | None = None
     # Single-element mutable cell: holds ``True`` once the reactive recommendation
     # has been injected, so it is offered at most ONCE per work item (the model then
     # gets bounded extra turns under ``max_steps``). Mutable so the frozen ``_Work``
     # can flip it through the binding (same pattern as ``_last_substantive``).
     _split_recommended: list[bool] = field(default_factory=list)
-    # Single-element mutable cell carrying the floored budget from an EXHAUSTED
-    # degradation give-up into the *next* turn (#154). When the shrink-and-retry
-    # gives up it re-raises, and ``_work_loop`` may inject the auto-split/INCOMPLETE
-    # recommendation and grant one bounded extra turn — that turn must run against
-    # the SAME small window the give-up reached, not the full budget, or it would
-    # just overflow / time out again before the model can act. Consumed once (read
-    # then cleared) by the next ``_complete_with_degradation`` call, so only the
-    # recommendation turn is throttled; everything after returns to the full budget.
-    # Empty = no carry (window to the full budget, the default). Mutable for the
-    # same reason as ``_split_recommended``.
+    # Single-element mutable cell carrying the floored budget from an EXHAUSTED degradation
+    # give-up into the *next* turn (#154). When the shrink-and-retry gives up it re-raises, and
+    # ``_work_loop`` may inject the auto-split/INCOMPLETE recommendation and grant one bounded
+    # extra turn — that turn must run against the SAME small window the give-up reached, not the
+    # full budget, or it would just overflow / time out again before the model can act. Consumed
+    # once (read then cleared) by the next ``_complete_with_degradation`` call, so only the
+    # recommendation turn is throttled; everything after returns to the full budget. Empty = no
+    # carry (window to the full budget, the default). Mutable for ``_split_recommended``'s reason.
     _degraded_budget: list[int] = field(default_factory=list)
     # Last non-empty ``resp.content`` seen across ALL turns (including turns that
     # also made tool calls).  Updated in ``_work_loop`` unconditionally whenever
@@ -135,14 +132,13 @@ class _Work:
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
     _served_model: list[str] = field(default_factory=list)  # first served id (t18)
-    # Reasoning sidecar (effort-v4 t6, c16/h7): ``seat`` is the acting-seat
-    # label stamped on every sidecar record — run()'s ``seat`` param threaded
-    # verbatim (the append_run_start precedent); display/disk only, never model
-    # context. ``_reasoning_ordinal`` is the within-turn dispatch-ordinal cell
-    # (the ``_last_substantive`` mutable-cell pattern): reset to ``[0]`` as each
-    # turn is accounted (the completion itself is ordinal 0), then ONE
-    # increment per tool dispatch — a parallel batch consumes one ordinal
-    # shared by its N records, a sequential call consumes its own (c34).
+    # Reasoning sidecar (effort-v4 t6, c16/h7): ``seat`` is the acting-seat label stamped on every
+    # sidecar record — run()'s ``seat`` param threaded verbatim (the append_run_start precedent);
+    # display/disk only, never model context. ``_reasoning_ordinal`` is the within-turn
+    # dispatch-ordinal cell (the ``_last_substantive`` mutable-cell pattern): reset to ``[0]`` as
+    # each turn is accounted (the completion itself is ordinal 0), then ONE increment per tool
+    # dispatch — a parallel batch consumes one ordinal shared by its N records, a sequential call
+    # consumes its own (c34).
     seat: str = "cortex"
     _reasoning_ordinal: list[int] = field(default_factory=list)
     # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
@@ -151,9 +147,9 @@ class _Work:
     # flips through the binding (the ``_last_substantive`` pattern).
     _last_progress: list[float] = field(default_factory=list)
     _stalled: list[float] = field(default_factory=list)
-    # Model-bound agents runtime (#411, t15): the bound ``AgentsRun`` (identity,
-    # ledger, invocation records, the TaskResult.agents fold) — ``None`` when the
-    # mode is unarmed; every seam call is then a strict no-op (byte-identical).
+    # Model-bound agents runtime (#411, t15): the bound ``AgentsRun`` (identity, ledger, invocation
+    # records, the TaskResult.agents fold) — ``None`` when the mode is unarmed; every seam call is
+    # then a strict no-op (byte-identical).
     agents: Any = None
     # auto-compact-on-finish (t3): the model-authored summary produced by the last
     # fill-line compaction, kept on a dedicated cell so a later stall cannot
@@ -545,13 +541,12 @@ class ContextControls:
     # loop never sees the config itself.
     agents_run: Any = field(default=None, compare=False, repr=False)
     senses_media_bridge: bool = False
-    # Synthesis reserve (#197): steps held back from the reading budget so a
-    # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
-    # verdict turn (#191) runs with fresher, less-windowed context instead of being
-    # starved after the budget is spent reading. ``None``/<= 0 reserves nothing — a
-    # strict no-op (the full ``max_steps`` is spent reading, as before). Forwarded by
-    # every backend from ``config.synthesis_reserve_steps``; the caller (review) sets
-    # it. Clamped so at least one reading step always remains.
+    # Synthesis reserve (#197): steps held back from the reading budget so a read-heavy run (a
+    # big-diff review) stops reading early and the forced-synthesis verdict turn (#191) runs with
+    # fresher, less-windowed context instead of being starved after the budget is spent reading.
+    # ``None``/<= 0 reserves nothing — a strict no-op (the full ``max_steps`` is spent reading, as
+    # before). Forwarded by every backend from ``config.synthesis_reserve_steps``; the caller
+    # (review) sets it. Clamped so at least one reading step always remains.
     synthesis_reserve: int | None = None
     # Lint pre-finish gate (#200): when ``lint`` is truthy the runtime runs the repo's
     # configured linters on the work item's changed files before handoff and auto-fixes
@@ -596,12 +591,11 @@ class ContextControls:
     # main > None). Only consulted when ``distill_fn`` is None; the remember
     # seam builds the detaching child fn lazily against the memory repo.
     distill_author: Any | None = None
-    # Test-integrity gate (#203): when truthy (the default) the runtime runs the
-    # mirror-detection heuristic on the changed files after the loop and records the
-    # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
-    # blocks the handoff, makes no network call, and a no-finding run is byte-identical
-    # (omit-when-None). Defaults ON so the gate fires for every backend without each
-    # backend opting in; pass ``False`` to disable (the env/config opt-out feeds it).
+    # Test-integrity gate (#203): when truthy (the default) the runtime runs the mirror-detection
+    # heuristic on the changed files after the loop and records the findings on
+    # ``result.test_integrity_report``. Advisory + non-blocking — never blocks the handoff, makes no
+    # network call, and a no-finding run is byte-identical (omit-when-None). Defaults ON so the gate
+    # fires for every backend without each backend opting in; ``False`` disables (env/config feeds).
     testintegrity: bool = True
     # Caps the bounded model re-examine turn for a flagged symbol (0 = detect-and-record
     # only, the conservative default). Forwarded by every backend from
@@ -629,37 +623,32 @@ class ContextControls:
     affectedtests_max_files: int | None = None
     affectedtests_override: str | None = None
     # Self-knowledge facts plumbing (t9 / #306): the resolved senses model id
-    # (``config.senses.model``) and the ARMED lobes gateway origin
-    # (``config.lobes_gateway_url``, set by ``EngineConfig.resolve`` — ``None``
-    # when unarmed OR degraded-unreachable, so it names the state the run
-    # ACTUALLY resolved with). Read ONLY by the self-knowledge advisory so an
-    # armed session renders the REAL senses id + gateway URL instead of a false
-    # ``not configured``/``not armed``; ``""`` (the default — direct ``run``
-    # callers, or genuinely absent) keeps the honest absent lines. Forwarded by
-    # every backend via :meth:`from_config` (all-engines rule); not otherwise
-    # load-bearing — byte-identical when empty.
+    # (``config.senses.model``) and the ARMED lobes gateway origin (``config.lobes_gateway_url``,
+    # set by ``EngineConfig.resolve`` — ``None`` when unarmed OR degraded-unreachable, so it names
+    # the state the run ACTUALLY resolved with). Read ONLY by the self-knowledge advisory so an
+    # armed session renders the REAL senses id + gateway URL instead of a false ``not
+    # configured``/``not armed``; ``""`` (the default — direct ``run`` callers, or genuinely
+    # absent) keeps the honest absent lines. Forwarded by every backend via :meth:`from_config`
+    # (all-engines rule); not otherwise load-bearing — byte-identical when empty.
     senses_model: str = ""
     lobes_gateway: str = ""
-    # Episode-boundary config lifecycle (three-tier-execution plan task t6,
-    # decisions c8/h8/c26/h22): the WORKER episode's
-    # ``configlifecycle.EpisodeConfigLifecycle`` — queues cortex-authored
-    # lattice proposals and applies them ONLY at the two sanctioned windows
-    # (``colleague/chain.py``'s ``apply_config_window``, before episode 1 /
-    # between episodes), never mid-episode. ``None`` (the default) is a
-    # strict no-op: no digest tracking, no boundary counting, byte-identical
-    # to the pre-t6 loop. Not yet forwarded by ``EngineConfig`` (that is a
-    # later task's wiring, e.g. t11's cortex configurator) — ``from_config``
-    # reads it via ``getattr`` so a config object predating this field stays
-    # byte-identical, exactly like ``chain_prior_changed`` above.
+    # Episode-boundary config lifecycle (three-tier-execution plan task t6, decisions
+    # c8/h8/c26/h22): the WORKER episode's ``configlifecycle.EpisodeConfigLifecycle`` — queues
+    # cortex-authored lattice proposals and applies them ONLY at the two sanctioned windows
+    # (``colleague/chain.py``'s ``apply_config_window``, before episode 1 / between episodes),
+    # never mid-episode. ``None`` (the default) is a strict no-op: no digest tracking, no boundary
+    # counting, byte-identical to the pre-t6 loop. Not yet forwarded by ``EngineConfig`` (that is a
+    # later task's wiring, e.g. t11's cortex configurator) — ``from_config`` reads it via
+    # ``getattr`` so a config object predating this field stays byte-identical, exactly like
+    # ``chain_prior_changed`` above.
     config_lifecycle: "_configlifecycle.EpisodeConfigLifecycle | None" = field(
         default=None, compare=False, repr=False
     )
-    # Thought->action->evaluation control loop (t13): the armed mode's one seam
-    # object, built by :func:`colleague.tae_loop.make_tae_session` from the t12
-    # ``thought_action_evaluation`` / ``evaluation_seats`` arming. ``None`` (the
-    # default, and every unarmed config) leaves all four loop call sites dormant
-    # — byte-identical. compare=False: it holds live seats, i.e. behavior, not
-    # comparable config (the ``deepthink_run``/``senses_run`` precedent).
+    # Thought->action->evaluation control loop (t13): the armed mode's one seam object, built by
+    # :func:`colleague.tae_loop.make_tae_session` from the t12 ``thought_action_evaluation`` /
+    # ``evaluation_seats`` arming. ``None`` (the default, and every unarmed config) leaves all four
+    # loop call sites dormant — byte-identical. compare=False: it holds live seats, i.e. behavior,
+    # not comparable config (the ``deepthink_run``/``senses_run`` precedent).
     tae_session: "_tae.TaeSession | None" = field(default=None, compare=False, repr=False)
     #: The associate seat-completion factory (adopt-from-qwen-code t19) — every
     #: backend passes ``associate_seats.make_associate_complete(config, name)``;
@@ -676,6 +665,10 @@ class ContextControls:
     #: record and wire can never diverge. ``None`` = no senses config.
     reasoning_effort_senses: "str | None" = None
     reasoning_effort_deepthink: "str | None" = None
+    #: In-flight liveness binder (#483): ``loop_deltaheartbeat.arm`` chained the
+    #: heartbeat onto ``config.on_delta`` here; ``run`` binds its ctx into it.
+    #: ``None`` = nothing armed (the blocking path, or a hand-built controls).
+    delta_binder: Any = field(default=None, compare=False, repr=False)
 
     @classmethod
     def from_config(
@@ -701,8 +694,15 @@ class ContextControls:
 
         ``config`` is left untyped to avoid an import cycle with
         :mod:`colleague.config` (same precedent as :func:`resolve_role`).
+
+        This is also where the in-flight delta heartbeat is armed (#483): the
+        ONE seam where a live config meets loop-owned code. Imported lazily so
+        this module stays the import leaf its own docstring promises.
         """
+        from colleague import loop_deltaheartbeat as _deltaheartbeat
+
         return cls(
+            delta_binder=_deltaheartbeat.arm(config),
             budget=config.context_budget_tokens,
             count_tokens=count_tokens,
             agents_run=_agents_runtime.make_agents_run(config),

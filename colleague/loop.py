@@ -54,6 +54,7 @@ from colleague import editgate as _editgate
 from colleague import stallguard  # noqa: F401 - reached as ``loop.stallguard``
 from colleague import effortrecord
 from colleague import escalation as _escalation  # noqa: F401 - patched as ``loop._escalation``
+from colleague import loop_deltaheartbeat as _deltaheartbeat
 from colleague import loop_hooks as _loop_hooks
 from colleague import loop_run_stages as _run_stages
 from colleague import loopguards as _loopguards
@@ -702,6 +703,9 @@ def run(
         tae=_context.tae_session,
         **_affectedtests_controls(_context),
     )
+    # In-flight liveness (#483): bind ctx into the on_delta chain from_config
+    # armed. No-op unarmed — incl. the blocking path, which gains no heartbeat.
+    _deltaheartbeat.bind(_context, ctx)
 
     # Thought->action->evaluation initial-plan commit (t13): the FRONT commits
     # the episode's first typed thought and it is injected as a user turn, so
@@ -723,29 +727,25 @@ def run(
     started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     start_monotonic = time.monotonic()
 
-    # #308 liveness: a run-start marker on the flight feed BEFORE the first
-    # completion, so a pilot / senses can say "<seat> started, working on <goal>"
-    # instead of "I don't know" during a slow first turn. Record the monotonic
-    # start so ``_emit_phase`` can stamp each heartbeat's elapsed. Strict no-op
-    # (and no feed line) when this is not a watchable flight. ``seat`` (t2,
-    # change-content-consumption-lane spec, c9/h9) names the acting seat —
-    # already resolved by the caller (``run()``'s own docstring); this call is
-    # the ONE place that value is used, keeping the rest of the turn loop
-    # untouched (h11).
+    # #308 liveness: a run-start marker on the flight feed BEFORE the first completion, so a
+    # pilot / senses can say "<seat> started, working on <goal>" instead of "I don't know"
+    # during a slow first turn. Record the monotonic start so ``_emit_phase`` can stamp each
+    # heartbeat's elapsed. Strict no-op (and no feed line) when this is not a watchable flight.
+    # ``seat`` (t2, change-content-consumption-lane spec, c9/h9) names the acting seat — already
+    # resolved by the caller (``run()``'s own docstring); this call is the ONE place that value
+    # is used, keeping the rest of the turn loop untouched (h11).
     if ctx.flight is not None:
         ctx._flight_started_monotonic.append(start_monotonic)
         with suppress(Exception):
             ctx.flight.append_run_start(goal=task.goal, max_steps=max_steps, seat=seat)
 
-    # The engine call (`complete`) may raise mid-loop. Catch it here so the
-    # partial work accumulated on `result` is preserved rather than discarded
-    # (#37); the finish hook + neighbour cleanup + changed_files snapshot below
-    # then run on *every* exit path, including this one.
+    # The engine call (`complete`) may raise mid-loop. Catch it here so the partial work accumulated
+    # on `result` is preserved rather than discarded (#37); the finish hook + neighbour cleanup +
+    # changed_files snapshot below then run on *every* exit path, including this one.
     aborted: Exception | None = None
     outcome = _EXIT_BUDGET
-    # Synthesis reserve (#197) — held back from the reading budget so the
-    # forced-synthesis verdict (#191) runs with fresher context. A strict no-op
-    # when no reserve is set (see _resolve_reading_budget).
+    # Synthesis reserve (#197) — held back from the reading budget so the forced-synthesis verdict
+    # (#191) runs with fresher context. No reserve set = a strict no-op (_resolve_reading_budget).
     reading_budget = _resolve_reading_budget(_context, max_steps)
     try:
         outcome = _work_loop(ctx, complete, reading_budget)
