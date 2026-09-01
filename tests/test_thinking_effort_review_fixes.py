@@ -14,7 +14,7 @@ def test_seat_attribute_none_means_send_nothing_not_acting_fallback() -> None:
     """r2: a seat builder that resolved the kill-switch (``None``) must suppress the
     key — presence wins over truthiness; only an ABSENT attribute re-resolves."""
     base = EngineConfig()
-    assert vllm_openai._effort_for(base) == base.reasoning_effort_effective == "medium"
+    assert vllm_openai._effort_for(base) == base.reasoning_effort_effective == "low"
     seat = dataclasses.replace(base)
     setattr(seat, "reasoning_effort_seat", None)
     assert vllm_openai._effort_for(seat) is None
@@ -22,7 +22,7 @@ def test_seat_attribute_none_means_send_nothing_not_acting_fallback() -> None:
     payload, _ = vllm_openai.VllmOpenAIEngine._build_chat_payload(seat, [], [])
     assert "chat_template_kwargs" not in payload
     fresh = dataclasses.replace(seat)  # replace drops the plain attribute
-    assert vllm_openai._effort_for(fresh) == "medium"
+    assert vllm_openai._effort_for(fresh) == "low"  # v4 acting-seat default (#475)
 
 
 def test_too_long_min_zero_is_kept_as_disabled() -> None:

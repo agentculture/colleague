@@ -1,0 +1,541 @@
+{
+  "slug": "effort-v4-rung-observability-rerank",
+  "title": "effort-v4-rung-observability-rerank",
+  "frame_slug": "effort-v4-rung-observability-rerank",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-31T17:00:06Z",
+  "updated": "2026-08-31T17:02:43Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague drops its acting/associate/purpose effort defaults to the v4 low set, records the resolved effort rung per seat on the run artifact so effort experiments are verifiable from the run's own record, and its eidetic recall lane is rerank-aware",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "every default-change is byte-identical off the changed rungs: a run with explicit effort overrides set resolves exactly as before v4",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "effort.SEAT_TABLE moves cortex/worker/evaluator medium->low and associate off->low (v4, per the #475 measurement: 133,637 reasoning chars vs 414 answer chars, 0 files changed, stream guard at 1800s); deepthink/design stay xhigh, senses stays off",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the v4 SEAT_TABLE is pinned row-for-row in tests and rendered once in docs/features/thinking-effort.md, both updated in the same commit",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "efforttables.ASSOCIATE_SEAT_TABLE moves every row to low (scout/compact/synthesis/digest off->low; distill already low) and PURPOSE_TABLE moves every row to low (plan/handover_to_colleague medium->low are the exposed pair)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "breaking the pinned ASSOCIATE_SEAT_TABLE-scout == ROLE_TABLE-scout agreement is recorded in the changed test with a comment naming this arc, never silently",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "associate_seats.FALLBACK_EFFORT moves low->off \u2014 the fallback is cortex occupying the associate seat, and cortex above off over-thinks a shallow scout lane; the seeming contradiction with SEAT_TABLE[associate]=low is two different models in one seat (Nemotron needs low as its floor, cortex needs off)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "FALLBACK_EFFORT=off and SEAT_TABLE[associate]=low are both asserted with the two-models-one-seat rationale in the test, so a future reader cannot 'fix' the seeming contradiction",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "the table pins move with the values: tests/test_effort.py's row-for-row pin list (lines 26-44 + 223-226), the sibling effort test modules (test_effort_groups, test_associate_seats, test_associate_config, test_purpose_tools_boundary, test_subagent_thinking_effort, test_vllm_thinking_effort, test_thinking_effort_docs), and docs/features/thinking-effort.md's 'v3 default table' section (which the docs test pins) all update to v4 in the same change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "no v3 value survives anywhere: grep for 'medium' across the effort modules, tests, and thinking-effort.md returns only deliberate mentions (ladder vocabulary, history), never a live default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "#476 lands as option 1: FinishRecord gains a reasoning_effort field (contract_records.py), populated where the seat is built from the same resolved value the wire sends (effort.effort_of / vllm_openai._effort_for at line 462's sent_effort), so the rung is joinable to the seat that used it on every artifact \u2014 the all-engines rule applies (mock records it identically)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "mock and vllm-openai record reasoning_effort identically in shape (all-engines rule); a backend that never resolves a rung records a stable sentinel, not a missing key",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "the vLLM adapter keeps touching only the OpenAI surface: recording the rung reuses the already-computed _effort_for value \u2014 no new probe, no new wire field beyond the existing chat_template_kwargs carve-out (#476 option 3, per-turn wire recording, is not taken)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "the adapter diff for this arc touches no request-building code path beyond reading the already-computed sent_effort",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "the recorded rung (c6) is the RESOLVED value at the work seam, override included: work --effort <rung> lands via _listing.apply_effort(config, rung, acting_seat(config)) after resolve(), so FinishRecord.reasoning_effort must read the seat's effective rung (what the wire sends), never the SEAT_TABLE default \u2014 otherwise an overridden run records the wrong independent variable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "a run with work --effort xhigh records xhigh on its FinishRecord \u2014 the recorded value is the effective rung, proven by a test that overrides and reads the artifact back",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "reasoning text becomes readable post-run: the per-turn ModelResponse.reasoning (loop_wire.py:52) is today reduced to a char count (WorkStats.add_generated, contract_records.py:260-267) and the text dropped \u2014 the run persists it to a gitignored per-run sidecar under .colleague/ (beside the artifact, e.g. <task_id>.reasoning.jsonl: one record per turn with seat + turn index), size-capped, so a #475-style diagnosis can read WHAT the model thought, not just how much",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "the reasoning sidecar never lands in git (covered by the .colleague/ gitignore path) and never changes model context \u2014 display/disk only, like flight; a size cap prevents an unbounded file on a 133k-char run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "audience",
+      "text": "colleague operators running local-model rigs (Qwen3.8 via lobes) and anyone reading a run artifact to diagnose or A/B effort behavior",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "the spec names the rig (Qwen3.8 via lobes) and the artifact reader as the two audiences and serves both in every requirement",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "before_state",
+      "text": "a bounded refactor fails by thinking (133,637 reasoning chars, 0 files changed, 2851s) at the v3 medium defaults; the rung a run used is not recorded anywhere and the reasoning text itself is dropped after len(); an effort A/B must re-derive its independent variable from source that may have changed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the before-state figures are quoted from the preserved 6daa8d083e7b artifact, not paraphrased",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "after_state",
+      "text": "acting/associate/purpose seats default to low (v4); every artifact records the resolved rung per seat; the model's reasoning text is readable post-run from a gitignored sidecar; recall is safe against a future --rerank opt-in",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "each after-state clause maps to at least one requirement claim (v4->c2/c3/c4, rung->c6/c14/c22, sidecar->c16/c26, rerank->c23/c27)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "why_it_matters",
+      "text": "the hard-1000-line arc's own honesty condition (h24) showed file size was never the binding constraint \u2014 uncapped acting-seat reasoning is; fixing the tables without fixing observability would make every future effort claim as weakly evidenced as #475's was",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "the h24 finding is cited as recorded on #475 (the 1000-line ceiling did not buy delegation), not restated stronger",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "the 6daa8d083e7b brief rerun at low completes inside the 1800s stream-lifetime bound with the 6 pins intact and the suite green (vs 2851s incomplete at medium, 506s Claude control), and its artifact alone \u2014 no source archaeology \u2014 names the rung each seat ran at",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the rerun is executed AFTER the rung-recording lands, and its artifact is quoted in #475 as closure evidence",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "the rerank opt-in is version-safe: memory.py passes --rerank only when the installed eidetic CLI supports it (eidetic-cli >= 0.14.0) \u2014 on an older CLI the flag is withheld and recall behaves exactly as today, never an argv error that silently empties recall",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "a rig with pre-0.14 eidetic keeps working recall (test with a fake eidetic on PATH that rejects --rerank); recalled=0-because-flag-error can never recur (the #387-class failure)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "the version gate needs a real detection mechanism and an honest dark-launch note: the operator rig runs eidetic-cli 0.13.0 TODAY (probed: 'eidetic --version' -> 0.13.0; 'recall --help' has no --rerank), so the opt-in ships dormant here until the rig upgrades \u2014 memory.py detects support via one 'eidetic --version' probe (parse >= 0.14.0), never try-and-retry on argv error",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "on this rig, post-change recall output is byte-identical to today (0.13.0 withholds the flag); the version probe adds at most one subprocess call per run and its failure degrades to withholding, never to broken recall",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "the sidecar has the conventional off-knob: default-on, but COLLEAGUE_REASONING_LOG=0 disables it byte-identically (no file, no code-path residue) \u2014 matching the one-off-knob-per-mechanic convention every adopted default carries",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "COLLEAGUE_REASONING_LOG=0 leaves no sidecar file and the artifact/stats unchanged vs a pre-arc run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "boundary",
+      "text": "the sidecar stays out of every sharing surface: feedback export, handoff/PR content, and mesh surfaces never read or transmit <task_id>.reasoning.jsonl \u2014 chain-of-thought can quote repo content (including secrets read during the run) and is local-diagnostic only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "grep of feedback export + handoff paths shows no read of the sidecar; a test asserts export output for a run WITH a sidecar contains no reasoning text",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "the c25 re-apply is loud, never silent: after v4 lands, continuing a pre-v4 run re-applies its recorded rung (e.g. medium) over the new low default \u2014 the continuation prints and records a warning naming the re-applied rung and its source artifact whenever it differs from what env/config would resolve, so an operator can see an old rung resurrected",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "a continuation test pins: recorded rung != current resolution -> warning on TaskResult.warnings naming both values; equal -> no warning",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "concurrency is visible in the records: sidecar entries and step-trace records carry the REQUEST timestamp plus the turn/request index, so two tool calls issued in the same model request share an index and show as parallel instead of rendering as a sequence (the #474 gap, fixed at this arc's surfaces)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "a parallel batch of N read-only calls renders N records with ONE request timestamp/index; a sequential pair renders two distinct indices \u2014 pinned by a test over a mock run with a batch",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "v4 effort tables: SEAT_TABLE cortex/worker/evaluator/associate + ROLE_TABLE writer/planner -> low; ASSOCIATE_SEAT_TABLE + PURPOSE_TABLE all low; FALLBACK_EFFORT -> off",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_effort.py row-for-row pins assert the v4 values for every table",
+        "FALLBACK_EFFORT == 'off' and SEAT_TABLE['associate'] == 'low' are asserted together with the two-models-one-seat rationale in the test body",
+        "the changed scout-rows-agree test names this arc in a comment; effort precedence tests pass unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h2",
+        "c3",
+        "h3",
+        "c4",
+        "h4"
+      ],
+      "instruction": "Touch colleague/effort.py (SEAT_TABLE lines 60-70, ROLE_TABLE writer/planner), colleague/efforttables.py (both tables), colleague/associate_seats.py (FALLBACK_EFFORT line 82 + the rung string in the warning text near line 139). Update the pin tuples in tests/test_effort.py (lines 26-44, 223-226) and any sibling effort test that pins a v3 value. Do NOT touch docs here (t7 owns them)."
+    },
+    {
+      "id": "t2",
+      "summary": "FinishRecord gains reasoning_effort (contract only)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "FinishRecord has reasoning_effort with a stable sentinel default; to_dict emits it; from_dict tolerates old artifacts without the key",
+        "round-trip test: to_dict -> from_dict identical, with and without the field"
+      ],
+      "deps": [],
+      "covers": [
+        "c6"
+      ],
+      "instruction": "colleague/contract_records.py only (FinishRecord dataclass, lines 52-101). Pick the sentinel for never-resolved (e.g. '') and document it in the docstring. No loop wiring here (t5 owns it)."
+    },
+    {
+      "id": "t3",
+      "summary": "reasoning sidecar module: writer with size cap, off-knob, tagged child naming, request timestamp + index",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "new module writes <task_id>.reasoning.jsonl records {seat, turn, request_ts, request_index, text}",
+        "COLLEAGUE_REASONING_LOG=0 -> no file, byte-identical run; size cap truncates with a marker record",
+        "child id in the filename (<task_id>.<child_id>.reasoning.jsonl) resolves to the OPERATOR repo .colleague/ dir"
+      ],
+      "deps": [],
+      "covers": [
+        "c30",
+        "h17"
+      ],
+      "instruction": "New file colleague/reasoninglog.py + tests/test_reasoninglog.py \u2014 stdlib only, no imports from loop modules (loop imports it, never the reverse, mirroring artifact.py). Reuse artifact_dir() for path resolution so children land beside the parent artifact."
+    },
+    {
+      "id": "t4",
+      "summary": "eidetic --rerank opt-in behind a version probe",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "memory.recall passes --rerank iff one 'eidetic --version' probe parses >= 0.14.0; probe failure or older CLI -> flag withheld, argv byte-identical to today",
+        "fake-eidetic-on-PATH test: a 0.13.0 stub gets no --rerank and recall returns its items; a stub rejecting unknown flags can never yield recalled=0",
+        "filter_recall_records keeps thresholding on the hybrid 'score' field; a comment cites #467's near-binary measurement"
+      ],
+      "deps": [],
+      "covers": [
+        "c27",
+        "h9",
+        "c28",
+        "h16"
+      ],
+      "instruction": "colleague/memory.py (recall argv, version probe cached per process) + colleague/memory_lessons.py (comment only on the score-field choice). The probe is one subprocess call, allow-listed already via memory.py. Do not add a rerank_score threshold."
+    },
+    {
+      "id": "t5",
+      "summary": "wire the resolved rung into the loop: populate FinishRecord.reasoning_effort + top-level artifact effort block {seat: rung}",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "every finish record on a mock e2e run carries reasoning_effort; mock and vllm-openai record identical shape (test_e2e_mock.py extended)",
+        "a run with work --effort xhigh records xhigh (effective rung, not table default) \u2014 override-and-read-back test",
+        "artifact top-level effort block lists every seat built during the run, including no-finish-record seats (scout child, distill)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c6",
+        "c14",
+        "h5",
+        "h6"
+      ],
+      "instruction": "colleague/loop_outcomes.py (the seat='main' record at line 200 + senses record), colleague/artifact.py (effort block on write), reading the same resolved value vllm_openai._effort_for computes (line 462 sent_effort) \u2014 pass it through TaskResult, do not recompute per consumer. The ladder-400 retry warning already on the artifact stays the marker for a dropped key (c29): assert the pair coexists in one test."
+    },
+    {
+      "id": "t6",
+      "summary": "wire the sidecar into the loop with request timestamp/index; children tagged to the operator repo",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a run with reasoning present yields per-turn sidecar records; git status stays clean; model context messages byte-identical with and without the sidecar",
+        "a parallel read-only batch renders N records sharing ONE request_ts/request_index; a sequential pair gets two distinct indices (mock-run test)",
+        "a subagent child's sidecar lands tagged in the operator repo .colleague/ and survives child-worktree removal"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c16",
+        "h7",
+        "c34",
+        "h20"
+      ],
+      "instruction": "Hook at colleague/loop_accounting.py (where resp.reasoning is already in hand) \u2014 one call into reasoninglog per turn; thread the operator-repo dir + child id through the existing subagent snapshot plumbing. Tool-call records for the batch case ride the same request_index the turn assigns in toolbatch_loop bookkeeping."
+    },
+    {
+      "id": "t7",
+      "summary": "docs to v4 + narrative fidelity sweep",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/thinking-effort.md renders the v4 table once; test_thinking_effort_docs.py passes",
+        "grep for 'medium' across effort modules/tests/doc returns only ladder vocabulary or history, no live default (h10 sweep recorded in the PR body)",
+        "before/after/why sections of the spec render facts quoted from the preserved 6daa8d083e7b artifact and cite h24 as recorded on #475, not stronger"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c5",
+        "h10",
+        "c17",
+        "h12",
+        "c18",
+        "h13",
+        "c19",
+        "h14",
+        "c20",
+        "h15"
+      ],
+      "instruction": "docs/features/thinking-effort.md (+ memory.md for the sidecar pointer, qwen-direct.md /effort listing if it names defaults). Also CHANGELOG via the version-bump skill at PR time, not here."
+    },
+    {
+      "id": "t8",
+      "summary": "work --continue re-applies the recorded rung, loudly on mismatch",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "continuation reads the artifact's recorded acting-seat rung and re-applies it; an explicit --effort on the continue invocation wins",
+        "recorded != current resolution -> TaskResult.warnings entry naming both values and the source artifact; equal -> no warning (pinned both ways)"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c32",
+        "h19"
+      ],
+      "instruction": "colleague/continuation.py + the continue path in colleague/cli/_commands/_work_*.py; reuse _listing.apply_effort for the re-apply so precedence stays single-sourced."
+    },
+    {
+      "id": "t9",
+      "summary": "sidecar stays out of every sharing surface",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "feedback export output for a run WITH a sidecar contains no reasoning text (test)",
+        "handoff/PR content and mesh surfaces read nothing from *.reasoning.jsonl (grep audit recorded in the test or PR body)"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c31",
+        "h18"
+      ],
+      "instruction": "Mostly assertion work: tests over colleague/feedback.py export and handoff.py; add an explicit exclusion only where a glob would otherwise sweep the file."
+    },
+    {
+      "id": "t10",
+      "summary": "byte-identical audit: overrides unchanged, adapter diff minimal, full suite",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "full suite green (uv run pytest -n auto) with effort-precedence tests passing unchanged",
+        "git diff over colleague/engines/ shows no request-building change beyond reading sent_effort (audit noted in PR body)",
+        "a run with explicit effort overrides resolves exactly as pre-v4 (pinned)"
+      ],
+      "deps": [
+        "t5",
+        "t6",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c12",
+        "h11"
+      ],
+      "instruction": "The integration gate before validation: run lint (black/isort/flake8/bandit) + the teken rubric too. No new code except missing-test fills."
+    },
+    {
+      "id": "t11",
+      "summary": "live validation: rerun 6daa8d083e7b at low; close #475/#476/#467",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the rerun completes inside the 1800s stream-lifetime bound with the six pins intact and suite green, and its artifact names the rung per seat with no source archaeology",
+        "the artifact is quoted in #475 as closure evidence; docs/live-testing.md gains the row; #476 and #467 get closing comments (rerank noted as dark on the 0.13.0 rig)"
+      ],
+      "deps": [
+        "t10",
+        "t7",
+        "t4"
+      ],
+      "covers": [
+        "c21",
+        "h8"
+      ],
+      "instruction": "Run AFTER the rung recording is merged into the branch (c13 ordering). Use the preserved brief; compare against both recorded arms (2851s incomplete medium / 506s Claude control). If low alone misses the bound, record honestly and revisit parked v1 (sampling) \u2014 never tune blind in this task."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "chain-episode sidecar semantics (append vs per-episode, cap per-run vs per-chain) \u2014 decide at t6 implementation time",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "the rerank lane cannot be live-proven on this rig (eidetic 0.13.0) \u2014 t4 validates via fake-CLI stubs only; live proof waits for a rig upgrade",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "low alone may not land the rerun inside the bound (sampling compensation parked as v1) \u2014 t11 records the miss honestly rather than tuning",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}

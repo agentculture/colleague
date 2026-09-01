@@ -151,6 +151,16 @@ def _build_continued_task(
             str(exc),
             "list recent work items with: colleague feedback list --repo <path>",
         ) from exc
+    # Re-apply the prior run's recorded acting-seat rung (effort-v4 t8, c32).
+    # An explicit --effort on THIS invocation wins: maybe_list_and_apply
+    # already applied it before _build_task runs, so the re-apply stands down
+    # entirely rather than clobbering it. Loud on mismatch (h19): the warning
+    # is staged on config.continuation_warnings for the TaskResult stamp and
+    # printed below with the other continuation diagnostics.
+    if getattr(args, "effort", None) is None:
+        from colleague.cli._commands._listing import reapply_recorded_effort
+
+        reapply_recorded_effort(config, repo, prior_id, warnings=warnings)
     for warning in warnings:
         emit_diagnostic(f"continuation: {warning['detail']}")
     instruction = seed

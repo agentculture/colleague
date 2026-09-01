@@ -259,6 +259,7 @@ class TestNoFinishResultFidelity:
             "tip_sha",  # handoff-produced branch tip commit SHA (plan task t5, c5)
             "evaluation_ledger",  # thought->action->evaluation chain (#397, plan task t11, c24/h17)
             "agents",  # model-bound-agents artifact block (#411, plan task t13, c17/h24)
+            "effort",  # top-level {seat: rung} thinking-effort block (effort-v4 t5)
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields

@@ -630,6 +630,27 @@ def _build_child_config(
     return scouted
 
 
+def _thread_sidecar_repo(
+    parent_config: EngineConfig, spec: ChildSpec, child_task: Task, child_config: EngineConfig
+) -> None:
+    """Thread the operator-repo sidecar destination one hop (effort-v4 t6, h20).
+
+    The child's reasoning sidecar lands TAGGED in the operator repo's
+    ``.colleague/`` — surviving child-worktree removal — via the
+    ``flight_repo_path`` pattern: ``_arm_delegation`` attached the operator
+    repo to the parent config (a dynamic attr, the ``agents_ledger_path``
+    precedent; ``replace`` drops it, so it is re-attached to the child config
+    for grandchildren). Absent (a direct ``run_subagent`` caller), the child's
+    sidecar stays under its own ``repo_path`` — model context is untouched
+    either way (h7).
+    """
+    sidecar_repo = getattr(parent_config, "reasoning_repo_path", None)
+    child_task.reasoning_repo_path = sidecar_repo
+    child_task.reasoning_parent_id = spec.parent_task_id
+    if sidecar_repo:
+        setattr(child_config, "reasoning_repo_path", sidecar_repo)
+
+
 def run_subagent(
     instruction: str,
     *,
@@ -774,6 +795,16 @@ def run_subagent(
     # derived from its task id so a SubResult/ledger reader can join the two.
     agent_id = f"agent-{child_task.id}" if binding is not None else None
 
+    # (d2) Reasoning-sidecar threading (effort-v4 t6, h20): the child's sidecar
+    # lands TAGGED in the operator repo's ``.colleague/`` — surviving
+    # child-worktree removal — via the ``flight_repo_path`` pattern carried one
+    # hop: ``_arm_delegation`` attached the operator repo to the parent config
+    # (a dynamic attr, the ``agents_ledger_path`` precedent; ``replace`` drops
+    # it, so it is re-attached to the child config for grandchildren below).
+    # Absent (a direct ``run_subagent`` caller), the child's sidecar stays
+    # under its own ``repo_path`` — model context is untouched either way (h7).
+    _thread_sidecar_repo(parent_config, spec, child_task, child_config)
+
     # (e) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
     # and the SAME global budget, so it can delegate further (single OR batch),
     # still bounded by both the depth cap and the shared agent budget. Nested
@@ -849,6 +880,8 @@ def run_subagent(
         agent_id=agent_id,
         resolved_model=(binding.resolved_model if binding is not None else None),
         fallback_from_role=(binding.fallback_from_role if binding is not None else None),
+        # t5 (c6): the built child seat's resolved rung — read, never recomputed.
+        reasoning_effort=getattr(child_config, "reasoning_effort_seat", None),
     )
     # t13: raw incompletion reason (dynamic attr) — purpose_schemas keys its marker on it.
     sub.incompletion_reason = getattr(getattr(result, "incompletion", None), "reason", None)

@@ -135,7 +135,12 @@ class TestBatchShape:
             "usage",
         }
         for r in results:
-            assert set(r.to_dict().keys()) == expected_keys
+            expect = set(expected_keys)
+            if not r.task_id.startswith("merge-"):
+                # t5: real children carry their built seat's rung; the merge
+                # child runs no model — no seat built, honestly no rung.
+                expect.add("reasoning_effort")
+            assert set(r.to_dict().keys()) == expect
 
     def test_each_child_ran_in_its_own_worktree_branch(self, git_repo: Path) -> None:
         """During the run each child drives inside its own worktree path; cleaned after."""

@@ -1,7 +1,7 @@
 """``Role.effort`` (#416 t5, c13/h8): built-in default rungs from the single
 :data:`colleague.effort.ROLE_TABLE` source, an operator role overlay that can
 set/override it, and the top-level ``--role`` rule (explorer -> low, others
-keep the acting seat's medium) that already lives on
+keep the acting seat default — "low" since v4, #475) that already lives on
 ``EngineConfig.reasoning_effort_effective`` (t2) — this file adds the pin.
 """
 
@@ -23,8 +23,8 @@ from colleague.roles import BUILTIN_ROLES, load_role
 @pytest.mark.parametrize(
     "name,expected",
     [
-        ("writer", "medium"),
-        ("planner", "medium"),
+        ("writer", "low"),  # v4 (#475)
+        ("planner", "low"),  # v4 (#475)
         ("reviewer", "low"),
         ("validator", "low"),
         ("explorer", "off"),
@@ -119,11 +119,11 @@ def test_top_level_explorer_role_off_selectable_via_seat_override() -> None:
 # reviewer moved to TOP_LEVEL_ROLE_TABLE (low) on 2026-08-30 — see
 # tests/test_effort_top_level_mode.py.
 @pytest.mark.parametrize("role_name", ["validator", "writer", "planner"])
-def test_top_level_other_roles_keep_acting_seat_medium(role_name: str) -> None:
+def test_top_level_other_roles_keep_acting_seat_default(role_name: str) -> None:
     config = _config(role=role_name)
-    assert config.reasoning_effort_effective == "medium"
+    assert config.reasoning_effort_effective == "low"  # v4 seat default (#475)
 
 
-def test_top_level_no_role_keeps_acting_seat_medium() -> None:
+def test_top_level_no_role_keeps_acting_seat_default() -> None:
     config = _config()
-    assert config.reasoning_effort_effective == "medium"
+    assert config.reasoning_effort_effective == "low"  # v4 seat default (#475)

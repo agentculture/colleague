@@ -75,6 +75,9 @@ _PRE_DEEPTHINK_KEYS = {
     # offered_tools (delegation-follow-ups t2): the rendered tool names, so a
     # surface arm is attributable off the artifact. Omitted when None.
     "offered_tools",
+    # effort (effort-v4 t5): the {seat: rung} block — unconditional on a
+    # default run since the v4 acting seat always resolves ("low").
+    "effort",
 }
 
 

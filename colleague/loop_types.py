@@ -15,6 +15,8 @@ from typing import Any, Callable
 
 from colleague import backpressure
 from colleague import configlifecycle as _configlifecycle
+from colleague import effort as _effort
+from colleague import effortrecord as _effortrecord
 from colleague import flight as flightmod
 from colleague import tae_loop as _tae
 from colleague.agents import runtime as _agents_runtime
@@ -79,6 +81,11 @@ class _Work:
     # ContextControls, ``None`` for a single-model run (escalation points dormant).
     deepthink_run: Callable[..., Any] | None = None
     associate_complete: Any = None  # t19 seat-completion factory, None = unarmed
+    # Recorded seat rungs (effort-v4 t5) — threaded verbatim from the
+    # ContextControls fields of the same names; see their contract there.
+    reasoning_effort_main: "str | None" = None
+    reasoning_effort_senses: "str | None" = None
+    reasoning_effort_deepthink: "str | None" = None
     # Media-comprehension bridge (t8, c24): armed only when the operator declared
     # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
     media_bridge: bool = False
@@ -128,6 +135,16 @@ class _Work:
     # path to classify the "main" seat's terminal ``FINISH_*`` state.
     _last_finish_reason: list[str] = field(default_factory=list)
     _served_model: list[str] = field(default_factory=list)  # first served id (t18)
+    # Reasoning sidecar (effort-v4 t6, c16/h7): ``seat`` is the acting-seat
+    # label stamped on every sidecar record — run()'s ``seat`` param threaded
+    # verbatim (the append_run_start precedent); display/disk only, never model
+    # context. ``_reasoning_ordinal`` is the within-turn dispatch-ordinal cell
+    # (the ``_last_substantive`` mutable-cell pattern): reset to ``[0]`` as each
+    # turn is accounted (the completion itself is ordinal 0), then ONE
+    # increment per tool dispatch — a parallel batch consumes one ordinal
+    # shared by its N records, a sequential call consumes its own (c34).
+    seat: str = "cortex"
+    _reasoning_ordinal: list[int] = field(default_factory=list)
     # Step-stall watchdog (#400): ``_last_progress`` is the monotonic time the last
     # step completed (the loop start until one does); ``_stalled`` holds the elapsed
     # seconds once the bound was crossed — a single-element cell the frozen ``_Work``
@@ -648,6 +665,17 @@ class ContextControls:
     #: backend passes ``associate_seats.make_associate_complete(config, name)``;
     #: ``None`` (unarmed) keeps the acting completion for every seat.
     associate_complete: Any = field(default=None, compare=False, repr=False)
+    #: The acting (main) seat's resolved thinking-effort rung (effort-v4 t5,
+    #: c6/h5) — ``effort.effort_of(config)``, exactly what the wire sends
+    #: (``vllm_openai._effort_for``'s value), resolved ONCE in ``from_config``
+    #: and recorded on ``finish_states`` + the artifact ``effort`` block.
+    #: ``None`` (a direct ``run()`` caller, or send-nothing) records nothing.
+    reasoning_effort_main: "str | None" = None
+    #: The senses seat's rung when a senses config is armed — the SAME
+    #: ``effortrecord.seat_effort`` formula the senses seat builder uses, so
+    #: record and wire can never diverge. ``None`` = no senses config.
+    reasoning_effort_senses: "str | None" = None
+    reasoning_effort_deepthink: "str | None" = None
 
     @classmethod
     def from_config(
@@ -709,6 +737,24 @@ class ContextControls:
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
             associate_complete=associate_complete,
+            # Recorded seat rungs (effort-v4 t5, c6/c14): resolved ONCE here —
+            # the acting seat via effort_of (exactly the wire's value, an
+            # operator --effort override included), the senses seat via the
+            # shared builder formula, only when a senses config is armed.
+            reasoning_effort_main=_effort.effort_of(config),
+            reasoning_effort_senses=(
+                _effortrecord.seat_effort(config, "senses")
+                if getattr(config, "senses", None) is not None
+                else None
+            ),
+            # The deepthink seat's rung, resolved with the SAME formula its
+            # seat builder applies (deepthink.py) — recorded onto the effort
+            # block only if an escalation actually fired (review-2 c22 fix).
+            reasoning_effort_deepthink=(
+                _effortrecord.seat_effort(config, "deepthink")
+                if getattr(config, "deepthink", None) is not None
+                else None
+            ),
             # Continuation chaining armed (decision c23): an armed invocation's
             # episodes prefer finish-with-handoff over the lossy-windowing floor
             # when a compaction note is unrepairable — the chain driver restarts

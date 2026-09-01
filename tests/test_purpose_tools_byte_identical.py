@@ -139,6 +139,17 @@ def test_bare_run_is_byte_identical_to_e589451_mock(
     assert captured == expected
 
 
+def _assert_effort_v4_carveout(captured_kwargs, expected_kwargs):
+    """The effort-v4-rung-observability-rerank carve-out (#475): the acting
+    seat's table default moved "medium" -> "low", so every turn's
+    ``chat_template_kwargs`` differs from the recorded main baseline in
+    exactly that one way. Named and asserted, never normalized silently."""
+    if captured_kwargs == expected_kwargs:
+        return
+    assert captured_kwargs == {"reasoning_effort": "low"}
+    assert expected_kwargs == {"reasoning_effort": "medium"}
+
+
 def test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -172,6 +183,10 @@ def test_bare_run_carves_out_the_purpose_tool_swap_on_the_wire_vllm(
         e_tools = {t["function"]["name"] for t in ep.pop("tools", [])}
         _assert_purpose_tool_carveout(c_tools, e_tools)
         _assert_acting_seat_prompt_carveout(cp.pop("messages", []), ep.pop("messages", []))
+        # The v4 effort tables (#475) moved the acting rung medium -> low.
+        _assert_effort_v4_carveout(
+            cp.pop("chat_template_kwargs", None), ep.pop("chat_template_kwargs", None)
+        )
         assert cp == ep
 
 

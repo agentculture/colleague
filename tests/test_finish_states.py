@@ -66,6 +66,37 @@ def test_finish_states_round_trips_through_from_dict() -> None:
     assert restored == original
 
 
+def test_finish_record_reasoning_effort_round_trips_with_and_without_the_field() -> None:
+    """t2: FinishRecord.reasoning_effort — a stable sentinel default ("" =
+    never resolved), emitted by to_dict, and from_dict tolerates old
+    artifacts that predate the key."""
+    # With the field set: to_dict -> from_dict is identical.
+    with_effort = FinishRecord(
+        seat="main",
+        finish_reason="stop",
+        state="deliberate",
+        truncated=False,
+        reasoning_effort="high",
+    )
+    assert FinishRecord.from_dict(with_effort.to_dict()) == with_effort
+
+    # Default sentinel: a record built without the field round-trips too.
+    default = FinishRecord(seat="main", finish_reason="stop", state="deliberate", truncated=False)
+    assert default.reasoning_effort == ""
+    assert FinishRecord.from_dict(default.to_dict()) == default
+
+    # Old artifact (no key at all): from_dict falls back to the sentinel.
+    old_artifact = {
+        "seat": "main",
+        "finish_reason": "stop",
+        "state": "deliberate",
+        "truncated": False,
+    }
+    restored = FinishRecord.from_dict(old_artifact)
+    assert restored.reasoning_effort == ""
+    assert restored == default
+
+
 def test_finish_states_key_is_always_serialized_even_when_empty() -> None:
     """Unlike destination/senses/etc., finish_states is NEVER omitted — the
     key is present even for a bare TaskResult that never ran (decision c30)."""

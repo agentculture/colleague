@@ -241,6 +241,7 @@ def test_unarmed_child_config_identical_to_replace(tmp_path: Path, capture: _Cap
         "summary",
         "changed_files",
         "usage",
+        "reasoning_effort",  # t5: unarmed too — every real child builds a seat
     }
 
 

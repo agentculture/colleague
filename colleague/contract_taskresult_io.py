@@ -185,6 +185,10 @@ def _extra_fields_tail(self: "TaskResult", extra: dict[str, Any]) -> dict[str, A
     # today's artifact (no extra key).
     if self.senses is not None:
         extra["senses"] = self.senses.to_dict()
+    # effort gets the same omit-when-None treatment (effort-v4 t5): a run
+    # that resolved no seat rung serializes byte-identically (no extra key).
+    if self.effort is not None:
+        extra["effort"] = dict(self.effort)
     # incompletion gets the same omit-when-None treatment: a completed
     # work item serializes byte-identically (no extra key).
     if self.incompletion is not None:
@@ -309,6 +313,9 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         senses=(
             SensesBlock.from_dict(data["senses"]) if isinstance(data.get("senses"), dict) else None
         ),
+        # effort (t5): best-effort like memory/evaluation_ledger — a non-dict
+        # (or absent) key degrades to None, never raises on an old artifact.
+        effort=(dict(data["effort"]) if isinstance(data.get("effort"), dict) else None),
         incompletion=(
             IncompletionRecord.from_dict(data["incompletion"])
             if isinstance(data.get("incompletion"), dict)

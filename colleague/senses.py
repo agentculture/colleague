@@ -295,18 +295,11 @@ def senses_engine_config(
     # Per-seat thinking effort (#416 t4): the senses seat carries its own
     # table rung (off default) via the plain ``reasoning_effort_seat``
     # attribute that ``vllm_openai._effort_for`` honors ahead of the acting
-    # seat's resolved rung.
-    from colleague import effort
+    # seat's resolved rung. The SHARED formula (effortrecord.seat_effort, t5)
+    # is also what ContextControls.from_config records — one source, no drift.
+    from colleague import effortrecord
 
-    setattr(
-        seat,
-        "reasoning_effort_seat",
-        effort.resolve_effort(
-            kill_switch=(config.reasoning_effort == "default"),
-            seat_override=config.reasoning_effort_seats.get("senses"),
-            seat="senses",
-        ),
-    )
+    setattr(seat, "reasoning_effort_seat", effortrecord.seat_effort(config, "senses"))
     return seat
 
 

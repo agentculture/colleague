@@ -33,12 +33,12 @@ Resolution precedence per seat: deepthink/muse (where a seat has that rung)
   acting effort, nothing added. This is the arc's byte-identical pin
   (h1/c44): an unset knob changes nothing. (The plan's "unarmed → cortex@low"
   wording is realised for the one NEW surface, the ``scout`` role, via its
-  ``ROLE_TABLE`` row ``low`` — a new role has no pre-arc behaviour to keep.)
+  ``ROLE_TABLE`` row — a new role has no pre-arc behaviour to keep.)
 * **ARMED but UNREACHABLE** (the adapter's one role-alias retry exhausted, a
   network/HTTP failure, an engine without one-shot completions): the seat
-  falls to **cortex@low** — the acting config with the ``low`` rung — and
-  records ONE warning naming the seat, the failure and the fallback on
-  ``TaskResult.warnings``. Never silent, never a refusal.
+  falls to **cortex@off** (v4 #475, :data:`FALLBACK_EFFORT`) and records ONE
+  warning naming the seat, failure and fallback on ``TaskResult.warnings``.
+  Never silent, never a refusal.
 
 Code-authoring seats (the acting loop, ``writer`` children, the design and
 evaluator seats) never reference the associate config — pinned by the AST
@@ -78,8 +78,9 @@ ASSOCIATE_SEATS: tuple[str, ...] = ("scout", "compact", "synthesis", "digest", "
 #: The typed subagent role that runs on the associate seat.
 SCOUT_ROLE = "scout"
 
-#: The rung the cortex fallback runs at when an ARMED seat is unreachable.
-FALLBACK_EFFORT = "low"
+#: The unreachable-seat fallback rung — v4 (#475), two models, one seat:
+#: cortex occupying the associate seat over-thinks a shallow lane above "off".
+FALLBACK_EFFORT = "off"
 
 #: ``messages -> ModelResponse`` (the loop's own ``CompleteFn`` shape, left
 #: untyped here to avoid importing the loop).
@@ -111,12 +112,11 @@ def resolve_associate_seat_config(config: EngineConfig, seat: str) -> EngineConf
 
 
 def fallback_seat_config(config: EngineConfig, seat: str) -> EngineConfig:
-    """cortex@low — the acting config at the :data:`FALLBACK_EFFORT` rung.
+    """cortex@off — the acting config at the :data:`FALLBACK_EFFORT` rung.
 
     The unreachable-associate branch of c32: a replace of *config* (per-call
-    knobs cleared exactly like the other one-shot seat builders) with the
-    seat's ``reasoning_effort_seat`` resolved as an explicit ``low`` override
-    on the cortex seat — the global ``default`` kill switch still wins.
+    knobs cleared like the other one-shot seat builders) with an explicit
+    ``off`` ``reasoning_effort_seat`` (v4 #475) — ``default`` still wins.
     """
     _check_seat(seat)
     low = cast(EngineConfig, dataclasses.replace(config, on_delta=None, refresh_seat=None))
@@ -154,7 +154,7 @@ def window_to_seat(
     own budget is clamped to its SERVED window (#460, ``served_window_budget``)
     and can be smaller — e.g. 128,000 on the reference rig under a 200,000+
     cortex budget. Rather than letting an overlong request fail on the wire
-    and land on the cortex@low fallback, this trims it with the loop's own
+    and land on the cortex@off fallback, this trims it with the loop's own
     primitive (:func:`colleague.context.window_messages` — head + most recent
     turns, one elision placeholder, the same *count_tokens* the lane already
     windowed with; the chars/4 estimate when ``None``). Pass-through (the same
@@ -183,7 +183,7 @@ def make_associate_complete(
     Armed: ``factory(seat, warn, *, count_tokens=None, lane_budget=None)``
     returns a tools-off completion on the associate seat that, on ANY
     exception, calls ``warn(text)`` once and completes the ORIGINAL messages
-    on cortex@low instead; it returns ``None`` (after ``warn``) when the
+    on cortex@off instead; it returns ``None`` (after ``warn``) when the
     engine has no one-shot completion seam (the ``mock`` engine), so the
     caller keeps its acting completion — the all-engines rule holds: an armed
     mock run never crashes, it records why.

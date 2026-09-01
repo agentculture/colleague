@@ -203,6 +203,22 @@ class Task:
     ``repo_path``" — the pre-#310 behaviour, byte-identical. Omitted from
     ``to_dict`` when ``None`` so a non-isolated task serializes byte-identically
     to today."""
+    reasoning_repo_path: Optional[str] = None
+    """The repo the reasoning sidecar (:mod:`colleague.reasoninglog`) is
+    appended at, distinct from ``repo_path`` (the work CWD) — the
+    ``flight_repo_path`` pattern carried one hop further (effort-v4 t6, h20):
+    set by the spawn plumbing on a subagent child so the child's sidecar lands
+    beside the parent artifact in the OPERATOR repo's ``.colleague/`` and
+    survives child-worktree removal. ``None`` (the default) means "append at
+    ``flight_repo_path or repo_path``". Omitted from ``to_dict`` when ``None``
+    so an untagged task serializes byte-identically to today."""
+    reasoning_parent_id: Optional[str] = None
+    """The PARENT task id a subagent child's sidecar is tagged under: when set,
+    the sidecar filename is ``<reasoning_parent_id>.<id>.reasoning.jsonl`` (the
+    t3 module's ``child_id`` tag), so an observer can group a subagent tree's
+    sidecars beside the parent's own. ``None`` (the default, and every
+    top-level run) keeps the untagged ``<id>.reasoning.jsonl``. Omitted from
+    ``to_dict`` when ``None``."""
 
     @classmethod
     def new(
@@ -270,6 +286,12 @@ class Task:
         # repo_path) serializes byte-identically to today.
         if self.flight_repo_path is not None:
             data["flight_repo_path"] = self.flight_repo_path
+        # The reasoning-sidecar pair gets the same treatment (effort-v4 t6): an
+        # untagged task serializes byte-identically to today.
+        if self.reasoning_repo_path is not None:
+            data["reasoning_repo_path"] = self.reasoning_repo_path
+        if self.reasoning_parent_id is not None:
+            data["reasoning_parent_id"] = self.reasoning_parent_id
         return data
 
     @classmethod
@@ -325,6 +347,16 @@ class Task:
             context_packet=context_packet,
             flight_repo_path=(
                 str(data["flight_repo_path"]) if data.get("flight_repo_path") is not None else None
+            ),
+            reasoning_repo_path=(
+                str(data["reasoning_repo_path"])
+                if data.get("reasoning_repo_path") is not None
+                else None
+            ),
+            reasoning_parent_id=(
+                str(data["reasoning_parent_id"])
+                if data.get("reasoning_parent_id") is not None
+                else None
             ),
         )
 
@@ -585,6 +617,19 @@ class TaskResult:
     OMITTED (not null) when ``None``, so a run with no senses involvement
     serializes byte-identically to today's artifact. The packet's ``original``
     text round-trips verbatim."""
+    effort: Optional[dict[str, str]] = None
+    """Top-level ``{seat: rung}`` thinking-effort block (effort-v4 t5, c6/h5):
+    every seat BUILT during the run whose rung resolved — ``"main"`` (the
+    acting seat, matching its finish record's seat name), ``"senses"`` when
+    the senses lane ran, each delegated child under its role name (a
+    scout/purpose child included), and ``"distill"`` when the rung-2 pass
+    launched. A seat that resolved ``"off"`` records ``"off"``; a
+    never-resolved seat (``None`` = send nothing) is simply absent. Populated
+    by the loop from the ONE resolved value the wire sends
+    (:func:`colleague.effort.effort_of` / the child seat's built
+    ``reasoning_effort_seat``) — never recomputed per consumer. Like
+    ``incompletion``, the serialized key is OMITTED (not null) when ``None``,
+    so a run predating this field serializes byte-identically."""
     incompletion: Optional[IncompletionRecord] = None
     """Record of why a work item was incomplete, or ``None`` when the work item
     completed normally. A :class:`IncompletionRecord` of shape

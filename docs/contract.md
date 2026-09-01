@@ -54,7 +54,7 @@ Present on every artifact, regardless of which features fired.
 | `not_finished` | boolean | `true` iff the step budget was exhausted without a `finish` call (and without an abort). |
 | `stopped_without_finish` | boolean | `true` iff the run ended on a no-tool-call turn and never called `finish`, even after the nudge. |
 
-### Optional (omit-when-absent) top-level keys (19)
+### Optional (omit-when-absent) top-level keys (20)
 
 Each key below is **entirely absent** from the JSON — not present as `null` —
 when the corresponding feature never fired for this work item. `sub_results`
@@ -76,6 +76,7 @@ serialized as `[]`).
 | `affected_tests_report` | AffectedTestsReport | The affected-tests gate ran — see [`affected_tests_report`](#affectedtestsreport-affected_tests_report). |
 | `acceptance_outcomes` | dict[] | `Task.acceptance` criteria were set, so the pre-finish self-check ran — see [`acceptance_outcome`](#acceptance-outcome-acceptance_outcomes-item). |
 | `deepthink` | DeepthinkCall[] | The dual-model deepthink escalation fired at least once — see [`deepthink_call`](#deepthinkcall-deepthink-item). |
+| `effort` | dict | At least one seat's thinking-effort rung resolved (effort-v4 t5) — `{seat: rung}` for every seat BUILT during the run: `"main"` always (when resolved), `"senses"` when the senses lane ran, delegated children by role (a scout/purpose child included), `"distill"` when the rung-2 pass launched. `"off"` is recorded; a never-resolved seat is absent. |
 | `finish_recovered` | string | A `finish` transport failure was recovered (`"literal-markup"` \| `"thin-finish-synthesis"` \| `"meta-finish-synthesis"`). |
 | `memory` | dict | The eidetic memory recall/remember cycle ran — see [`memory`](#memory-dict). |
 | `media` | dict | The task carried attachments and their delivery was classified — see [`media`](#media-dict). |
@@ -108,6 +109,7 @@ config_digest
 config_events
 deepthink
 destination
+effort
 error
 finish_recovered
 finish_states
@@ -184,6 +186,7 @@ cortex/senses split ran.
 <!-- contract:keys:finish_record -->
 ```text
 finish_reason
+reasoning_effort
 seat
 state
 truncated
@@ -199,6 +202,9 @@ is `true` iff `state == "truncated"`. `finish_reason` is the raw
 backend-reported value for the seat's LAST completion (e.g. `"stop"` \|
 `"tool_calls"` \| `"length"`), or `""` when the backend/engine never reports
 one (e.g. the `"senses"` seat, which has no raw wire value of its own).
+`reasoning_effort` records the thinking-effort rung the seat ran at, or `""`
+(the stable sentinel) when it was never resolved — including artifacts written
+before the field existed, which load back as `""`.
 
 #### `Usage` (`usage` / `sub_results[].usage`)
 
@@ -257,12 +263,18 @@ changed_files
 engine
 model
 parent
+reasoning_effort
 role
 status
 summary
 task_id
 usage
 ```
+
+`reasoning_effort` (omit-when-None, effort-v4 t5) is the child seat's resolved
+thinking-effort rung, read off the built child config at spawn — the same
+value the parent folds into its top-level `effort` block under the child's
+role.
 
 #### `CapacityDecision` (`capacity_decision`)
 

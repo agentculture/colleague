@@ -235,10 +235,10 @@ def test_config_show_names_kill_switch_layer(monkeypatch: pytest.MonkeyPatch) ->
 # ---------------------------------------------------------------------------
 
 
-def test_acting_seat_effective_defaults_medium_cortex() -> None:
+def test_acting_seat_effective_defaults_low_cortex() -> None:
     cfg = EngineConfig.resolve()
     assert cfg.worker is None
-    assert cfg.reasoning_effort_effective == "medium"
+    assert cfg.reasoning_effort_effective == "low"  # v4 seat default (#475)
 
 
 def test_acting_seat_effective_prefers_worker_when_armed() -> None:
@@ -246,11 +246,11 @@ def test_acting_seat_effective_prefers_worker_when_armed() -> None:
     cfg.worker = WorkerConfig(
         model="worker-model", base_url="http://worker/v1", api_key="k", context=32768
     )
-    # Worker seat table default is also "medium", but the per-seat lookup
-    # must key off "worker", not "cortex" — pin that via an explicit worker
-    # override that would be invisible if the wrong seat were consulted.
+    # Worker seat table default is also "low" (v4, #475), but the per-seat
+    # lookup must key off "worker", not "cortex" — pin that via an explicit
+    # worker override that would be invisible if the wrong seat were consulted.
     cfg.reasoning_effort_seats = {"cortex": "off"}
-    assert cfg.reasoning_effort_effective == "medium"
+    assert cfg.reasoning_effort_effective == "low"
     cfg.reasoning_effort_seats = {"worker": "xhigh"}
     assert cfg.reasoning_effort_effective == "xhigh"
 
@@ -278,7 +278,7 @@ def test_explorer_role_explicit_global_override_wins() -> None:
 def test_non_explorer_role_keeps_acting_seat_value() -> None:
     cfg = EngineConfig.resolve()
     cfg.role = "writer"
-    assert cfg.reasoning_effort_effective == "medium"
+    assert cfg.reasoning_effort_effective == "low"  # v4 seat default (#475)
 
 
 def test_kill_switch_effective_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
