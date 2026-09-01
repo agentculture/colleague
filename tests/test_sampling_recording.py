@@ -36,7 +36,7 @@ def _scripted(responses):
 
 
 def _sampling_entries(result: TaskResult, seat: str | None = None) -> list[dict]:
-    entries = [w for w in result.warnings if w.get("kind") == samplingrecord.KIND]
+    entries = list(result.sampling or [])
     if seat is not None:
         entries = [w for w in entries if w.get("seat") == seat]
     return entries
@@ -126,9 +126,7 @@ def test_unmatched_model_records_nothing(tmp_path: Path) -> None:
         context=ContextControls(reasoning_effort_main="low"),
     )
     assert _sampling_entries(result) == []
-    assert not any(
-        w.get("kind") == samplingrecord.KIND for w in result.to_dict().get("warnings", [])
-    )
+    assert not any(True for _ in result.to_dict().get("sampling", []))
 
 
 def test_never_resolved_rung_records_nothing(tmp_path: Path) -> None:
@@ -239,7 +237,7 @@ def test_recorded_sampling_survives_the_artifact_round_trip(tmp_path: Path) -> N
     )
     path = artifact.write(result, tmp_path / "artifacts")
     data = json.loads(path.read_text())
-    on_disk = [w for w in data["warnings"] if w.get("kind") == "sampling"]
+    on_disk = list(data["sampling"])
     assert on_disk == _sampling_entries(result)
 
     restored = TaskResult.from_dict(data)

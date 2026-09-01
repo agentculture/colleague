@@ -6,19 +6,18 @@ The observability half of the per-model sampling arc (#479), mirroring
 consumer" discipline — but for the resolved :class:`colleague.sampling.
 SamplingProfile` instead of the thinking-effort rung.
 
-**File ownership (plan task t9):** this task owns this new leaf module plus
-its single fold-in point in ``colleague/loop_outcomes.py``. It does NOT touch
-``colleague/contract.py`` / ``colleague/contract_taskresult_io.py`` (those are
-out of this task's file ownership), so there is no new top-level
-``TaskResult`` field the way ``effort`` got one. Instead this module folds
-each resolved seat's record onto ``TaskResult.warnings`` — the SAME
-general-purpose, always-serialized, kind-tagged bag every other structured
-loop record already rides (``"step-stall"``, ``loopguards.WARNING_KIND``,
-``"truncated-turn"``, the ladder-400 retry warning, the stale-pin refresh
-warning); despite the field's name it is the codebase's existing generic
-append point for "one more structured fact about this run", not a bag of
-literal alarms. Each entry here carries ``"kind": KIND`` so a reader (or a
-future task that grows a dedicated field) can filter it out cleanly.
+**Where it lands.** Each resolved seat's record folds onto
+``TaskResult.sampling``, a dedicated top-level field with the same
+omit-when-``None`` treatment ``effort`` gets — so a run whose model matched no
+row serializes byte-identically to a pre-#479 artifact.
+
+*Integrator note:* t9 as briefed could not touch ``colleague/contract.py`` /
+``colleague/contract_taskresult_io.py``, so it originally rode
+``TaskResult.warnings`` — the codebase's generic kind-tagged bag. That worked,
+but a sampling record is not a warning, and because the default config matches
+the builtin Qwen3.8 row it made ``warnings`` unconditionally non-empty on an
+ordinary run. The field was added at merge time (#479 arc deviation d5) so the
+module now follows ``effortrecord`` all the way down, as its instruction asked.
 
 **Row vs wire (t9 instruction).** A :class:`~colleague.sampling.SamplingProfile`
 is the card's ROW — every key the row explicitly sets, via
@@ -29,11 +28,11 @@ that already equals :data:`colleague.samplingwire.SERVER_DEFAULT_SAMPLING`
 ``repetition_penalty`` are in the ROW but not the WIRE). Both are recorded,
 each under its own labeled key, so a reader can never mistake "the card says"
 for "the request carried" (the exact misstatement already fixed once in
-``config show``, arc deviation d3).
+``config show``, arc deviation d4).
 
 **Presence rule (t9 instruction, mirrors effortrecord.py exactly).** A seat
 whose model+rung resolves NO row (an unmatched model, an off/never-resolved
-rung) is simply ABSENT from ``warnings`` — no entry is appended. Never an
+rung) is simply ABSENT from ``result.sampling`` — no entry is appended. Never an
 invented/empty placeholder entry.
 
 **Scope of the fold (honest limit).** Only seats that actually run through
@@ -65,7 +64,8 @@ from colleague import sampling, samplingwire
 
 __all__ = ["KIND", "fold_run_seats", "record", "resolve_seat_record"]
 
-#: The ``warnings`` entry tag for one seat's resolved sampling record.
+#: The record tag for one seat's resolved sampling record. Retained for
+#: readers that filtered on it while these records rode ``warnings``.
 KIND = "sampling"
 
 
@@ -88,7 +88,7 @@ def resolve_seat_record(model: Any, role: Optional[str], rung: Any) -> Optional[
 
 
 def record(result: Any, seat: str, model: Any, role: Optional[str], rung: Any) -> None:
-    """Fold one seat's resolved sampling record onto ``result.warnings``.
+    """Fold one seat's resolved sampling record onto ``result.sampling``.
 
     A seat that does not resolve (:func:`resolve_seat_record` returns
     ``None``) is left untouched — never an invented entry. Later same-seat
@@ -99,13 +99,13 @@ def record(result: Any, seat: str, model: Any, role: Optional[str], rung: Any) -
     resolved = resolve_seat_record(model, role, rung)
     if resolved is None:
         return
-    warnings = [
-        w
-        for w in (getattr(result, "warnings", None) or [])
-        if not (isinstance(w, dict) and w.get("kind") == KIND and w.get("seat") == seat)
+    entries = [
+        e
+        for e in (getattr(result, "sampling", None) or [])
+        if not (isinstance(e, dict) and e.get("seat") == seat)
     ]
-    warnings.append({"kind": KIND, "seat": seat, **resolved})
-    result.warnings = warnings
+    entries.append({"seat": seat, **resolved})
+    result.sampling = entries
 
 
 def fold_run_seats(ctx: Any) -> None:
