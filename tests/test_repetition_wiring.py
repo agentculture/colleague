@@ -122,9 +122,14 @@ def _spiral_lines(units: int = 20) -> list[bytes]:
 def test_streaming_reasoning_deltas_abort_the_sse_read_at_the_first_trip() -> None:
     response = _CountingResponse(_spiral_lines())
     acc = vllm_transport._StreamAccumulator()
-    with pytest.raises(loop_transport.RepetitionTripped) as excinfo:
+
+    def _drain_stream() -> None:
+        """One call inside ``pytest.raises`` (SonarCloud S5778)."""
         for frame in vllm_transport._iter_sse_frames(response):
             vllm_transport._apply_stream_frame(frame, acc, lambda _d: None)
+
+    with pytest.raises(loop_transport.RepetitionTripped) as excinfo:
+        _drain_stream()
     # Exactly the 8 frames it took to see TAIL_REPEAT_MIN_COUNT verbatim repeats —
     # the remaining frames, the usage frame and [DONE] were never read.
     assert response.consumed == repetitionguard.TAIL_REPEAT_MIN_COUNT
@@ -256,8 +261,9 @@ def test_the_escalation_limit_trip_ends_the_run(task: Task) -> None:
     # The run ends through the loop's existing preserve-the-partial abort path:
     # WorkAborted carries the finalized partial (with every warning) out to the
     # work path, which writes the artifact before surfacing the failure (#37).
+    controls = ContextControls(budget=5000)
     with pytest.raises(WorkAborted) as excinfo:
-        loop.run(complete, task, max_steps=9, context=ContextControls(budget=5000))
+        loop.run(complete, task, max_steps=9, context=controls)
     result = excinfo.value.result
     assert result.status == ERROR
     trips = [w for w in result.warnings if w.get("kind") == repetitionguard.WARNING_KIND]

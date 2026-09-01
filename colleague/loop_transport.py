@@ -615,6 +615,41 @@ def _attempt_completion_or_retry_plan(
     return resp, None
 
 
+def _complete_without_budget(ctx: _Work, complete: CompleteFn) -> ModelResponse:
+    """The budget-off pass-through of :func:`_complete_with_degradation`.
+
+    Extracted purely to hold that function under the SonarCloud S3776 ceiling
+    (#479 t6 added the repetition arms); behaviour is unchanged. Byte-identical
+    to the pre-feature loop apart from the two recorded-only cases below and the
+    ONE media-rejection retry (t9, c7), which must not depend on the budget
+    feature being on.
+    """
+    while True:
+        try:
+            resp = _timed_complete(ctx, complete)
+        except RepetitionTripped as trip:
+            # t6: no budget = no tighter window, but the turn is still CUT
+            # rather than fatal — record it and re-ask. Bounded: the call
+            # re-raises at the escalation limit, which every trip advances.
+            _record_repetition_trip(ctx, trip)
+            continue
+        except Exception as exc:  # noqa: BLE001
+            if _flatten_on_media_rejection(ctx, exc):
+                return _timed_complete(ctx, complete)
+            raise
+        repeated = _response_repetition(resp)
+        if repeated is not None:
+            # t6 / criterion 5: recorded INSTEAD of ``truncated-turn``; with no
+            # budget there is nothing to shrink, so the turn flows on to the
+            # existing no-tool handling (which accounts it) exactly as a
+            # recorded truncation already does.
+            _record_repetition_trip(ctx, repeated)
+        elif _is_truncated_turn(resp):
+            # no budget = nothing to shrink: recorded only; _work_loop accounts resp
+            _record_truncated_turn(ctx, resp, account=False)
+        return resp
+
+
 def _complete_with_degradation(
     ctx: _Work, complete: CompleteFn, *, phase: str = _PHASE_THINKING
 ) -> ModelResponse:
@@ -658,30 +693,7 @@ def _complete_with_degradation(
         # fan-out throttle work without windowing; only the shrink needs a budget).
         # ONE exception (t9, c7): a media-refusing endpoint still degrades to a
         # text-only retry — that handling must not depend on the budget feature.
-        while True:
-            try:
-                resp = _timed_complete(ctx, complete)
-            except RepetitionTripped as trip:
-                # t6: no budget = no tighter window, but the turn is still CUT
-                # rather than fatal — record it and re-ask. Bounded: the call
-                # re-raises at the escalation limit, which every trip advances.
-                _record_repetition_trip(ctx, trip)
-                continue
-            except Exception as exc:  # noqa: BLE001
-                if _flatten_on_media_rejection(ctx, exc):
-                    return _timed_complete(ctx, complete)
-                raise
-            repeated = _response_repetition(resp)
-            if repeated is not None:
-                # t6 / criterion 5: recorded INSTEAD of ``truncated-turn``; with no
-                # budget there is nothing to shrink, so the turn flows on to the
-                # existing no-tool handling (which accounts it) exactly as a
-                # recorded truncation already does.
-                _record_repetition_trip(ctx, repeated)
-            elif _is_truncated_turn(resp):
-                # no budget = nothing to shrink: recorded only; _work_loop accounts resp
-                _record_truncated_turn(ctx, resp, account=False)
-            return resp
+        return _complete_without_budget(ctx, complete)
 
     # Adaptive backpressure (t6/#255): under ARMED/ESCALATED the next turn's
     # window is proactively tightened — smaller prompts make faster turns, the

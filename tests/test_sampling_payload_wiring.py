@@ -247,7 +247,8 @@ def test_two_arms_in_one_process_differ_without_touching_the_shared_file(
     assert armed["temperature"] == 0.5
     assert disarmed["temperature"] == cfg.temperature
     assert armed != disarmed
-    assert (models.read_bytes(), models.stat().st_mtime_ns) == before
+    after = (models.read_bytes(), models.stat().st_mtime_ns)
+    assert after == before  # actual first, like every assertion in this file
 
 
 # ── operator rows from the tracked .colleague/models.json (claim c56) ───────
@@ -416,8 +417,9 @@ def test_scripted_refusal_surfaces_once_with_no_key_stripping_retry(
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     cfg = _cfg(reasoning_effort="low")
+    complete = VllmOpenAIEngine()._make_complete(cfg, tools=[])
     with pytest.raises(urllib.error.HTTPError):
-        VllmOpenAIEngine()._make_complete(cfg, tools=[])(_MSGS)
+        complete(_MSGS)
 
     assert len(sent) == 1
     assert sent[0]["top_k"] == 20

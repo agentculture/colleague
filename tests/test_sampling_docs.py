@@ -281,7 +281,8 @@ def test_feature_doc_records_the_false_negative_and_the_token_state() -> None:
     text = _read(FEATURE_DOC)
     assert "false NEGATIVE" in text
     assert str(repetitionguard.MAX_BUFFER_CHARS) in text
-    assert "unrecorded" in text and "not zero" in text.lower()
+    assert "unrecorded" in text
+    assert "not zero" in text.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +304,8 @@ def test_feature_doc_records_the_incident_evidence() -> None:
     # The per-turn sidecar profile is what makes "looping, not failing" checkable
     # rather than asserted (h5) — including the turns that contradict the spec's
     # own paraphrase.
-    assert "46,998" in text and "99,658" in text
+    assert "46,998" in text
+    assert "99,658" in text
     assert "Correction to the spec's paraphrase" in text
 
 
@@ -339,7 +341,8 @@ def test_feature_doc_records_the_four_naming_reasons() -> None:
         assert f"\n{numeral} " in section, f"naming reason {numeral} is missing"
     for token in ("#411", "config_seats.py", "default-on", "AgentProfile.resolved_model"):
         assert token in section, f"the naming rationale is missing {token!r}"
-    assert "references" in section and "absorbing it" in section
+    assert "references" in section
+    assert "absorbing it" in section
 
 
 def test_feature_doc_records_the_tracked_at_head_rule_and_merge_granularity() -> None:

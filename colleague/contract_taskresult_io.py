@@ -191,6 +191,19 @@ def _extra_fields_tail(self: "TaskResult", extra: dict[str, Any]) -> dict[str, A
         extra["effort"] = dict(self.effort)
     if self.sampling:
         extra["sampling"] = [dict(entry) for entry in self.sampling]
+    return _extra_fields_run_record(self, extra)
+
+
+def _extra_fields_run_record(self: "TaskResult", extra: dict[str, Any]) -> dict[str, Any]:
+    """The run-record tail of :func:`_extra_fields_to_dict` (same order).
+
+    Split off when the #479 ``sampling`` field pushed
+    :func:`_extra_fields_tail` past the SonarCloud S3776 ceiling — the same
+    purely-structural reason that split ``_extra_fields_tail`` from
+    :func:`_extra_fields_to_dict`. Every field here keeps its
+    omit-when-``None``/empty treatment, so the serialized key order and the
+    byte-identical guarantees are unchanged.
+    """
     # incompletion gets the same omit-when-None treatment: a completed
     # work item serializes byte-identically (no extra key).
     if self.incompletion is not None:

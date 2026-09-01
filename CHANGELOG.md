@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.74.1] - 2026-09-01
+
+### Fixed
+
+- SonarCloud: all 10 findings on PR #485. Two were real complexity findings in runtime code — `contract_taskresult_io._extra_fields_tail` (S3776, 16 → under 15; the new `sampling` field added the branch that pushed it over, so the run-record tail split into `_extra_fields_run_record`) and `loop_transport._complete_with_degradation` (S3776, 24 → under 15; the budget-off pass-through that the repetition arms grew is now `_complete_without_budget`). Both splits are purely structural — serialized key order, omit-when-`None` behaviour and the byte-identical guarantees are unchanged. The other eight were test hygiene: three composite assertions split (S9073), three `pytest.raises` blocks reduced to one throwing call each (S5778), one assertion-order unification (S3415), one empty decorator paren (S9083).
+
 ## [1.74.0] - 2026-09-01
 
 ### Added

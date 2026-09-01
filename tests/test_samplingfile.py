@@ -162,7 +162,7 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=str(repo), capture_output=True, text=True, check=True)
 
 
-@pytest.fixture()
+@pytest.fixture
 def git_repo_with_models_json(tmp_path: Path) -> Path:
     """A git repo with an initial commit that TRACKS .colleague/models.json."""
     repo = tmp_path / "repo"
