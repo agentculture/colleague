@@ -240,6 +240,11 @@ _PINNED_SUBPROCESS_ALLOWED = frozenset(
         # web-scout arc (task t1): the curated `web` tool shells out to the
         # operator-installed `webglass` CLI in its own process group.
         "colleague/web.py",
+        # importability-check gate (#482): the import smoke of a changed
+        # module must run in a child interpreter (worktree forced ahead on
+        # sys.path via PYTHONPATH, c20) so a broken import can't crash or
+        # poison the caller's own process.
+        "colleague/importcheck.py",
     }
 )
 
