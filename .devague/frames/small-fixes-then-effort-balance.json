@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-01T17:05:31Z",
-  "updated": "2026-09-01T17:23:34Z",
+  "updated": "2026-09-01T18:35:37Z",
   "claims": [
     {
       "id": "c1",
@@ -530,6 +530,18 @@
       "seeds": [
         "c18"
       ]
+    },
+    {
+      "id": "s15",
+      "surface": "post-fan-out correction: colleague/config.py:256",
+      "finding": "c19's premise was WRONG \u2014 line 256 is SeatDials, EngineConfig (config.py:346) is a plain dataclass, not frozen; and dataclasses.replace would have been useless since the engine closure holds the original object. t4 composed via in-place on_delta assignment at ContextControls.from_config + run() bind, matching _arm_delta_stream's existing imperative pattern",
+      "seeds": []
+    },
+    {
+      "id": "s16",
+      "surface": "post-fan-out deviation record: t9 mechanism",
+      "finding": "gate.repeat_failure and fillline.decision could not use t8's make_complete(tools=[]) seat pattern \u2014 their turns need the real curated tool surface \u2014 so the rung is push/popped on the live acting config (SeatEscalator), sanctioned explicitly in test_thinking_effort_boundary's assign-files list; fillline has NO separate split completion, so the DECLARING turn is what consumes DESIGN_SITE_TABLE['fillline.split'] via fillline.design_seat_config (now the live consumer, test_design_call_site updated); both at-most-once per run",
+      "seeds": []
     }
   ],
   "lapses": [],
