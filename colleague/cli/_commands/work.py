@@ -718,6 +718,7 @@ def execute_work(
         command_name=command_name,
         mode=mode,
         continued_from=continued_from,
+        continuation_task_text=continuation_task_text,
     )
     task = setup.task
 
@@ -946,10 +947,9 @@ def cmd_work(args: argparse.Namespace) -> int:
             ),
         )
     except CliError as exc:
-        # On a partial-bearing failure, surface the preserved partial TaskResult to
-        # stdout (--json only) so machine consumers (e.g. ask-colleague.sh) can parse it.
-        # The diagnostic stays on stderr and the exit code stays non-zero — both are
-        # handled by the _dispatch layer that catches this re-raise.
+        # Partial-bearing failure: surface the preserved partial to stdout (--json
+        # only) for machine consumers (ask-colleague.sh); diagnostic stays on
+        # stderr, exit stays non-zero — the _dispatch layer catches this re-raise.
         if json_mode and exc.result is not None:
             emit_result(exc.result.to_dict(), json_mode=True)
         raise

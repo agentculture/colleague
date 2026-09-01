@@ -381,9 +381,12 @@ class TestBarrierSeat:
         factory = loop_barrier.make_barrier_complete(config, engine_loader=lambda _n: engine)
         complete = factory("vllm-openai", lambda _t: None)
         out = complete([{"role": "user", "content": "hi"}])
-        assert out.content.startswith("x" * 100)
-        assert "[truncated: original 5000 chars]" in out.content
-        assert len(out.content) < 200
+        marker = "\n[truncated: original 5000 chars]"
+        assert out.content.startswith("x" * (ceiling - len(marker)))
+        assert out.content.endswith(marker)
+        # The marker counts AGAINST the ceiling (Qodo #486 thread 9): the
+        # retained plan never exceeds the configured bound.
+        assert len(out.content) <= ceiling
 
     def test_a_short_plan_is_untouched(self, armed):
         assert loop_barrier.clamp_plan("short", 100) == "short"

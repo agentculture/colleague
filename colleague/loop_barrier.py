@@ -146,7 +146,12 @@ def clamp_plan(text: str, ceiling: int) -> str:
     """
     if ceiling <= 0 or len(text) <= ceiling:
         return text
-    return f"{text[:ceiling]}\n[truncated: original {len(text)} chars]"
+    marker = f"\n[truncated: original {len(text)} chars]"
+    # The marker counts AGAINST the ceiling, so the retained plan never
+    # exceeds the configured bound; a ceiling too small to hold even the
+    # marker degrades to the marker alone, still discoverable.
+    keep = max(0, ceiling - len(marker))
+    return f"{text[:keep]}{marker}"
 
 
 def barrier_seat_config(config: Any, rung: str) -> Any:

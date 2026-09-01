@@ -332,3 +332,59 @@ def test_chain_episode_dispatch_threads_continuation_task_text(
     assert captured, "execute_work was never dispatched"
     assert captured[0]["lineage"].task_text == _ORIGINAL_BRIEF
     assert result.task_text == _ORIGINAL_BRIEF
+
+
+def test_interrupt_salvage_records_the_original_brief_not_the_seed(tmp_path, monkeypatch):
+    """Qodo #486 thread 5: the SIGTERM/SIGINT salvage writer bypasses
+    ``_stamp_lineage``, so it must apply the continuation override itself —
+    an interrupted continuation artifact carries the ORIGINAL brief."""
+    from colleague import salvage
+    from colleague.artifact import artifact_dir
+    from colleague.cli._commands._work_salvage import _make_salvage_writer
+    from colleague.contract import Task, TaskResult
+
+    monkeypatch.chdir(tmp_path)
+    task = Task.new(str(tmp_path), "SEED: preamble + record + original request")
+    partial = TaskResult(task_id=task.id, status="incomplete")
+    partial.task_text = task.instruction  # the loop's early stamp: the SEED
+    salvage.register(task.id, partial)
+    try:
+        writer = _make_salvage_writer(
+            task,
+            tmp_path,
+            command_name=None,
+            mode=None,
+            continued_from="prior-run",
+            continuation_task_text=_ORIGINAL_BRIEF,
+        )
+        writer("SIGTERM")
+    finally:
+        salvage.unregister(task.id)
+
+    art = next(artifact_dir(tmp_path).glob(f"{task.id}.*.json"))
+    data = json.loads(art.read_text())
+    assert data["task_text"] == _ORIGINAL_BRIEF
+    assert data["continued_from"] == "prior-run"
+
+
+def test_interrupt_salvage_on_an_ordinary_run_keeps_its_own_task_text(tmp_path, monkeypatch):
+    from colleague import salvage
+    from colleague.artifact import artifact_dir
+    from colleague.cli._commands._work_salvage import _make_salvage_writer
+    from colleague.contract import Task, TaskResult
+
+    monkeypatch.chdir(tmp_path)
+    task = Task.new(str(tmp_path), "an ordinary brief")
+    partial = TaskResult(task_id=task.id, status="incomplete")
+    partial.task_text = task.instruction
+    salvage.register(task.id, partial)
+    try:
+        writer = _make_salvage_writer(
+            task, tmp_path, command_name=None, mode=None, continued_from=None
+        )
+        writer("SIGINT")
+    finally:
+        salvage.unregister(task.id)
+
+    art = next(artifact_dir(tmp_path).glob(f"{task.id}.*.json"))
+    assert json.loads(art.read_text())["task_text"] == "an ordinary brief"

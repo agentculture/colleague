@@ -20,8 +20,6 @@ from typing import NamedTuple
 from colleague import flight, tasktext, web_schemas
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
-
-
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.config import EngineConfig, apply_mode_profile
 from colleague.contract import INCOMPLETE, OK, ChainView, Task, TaskResult

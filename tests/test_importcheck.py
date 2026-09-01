@@ -177,3 +177,24 @@ def test_report_round_trips_through_dict() -> None:
     assert restored.checked == ["a.py"]
     assert restored.findings[0].module == "a"
     assert restored.findings[0].error == "boom"
+
+
+def test_non_identifier_path_components_skip_the_import_smoke(tmp_path: Path) -> None:
+    """A valid standalone script under a non-package dir (``.claude/``, a dashed
+    directory) has no importable dotted name — it is compile-checked only,
+    never smoke-imported, so it can never manufacture a false
+    ``import-check-failed`` (Qodo #486 thread 8)."""
+    _write(tmp_path, ".claude/skills/helper.py", "x = 1\n")
+    _write(tmp_path, "my-scripts/tool.py", "y = 2\n")
+    report = run_import_check(tmp_path, [".claude/skills/helper.py", "my-scripts/tool.py"])
+    assert report.status == "passed"
+    assert report.findings == []
+    # Both files were still compile-checked (they appear in ``checked``).
+    assert set(report.checked) == {".claude/skills/helper.py", "my-scripts/tool.py"}
+
+
+def test_non_identifier_path_with_syntax_error_still_fails_at_compile(tmp_path: Path) -> None:
+    _write(tmp_path, ".claude/broken.py", "def (:\n")
+    report = run_import_check(tmp_path, [".claude/broken.py"])
+    assert report.status == "failed"
+    assert report.findings[0].stage == "compile"

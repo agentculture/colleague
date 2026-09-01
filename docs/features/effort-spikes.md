@@ -131,6 +131,17 @@ gate's `while report … and retries > 0` loop) escalates to
 is the loop's own **iteration count** — nothing here inspects the failing
 report, the failing tests, or any model text. At most once per gate per run.
 
+**The unit of escalation is the repair ATTEMPT, not a single completion.** A
+gate's fix-turn is itself a bounded mini-loop (`_TESTINTEGRITY_FIX_STEPS` = 6
+/ `_AFFECTEDTESTS_FIX_STEPS` = 8 extra model turns in
+`colleague/loop_constants.py`), so the ONE escalated replan covers up to that
+many completions — the model may edit, run tests, and iterate inside its
+single escalated attempt. The artifact records one `gate.repeat_failure`
+`SpikeRecord` for that attempt (the point fired once); it does not count the
+attempt's individual completions. Exactly one attempt per gate per run ever
+escalates — `_fired` gates the rung itself, so third and later repair
+attempts run back at the ordinary rung.
+
 ### `fillline.decision` — the DECLARING turn
 
 `arm_fillline_decision(ctx)` escalates the turn that will DECLARE the

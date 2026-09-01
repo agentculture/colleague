@@ -471,3 +471,31 @@ def test_the_module_holds_no_effort_string_literal() -> None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     }
     assert not literals & {"off", "low", "medium", "high", "xhigh"}
+
+
+class TestRunExitRelease:
+    """Qodo #486 thread 7: a still-armed fill-line escalation is released at
+    run exit, so a raising declaring turn (or a run that exits before any
+    declaration) never leaks the pushed rung onto a reused config."""
+
+    def test_armed_fillline_is_released_on_run_exit(self, tmp_path, armed, monkeypatch):
+        from colleague import loop_run_stages as _stages
+
+        ctx = _ctx(tmp_path)
+        config = ctx.gate_escalation._config
+        monkeypatch.setattr(_esc.SeatEscalator, "fillline_rung", lambda self: "xhigh", raising=True)
+        assert _esc.arm_fillline_decision(ctx) is True
+        assert _seat(config) == "xhigh"
+        _stages._release_gate_escalation(ctx)
+        assert _seat(config) == "<absent>"
+        # Idempotent — a second release (the aborted AND clean tails both call
+        # it, and a declaration may already have disarmed) is a strict no-op.
+        _stages._release_gate_escalation(ctx)
+        assert _seat(config) == "<absent>"
+
+    def test_release_is_a_noop_when_unarmed(self, tmp_path, unarmed):
+        from colleague import loop_run_stages as _stages
+
+        ctx = _ctx(tmp_path)
+        assert ctx.gate_escalation is None
+        _stages._release_gate_escalation(ctx)  # must not raise

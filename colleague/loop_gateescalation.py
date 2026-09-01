@@ -214,6 +214,14 @@ def escalated_gate_turn(ctx: "_Work", gate: str, attempt: int) -> Iterator[bool]
     *attempt* is the gate's own 1-based loop iteration count — the
     deterministic signal named in the spec. Nothing here inspects the gate's
     report, the failing tests, or any model text.
+
+    The unit of escalation is the repair ATTEMPT: the enclosed fix-turn is
+    itself a bounded mini-loop (``_TESTINTEGRITY_FIX_STEPS`` /
+    ``_AFFECTEDTESTS_FIX_STEPS`` extra model turns), so the one escalated
+    replan covers up to that many completions inside its single attempt —
+    recorded as ONE :class:`SpikeRecord`, and only that one attempt ever
+    escalates (``_fired`` gates the rung itself, so later attempts run back
+    at the ordinary rung). See ``docs/features/effort-spikes.md``.
     """
     escalator = _escalator(ctx)
     key = f"gate:{gate}"

@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import salvage, worktrees
+from colleague import salvage, tasktext, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._commands._work_chain import ChainEpisodeOptions, _arm_chain_dispatch
 from colleague.cli._commands._work_support import _guard_clean_tree, _repo_relative
@@ -123,6 +123,7 @@ def _make_salvage_writer(
     command_name: str | None,
     mode: str | None,
     continued_from: str | None,
+    continuation_task_text: str | None = None,
 ) -> Callable[[str], None]:
     """Build the SIGTERM/SIGINT salvage writer for *task* (#410).
 
@@ -152,6 +153,15 @@ def _make_salvage_writer(
             command_name=command_name,
             mode=mode,
             continued_from=continued_from,
+        )
+        # A continued run's live partial carries the loop's early-stamped
+        # task_text — the synthesized continuation SEED, not the brief; the
+        # normal path overrides it at _stamp_lineage, which this interrupt
+        # never reaches. Same override here (c22/h15: a seed is never a brief).
+        tasktext.apply_continuation_task_text(
+            partial,
+            continued_from=continued_from,
+            continuation_task_text=continuation_task_text,
         )
         write(partial, artifact_dir(repo))
         with suppress(Exception):
@@ -304,6 +314,7 @@ def _prepare_run(
     command_name: str | None,
     mode: str | None,
     continued_from: str | None,
+    continuation_task_text: str | None = None,
 ) -> _RunSetup:
     """Everything :func:`execute_work` settles BEFORE the telemetry span opens.
 
@@ -342,7 +353,12 @@ def _prepare_run(
     restore_signals: Callable[[], None] = _arm_interrupt_commit(
         worktree_path,
         salvage_write=_make_salvage_writer(
-            task, repo, command_name=command_name, mode=mode, continued_from=continued_from
+            task,
+            repo,
+            command_name=command_name,
+            mode=mode,
+            continued_from=continued_from,
+            continuation_task_text=continuation_task_text,
         ),
     )
     return _RunSetup(

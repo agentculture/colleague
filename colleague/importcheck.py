@@ -156,6 +156,12 @@ def _module_name(rel: str) -> Optional[str]:
         parts = parts[:-1]
     if not parts:
         return None
+    # A path with a non-identifier component (a ``.claude/`` prefix, a dashed
+    # directory) has no importable dotted name — smoke-importing it would
+    # manufacture a false ``import-check-failed`` on a valid standalone
+    # script. ``py_compile`` has already validated its syntax; skip the smoke.
+    if any(not part.isidentifier() for part in parts):
+        return None
     return ".".join(parts)
 
 
