@@ -15,6 +15,7 @@ from contextlib import suppress
 from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
+from colleague import loop_testgates_warnings as _testgates_warnings
 from colleague import testintegrity as _testintegrity
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.loop_accounting import _account_turn
@@ -192,7 +193,10 @@ def _maybe_run_test_integrity_gate(
         if not report.findings:
             return
         ctx.result.test_integrity_report = report
-        _surface_test_integrity(report)
+        _testgates_warnings.surface_test_integrity(report)
+        # #480 AC2 (see loop_testgates_warnings.py): named once, non-finished only.
+        if outcome != _EXIT_FINISHED:
+            ctx.result.warnings.append(_testgates_warnings.build_test_integrity_warning(report))
         # Bounded re-examine turn(s) — only after a clean finish with budget left.
         retries = ctx.testintegrity_fix_retries if outcome == _EXIT_FINISHED else 0
         while report.findings and retries > 0:
@@ -286,7 +290,10 @@ def _maybe_run_affected_tests_gate(
         if report is None:
             return
         ctx.result.affected_tests_report = report
-        _surface_affected_tests(report)
+        _testgates_warnings.surface_affected_tests(report)
+        # #480 AC1 (see loop_testgates_warnings.py): named once, non-finished only.
+        if report.status == "failed" and outcome != _EXIT_FINISHED:
+            ctx.result.warnings.append(_testgates_warnings.build_affected_tests_warning(report))
         retries = ctx.affectedtests_fix_retries if outcome == _EXIT_FINISHED else 0
         while report.status == "failed" and retries > 0:
             _run_affected_tests_fix_turn(ctx, complete, report, work_loop=work_loop)
@@ -302,7 +309,7 @@ def _maybe_run_affected_tests_gate(
                 break
             report = next_report
             ctx.result.affected_tests_report = report
-            _surface_affected_tests(report)
+            _testgates_warnings.surface_affected_tests(report)
 
 
 def _run_affected_tests_fix_turn(
@@ -339,25 +346,6 @@ def _run_affected_tests_fix_turn(
         ctx.result.not_finished,
         ctx.result.stopped_without_finish,
     ) = saved
-
-
-def _surface_affected_tests(report: "_affectedtests.AffectedTestsReport") -> None:
-    """Write the affected-tests summary to stderr (advisory; never raises)."""
-    with suppress(OSError):
-        sys.stderr.write(report.summary_line() + "\n")
-
-
-def _surface_test_integrity(report: "_testintegrity.TestIntegrityReport") -> None:
-    """Write the mirror-signature findings to stderr (advisory; never raises)."""
-    detail = "; ".join(
-        f"{f.symbol} ({f.kind}) co-introduced in {f.test_file} & {f.impl_file}"
-        for f in report.findings
-    )
-    with suppress(OSError):
-        sys.stderr.write(
-            "test-integrity: possible self-confirming test(s) — mirror signature "
-            f"flagged: {detail}\n"
-        )
 
 
 def _maybe_spawn_test_integrity_reviewer(
