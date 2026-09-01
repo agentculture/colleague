@@ -194,8 +194,8 @@ def _effort_for(config: EngineConfig) -> "str | None":
 #: on the checkout, so only an environment variable lets two concurrent arms
 #: (an A/B, or a byte-identical control) differ on one working tree. It carries
 #: no value — unlike a global temperature it cannot flatten a model's two halves.
-_SAMPLING_ENV_KEY = "COLLEAGUE_SAMPLING"
-_SAMPLING_DISABLING_VALUES = frozenset({"0", "false", "no", "off"})
+_SAMPLING_ENV_KEY = samplingwire.SAMPLING_ENV_KEY
+_SAMPLING_DISABLING_VALUES = samplingwire.SAMPLING_DISABLING_VALUES
 
 
 #: ``models.json`` half labels → :mod:`colleague.sampling`'s two halves. The

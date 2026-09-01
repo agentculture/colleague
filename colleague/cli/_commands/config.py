@@ -75,7 +75,7 @@ def _config_sections() -> list[dict[str, object]]:
 #: even though this task builds no other half of the switch). Mirrors the
 #: exact ``== "0"`` convention ``colleague/web.py``'s ``COLLEAGUE_WEB``
 #: kill switch already uses.
-_SAMPLING_KILL_SWITCH_ENV = "COLLEAGUE_SAMPLING"
+_SAMPLING_KILL_SWITCH_ENV = _samplingwire.SAMPLING_ENV_KEY
 
 
 def _sampling_section(cfg: "EngineConfig") -> "tuple[list[str], dict[str, object]]":
@@ -148,11 +148,15 @@ def _sampling_section(cfg: "EngineConfig") -> "tuple[list[str], dict[str, object
     # the adapter that actually consumes it is a sibling task's file, never
     # imported here).
     kill_switch_raw = os.environ.get(_SAMPLING_KILL_SWITCH_ENV)
-    kill_switch_armed = kill_switch_raw == "0"
+    # Ask the SAME predicate the adapter asks (#479 d6): matching only the
+    # literal "0" here reported a match while COLLEAGUE_SAMPLING=off sent
+    # nothing.
+    kill_switch_armed = not _samplingwire.sampling_enabled()
     data["kill_switch_armed"] = kill_switch_armed
     if kill_switch_armed:
         lines.append(
-            f"sampling: {_SAMPLING_KILL_SWITCH_ENV}=0 (kill switch armed) — no "
+            f"sampling: {_SAMPLING_KILL_SWITCH_ENV}={kill_switch_raw} "
+            f"(kill switch armed) — no "
             "sampling keys are sent regardless of the match above"
         )
     return lines, data

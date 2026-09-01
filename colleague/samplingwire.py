@@ -32,7 +32,14 @@ from typing import Any, Callable, Dict, Optional
 
 from colleague import sampling
 
-__all__ = ["SAMPLING_COERCERS", "SERVER_DEFAULT_SAMPLING", "wire_fragment"]
+__all__ = [
+    "SAMPLING_COERCERS",
+    "SAMPLING_DISABLING_VALUES",
+    "SAMPLING_ENV_KEY",
+    "SERVER_DEFAULT_SAMPLING",
+    "sampling_enabled",
+    "wire_fragment",
+]
 
 #: Sampling keys whose value equals the server's own default, and are
 #: therefore dropped rather than sent (see the module docstring).
@@ -85,3 +92,23 @@ SAMPLING_COERCERS: Dict[str, Callable[[Any], Any]] = {
     "presence_penalty": float,
     "repetition_penalty": float,
 }
+
+
+#: The per-process kill switch and the spellings that disable sampling.
+#: Defined here so the adapter (which consumes it) and ``config show`` (which
+#: REPORTS it) can never disagree — they did: the adapter disabled on any of
+#: these four spellings while ``config show`` matched only the literal ``"0"``,
+#: so ``COLLEAGUE_SAMPLING=off`` sent no keys while ``config show`` reported a
+#: match (#479 arc deviation d6, found by the t11 doc pass).
+SAMPLING_ENV_KEY = "COLLEAGUE_SAMPLING"
+SAMPLING_DISABLING_VALUES = frozenset({"0", "false", "no", "off"})
+
+
+def sampling_enabled(env: Optional[Dict[str, str]] = None) -> bool:
+    """False only under an explicit :data:`SAMPLING_ENV_KEY` kill-switch value."""
+    import os
+
+    raw = (env if env is not None else os.environ).get(SAMPLING_ENV_KEY)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in SAMPLING_DISABLING_VALUES

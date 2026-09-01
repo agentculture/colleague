@@ -125,3 +125,24 @@ def test_engine_config_carries_reasoning_effort_effective_used_for_match() -> No
     vLLM adapter's ``_effort_for`` reads."""
     cfg = EngineConfig.resolve(model="unsloth/Qwen3.8-27B-NVFP4")
     assert cfg.reasoning_effort_effective is not None
+
+
+def test_kill_switch_recognises_every_spelling_the_adapter_disables_on(monkeypatch) -> None:
+    """config show and the adapter share ONE predicate (#479 d6).
+
+    The two disagreed: the adapter disabled sampling on any of
+    ``0|false|no|off`` while this section matched only the literal ``"0"``, so
+    ``COLLEAGUE_SAMPLING=off`` sent no sampling keys while ``config show``
+    cheerfully reported a match. That is precisely the silent divergence this
+    arc exists to remove, in the arc's own reporting surface.
+    """
+    monkeypatch.setenv("COLLEAGUE_MODEL", "unsloth/Qwen3.8-27B-NVFP4")
+    for spelling in ("0", "false", "no", "off", "OFF", " Off "):
+        monkeypatch.setenv("COLLEAGUE_SAMPLING", spelling)
+        rendered = _config_show(".")
+        assert rendered["sampling"]["kill_switch_armed"] is True, spelling
+        assert "kill switch armed" in rendered._text, spelling
+    for spelling in ("1", "true", "yes", ""):
+        monkeypatch.setenv("COLLEAGUE_SAMPLING", spelling)
+        rendered = _config_show(".")
+        assert rendered["sampling"]["kill_switch_armed"] is False, spelling
