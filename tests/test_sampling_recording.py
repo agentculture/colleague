@@ -257,3 +257,24 @@ def test_rerecording_a_seat_replaces_rather_than_duplicates() -> None:
     entries = _sampling_entries(result, "main")
     assert len(entries) == 1
     assert entries[0]["half"] == "thinking"  # the SECOND record won
+
+
+def test_the_kill_switch_records_nothing_rather_than_a_profile_never_sent(monkeypatch) -> None:
+    """COLLEAGUE_SAMPLING=0 sends no sampling keys, so the artifact records none.
+
+    Qodo #485 finding 6, reproduced before it was fixed: the record recomputed
+    against the builtin table without consulting the kill switch, so a run that
+    sent ``temperature 0.0`` and nothing else carried a record claiming the full
+    thinking row. Absence is the honest record.
+    """
+    model = "unsloth/Qwen3.8-27B-NVFP4"
+    result = TaskResult(task_id="k1", status="ok", summary="s")
+
+    monkeypatch.setenv("COLLEAGUE_SAMPLING", "0")
+    samplingrecord.record(result, "main", model, None, "low")
+    assert result.sampling is None
+
+    monkeypatch.delenv("COLLEAGUE_SAMPLING", raising=False)
+    samplingrecord.record(result, "main", model, None, "low")
+    assert result.sampling is not None
+    assert result.sampling[0]["wire"]["top_k"] == 20

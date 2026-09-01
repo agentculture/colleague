@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.74.2] - 2026-09-01
+
+### Fixed
+
+- **`COLLEAGUE_TEMPERATURE` was ignored on a matched model** (Qodo review of PR #485, finding 5; reproduced: pinning 0.6 still sent the card's 1.0). The deprecated scalar still APPLIES this release — t7's back-compat guarantee — so a matched row no longer overwrites an explicit pin; the rest of the row still applies. The approved evidence for that obligation had verified `EngineConfig` resolution and the warning text, but never the payload — one layer too high.
+- **The artifact could record a sampling profile that was never sent** (finding 6). `TaskResult.sampling` now honours `COLLEAGUE_SAMPLING=0` — the kill switch sends no keys, so the record is absent rather than describing a request that never happened.
+- **`config show` and the artifact resolved builtin-only while the adapter layered operator rows** (finding 9, risk r7), so an operator `models.json` override showed one thing and sent another. The row conversion moved into `colleague/samplingwire.py` as `operator_rows()` beside the wire filter, and all three consumers — the payload builder, `config show`, and the recorder — now resolve against the same merged table. Same reconciliation the server-default table needed in deviation d2.
+- SonarCloud: `contract_taskresult_io.task_result_from_dict` (S3776, 16 → under 15) — the `sampling` field's inline conditional split into `_sampling_from_dict`.
+
 ## [1.74.1] - 2026-09-01
 
 ### Fixed

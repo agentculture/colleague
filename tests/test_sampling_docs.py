@@ -220,8 +220,8 @@ def test_feature_doc_renders_every_accepted_half_label() -> None:
     rows = _table_with_header(_read(FEATURE_DOC), ("label", "half"))[1:]
     documented = {row[0].strip("`") for row in rows}
     assert documented == set(
-        vllm_payload._HALF_LABELS
-    ), "the half-label table drifted from the consumer's _HALF_LABELS"
+        samplingwire.HALF_LABELS
+    ), "the half-label table drifted from samplingwire.HALF_LABELS"
 
 
 def test_feature_doc_renders_the_kill_switch_values() -> None:

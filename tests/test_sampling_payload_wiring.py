@@ -435,3 +435,27 @@ def test_no_retry_path_mentions_sampling_in_the_adapter() -> None:
     assert "_is_ladder_400" in text
     assert 'pop("top_k"' not in text
     assert "_sampling_retry" not in text
+
+
+def test_an_explicit_temperature_pin_still_wins_over_a_matched_row(monkeypatch) -> None:
+    """COLLEAGUE_TEMPERATURE applies THIS release even on a matched model.
+
+    Qodo #485 finding 5, reproduced before it was fixed: the row overwrote the
+    operator's pin, so a Qwen operator setting 0.6 still got the card's 1.0 on
+    the wire — hollowing out t7's back-compat guarantee. The rest of the row
+    still applies; only ``temperature`` yields.
+    """
+    monkeypatch.setenv("COLLEAGUE_TEMPERATURE", "0.6")
+    cfg = _cfg(reasoning_effort="low")
+    payload, _ = VllmOpenAIEngine._build_chat_payload(cfg, _MSGS, [])
+    assert payload["temperature"] == 0.6
+    assert payload["top_p"] == 0.95
+    assert payload["top_k"] == 20
+
+
+def test_without_a_pin_the_row_temperature_applies(monkeypatch) -> None:
+    """The other half of the pin rule — no pin, the card wins."""
+    monkeypatch.delenv("COLLEAGUE_TEMPERATURE", raising=False)
+    cfg = _cfg(reasoning_effort="low")
+    payload, _ = VllmOpenAIEngine._build_chat_payload(cfg, _MSGS, [])
+    assert payload["temperature"] == 1.0

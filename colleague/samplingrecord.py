@@ -35,6 +35,19 @@ whose model+rung resolves NO row (an unmatched model, an off/never-resolved
 rung) is simply ABSENT from ``result.sampling`` — no entry is appended. Never an
 invented/empty placeholder entry.
 
+**Honest limits on fidelity (Qodo #485 finding 6).** This module resolves
+against :data:`colleague.sampling.BUILTIN_SAMPLING_ROWS` only. Two consequences,
+both recorded rather than papered over:
+
+* ``COLLEAGUE_SAMPLING=0`` IS honoured — the kill switch sent no sampling keys,
+  so :func:`record` writes nothing and absence reads as "nothing was sent".
+* An operator ``.colleague/models.json`` row that OVERRIDES a builtin is NOT
+  reflected here: the adapter layers those rows (``vllm_payload.
+  _operator_sampling_rows``) and this module does not, so a run whose operator
+  table overrides a builtin records the BUILTIN values. The same limit applies
+  to ``config show`` (risk r7). Threading the payload path's own resolution
+  into finalization is the real fix and is a follow-up, not a claim made here.
+
 **Scope of the fold (honest limit).** Only seats that actually run through
 the adapter's ``_sampling_fragment`` write site are recorded: the acting
 ("main") seat and any delegated child (each riding its own resolved model +
@@ -58,6 +71,7 @@ Pure stdlib plus :mod:`colleague.sampling` / :mod:`colleague.samplingwire`.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from colleague import sampling, samplingwire
@@ -77,7 +91,13 @@ def resolve_seat_record(model: Any, role: Optional[str], rung: Any) -> Optional[
     caller must not synthesize a placeholder for any of these — that is the
     presence rule this function exists to enforce in one place.
     """
-    profile = sampling.resolve_sampling(model, role=role, rung=rung)
+    # The SAME merged table the adapter sends: builtin rows plus the
+    # operator's models.json, operator last so an equal-specificity row wins
+    # (Qodo #485 finding 6 / risk r7 — recording builtin-only made the
+    # artifact describe a request that was never sent).
+    root = os.environ.get("COLLEAGUE_MEMORY_ROOT") or os.getcwd()
+    rows = sampling.BUILTIN_SAMPLING_ROWS + samplingwire.operator_rows(root)
+    profile = sampling.resolve_sampling(model, role=role, rung=rung, rows=rows)
     if profile is None:
         return None
     return {
@@ -96,6 +116,12 @@ def record(result: Any, seat: str, model: Any, role: Optional[str], rung: Any) -
     per-run resolution), matching ``effortrecord.record``'s overwrite
     semantics for its ``{seat: rung}`` block.
     """
+    if not samplingwire.sampling_enabled():
+        # The kill switch sent NO sampling keys, so recording a row would
+        # describe a request that never happened (Qodo #485 finding 6,
+        # reproduced: COLLEAGUE_SAMPLING=0 sent temperature 0.0 while the
+        # record claimed the full thinking row). Absence is the honest record.
+        return
     resolved = resolve_seat_record(model, role, rung)
     if resolved is None:
         return

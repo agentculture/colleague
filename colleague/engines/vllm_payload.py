@@ -27,7 +27,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
-from colleague import associate_config, sampling, samplingfile, samplingwire, streamguards
+from colleague import associate_config, sampling, samplingwire, streamguards
 from colleague.config import EngineConfig
 from colleague.engines.vllm_transport import (
     _CONTENT_TYPE_JSON,
@@ -198,18 +198,6 @@ _SAMPLING_ENV_KEY = samplingwire.SAMPLING_ENV_KEY
 _SAMPLING_DISABLING_VALUES = samplingwire.SAMPLING_DISABLING_VALUES
 
 
-#: ``models.json`` half labels → :mod:`colleague.sampling`'s two halves. The
-#: file format (t3) is intentionally uninterpreted at parse time; mapping its
-#: labels is this consumer's job. An unrecognised label contributes no row.
-_HALF_LABELS = {
-    sampling.THINKING: sampling.THINKING,
-    sampling.NON_THINKING: sampling.NON_THINKING,
-    "non_thinking": sampling.NON_THINKING,
-    "nonthinking": sampling.NON_THINKING,
-    "instruct": sampling.NON_THINKING,
-}
-
-
 def _sampling_enabled() -> bool:
     """False only under the explicit ``COLLEAGUE_SAMPLING`` kill switch."""
     raw = os.environ.get(_SAMPLING_ENV_KEY)
@@ -218,60 +206,35 @@ def _sampling_enabled() -> bool:
     return raw.strip().lower() not in _SAMPLING_DISABLING_VALUES
 
 
-def _operator_profile(values: "dict[str, Any]") -> "sampling.SamplingProfile | None":
-    """One ``models.json`` half → a typed profile, or ``None`` for "nothing usable".
-
-    Unrecognised keys and unparseable values are dropped individually
-    (``associate_config.resolve_associate_profile``'s posture), so one typo
-    never costs an operator the rest of their row — and never refuses a run.
-    """
-    fields: "dict[str, Any]" = {}
-    for key, raw in values.items():
-        cast = samplingwire.SAMPLING_COERCERS.get(key)
-        if cast is None or isinstance(raw, bool):
-            continue
-        try:
-            fields[key] = cast(raw)
-        except (TypeError, ValueError):
-            continue
-    return sampling.SamplingProfile(**fields) if fields else None
-
-
 def _operator_sampling_rows(config: EngineConfig) -> "tuple[sampling.SamplingRow, ...]":
     """The operator's ``.colleague/models.json`` rows as typed table rows (c56).
 
-    A dispatched work item must read the same sampling table the operator repo
-    declares, so the root is ``config.memory_root`` — the OPERATOR repo the CLI
-    stamps on every isolated run (the ``memory_root`` precedent: an isolated
-    run's throwaway worktree is not where operator state lives) — falling back
-    to the process CWD when no front set it.
-
-    KNOWN LIMITATION (t3's file shape): ``models.json`` nests model → half →
-    keys, with NO role level, so every operator row resolves with
-    ``role=None`` — it claims any seat. A per-seat operator row needs a file
-    format change; this consumer deliberately does not invent a role nesting.
+    The conversion itself lives in :func:`colleague.samplingwire.operator_rows`
+    so that ``config show`` and the artifact recorder resolve against the SAME
+    merged table this payload builder does (Qodo #485 findings 6 and 9, and
+    risk r7) — the same reconciliation the server-default table needed in
+    deviation d2. This wrapper only supplies the root: ``config.memory_root``,
+    the OPERATOR repo the CLI stamps on every isolated run (an isolated run's
+    throwaway worktree is not where operator state lives), falling back to the
+    process CWD when no front set it.
     """
-    root = getattr(config, "memory_root", None) or os.getcwd()
-    try:
-        raw = samplingfile.load_models_file(root)
-    except (OSError, ValueError):  # pragma: no cover - the loader promises not to raise
-        return ()
-    rows: "list[sampling.SamplingRow]" = []
-    for model_id, halves in raw.items():
-        model_key = sampling.normalize_model_id(model_id)
-        if not model_key or not isinstance(halves, dict):
-            continue
-        for label, values in halves.items():
-            half = _HALF_LABELS.get(str(label).strip().lower().replace("-", "_"))
-            if half is None or not isinstance(values, dict):
-                continue
-            profile = _operator_profile(values)
-            if profile is None:
-                continue
-            rows.append(
-                sampling.SamplingRow(models=(model_key,), role=None, half=half, profile=profile)
-            )
-    return tuple(rows)
+    return samplingwire.operator_rows(getattr(config, "memory_root", None) or os.getcwd())
+
+
+def _operator_pinned_temperature() -> bool:
+    """True when the operator explicitly pinned a temperature this release.
+
+    ``COLLEAGUE_TEMPERATURE`` is DEPRECATED but still APPLIES this release
+    (t7 acceptance 1/2 — "an operator config predating this arc resolves to
+    the same values in this release"). A matched card row must therefore NOT
+    overwrite it: the spec's recorded decision is that an explicit knob wins,
+    silently. Without this the guarantee was hollow — a Qwen operator setting
+    0.6 still got the row's 1.0 on the wire (Qodo #485 finding 5, reproduced).
+
+    Read from the environment at build time rather than from a resolved flag,
+    so it holds for a long-lived ``EngineConfig`` reused across work items.
+    """
+    return bool((os.environ.get("COLLEAGUE_TEMPERATURE") or "").strip())
 
 
 def _sampling_fragment(config: EngineConfig, rung: "str | None") -> "dict[str, Any]":
@@ -300,7 +263,12 @@ def _sampling_fragment(config: EngineConfig, rung: "str | None") -> "dict[str, A
     profile = sampling.resolve_sampling(
         config.model, role=getattr(config, "role", None), rung=rung, rows=rows
     )
-    return samplingwire.wire_fragment(profile)
+    fragment = samplingwire.wire_fragment(profile)
+    if _operator_pinned_temperature():
+        # The deprecated scalar still wins this release; the rest of the
+        # row (top_p/top_k/...) still applies.
+        fragment.pop("temperature", None)
+    return fragment
 
 
 @dataclass(frozen=True)

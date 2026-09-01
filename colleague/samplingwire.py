@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from colleague import sampling
+from colleague import sampling, samplingfile
 
 __all__ = [
     "SAMPLING_COERCERS",
@@ -38,6 +38,7 @@ __all__ = [
     "SAMPLING_ENV_KEY",
     "SERVER_DEFAULT_SAMPLING",
     "sampling_enabled",
+    "operator_rows",
     "wire_fragment",
 ]
 
@@ -112,3 +113,70 @@ def sampling_enabled(env: Optional[Dict[str, str]] = None) -> bool:
     if raw is None:
         return True
     return raw.strip().lower() not in SAMPLING_DISABLING_VALUES
+
+
+#: ``models.json`` half labels → :mod:`colleague.sampling`'s two halves. The
+#: file format (t3) is intentionally uninterpreted at parse time; mapping its
+#: labels is this consumer's job. An unrecognised label contributes no row.
+HALF_LABELS = {
+    sampling.THINKING: sampling.THINKING,
+    sampling.NON_THINKING: sampling.NON_THINKING,
+    "non_thinking": sampling.NON_THINKING,
+    "nonthinking": sampling.NON_THINKING,
+    "instruct": sampling.NON_THINKING,
+}
+
+
+def _operator_profile(values: "dict[str, Any]") -> "sampling.SamplingProfile | None":
+    """One ``models.json`` half → a typed profile, or ``None`` for "nothing usable".
+
+    Unrecognised keys and unparseable values are dropped individually
+    (``associate_config.resolve_associate_profile``'s posture), so one typo
+    never costs an operator the rest of their row — and never refuses a run.
+    """
+    fields: "dict[str, Any]" = {}
+    for key, raw in values.items():
+        cast = SAMPLING_COERCERS.get(key)
+        if cast is None or isinstance(raw, bool):
+            continue
+        try:
+            fields[key] = cast(raw)
+        except (TypeError, ValueError):
+            continue
+    return sampling.SamplingProfile(**fields) if fields else None
+
+
+def operator_rows(root: "str | object") -> "tuple[sampling.SamplingRow, ...]":
+    """The operator's ``.colleague/models.json`` rows as typed table rows (c56).
+
+    Lives here, beside the wire filter, so every consumer resolves against the
+    SAME merged table: the adapter's payload builder, ``config show``, and the
+    artifact recorder. They disagreed before — the adapter layered operator rows
+    while the other two resolved builtin-only, so an operator override showed one
+    thing and sent another (Qodo #485 findings 6 and 9, risk r7).
+
+    KNOWN LIMITATION (t3's file shape): ``models.json`` nests model -> half ->
+    keys, with NO role level, so every operator row resolves with ``role=None``
+    — it claims any seat. A per-seat operator row needs a file format change;
+    this function deliberately does not invent a role nesting.
+    """
+    try:
+        raw = samplingfile.load_models_file(root)
+    except (OSError, ValueError):  # pragma: no cover - the loader promises not to raise
+        return ()
+    rows: "list[sampling.SamplingRow]" = []
+    for model_id, halves in raw.items():
+        model_key = sampling.normalize_model_id(model_id)
+        if not model_key or not isinstance(halves, dict):
+            continue
+        for label, values in halves.items():
+            half = HALF_LABELS.get(str(label).strip().lower().replace("-", "_"))
+            if half is None or not isinstance(values, dict):
+                continue
+            profile = _operator_profile(values)
+            if profile is None:
+                continue
+            rows.append(
+                sampling.SamplingRow(models=(model_key,), role=None, half=half, profile=profile)
+            )
+    return tuple(rows)

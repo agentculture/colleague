@@ -100,7 +100,13 @@ def _sampling_section(cfg: "EngineConfig") -> "tuple[list[str], dict[str, object
     rung = cfg.reasoning_effort_effective
     half = _sampling.half_for_rung(rung)
     model_key = _sampling.normalize_model_id(cfg.model)
-    profile = _sampling.resolve_sampling(cfg.model, role=seat, rung=rung)
+    # Resolve against the SAME merged table the adapter sends (Qodo #485
+    # finding 9 / risk r7): builtin rows plus the operator's models.json,
+    # operator last so an equal-specificity row wins, exactly as
+    # vllm_payload._sampling_fragment layers them.
+    _root = getattr(cfg, "memory_root", None) or os.getcwd()
+    _rows = _sampling.BUILTIN_SAMPLING_ROWS + _samplingwire.operator_rows(_root)
+    profile = _sampling.resolve_sampling(cfg.model, role=seat, rung=rung, rows=_rows)
     payload = _sampling.sampling_payload(profile)
     # What the ROW holds is the model card; what the WIRE carries is the row
     # minus every key already at the server's default (#479 c8, the filter in

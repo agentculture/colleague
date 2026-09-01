@@ -242,6 +242,21 @@ def _extra_fields_run_record(self: "TaskResult", extra: dict[str, Any]) -> dict[
     return extra
 
 
+def _sampling_from_dict(data: dict[str, Any]) -> "list[dict[str, Any]] | None":
+    """Read back the #479 ``sampling`` block, tolerantly.
+
+    A separate function purely to hold :func:`task_result_from_dict` under the
+    SonarCloud S3776 ceiling — this field's inline conditional was the branch
+    that pushed it from 15 to 16. A missing or non-list value reads back as
+    ``None`` (the omit-when-``None`` counterpart), and a non-dict entry inside
+    the list is skipped rather than raising.
+    """
+    raw = data.get("sampling")
+    if not isinstance(raw, list):
+        return None
+    return [dict(entry) for entry in raw if isinstance(entry, dict)]
+
+
 def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
     # Local import: the two lazy class getters live on colleague.contract
     # itself (they exist specifically to avoid importing colleague.testintegrity
@@ -331,11 +346,7 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         # effort (t5): best-effort like memory/evaluation_ledger — a non-dict
         # (or absent) key degrades to None, never raises on an old artifact.
         effort=(dict(data["effort"]) if isinstance(data.get("effort"), dict) else None),
-        sampling=(
-            [dict(e) for e in data["sampling"] if isinstance(e, dict)]
-            if isinstance(data.get("sampling"), list)
-            else None
-        ),
+        sampling=_sampling_from_dict(data),
         incompletion=(
             IncompletionRecord.from_dict(data["incompletion"])
             if isinstance(data.get("incompletion"), dict)
