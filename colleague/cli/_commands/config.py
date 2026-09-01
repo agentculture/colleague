@@ -24,6 +24,7 @@ import os
 
 from colleague import associate_cli, harness_cli
 from colleague import sampling as _sampling
+from colleague import samplingwire as _samplingwire
 from colleague.cli._commands import _effort_groups
 from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
@@ -101,6 +102,14 @@ def _sampling_section(cfg: "EngineConfig") -> "tuple[list[str], dict[str, object
     model_key = _sampling.normalize_model_id(cfg.model)
     profile = _sampling.resolve_sampling(cfg.model, role=seat, rung=rung)
     payload = _sampling.sampling_payload(profile)
+    # What the ROW holds is the model card; what the WIRE carries is the row
+    # minus every key already at the server's default (#479 c8, the filter in
+    # colleague/samplingwire.py). Showing only the row would tell a reader
+    # min_p/repetition_penalty go out when they do not — a silent
+    # misstatement in the one command whose job is to state the match
+    # honestly (acceptance 4/5).
+    wire = _samplingwire.wire_fragment(profile)
+    dropped = {k: v for k, v in payload.items() if k not in wire}
 
     data: dict[str, object] = {
         "seat": seat,
@@ -110,12 +119,16 @@ def _sampling_section(cfg: "EngineConfig") -> "tuple[list[str], dict[str, object
         "normalized_model": model_key,
         "matched": profile is not None,
         "payload": payload,
+        "wire": wire,
+        "dropped_at_server_default": dropped,
     }
     if profile is not None:
         line = (
             f"sampling: matched {half} row for model {cfg.model!r} "
-            f"(normalized {model_key!r}) -> {payload}"
+            f"(normalized {model_key!r}) -> on the wire {wire}"
         )
+        if dropped:
+            line += f"; dropped as already the server default {dropped}"
     elif half is None:
         line = (
             f"sampling: no row matched — rung {rung!r} (seat {seat!r}) selects "
