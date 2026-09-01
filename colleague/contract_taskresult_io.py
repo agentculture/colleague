@@ -124,8 +124,9 @@ def task_result_to_dict(self: "TaskResult") -> dict[str, Any]:
 
 def _extra_fields_to_dict(self: "TaskResult") -> dict[str, Any]:
     """The omit-when-None extras added after the original destination/lint
-    convention — ``mode``, ``affected_tests_report``, ``acceptance_outcomes``,
-    ``deepthink``, ``finish_recovered``, ``memory``, ``media``, ``senses``.
+    convention — ``mode``, ``affected_tests_report``, ``importcheck_report``,
+    ``acceptance_outcomes``, ``deepthink``, ``finish_recovered``, ``memory``,
+    ``media``, ``senses``.
 
     Split out of :func:`task_result_to_dict` purely to hold its cognitive
     complexity under the SonarCloud S3776 ceiling (15) — pure extraction, no
@@ -141,6 +142,11 @@ def _extra_fields_to_dict(self: "TaskResult") -> dict[str, Any]:
         extra["mode"] = self.mode
     if self.affected_tests_report is not None:
         extra["affected_tests_report"] = self.affected_tests_report.to_dict()
+    # importcheck_report gets the same omit-when-None treatment (#482/t6): a
+    # run where the gate never fired (off-knob, no changed .py, aborted)
+    # serializes byte-identically to the pre-t6 artifact (no extra key).
+    if self.importcheck_report is not None:
+        extra["importcheck_report"] = self.importcheck_report.to_dict()
     # acceptance_outcomes gets the same omit-when-None treatment (spec R6): a
     # work item with no acceptance criteria serializes byte-identically to
     # today's artifact (no extra key).
@@ -325,6 +331,11 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         affected_tests_report=(
             _contract._get_affected_tests_report_class().from_dict(data["affected_tests_report"])
             if data.get("affected_tests_report")
+            else None
+        ),
+        importcheck_report=(
+            _contract._get_import_check_report_class().from_dict(data["importcheck_report"])
+            if data.get("importcheck_report")
             else None
         ),
         not_finished=bool(data.get("not_finished", False)),

@@ -61,7 +61,8 @@ def _record_gate_deferral(ctx: _Work) -> None:
     ctx.result.gates_deferred = True
     note = (
         "chain-armed continuation exit — pre-finish gates (lint/coherence/"
-        "test-integrity/affected-tests) deferred to the chain's final episode (#335)"
+        "test-integrity/affected-tests/import-check) deferred to the chain's "
+        "final episode (#335)"
     )
     existing = ctx.result.capacity_warning
     ctx.result.capacity_warning = f"{existing}; {note}" if existing else note

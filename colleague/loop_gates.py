@@ -21,7 +21,11 @@ from colleague.loop_gatebase import (
     _gates_deferred_to_chain,
     _record_gate_deferral,
 )
-from colleague.loop_testgates import _maybe_run_affected_tests_gate, _maybe_run_test_integrity_gate
+from colleague.loop_testgates import (
+    _maybe_run_affected_tests_gate,
+    _maybe_run_import_check_gate,
+    _maybe_run_test_integrity_gate,
+)
 from colleague.loop_types import _Work
 from colleague.loop_wire import CompleteFn
 
@@ -34,7 +38,7 @@ def _run_pre_finish_gates(
     *,
     work_loop: "Callable[..., str]",
 ) -> None:
-    """Run the four pre-finish gates — or record their chain deferral (#335, c8/c10).
+    """Run the five pre-finish gates — or record their chain deferral (#335, c8/c10).
 
     A chain episode exiting on a continuation shape (budget-exhausted, or a
     declared fill-line finish-with-handoff — the SAME signals
@@ -49,7 +53,12 @@ def _run_pre_finish_gates(
     incl. an ``until_done`` run without a chain dispatch and every subagent
     child (c22). Each gate keeps its own aborted guard + best-effort wrapping
     (it can never abort :func:`run`); ordering is load-bearing — coherence,
-    test-integrity, and affected-tests all grade the lint-fixed changed set.
+    test-integrity, affected-tests, and import-check all grade the
+    lint-fixed changed set. Import-check (#482/t6) is the fifth gate, added
+    after t1/t3 landed: it deliberately sits behind the SAME chain-deferral
+    early-return as the other four (mirroring the affected-tests precedent)
+    even though it has no ``ContextControls`` enable flag of its own — see
+    :func:`colleague.loop_testgates._maybe_run_import_check_gate`.
     Extracted from :func:`run` so the deferral branch keeps ``run()`` under
     the S3776 cognitive-complexity ceiling (the PR #338 Sonar catch).
 
@@ -71,6 +80,11 @@ def _run_pre_finish_gates(
     # Affected-tests (#213): run the tests transitively importing the changed
     # module(s); advisory + non-blocking.
     _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted, work_loop=work_loop)
+    # Import-check (#482/t6, h4): py_compile + subprocess import smoke of the
+    # changed .py files, on EVERY outcome (no fix-turn, no outcome gating) —
+    # closes the row-67 gap where a non-importing branch shipped on a
+    # budget-exhausted outcome and told no one.
+    _maybe_run_import_check_gate(ctx, aborted)
 
 
 def _maybe_run_lint_gate(
