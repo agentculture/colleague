@@ -54,6 +54,7 @@ from colleague import editgate as _editgate
 from colleague import stallguard  # noqa: F401 - reached as ``loop.stallguard``
 from colleague import effortrecord
 from colleague import escalation as _escalation  # noqa: F401 - patched as ``loop._escalation``
+from colleague import loop_barrier as _barrier
 from colleague import loop_deltaheartbeat as _deltaheartbeat
 from colleague import loop_hooks as _loop_hooks
 from colleague import loop_run_stages as _run_stages
@@ -318,6 +319,13 @@ def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, st
     if trip is not None:
         ctx.result.warnings.append(trip)
         return nudges, _EXIT_LOOP_GUARD
+    # Pre-mutation decision barrier (#484 t8): ONE bounded tools-off planning
+    # turn before this run's first MUTATING tool call. When it interposes it
+    # REPLACES this turn's execution — neither the assistant message nor the
+    # tool calls below run; the model re-issues them next turn with the plan in
+    # context. A strict no-op (False, no completion) unless armed.
+    if _barrier.intercept(ctx, resp.tool_calls):
+        return nudges, None
     ctx.messages.append(_assistant_message(resp))
     # Run the turn's tool calls; a finish on any of them ends the work item once the
     # turn completes (the remaining calls in the turn still run).
@@ -662,6 +670,7 @@ def run(
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
         associate_complete=_context.associate_complete,
+        barrier_complete=_context.barrier_complete,
         reasoning_effort_main=_context.reasoning_effort_main,
         reasoning_effort_senses=_context.reasoning_effort_senses,
         reasoning_effort_deepthink=_context.reasoning_effort_deepthink,

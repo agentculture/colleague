@@ -249,6 +249,10 @@ def _extra_fields_run_record(self: "TaskResult", extra: dict[str, Any]) -> dict[
     # a disabled or pre-field run serializes byte-identically (no extra key).
     if self.task_text is not None:
         extra["task_text"] = self.task_text
+    # effort_spikes gets the same omit-when-EMPTY treatment as hires (#484):
+    # an unarmed run (the default) carries no key at all.
+    if self.effort_spikes:
+        extra["effort_spikes"] = [dict(entry) for entry in self.effort_spikes]
     return extra
 
 
@@ -300,6 +304,15 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
             _copy_hire_entry(h)
             for h in (data.get("hires") if isinstance(data.get("hires"), list) else [])
             if isinstance(h, dict)
+        ],
+        # effort_spikes (#484): same tolerance as hires — non-dict entries are
+        # dropped, an absent key is the empty (omitted-when-empty) list.
+        effort_spikes=[
+            {str(k): str(v) for k, v in s.items()}
+            for s in (
+                data.get("effort_spikes") if isinstance(data.get("effort_spikes"), list) else []
+            )
+            if isinstance(s, dict)
         ],
         command=data.get("command"),
         destination=data.get("destination"),

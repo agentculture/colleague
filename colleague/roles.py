@@ -279,6 +279,18 @@ def is_read_only(name: Optional[str]) -> bool:
     return bool(role and role.read_only)
 
 
+def is_read_only_tool(name: Optional[str]) -> bool:
+    """True iff the TOOL *name* is one a read-only role may hold.
+
+    The tool-level companion to :func:`is_read_only`, keyed on the very same
+    :data:`_READONLY_TOOLS` tuple that makes a read-only role provably unable
+    to mutate the tree — this adds no second list to drift from it. An unknown
+    name is NOT read-only (fail closed). Consumed by the pre-mutation decision
+    barrier (:mod:`colleague.loop_barrier`, #484) as its tool-NAME trigger.
+    """
+    return name in _READONLY_TOOLS
+
+
 # ---------------------------------------------------------------------------
 # Per-model loader
 # ---------------------------------------------------------------------------

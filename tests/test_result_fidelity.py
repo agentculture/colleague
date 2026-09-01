@@ -228,6 +228,7 @@ class TestNoFinishResultFidelity:
             "hook_firings",
             "sub_results",
             "hires",  # hire roster + assignments block (delegation-follow-ups t13, c38/h22)
+            "effort_spikes",  # fired effort spikes (#484 t8), omitted when empty
             "command",
             "destination",
             "announcement",

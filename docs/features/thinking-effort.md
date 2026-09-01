@@ -8,7 +8,10 @@
 colleague sends a **per-seat thinking setting** to a thinking checkpoint: the
 deepthink and design seats keep the checkpoint's full effort while the shallow
 seats (the senses front door, the Talker, the read-only scouts) turn thinking
-**off** — resolved **where each seat is built**, never per turn, and
+**off** — resolved **where each seat is built**, never per turn **from content**
+(amended #484: *per enumerated point from a fixed table* — the effort-spike
+surface, `colleague/effortspikes.py`, keys a rung by POINT NAME, never by
+inspecting a turn or accepting a model-supplied value), and
 **byte-identical when unset**. The knob is a closed ladder, not a free number:
 
 ```text

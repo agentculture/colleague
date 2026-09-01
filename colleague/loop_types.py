@@ -81,6 +81,10 @@ class _Work:
     # ContextControls, ``None`` for a single-model run (escalation points dormant).
     deepthink_run: Callable[..., Any] | None = None
     associate_complete: Any = None  # t19 seat-completion factory, None = unarmed
+    # Pre-mutation decision barrier (#484 t8): the bound barrier seat factory
+    # (``loop_barrier.make_barrier_complete``); ``None`` = the spike opt-in is
+    # unset, so ``loop_barrier.intercept`` is a strict no-op.
+    barrier_complete: Any = None
     # Recorded seat rungs (effort-v4 t5) — threaded verbatim from the
     # ContextControls fields of the same names; see their contract there.
     reasoning_effort_main: "str | None" = None
@@ -654,6 +658,10 @@ class ContextControls:
     #: backend passes ``associate_seats.make_associate_complete(config, name)``;
     #: ``None`` (unarmed) keeps the acting completion for every seat.
     associate_complete: Any = field(default=None, compare=False, repr=False)
+    #: The pre-mutation decision barrier's seat factory (#484 t8) — built in
+    #: ``from_config`` from the live config, ``None`` unless the
+    #: ``COLLEAGUE_EFFORT_SPIKES`` opt-in is armed (byte-identical default).
+    barrier_complete: Any = field(default=None, compare=False, repr=False)
     #: The acting (main) seat's resolved thinking-effort rung (effort-v4 t5,
     #: c6/h5) — ``effort.effort_of(config)``, exactly what the wire sends
     #: (``vllm_openai._effort_for``'s value), resolved ONCE in ``from_config``
@@ -699,10 +707,13 @@ class ContextControls:
         ONE seam where a live config meets loop-owned code. Imported lazily so
         this module stays the import leaf its own docstring promises.
         """
+        from colleague import loop_barrier as _loopbarrier
         from colleague import loop_deltaheartbeat as _deltaheartbeat
 
         return cls(
             delta_binder=_deltaheartbeat.arm(config),
+            # #484 t8: ``None`` (and nothing built) unless the spike opt-in is armed.
+            barrier_complete=_loopbarrier.make_barrier_complete(config),
             budget=config.context_budget_tokens,
             count_tokens=count_tokens,
             agents_run=_agents_runtime.make_agents_run(config),
