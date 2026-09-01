@@ -417,6 +417,13 @@ class TaskResult:
     :func:`colleague.hire_assign.hires_block`. Like ``sub_results``, the
     serialized key is OMITTED (not an empty list) when empty, so a hire-less
     run serializes byte-identically to today."""
+    effort_spikes: list[dict[str, str]] = field(default_factory=list)
+    """Effort spikes that FIRED on this run (#484), in firing order — each entry
+    a :meth:`colleague.effortspikes.SpikeRecord.to_dict` ``{point, rung, seat}``.
+    Absence of a point reads as did-not-fire; there is no off/false record. Like
+    ``hires``, the key is OMITTED (not an empty list) when empty, so a run with
+    the ``COLLEAGUE_EFFORT_SPIKES`` opt-in unset — the default — serializes
+    byte-identically to v1.74.0."""
     command: Optional[str] = None
     """The command-template name that originated this task, or ``None`` for
     an ad-hoc instruction (e.g. plain ``colleague work "<text>"``).

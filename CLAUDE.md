@@ -66,7 +66,8 @@ minds. The architecture, part by part:
   **enumerated** escalation surface; absent = byte-identical. Doc: `deepthink.md`.
 - **Thinking effort (#416)** — a per-seat reasoning ladder
   (`off|low|medium|high|xhigh`, plus the `default` kill-switch) resolved
-  **where each seat is built**, never per turn: deepthink/design seats keep full
+  **where each seat is built**, never per turn FROM CONTENT — per enumerated
+  point from a fixed table (amended #484): deepthink/design seats keep full
   effort, shallow seats (senses/Talker, read-only scouts) turn thinking off; the
   v3 default table is pinned row-for-row and rendered once in the feature doc
   (pointer, not duplicate); a ladder-400 retries once without the key;
