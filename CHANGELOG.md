@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.75.0] - 2026-09-01
+
+### Added
+
+- Import-check gate (#482): colleague/importcheck.py + fifth pre-finish gate on EVERY outcome incl. budget-exhausted/stalled — py_compile + subprocess importlib smoke of changed .py files, resolved against the RUN WORKTREE (never the installed package), importcheck_report on the artifact, import-check-failed warning; off-knob COLLEAGUE_IMPORT_CHECK=0
+- TaskResult.task_text (#481): the run's brief recorded verbatim on the artifact (16KB cap with explicit truncation marker, omit-when-None beside prompt_digest, ON by default, off-knob COLLEAGUE_RECORD_TASK_TEXT=0); work --continue and chain episodes propagate the ORIGINAL brief, never the synthesized continuation seed
+- Effort spikes (#484, opt-in COLLEAGUE_EFFORT_SPIKES, unarmed byte-identical): a FIXED three-point surface — barrier.pre_mutation (one bounded tools-off planning completion before the first mutating tool call, counts as a normal step), gate.repeat_failure (one medium replan on a REPEATED gate fix-turn failure, retry count as the signal), fillline.decision (the declaring turn consumes the previously dormant DESIGN_SITE_TABLE['fillline.split']) — rungs from fixed tables only, drift boundary test, SpikeRecord (point, rung, seat) on TaskResult.effort_spikes; recorded convention change (7): the thinking-effort invariant reads 'never per turn FROM CONTENT — per enumerated point from a fixed table'
+- delta_heartbeat wired into the work path (#483): loop_deltaheartbeat.py composes the throttled liveness sink at ContextControls.from_config + run() bind — a bare streamed work run now writes flight-feed liveness records mid-turn; blocking-path gap stays documented
+- Gate warnings on non-finished outcomes (#480): affected-tests-failed and test-integrity-flagged warnings on TaskResult.warnings when a gate fails on a budget-exhausted/stalled run; finished-run fix-turn behaviour unchanged
+- docs: features/effort-spikes.md + features/import-check.md; all-off-knob byte-identity assertion suite (tests/test_offknob_byte_identity.py)
+
 ## [1.74.2] - 2026-09-01
 
 ### Fixed
