@@ -2,7 +2,7 @@
   "plan_slug": "reasoning-aware-sampling-defaults-repetition-guard",
   "schema_version": 2,
   "created": "2026-09-01T10:52:03Z",
-  "updated": "2026-09-01T13:15:10Z",
+  "updated": "2026-09-01T14:22:42Z",
   "deviations": [
     {
       "id": "d1",
@@ -90,6 +90,139 @@
       "status": "approved",
       "superseded": false,
       "seq": 1
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/test_sampling_payload_wiring.py + a direct probe of _build_chat_payload on the merged tree",
+      "behavior_text": "with model meta-llama/Llama-3-70B (no matching row) and COLLEAGUE_SAMPLING unset, the payload keys are exactly {model, messages, temperature, chat_template_kwargs, max_tokens, stream, stream_options} and temperature is 0.0 = EngineConfig.temperature; none of top_p/top_k/min_p/presence_penalty/repetition_penalty appears",
+      "contract_text": "With no row matched and the kill switch unset, an outgoing payload is byte-identical to today",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Three independent pins in t5's suite (full-dict equality without tools, with tools, and the actual wire body captured through COLLEAGUE_DUMP_REQUEST and JSON-parsed off stderr), plus my own fresh-interpreter probe printing the key set on the merged tree. Qwen3.8-4B is used as a near-miss fixture so the enumerated match rule is exercised, not just an unrelated id.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T16:15:50+03:00",
+        "commit": "822ae77b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_repetition_wiring.py (13 tests)",
+      "behavior_text": "a repeating streamed reasoning stream aborts the SSE read, records one repetition-guard warning and hands back the same _plan_degraded_retry(TruncatedTurn()) plan a truncated turn rides, so the run CONTINUES into the tighter-window retry; only the ESCALATION_TRIP_LIMIT-th trip re-raises and ends the run",
+      "contract_text": "A repeating streamed reasoning stream aborts the SSE read and records one warning; the run continues into the existing tighter-window retry rather than ending",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "13 tests pass on the merged tree. The turn-vs-callback hazard is explicitly covered: a test asserts the same spiral yields MORE than 3 detector callbacks yet the run survives, because one trip is counted per TURN, not per callback. I had independently reproduced that hazard before the task ran (a 272k-char spiral in 500-char chunks yields 703 callbacks) and briefed it, so the test exists against a measured number rather than a guess. The streaming abort is proven at frame level (exactly 8 lines consumed; usage frame and [DONE] never read) and through _post_json_stream with a patched urlopen. Limit: unit level only, no live-rig proof.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T16:15:50+03:00",
+        "commit": "822ae77b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/test_temperature_deprecation.py (11 tests) + a direct two-case interpreter probe",
+      "behavior_text": "COLLEAGUE_TEMPERATURE=0.35 still resolves EngineConfig.temperature to 0.35 in this release and emits one deprecation warning naming .colleague/models.json and stating that a single value collapses BOTH halves; CONVERTIBLE_TEMPERATURE=0.9 is IGNORED (temperature falls back to the 0.0 default) and emits a removal warning",
+      "contract_text": "An operator config predating this arc resolves to the same values in this release, changing behaviour only in the release that removes the variable",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Not a coverage claim: I ran both cases in fresh interpreters on the merged tree and read back the resolved value AND the warning text, rather than relying on the suite alone. The warning text itself satisfies the separate honesty requirement that a reader can tell both halves collapsed to one value.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T16:15:50+03:00",
+        "commit": "822ae77b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o2",
+      "test_ref": "t12 criterion 1 \u2014 live payload diff on the merged tree, COLLEAGUE_DUMP_REQUEST=1",
+      "behavior_text": "an armed (rung low) and an off-rung turn on unsloth/Qwen3.8-27B-NVFP4 produce bodies differing in EXACTLY temperature (1.0 -> 0.7), top_p (0.95 -> 0.8), presence_penalty (absent -> 1.5) and chat_template_kwargs ({reasoning_effort: low} -> {enable_thinking: false}); every other key (model, messages, max_tokens, stream, stream_options, top_k=20) is identical",
+      "contract_text": "COLLEAGUE_DUMP_REQUEST on an armed turn and an off-rung turn yields two bodies differing in exactly the profile keys and the chat_template_kwargs fragment",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Ran on the merged branch, dumping both real bodies and diffing key sets programmatically rather than eyeballing; the assertion is that the differing-key set minus the six profile keys and chat_template_kwargs is EMPTY, which it is.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T16:19:32+03:00",
+        "commit": "822ae77b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o1",
+      "test_ref": "t12 criterion 2 \u2014 the rig discriminator, three completions per arm at temperature 2.0 against localhost:8001",
+      "behavior_text": "WITH top_k=1 three completions are byte-identical (sha 5c0a... x3); WITHOUT top_k the same three diverge (three distinct hashes). The rig honours the vLLM extension key at the moment of measurement, so a green sampling result cannot be a rig that silently ignores the key",
+      "contract_text": "three completions at temperature 2.0 with top_k 1 are identical and the same three without top_k are not, so a rig that stops honouring the keys is caught rather than read as a sampling result",
+      "evidence_type": "integration",
+      "strength": "sensitivity",
+      "strength_basis": "sensitivity strength: the probe is falsifiable in both directions and was FALSIFIED on its first form. My first attempt used the prompt 'Name one colour.' at max_tokens 24; both arms returned identical output ('Blue' x3), which detects nothing \u2014 a broken instrument, not a rig result. Re-run with an open-ended prompt and max_tokens 120, the arms separate cleanly. Recorded because a discriminator that cannot fail is worth nothing, and mine could not until it was fixed.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T16:19:32+03:00",
+        "commit": "822ae77b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o3",
+      "test_ref": "t12 criterion 4 \u2014 the guard alone against a synthetic repeating stream, sampling irrelevant",
+      "behavior_text": "feeding an 87-char verbatim unit repeatedly, the detector first fires at 704 emitted characters and the stream is cut after 5 detections at 1,056 characters \u2014 against the incident's 271,486 characters to finish_reason=length, a 257x reduction",
+      "contract_text": "With sampling reverted, the guard alone cuts a synthetic repeating stream within 5 detections instead of riding to finish_reason=length",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "The detector is a pure function of the text, so this arm is genuinely independent of the sampling half \u2014 it exercises no adapter code and no model. Constants read off the module at run time (min_len 48, min_count 8, escalation 3) rather than hard-coded in the probe.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T16:19:32+03:00",
+        "commit": "822ae77b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o1",
+      "test_ref": "t12 criterion 3 \u2014 the reconstructed-brief arm at the full Qwen3.8 thinking profile, artifact cc5d1f1a2c5f",
+      "behavior_text": "The run did NOT complete: status incomplete at the 40-step budget (step 60/40, forced synthesis), 1,984 s, 41 turns, and the delivered extraction does not import \u2014 'Policy' is imported from colleague.hooks where no such name exists, and with that removed 'ToolCall' is no longer re-exported from colleague.loop, breaking vllm_transport.py. Two independent defects. The two SUB-conditions of criterion 3 that are about reasoning shape DID hold: longest single turn 18,407 chars against the 50,000 bar, and zero repetition-guard trips. loop.py went 962 -> 820 with all five statically-checkable source-text pins intact.",
+      "contract_text": "The preserved brief rerun at the full Qwen3.8 thinking profile completes inside its bound where low plus greedy did not, with longest-turn reasoning under 50,000 characters and zero repetition-guard trips",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Filed as FAIL, not as a partial pass. Two caveats bound what this result can mean. (1) The brief is RECONSTRUCTED, not preserved: colleague stores only prompt_digest, so I recovered the six source-text pins from the incident run's own first grep and verified each against a real test at 5a721b8f, but the prose is mine and prose shape has moved outcomes by more than this arc's effect size in earlier rows. (2) Therefore the 1,984 s vs the 2,851 s medium+greedy baseline and the 506 s Claude control is NOT a like-for-like comparison and must not be read as one. Verified by checking out the result branch into a fresh worktree and running the suite, not by reading the run's own summary \u2014 which was itself honest and explicitly declined to claim done.",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-09-01T17:22:42+03:00",
+        "commit": "822ae77b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
     }
   ],
   "deltas": [],
