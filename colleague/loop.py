@@ -671,6 +671,7 @@ def run(
         deepthink_run=_context.deepthink_run,
         associate_complete=_context.associate_complete,
         barrier_complete=_context.barrier_complete,
+        gate_escalation=_context.gate_escalation,
         reasoning_effort_main=_context.reasoning_effort_main,
         reasoning_effort_senses=_context.reasoning_effort_senses,
         reasoning_effort_deepthink=_context.reasoning_effort_deepthink,

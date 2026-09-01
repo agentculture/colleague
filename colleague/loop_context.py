@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from colleague import autosplit as _autosplit
 from colleague import fillline as _fillline
+from colleague import loop_gateescalation as _gateescalation
 from colleague import turnbudget as _turnbudget
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import classify_degradable, window_messages
@@ -101,6 +102,13 @@ def _offer_fillline(ctx: _Work, prompt_tokens: int) -> None:
     ctx.messages.append({"role": "user", "content": body})
     ctx._fillline_offered.append(True)
     ctx._fillline_used.append(prompt_tokens)
+    # #484 t9: the DECLARING turn (the loop's very next completion, which
+    # consumes this prompt) is the fill-line's decision point — it has no
+    # completion of its own to build a seat for. Escalate it to the existing
+    # ``DESIGN_SITE_TABLE['fillline.split']`` rung, released again by
+    # ``_record_fillline_decision`` below. A strict no-op when the
+    # ``COLLEAGUE_EFFORT_SPIKES`` opt-in is unset (the default).
+    _gateescalation.arm_fillline_decision(ctx)
 
 
 def _record_fillline_decision(ctx: _Work, kind: str) -> None:
@@ -118,6 +126,10 @@ def _record_fillline_decision(ctx: _Work, kind: str) -> None:
     reason = f"context at {used} of {budget} budgeted tokens (fill line)"
     ctx.result.capacity_decision = CapacityDecision(kind=kind, reason=reason)
     ctx._fillline_resolved.append(True)
+    # #484 t9: the declaration is in — release the declaring turn's escalation
+    # so the compaction turn that may follow (and every later turn) runs at the
+    # seat's ordinary rung again. A no-op when nothing was escalated.
+    _gateescalation.disarm_fillline_decision(ctx)
 
 
 def _seat_complete(ctx: _Work, seat: str, complete: CompleteFn) -> CompleteFn:
