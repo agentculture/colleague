@@ -2,8 +2,31 @@
   "plan_slug": "reasoning-aware-sampling-defaults-repetition-guard",
   "schema_version": 2,
   "created": "2026-09-01T10:52:03Z",
-  "updated": "2026-09-01T10:55:39Z",
-  "deviations": [],
+  "updated": "2026-09-01T11:00:17Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t5 criterion 5 is NOT met as literally written: tests/test_associate_sampling.py does not pass unchanged. Its test_cortex_payload_is_byte_identical asserts the CORTEX payload keeps temperature 0.0 and carries no top_p, on a config that resolves the served unsloth/Qwen3.8-27B-NVFP4 at the default low rung - exactly the greedy-in-thinking-mode behaviour this arc removes. Criterion 5 and criterion 2 are mutually exclusive on that one test. I kept the guarantee the test exists for (an unarmed seat sees nothing of the associate profile, still asserted) and updated only the sampling baseline, renaming it to test_cortex_payload_carries_no_associate_leakage. The criterion's stated REASON - the associate branch is untouched - is met in full: the other tests in the file pass unchanged and t5 added a new one proving an armed associate payload carries no top_k or min_p.",
+      "task_ref": "t5",
+      "reason": "The confirmed criterion assumed a test file whose contents nobody had re-read against the change; the file turned out to pin the defect under an associate-sounding name.",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d2",
+      "what": "t5 and t8 each landed a private copy of the server-default sampling table, which tripped t5's own single-write-site guard once both merged. Reconciled into a NEW leaf module colleague/samplingwire.py holding SERVER_DEFAULT_SAMPLING, SAMPLING_COERCERS and wire_fragment(); the adapter and the detached distill child both delegate to it. Two consequences: the guard now names samplingwire.py as the owning module, and the distill child now also drops presence_penalty 0.0 (a server default t8's narrower two-key table had kept) - the two sites now agree by construction, which was the point.",
+      "task_ref": "t8",
+      "reason": "Parallel same-wave tasks could not import each other, so both correctly implemented and flagged the duplication rather than guessing; reconciliation was always going to be the integrator's job. Landing it in a new leaf module also honours the spec's line-140 preference over growing an existing one.",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
+    }
+  ],
   "evidence": [
     {
       "id": "e1",
