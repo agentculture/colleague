@@ -33,9 +33,10 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
-from colleague import stallguard, streamguards
+from colleague import repetitionguard, stallguard, streamguards
 from colleague.config import EngineConfig
 from colleague.loop import ModelResponse, ToolCall
+from colleague.loop_transport import RepetitionTripped
 
 # The one spelling of the wire content-type, referenced by every JSON POST
 # below (chat completions and the SSE stream variant) — S1192.
@@ -406,6 +407,10 @@ class _StreamAccumulator:
 
     content_parts: list[str] = field(default_factory=list)
     reasoning_parts: list[str] = field(default_factory=list)
+    #: The repetition detector's TURN-scoped state (t6). A fresh accumulator is
+    #: built per turn, so the state never leaks across turns and two concurrent
+    #: streams never share one detector (:mod:`colleague.repetitionguard`).
+    repetition: Any = field(default_factory=repetitionguard.new_state)
     tool_call_fragments: dict[int, dict[str, str]] = field(default_factory=dict)
     usage: dict[str, Any] = field(default_factory=dict)
     saw_finish_reason: bool = False
@@ -423,6 +428,17 @@ def _emit_content_and_reasoning_deltas(
     """Fold one frame's ``delta`` content/reasoning chunks into *acc*, feeding
     each to *on_delta* as it arrives. Honors both ``reasoning`` and
     ``reasoning_content`` key spellings (some servers use the latter).
+
+    Each reasoning delta is also fed to the turn's repetition detector (t6). The
+    FIRST trip raises :class:`~colleague.loop_transport.RepetitionTripped`, which
+    unwinds out of the frame loop and the ``with urlopen(...)`` block — aborting
+    the SSE read mid-answer instead of streaming out the remaining ~270k
+    characters of one verbatim insight (run ``2bd306a6916a``). Aborting on the
+    FIRST trip is also what makes one spiral cost exactly ONE trip: the detector
+    reports a trip on every subsequent chunk, and counting those would end the run
+    instead of cutting the turn. Content deltas are deliberately NOT fed — a
+    repeating ANSWER is the model's output, not the runaway-reasoning shape this
+    guard owns.
     """
     content_chunk = delta.get("content")
     if content_chunk:
@@ -432,6 +448,11 @@ def _emit_content_and_reasoning_deltas(
     if reasoning_chunk:
         acc.reasoning_parts.append(reasoning_chunk)
         _emit_delta(on_delta, reasoning_chunk)
+        acc.repetition, trip = repetitionguard.check(reasoning_chunk, acc.repetition)
+        if trip is not None:
+            raise RepetitionTripped(
+                trip, reasoning_chars=sum(len(part) for part in acc.reasoning_parts)
+            )
 
 
 def _accumulate_frame_tool_calls(delta: dict[str, Any], acc: _StreamAccumulator) -> None:

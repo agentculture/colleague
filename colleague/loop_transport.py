@@ -14,7 +14,7 @@ import time
 from contextlib import suppress
 from typing import Any
 
-from colleague import backpressure, media, stallguard, streamguards
+from colleague import backpressure, media, repetitionguard, stallguard, streamguards
 from colleague.context import TruncatedTurn, classify_degradable, is_media_rejection
 from colleague.loop_accounting import _account_turn
 from colleague.loop_constants import (
@@ -390,6 +390,136 @@ def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
     return note
 
 
+# ── the repetition guard's turn-cut (t6, spec c10/h17, c13/h18, c33/h25, c54/h42)
+#
+# :mod:`colleague.repetitionguard` is the detector; the trip SEMANTICS are here,
+# and they are deliberately NOT :mod:`colleague.loopguards`' — that guard ends the
+# run outright, this one CUTS THE TURN into the tighter-window retry that
+# demonstrably rescued run ``2bd306a6916a``. Only the
+# ``ESCALATION_TRIP_LIMIT``-th trip of one run ends it.
+#
+# ONE trip = ONE TURN in which the detector fired, never one detector callback:
+# once a buffer's tail is repeating, ``repetitionguard.check`` reports a trip on
+# EVERY subsequent chunk (a 272k-char spiral fed in 500-char chunks reports ~703
+# of them). Counting callbacks would end a run on its first spiral and the
+# turn-cut recovery would never happen. The streaming call site therefore ABORTS
+# on the first trip of a turn (so a turn can raise at most once) and the blocking
+# call site runs the detector exactly once, post-turn.
+
+#: The tier that trips: qwen-code's verbatim content repetition, never its
+#: entropy tier (see :mod:`colleague.loopguards`' docstring).
+_REPETITION_GUARD = "verbatim-tail"
+
+#: What the artifact says about a STREAM-cut turn's tokens. Aborting the SSE read
+#: discards the final ``usage`` frame, and CLAUDE.md is absolute that tokens are
+#: exactly what ``usage`` reports and are NEVER estimated — so the turn is left
+#: unaccounted (exactly what the existing :class:`streamguards.StreamGuardTripped`
+#: path does with a cut turn) and the artifact SAYS SO, rather than carrying a
+#: zero that reads as "this turn was free".
+_USAGE_UNRECORDED = (
+    "unrecorded: the SSE read was aborted before the final usage frame, so this "
+    "turn's prompt/completion tokens are absent from the run totals — never estimated"
+)
+_USAGE_RECORDED = "recorded: the turn's usage frame arrived; its tokens are in the run totals"
+
+
+class RepetitionTripped(Exception):
+    """One turn's reasoning repeated verbatim past the detector's threshold.
+
+    Raised by the vLLM streaming reader the moment
+    :func:`colleague.repetitionguard.check` trips on an arriving reasoning delta
+    (which aborts the SSE read), and constructed by the blocking path here for
+    the post-turn check — so ONE warning shape reaches the artifact either way
+    (spec c17: a LOOP-level warning, never an adapter-only artifact).
+
+    ``reasoning_chars`` is the exact length of the reasoning seen when the trip
+    fired; ``tokens_recorded`` is ``False`` when the turn's ``usage`` frame was
+    discarded with the aborted read.
+    """
+
+    def __init__(
+        self,
+        trip: dict[str, Any],
+        *,
+        reasoning_chars: int,
+        tokens_recorded: bool = False,
+    ) -> None:
+        self.trip = dict(trip or {})
+        self.reasoning_chars = int(reasoning_chars)
+        self.tokens_recorded = bool(tokens_recorded)
+        super().__init__(
+            f"repetition guard: a {self.trip.get('period')}-character unit repeated "
+            f"{self.trip.get('repeats')} times verbatim in this turn's reasoning "
+            f"({self.reasoning_chars} reasoning chars) — the turn was cut"
+        )
+
+
+def _repetition_warning(exc: RepetitionTripped, trips: int, *, step_index: int) -> dict[str, Any]:
+    """The ONE warning a trip records — identical on the streaming and blocking paths."""
+    return {
+        "kind": repetitionguard.WARNING_KIND,
+        "guard": _REPETITION_GUARD,
+        "trip": trips,
+        "limit": repetitionguard.ESCALATION_TRIP_LIMIT,
+        "period": exc.trip.get("period"),
+        "repeats": exc.trip.get("repeats"),
+        "unit_preview": exc.trip.get("unit_preview"),
+        "reasoning_chars": exc.reasoning_chars,
+        "step_index": step_index,
+        "tokens_recorded": exc.tokens_recorded,
+        "usage": _USAGE_RECORDED if exc.tokens_recorded else _USAGE_UNRECORDED,
+    }
+
+
+def _record_repetition_trip(ctx: _Work, exc: RepetitionTripped) -> int:
+    """Record ONE trip and return the run's trip count; RE-RAISE at the limit.
+
+    The count is derived from the warnings already on the artifact (the
+    :mod:`colleague.runcounts` rule: the counter and the record can never
+    disagree), so no new ``_Work`` cell is needed and a continuation that
+    rehydrates the warnings rehydrates the count with them. Raising at
+    :data:`~colleague.repetitionguard.ESCALATION_TRIP_LIMIT` ends the run through
+    :func:`colleague.loop.run`'s existing preserve-the-partial abort path — the
+    warning is already recorded, so the run ends WITH it.
+    """
+    trips = (
+        sum(
+            1
+            for w in ctx.result.warnings
+            if isinstance(w, dict) and w.get("kind") == repetitionguard.WARNING_KIND
+        )
+        + 1
+    )
+    ctx.result.warnings.append(_repetition_warning(exc, trips, step_index=len(ctx.result.steps)))
+    if trips >= repetitionguard.ESCALATION_TRIP_LIMIT:
+        _emit_phase(
+            ctx,
+            f"repetition guard: trip {trips} of {repetitionguard.ESCALATION_TRIP_LIMIT} — "
+            "the model keeps repeating itself verbatim; ending the run with the partial",
+        )
+        raise exc
+    _emit_phase(
+        ctx,
+        f"repetition guard: the turn's reasoning repeated a "
+        f"{exc.trip.get('period')}-character unit {exc.trip.get('repeats')} times verbatim "
+        f"({exc.reasoning_chars} chars) — cutting the turn; retrying with a tighter window",
+    )
+    return trips
+
+
+def _response_repetition(resp: ModelResponse) -> RepetitionTripped | None:
+    """The blocking path's post-turn check: run the SAME detector ONCE over the
+    finished reasoning text. Tokens are recorded here — the response carried its
+    own ``usage`` frame, nothing was aborted."""
+    text = resp.reasoning or ""
+    if not text:
+        return None
+    _state, trip = repetitionguard.check(text, repetitionguard.new_state())
+    if trip is None:
+        return None
+    return RepetitionTripped(trip, reasoning_chars=len(text), tokens_recorded=True)
+
+
 def _is_truncated_turn(resp: ModelResponse) -> bool:
     """An empty-content, tool-less turn the server cut at ``finish_reason=length`` (#411 t8)."""
     return not resp.content and not resp.tool_calls and resp.finish_reason == "length"
@@ -444,6 +574,15 @@ def _attempt_completion_or_retry_plan(
     """
     try:
         resp = _timed_complete(ctx, complete)
+    except RepetitionTripped as trip:
+        # t6: the streaming reader cut this turn. Record ONE warning (the call
+        # re-raises at the escalation limit, ending the run) and ride the SAME
+        # shrink-and-retry plan a truncated turn does. At the floor there is no
+        # tighter window left, so the retry is immediate and uncounted — bounded
+        # by the escalation limit, which every trip advances.
+        _record_repetition_trip(ctx, trip)
+        plan = _plan_degraded_retry(ctx, TruncatedTurn(), effective, saw_overflow)
+        return None, plan if plan is not None else _RETRY_IMMEDIATE
     except Exception as exc:  # noqa: BLE001
         if _flatten_on_media_rejection(ctx, exc):
             return None, _RETRY_IMMEDIATE
@@ -451,6 +590,19 @@ def _attempt_completion_or_retry_plan(
         if plan is None:
             raise
         return None, plan
+    repeated = _response_repetition(resp)
+    if repeated is not None:
+        # t6 / criterion 5: the incident's blocking shape satisfies BOTH this and
+        # ``_is_truncated_turn``; the repetition warning is the specific one, so it
+        # is recorded INSTEAD of ``truncated-turn`` — never a duplicate pair. The
+        # turn's tokens are exact and are never dropped (the ``account=`` rule
+        # ``_record_truncated_turn`` documents).
+        _record_repetition_trip(ctx, repeated)
+        plan = _plan_degraded_retry(ctx, TruncatedTurn(), effective, saw_overflow)
+        if plan is not None:
+            _account_turn(ctx, resp)
+            return None, plan
+        return resp, None  # at the floor: _work_loop accounts the returned turn
     if _is_truncated_turn(resp):
         # #411 t8: an empty-content finish_reason=length turn is a truncation, not an
         # answer — record it and ride the SAME shrink-and-retry plan; at the floor
@@ -506,16 +658,30 @@ def _complete_with_degradation(
         # fan-out throttle work without windowing; only the shrink needs a budget).
         # ONE exception (t9, c7): a media-refusing endpoint still degrades to a
         # text-only retry — that handling must not depend on the budget feature.
-        try:
-            resp = _timed_complete(ctx, complete)
-        except Exception as exc:  # noqa: BLE001
-            if _flatten_on_media_rejection(ctx, exc):
-                return _timed_complete(ctx, complete)
-            raise
-        if _is_truncated_turn(resp):
-            # no budget = nothing to shrink: recorded only; _work_loop accounts resp
-            _record_truncated_turn(ctx, resp, account=False)
-        return resp
+        while True:
+            try:
+                resp = _timed_complete(ctx, complete)
+            except RepetitionTripped as trip:
+                # t6: no budget = no tighter window, but the turn is still CUT
+                # rather than fatal — record it and re-ask. Bounded: the call
+                # re-raises at the escalation limit, which every trip advances.
+                _record_repetition_trip(ctx, trip)
+                continue
+            except Exception as exc:  # noqa: BLE001
+                if _flatten_on_media_rejection(ctx, exc):
+                    return _timed_complete(ctx, complete)
+                raise
+            repeated = _response_repetition(resp)
+            if repeated is not None:
+                # t6 / criterion 5: recorded INSTEAD of ``truncated-turn``; with no
+                # budget there is nothing to shrink, so the turn flows on to the
+                # existing no-tool handling (which accounts it) exactly as a
+                # recorded truncation already does.
+                _record_repetition_trip(ctx, repeated)
+            elif _is_truncated_turn(resp):
+                # no budget = nothing to shrink: recorded only; _work_loop accounts resp
+                _record_truncated_turn(ctx, resp, account=False)
+            return resp
 
     # Adaptive backpressure (t6/#255): under ARMED/ESCALATED the next turn's
     # window is proactively tightened — smaller prompts make faster turns, the
