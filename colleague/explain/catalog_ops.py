@@ -125,6 +125,25 @@ temperature, timeout, context_budget_tokens) with the api_key redacted.
 Precedence (highest first): explicit flag > COLLEAGUE_*/OPENAI_* env >
 .colleague/config.json > built-in default.
 
+## Temperature knob deprecation (#479)
+
+``temperature`` is a flat scalar being superseded by the per-half sampling
+table (``colleague.sampling`` + the tracked ``.colleague/models.json``):
+
+- ``CONVERTIBLE_TEMPERATURE`` is REMOVED — its value is ignored, and setting
+  it prints a warning and lands one on ``TaskResult.warnings``.
+- ``COLLEAGUE_TEMPERATURE`` is DEPRECATED for one release — it still applies
+  exactly as it does today, but warns that a single value collapses BOTH the
+  thinking and non-thinking sampling halves to itself, and names
+  ``.colleague/models.json`` as the per-half replacement.
+- A run with neither variable set is silent — no warning, byte-identical
+  behaviour.
+
+``config show`` states the resolved sampling match POSITIVELY, right beside
+the effort lines — the row + model it matched, or an explicit
+no-row-matched line — never a silent miss on a checkpoint colleague has no
+card for.
+
 ## Verbs
 
 - ``config show [--repo PATH] [--json]`` — show the resolved provider config

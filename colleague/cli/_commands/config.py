@@ -6,13 +6,24 @@ the api_key redacted. ``config overview`` describes the noun.
 
 Precedence (highest first): explicit flag > COLLEAGUE_*/OPENAI_* env >
 .colleague/config.json > built-in default.
+
+``temperature`` is a flat scalar being superseded by the per-half sampling
+table in ``colleague.sampling`` / the tracked ``.colleague/models.json``
+(reasoning-aware-sampling arc, #479 t7): ``CONVERTIBLE_TEMPERATURE`` is
+removed (warns if set), ``COLLEAGUE_TEMPERATURE`` is deprecated for one
+release (still applies, warns naming ``.colleague/models.json``). Beside the
+effort lines, ``config show`` states the resolved SAMPLING match positively
+— the row + model it matched, or an explicit no-row-matched line — never a
+silent miss on a checkpoint colleague has no card for.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 
 from colleague import associate_cli, harness_cli
+from colleague import sampling as _sampling
 from colleague.cli._commands import _effort_groups
 from colleague.cli._commands._listing import append_not_consumed
 from colleague.cli._commands.overview import render_text
@@ -58,6 +69,82 @@ def _config_sections() -> list[dict[str, object]]:
     ]
 
 
+#: The kill switch's env name (t5 owns the adapter-side consumption; this
+#: reads the SAME variable read-only, so config show never lies about it
+#: even though this task builds no other half of the switch). Mirrors the
+#: exact ``== "0"`` convention ``colleague/web.py``'s ``COLLEAGUE_WEB``
+#: kill switch already uses.
+_SAMPLING_KILL_SWITCH_ENV = "COLLEAGUE_SAMPLING"
+
+
+def _sampling_section(cfg: "EngineConfig") -> "tuple[list[str], dict[str, object]]":
+    """Render the sampling-match section beside the effort lines (spec c45/h44).
+
+    Positive statement, never a silent miss (acceptance 4/5, reasoning-aware-
+    sampling arc plan task t7): names the row that matched and the model it
+    matched for, or an explicit no-row-matched line — a misspelt/unmatched
+    model id degrades to that explicit line rather than resolving quietly to
+    a default. Uses ``colleague.sampling``'s BUILTIN table only (rows=None) —
+    the tracked ``.colleague/models.json`` operator table is a separate
+    resolution rung this task does not wire in.
+
+    The acting seat mirrors :func:`colleague.effort.resolve_acting_effort`'s
+    own seat rule (``"worker"`` when three-tier armed a worker, else
+    ``"cortex"``) and reads the SAME resolved rung
+    (``cfg.reasoning_effort_effective``) the vLLM adapter's ``_effort_for``
+    sends on the wire, so this display can never claim a match the actual
+    request would not also make.
+    """
+    seat = "worker" if getattr(cfg, "worker", None) is not None else "cortex"
+    rung = cfg.reasoning_effort_effective
+    half = _sampling.half_for_rung(rung)
+    model_key = _sampling.normalize_model_id(cfg.model)
+    profile = _sampling.resolve_sampling(cfg.model, role=seat, rung=rung)
+    payload = _sampling.sampling_payload(profile)
+
+    data: dict[str, object] = {
+        "seat": seat,
+        "rung": rung,
+        "half": half,
+        "model": cfg.model,
+        "normalized_model": model_key,
+        "matched": profile is not None,
+        "payload": payload,
+    }
+    if profile is not None:
+        line = (
+            f"sampling: matched {half} row for model {cfg.model!r} "
+            f"(normalized {model_key!r}) -> {payload}"
+        )
+    elif half is None:
+        line = (
+            f"sampling: no row matched — rung {rung!r} (seat {seat!r}) selects "
+            "no half, so no sampling keys are sent"
+        )
+    else:
+        line = (
+            f"sampling: no row matched for model {cfg.model!r} "
+            f"(normalized {model_key!r}, half={half!r}) — no sampling keys are sent"
+        )
+    lines = [line]
+
+    # COLLEAGUE_SAMPLING (c53/h40): a per-process boolean kill switch, not a
+    # value, so it never joins the scalar lane above — but a run with it
+    # ARMED sends no sampling keys regardless of the match this section just
+    # reported, and config show must never leave that unstated (read-only:
+    # the adapter that actually consumes it is a sibling task's file, never
+    # imported here).
+    kill_switch_raw = os.environ.get(_SAMPLING_KILL_SWITCH_ENV)
+    kill_switch_armed = kill_switch_raw == "0"
+    data["kill_switch_armed"] = kill_switch_armed
+    if kill_switch_armed:
+        lines.append(
+            f"sampling: {_SAMPLING_KILL_SWITCH_ENV}=0 (kill switch armed) — no "
+            "sampling keys are sent regardless of the match above"
+        )
+    return lines, data
+
+
 # --- registry tool functions (rendered) + thin legacy adapters --------------
 
 
@@ -81,6 +168,11 @@ def _config_show(repo: str = ".") -> object:
     kill_switch = cfg.reasoning_effort == DEFAULT_SENTINEL
     lines.append("reasoning_effort:" + (" (kill-switch)" if kill_switch else ""))
     lines.extend(_effort_groups.render_lines(cfg))
+    # Reasoning-aware sampling defaults (#479 t7, c45/h44): the sampling
+    # match, positively stated, right beside the effort lines it derives its
+    # half from.
+    sampling_lines, sampling_data = _sampling_section(cfg)
+    lines.extend(sampling_lines)
     provenance = config_provenance(repo)
     if provenance:
         for entry in provenance:
@@ -95,6 +187,10 @@ def _config_show(repo: str = ".") -> object:
     data["config_files"] = provenance
     # t10: the 3 resolved effort groups (additive key; what is actually sent).
     data["reasoning_effort_resolved"] = _effort_groups.resolved_groups(cfg)
+    # #479 t7: the sampling match, positively stated (c45/h44) — the same
+    # dict backing the ``sampling:`` lines above, so JSON and text can never
+    # diverge on whether a row matched.
+    data["sampling"] = sampling_data
     data.update(harness_cli.config_show_lines(lines, cfg))  # t20/c43: clamp + window
     gateway = resolve_lobes_gateway_url(repo)
     if gateway is not None:

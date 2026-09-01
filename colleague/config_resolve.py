@@ -18,6 +18,9 @@ that pin honest is worth more than a tidier split.
 
 from __future__ import annotations
 
+import os
+import sys
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -346,6 +349,97 @@ def resolve_effort_knobs(files: FileOverrides) -> "tuple[Optional[str], dict, di
     )
 
 
+# ---------------------------------------------------------------------------
+# Temperature knob deprecation (reasoning-aware-sampling-defaults arc, plan
+# task t7, spec c9/h11 + c42/h32).
+#
+# The flat scalar temperature knob is being replaced by the per-half table in
+# ``colleague.sampling`` (t2) / the tracked ``.colleague/models.json`` file
+# (t3). ``CONVERTIBLE_TEMPERATURE`` — the legacy rename alias — is removed
+# NOW: the scalar block below no longer reads it at all, and a run that still
+# sets it gets a loud warning rather than a silent no-op.
+# ``COLLEAGUE_TEMPERATURE`` itself is DEPRECATED over one release: it still
+# applies THIS release and still means exactly what it means today (a single
+# scalar `EngineConfig.temperature`), but warns — naming
+# ``.colleague/models.json`` as the replacement, and naming explicitly that
+# a single value collapses BOTH the thinking and non-thinking sampling
+# halves to itself (the honesty requirement behind spec acceptance 6: a
+# split-by-half world with one flat pin needs a reader to be able to tell
+# the two halves collapsed, not just that a number was applied).
+#
+# Mirrors ``colleague.lobes.ModelRefreshWarning`` / ``vllm_payload.
+# _LadderRetryWarning``'s shape and stderr-notice convention exactly: a
+# frozen record, a ``message()`` line printed ONCE at resolution time (never
+# per-turn — this is a resolution-time env read, not a call-time one), and a
+# ``to_dict()`` a downstream fold (``colleague/cli/_commands/_work_support.py``)
+# lands on ``TaskResult.warnings`` verbatim.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TemperatureDeprecationWarning:
+    """One temperature-knob deprecation/removal record (spec c9/h11).
+
+    ``variable`` is the env var name that was set (``CONVERTIBLE_TEMPERATURE``
+    or ``COLLEAGUE_TEMPERATURE``); ``kind`` is ``"removed"`` (the value is
+    IGNORED — the legacy alias never rejoins the scalar lane) or
+    ``"deprecated"`` (the value still APPLIES this release).
+    """
+
+    variable: str
+    kind: str
+
+    def message(self) -> str:
+        if self.kind == "removed":
+            return (
+                "colleague: CONVERTIBLE_TEMPERATURE is removed and no longer read — "
+                "its value is IGNORED. Set COLLEAGUE_TEMPERATURE instead if you need "
+                "the single-value scalar (it too is deprecated, see below), or move "
+                "to the per-half sampling rows in .colleague/models.json."
+            )
+        return (
+            "colleague: COLLEAGUE_TEMPERATURE is deprecated — it still applies this "
+            "release exactly as it does today, but because it is a SINGLE value it "
+            "collapses BOTH the thinking and non-thinking sampling halves to this "
+            "one temperature. Migrate to the per-half rows in "
+            ".colleague/models.json; COLLEAGUE_TEMPERATURE is removed in a later "
+            "release."
+        )
+
+    def to_dict(self) -> "dict[str, str]":
+        return {"variable": self.variable, "kind": self.kind, "message": self.message()}
+
+
+def _emit_temperature_deprecation_warning(warning: TemperatureDeprecationWarning) -> None:
+    """Print *warning*'s message to stderr — mirrors
+    :func:`colleague.lobes.emit_model_refresh_warning`'s convention. Never
+    raises: a closed/broken stderr must never break the resolution it is
+    merely announcing.
+    """
+    with suppress(OSError):
+        print(warning.message(), file=sys.stderr)
+
+
+def _resolve_temperature_deprecation() -> "tuple[TemperatureDeprecationWarning, ...]":
+    """Detect + emit the temperature-knob deprecation/removal warnings.
+
+    Reads the environment directly (not via :func:`_pick`, which already
+    hides whether a variable was actually set) — a truthy/non-empty value
+    counts as "set", matching ``_pick``'s own truthiness check. Called
+    exactly ONCE per :meth:`~colleague.config.EngineConfig.resolve` — a plain
+    run with neither variable set returns ``()`` and prints nothing (h21's
+    "a run without it is silent").
+    """
+    warnings: "list[TemperatureDeprecationWarning]" = []
+    if os.environ.get("CONVERTIBLE_TEMPERATURE"):
+        warnings.append(TemperatureDeprecationWarning("CONVERTIBLE_TEMPERATURE", "removed"))
+    if os.environ.get("COLLEAGUE_TEMPERATURE"):
+        warnings.append(TemperatureDeprecationWarning("COLLEAGUE_TEMPERATURE", "deprecated"))
+    for warning in warnings:
+        _emit_temperature_deprecation_warning(warning)
+    return tuple(warnings)
+
+
 def resolve_scalar_knobs(
     ov: object,
     max_steps: "int | None",
@@ -359,7 +453,14 @@ def resolve_scalar_knobs(
     Excluded (they come from other steps): ``base_url`` / ``api_key`` /
     ``model`` / ``context_budget_tokens`` / ``lobes_context`` and every seat,
     mode and effort field.
+
+    ``temperature`` is the one exception to "same env names": the
+    ``CONVERTIBLE_TEMPERATURE`` alias is REMOVED (spec c9/h11, plan t7) —
+    ``COLLEAGUE_TEMPERATURE`` alone resolves it, and
+    :func:`_resolve_temperature_deprecation` fires the deprecation/removal
+    warnings this knob's env source now carries.
     """
+    temperature_deprecation_warnings = _resolve_temperature_deprecation()
     return {
         "max_steps": int(
             _pick(
@@ -373,10 +474,10 @@ def resolve_scalar_knobs(
             _pick(
                 None,
                 "COLLEAGUE_TEMPERATURE",
-                "CONVERTIBLE_TEMPERATURE",
                 default=str(_DEFAULT_TEMPERATURE),
             )
         ),
+        "temperature_deprecation_warnings": temperature_deprecation_warnings,
         "timeout": float(
             _pick(
                 None,
