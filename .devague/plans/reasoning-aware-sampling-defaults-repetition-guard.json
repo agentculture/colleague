@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-09-01T04:35:47Z",
-  "updated": "2026-09-01T10:51:41Z",
+  "updated": "2026-09-01T11:22:37Z",
   "targets": [
     {
       "id": "c1",
@@ -929,6 +929,22 @@
     {
       "id": "r5",
       "text": "BUILTIN_SAMPLING_ROWS deliberately contains no models=() any-model row, which is WHY an unmatched model sends no keys (claim c48). An operator any-model row in models.json would override that guarantee. The two statements must be reconciled explicitly in the feature doc (t11), not left implicit. Found by the wave-0 ask-colleague review, task 4754361a0229.",
+      "kind": "follow_up",
+      "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "t10 acceptance criterion 1 is met at UNIT level only: colleague/loop_progress.py's delta_heartbeat is proven against a generator with real time.sleep between chunks, checked mid-consumption so the record exists while the turn is still in flight \u2014 but nothing arms it on the bare work path, so a production run gains no in-flight liveness yet. The last mile is SMALLER than t10 assumed and I verified why: headless streaming is already ON by default (vllm_transport._headless_streaming_enabled, COLLEAGUE_STREAM=0 disables), and vllm_openai.py:322 reads 'streaming = config.on_delta is not None or _headless_streaming_enabled()' \u2014 so the bare path ALREADY streams and arming a sink does NOT flip blocking to streaming. Deltas already flow and are discarded by _delta_sink's _noop_delta. The real obstacle is placement, not risk: delta_heartbeat(ctx) needs the loop's _Work ctx, which does not exist at _work_support._arm_delta_stream time, so the composition belongs inside the loop \u2014 outside t10's confirmed file ownership.",
+      "kind": "follow_up",
+      "task_id": "t10",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "config show renders the BUILTIN table only (rows=None). The operator .colleague/models.json rows that t5 wired into the adapter are NOT reflected, so an operator whose file overrides a builtin row will see the builtin values in config show and different values on the wire. Not a defect in any confirmed criterion \u2014 t7 was scoped to the builtin table and says so in its docstring \u2014 but it is a silent divergence in the arc's own anti-silent-failure surface, and t11 should either wire the operator rows in or state the limit. (RE-RECORDED: the original entry was destroyed by an operator-side git checkout of .devague/.)",
       "kind": "follow_up",
       "task_id": "t11",
       "resolved": false,
