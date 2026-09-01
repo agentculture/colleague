@@ -78,6 +78,7 @@ _PRE_DEEPTHINK_KEYS = {
     # effort (effort-v4 t5): the {seat: rung} block — unconditional on a
     # default run since the v4 acting seat always resolves ("low").
     "effort",
+    "warnings",  # #479 t9: the resolved sampling profile (kind="sampling")
 }
 
 

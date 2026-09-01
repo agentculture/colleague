@@ -418,9 +418,8 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         # arm. Omitted only when the backend composed no prompt at all.
         "prompt_digest",
         "offered_tools",
-        # effort (effort-v4 t5): the {seat: rung} block — unconditional on a
-        # default run since the v4 acting seat always resolves ("low").
         "effort",
+        "warnings",  # #479 t9: sampling profile, kind="sampling" — unconditional too
     }
 
 
@@ -467,7 +466,8 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
         "stopped_without_finish",
         "prompt_digest",  # unconditional observability (t7) — see the first pinned set
         "offered_tools",
-        "effort",  # t5: the resolved-rung block (v4 default always resolves)
+        "effort",
+        "warnings",  # #479 t9: resolved sampling profile
     }
     assert set(serialized.keys()) == expected_keys
 
@@ -539,7 +539,8 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
         "stopped_without_finish",
         "prompt_digest",  # unconditional observability (t7) — see the first pinned set
         "offered_tools",
-        "effort",  # t5: the resolved-rung block (v4 default always resolves)
+        "effort",
+        "warnings",  # #479 t9: resolved sampling profile
     }
     assert (
         set(dict_a.keys()) == expected_keys
