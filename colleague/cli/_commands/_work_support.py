@@ -39,6 +39,14 @@ class Lineage(NamedTuple):
     continued_from: "str | None" = None
     task_text: "str | None" = None
 
+    @staticmethod
+    def unpack(lineage: "Lineage | None") -> "tuple[str | None, str | None]":
+        """``(continued_from, task_text)`` from an optional bundle — the one
+        conditional, held here so callers stay branch-free (SonarCloud S3776)."""
+        if lineage is None:
+            return None, None
+        return lineage.continued_from, lineage.task_text
+
 
 def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
     """Per-step progress line to stderr during a work item (#38).

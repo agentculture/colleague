@@ -674,8 +674,7 @@ def execute_work(
         before the exception is raised — honesty h5).
     """
 
-    continued_from = lineage.continued_from if lineage else None
-    continuation_task_text = lineage.task_text if lineage else None
+    continued_from, continuation_task_text = Lineage.unpack(lineage)
     display = display or DisplayOptions()
     # Work-start auto-trigger (self-learning t12 AC3, c18/h15): colleague's own
     # action — this work item starting — is a trigger too, not just a grade.

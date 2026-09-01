@@ -515,8 +515,7 @@ def execute_work_chain(
     1 error).
     """
 
-    continued_from = lineage.continued_from if lineage else None
-    continuation_task_text = lineage.task_text if lineage else None
+    continued_from, continuation_task_text = Lineage.unpack(lineage)
     display = display or DisplayOptions()
     if progress_sink is not None and display.sink is None:
         # The session front still passes its sink positionally-adjacent; fold it

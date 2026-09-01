@@ -271,6 +271,16 @@ def _sampling_from_dict(data: dict[str, Any]) -> "list[dict[str, Any]] | None":
     return [dict(entry) for entry in raw if isinstance(entry, dict)]
 
 
+def _hires_from_dict(data: dict[str, Any]) -> "list[dict[str, Any]]":
+    """Read back the t13 ``hires`` list, tolerantly (S3776 split, like its
+    ``_effort_spikes_from_dict`` sibling): non-dict entries are dropped, an
+    absent or non-list key is the empty (omitted-when-empty) list."""
+    raw = data.get("hires")
+    if not isinstance(raw, list):
+        return []
+    return [_copy_hire_entry(h) for h in raw if isinstance(h, dict)]
+
+
 def _effort_spikes_from_dict(data: dict[str, Any]) -> "list[dict[str, str]]":
     """Read back the #484 ``effort_spikes`` list, tolerantly.
 
@@ -312,13 +322,7 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         pr_url=data.get("pr_url"),
         hook_firings=[HookFiring.from_dict(h) for h in data.get("hook_firings", [])],
         sub_results=[SubResult.from_dict(s) for s in data.get("sub_results", [])],
-        # hires (t13): tolerant of a malformed artifact — non-dict entries
-        # are dropped, an absent key is the empty (omitted-when-empty) list.
-        hires=[
-            _copy_hire_entry(h)
-            for h in (data.get("hires") if isinstance(data.get("hires"), list) else [])
-            if isinstance(h, dict)
-        ],
+        hires=_hires_from_dict(data),
         effort_spikes=_effort_spikes_from_dict(data),
         command=data.get("command"),
         destination=data.get("destination"),
