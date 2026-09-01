@@ -59,6 +59,7 @@ _SELF_IGNORE = (
     "!commands/**\n"
     "!skills/\n"
     "!skills/**\n"
+    "!models.json\n"
 )
 
 
