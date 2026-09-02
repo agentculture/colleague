@@ -100,7 +100,11 @@ minds. The architecture, part by part:
   **Effort decay (opt-in `COLLEAGUE_EFFORT_DECAY=1`, `colleague/effortdecay.py`):**
   after any spike the acting turns run `1 → low`, then `off` until the next
   spike resets the clock (convention change (8)); recorded on
-  `TaskResult.effort_decay` (omit-when-empty). Doc: `effort-spikes.md`.
+  `TaskResult.effort_decay` (omit-when-empty). **Measured (rows 74-77):** an
+  `off` floor alone never crosses survey → action (rows 74-75, zero files);
+  the full stack on the off floor (row 77) lands a correct branch at 16% of
+  the flat-`low` arm's reasoning and 41% of its wall — n=1, still opt-in.
+  Doc: `effort-spikes.md`.
 - **Per-model sampling defaults + repetition guard (#479)** — every seat's
   completion carries its MODEL CARD's sampling values for the half the
   already-resolved effort rung selects (`off` = the non-thinking half, any rung

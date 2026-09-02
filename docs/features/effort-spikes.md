@@ -264,7 +264,20 @@ reads as "did-not-fire"** — there is no separate off/false record.
   The C-vs-A figures are #482's comparison, not a substitute for C-vs-B.** The v0 trigger is the reason B could not run: with
   `run_command` a mutating tool BY NAME, a model that opens its survey with a
   shell command (3 of 5 dispatches on that brief) can never reach the barrier
-  — a trigger follow-up is filed from the #484 disposition.
+  — a trigger follow-up is filed from the #484 disposition (#487, fixed in
+  the effort-floor-and-decay arc). **Round 2, rows 74-77 (the off floor and
+  the decay):** an `off` floor alone never crosses from survey to action (row
+  74: 91 turns of reading, zero files; row 75: the same with the barrier armed
+  — a spike that waits for the first write request cannot reach a run that
+  never makes one). `low` + decay (row 76) lands correct but spends the most
+  of any arm, because the spend sits in the pre-spike survey the decay cannot
+  touch. **The full stack on the off floor (row 77: `start.first_turn`, two
+  `stall.no_write` decision turns, the barrier, then the decayed tail) lands
+  a correct branch at 24,279 reasoning chars in 1,286 s — 16% of the
+  flat-`low` arm's reasoning and 41% of its wall — meeting the pre-stated
+  win condition at n=1.** The lever was the count-keyed stall turn forcing
+  the crossing, after which `off` executed the plan. Still opt-in; a G arm
+  (off + stall only) would separate the start spike's share.
 - **`gate.repeat_failure` and `fillline.decision` share one mechanism
   (`SeatEscalator`) that mutates a live config object rather than building a
   seat** — a deliberate deviation from every other effort consumer's pattern,
