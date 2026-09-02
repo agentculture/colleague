@@ -140,5 +140,6 @@ class TestFreshDecayPerRun:
         bound.reset(7)
         fresh = ge.fresh_decay(bound)
         assert fresh is not bound
-        assert fresh.resets == [] and fresh.last_reset is None
+        assert fresh.resets == []
+        assert fresh.last_reset is None
         assert ge.fresh_decay(None) is None
