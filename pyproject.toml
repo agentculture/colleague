@@ -1,6 +1,6 @@
 [project]
 name = "colleague"
-version = "1.75.0"
+version = "1.75.1"
 description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "Apache-2.0"

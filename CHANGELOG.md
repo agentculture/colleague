@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.75.1] - 2026-09-02
+
+### Added
+
+- `docs/live-testing.md` rows 70-73 — the #484 effort-spike measurement: barrier smoke (fires live), arm A (`low` + feedback) PASS, arm B (barrier `low`) VOID twice, arm C (barrier `medium`) PASS at 2.3x arm A reasoning; disposition posted on #484, trigger follow-up #487
+- spec `docs/specs/2026-09-01-measure-effort-spikes-484.md` + plan `docs/plans/2026-09-01-measure-effort-spikes-484.md` (devague /scope → /think → /spec-to-plan)
+
+### Changed
+
+- `docs/features/effort-spikes.md` Honest limits now carries the MEASURED pointer: the default stays OFF — the spec's C-beats-B arming rule could not run (arm B VOID); #480+#482 are the fix by #482's separate A-vs-planning-turn reading, which did run
+
 ## [1.75.0] - 2026-09-01
 
 ### Added

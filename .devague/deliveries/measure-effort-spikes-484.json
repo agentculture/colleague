@@ -1,0 +1,191 @@
+{
+  "plan_slug": "measure-effort-spikes-484",
+  "schema_version": 2,
+  "created": "2026-09-02T01:00:15Z",
+  "updated": "2026-09-02T03:31:03Z",
+  "deviations": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "row 70: artifact 2db5bb0ae410 (smoke-repo) + tests/test_barrier_pre_mutation.py",
+      "behavior_text": "effort_spikes == [{barrier.pre_mutation, medium, cortex}], Step 1 named barrier.pre_mutation, warnings None, barrier turn 549 chars = largest in run",
+      "contract_text": "the armed barrier fires live with a record and no degradation warning",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "artifact JSON + reasoning sidecar read by script; unit test run",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-01T21:36:41Z",
+        "commit": "6b14c244"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 1
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "python hashlib over 26d71865aeee / d6088d427346 / 7af9b55d66a6 task_text vs scratchpad/brief.txt",
+      "behavior_text": "all three sha256 = 815f5c3f4a914094\u2026",
+      "contract_text": "arms dispatch fresh from the row-69 recorded brief",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "sha256 compared by script, not eyeballed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T00:55:21Z",
+        "commit": "6b14c244"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 2
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "scratchpad/verify_branch.sh on colleague/26d71865aeee, d6088d427346, 7af9b55d66a6 (fresh worktrees)",
+      "behavior_text": "IMPORT OK; pins 1/1/0/0/0/0; 11226 passed 51 skipped \u2014 all three branches",
+      "contract_text": "correctness verified on the result branch, never off the summary",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "outputs saved to arm-A/B/C.verify and quoted in rows 71-73",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T00:58:00Z",
+        "commit": "6b14c244"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 3
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "arm C artifact 7af9b55d66a6: effort_spikes + steps[21] + warnings",
+      "behavior_text": "barrier Step at index 21, record {medium, cortex}, warnings None",
+      "contract_text": "C carries the barrier Step",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "artifact read by script; row 73",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T00:55:21Z",
+        "commit": "6b14c244"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o4",
+      "test_ref": "arm B artifacts 4f362863a7b5 + d6088d427346: effort_spikes absent, steps[0].tool == run_command",
+      "behavior_text": "the barrier never fired in either attempt; the one rerun h4 allows was used and also could not fire",
+      "contract_text": "B carries the barrier Step or is VOID and rerun once",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "artifact read by script; row 72; loop_barrier.should_fire latches on the first mutating step",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-09-01T23:34:58Z",
+        "commit": "6b14c244"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o5",
+      "test_ref": "docs/live-testing.md rows 71-73 + issue 484 comment 5502727884",
+      "behavior_text": "3 verdicts and 4 spend figures per measurable arm; reading named = close #484 for #480+#482; BUT arm B is VOID after its one rerun",
+      "contract_text": "zero arms VOID after at most one rerun",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "rows and comment read back; the zero-VOID clause is NOT met",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o6",
+      "test_ref": "git diff 4405d07b -- colleague/ at 6b14c244",
+      "behavior_text": "empty diff (version lives in pyproject.toml only)",
+      "contract_text": "no code change in this arc",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "git diff run in-session",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T01:05:00Z",
+        "commit": "6b14c244"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o7",
+      "test_ref": "uv run pytest tests/test_effortspikes_boundary.py tests/test_offknob_byte_identity.py tests/test_barrier_pre_mutation.py",
+      "behavior_text": "66 passed at 6b14c244",
+      "contract_text": "exactly three spike points, table unchanged",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest run in-session",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T01:05:00Z",
+        "commit": "6b14c244"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "the barrier's precondition latches shut on the FIRST run_command (mutating by name), so on a shell-first opening the barrier can never fire; arm B could not be measured and the C-vs-B rule could not be applied \u2014 filed as #487",
+      "caused_by": [
+        "c4",
+        "c20"
+      ],
+      "evidence_refs": [
+        "e5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "arm B's rerun (spikes armed, never fired) is wire-identical to arm A and stands as an n=2 replicate of A's condition \u2014 reasoning within 3%, turn count 2x apart (the noise floor)",
+      "caused_by": [
+        "c20"
+      ],
+      "evidence_refs": [
+        "e3",
+        "e5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}
