@@ -197,8 +197,17 @@ reads as "did-not-fire"** — there is no separate off/false record.
   `low` baseline and the barrier/rung arms. **Arming any spike by default
   requires the spike arm (C) to beat the cheap-feedback arm (B) on the same
   measurement** — this doc records the surface as built and opt-in; it does
-  not itself constitute that evidence. See `docs/live-testing.md` for the
-  recorded arms once run.
+  not itself constitute that evidence. **MEASURED (`docs/live-testing.md` rows
+  70-73, spec `2026-09-01-measure-effort-spikes-484`): the barrier fires live
+  (row 70 smoke; row 73 at step 21 after a 20-step survey, a 5,661-char plan
+  naming the seams) and the run lands correct — but so did the flat-`low`
+  feedback arm, twice, at 44% of the reasoning and 69% of the wall (rows
+  71-72), so C did not beat A, the C-vs-B test could not run (arm B VOID
+  twice), and by the pre-registered reading #480+#482 are the fix; the
+  default stays OFF.** The v0 trigger is the reason B could not run: with
+  `run_command` a mutating tool BY NAME, a model that opens its survey with a
+  shell command (3 of 5 dispatches on that brief) can never reach the barrier
+  — a trigger follow-up is filed from the #484 disposition.
 - **`gate.repeat_failure` and `fillline.decision` share one mechanism
   (`SeatEscalator`) that mutates a live config object rather than building a
   seat** — a deliberate deviation from every other effort consumer's pattern,
