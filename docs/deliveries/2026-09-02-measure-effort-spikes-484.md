@@ -38,7 +38,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t3` | partial | row 72: the barrier NEVER fired — attempt 1 `4f362863a7b5` and the one rerun `d6088d427346` both opened with `run_command`, and `should_fire` latches on the first mutating step. VOID as a barrier arm; the rerun stands as a wire-identical replicate of arm A (39 / 2,877 / 146,083, correct, verified) (commit `b3e02dea`) |
 | `t4` | delivered | row 73: attempt 1 `1452182d4e80` shell-first → VOID; relaunch `c46cea837568` killed with its launcher before step 0 (not a model outcome); measured run `7af9b55d66a6` — barrier fired at step 21 after a 20-step survey, 5,661-char plan, `status: ok`, 29 / 4,581 / 341,791, branch verified (commit `6288cab9`) |
 | `t5` | delivered | rows 71-73 + `docs/features/effort-spikes.md` Honest-limits pointer (commits `f0a5a1be`..`6288cab9`); memory file updated (outside the repo) |
-| `t6` | partial | v1.75.1 bumped, CHANGELOG entry, `git diff 4405d07b -- colleague/` empty (commit `6b14c244`); the PR is opened by the cicd step that follows this summary |
+| `t6` | delivered | v1.75.1 bumped, CHANGELOG entry, `git diff 4405d07b -- colleague/` empty (commit `6b14c244`); PR #488 opened via `devex pr open` |
 | `t7` | delivered | #484 comment `5502727884` applying #482's pre-registered wording ("same correctness at materially lower reasoning spend → close #484"); trigger follow-up filed as #487 |
 
 ## Mid-work Decisions
@@ -58,7 +58,6 @@ operator through the frame's `question` loop and is recorded there.
 |-----------|-----------------------|----------------|
 | `t3` | the barrier `low` arm could not be produced: both dispatches opened shell-first and the v0 trigger precondition latched shut; its acceptance criterion ("carries the barrier Step … else VOID + one rerun") ended VOID after the rerun (evidence `e5`, delta `b1`, #487) | needs-follow-up |
 | `t4` | one extra dispatch beyond the plan's "VOID + one rerun" — the killed launcher — before the measured run; no model attempt was added | acceptable |
-| `t6` | the PR is not open at the time this summary is written; cicd runs next | acceptable |
 | `c14` (success signal) | "zero arms VOID by barrier degradation after at most 1 rerun" is unmet: arm B is VOID after its rerun (evidence `e6`) — not degradation by timeout (c4's guarded case) but the trigger precondition; recorded as a fail, not reworded | needs-follow-up |
 
 ## Evidence
@@ -70,7 +69,7 @@ operator through the frame's `question` loop and is recorded there.
 - check: `git diff 4405d07b -- colleague/` — empty
 - lint: `markdownlint-cli2 docs/features/effort-spikes.md docs/live-testing.md` — 0 errors
 - commits: `092a77a1..977c71e2` on `measure/effort-spikes-484`
-- issues: #484 (comment `5502727884`), #487 (filed), #482, #480
+- PRs / issues: PR #488 · #484 (comment `5502727884`) · #487 (filed) · #482 · #480
 - devague delivery ledger: obligations `o1`-`o7`, evidence `e1`-`e8` (`e5`, `e6` fail), deltas `b1`-`b2` — all adjudicated by the operator
 
 ## Delivery Claims
@@ -89,7 +88,7 @@ operator through the frame's `question` loop and is recorded there.
 ## Remaining Work / Follow-up
 
 - `t3` — a measurable barrier-`low` arm needs #487 (name-only trigger fix) first; then rerun B (and ideally C) on the same brief and apply the C-vs-B rule as pre-registered.
-- `t6` — open the PR via cicd (next step); the version-check job needs `6b14c244`.
+- PR #488 — await CI + Sonar + review triage, then human merge.
 - #484 — the operator decides whether to close it on the disposition; the surface stays merged, opt-in, default OFF either way.
 - observability — the reasoning sidecar labels the barrier turn `seat: cortex` with no rung field, and nothing captures the per-turn wire payload; a small follow-up would let a live row prove `medium` reached the server directly.
 - rig hygiene — the `sf-arms` worktree keeps five `colleague/*` result branches and the killed run's worktree; reap after review (`colleague clean` would also reap the three result branches, so grade first).
