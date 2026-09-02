@@ -1,0 +1,169 @@
+{
+  "plan_slug": "effort-floor-and-decay-arms",
+  "schema_version": 2,
+  "created": "2026-09-02T06:44:44Z",
+  "updated": "2026-09-02T06:55:54Z",
+  "deviations": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/test_barrier_trigger_487.py (10 tests) + arm F artifact 77e350cbffbc (shell-first opening, barrier Step 32)",
+      "behavior_text": "fires after run_command-first surveys; blocked by a prior edit_file; live: fired on a shell-first run",
+      "contract_text": "the barrier no longer latches on a shell-first survey",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "unit tests + artifact read by script (row 77)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T06:42:10Z",
+        "commit": "44d276ef"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 1
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/test_effort_decay_wiring.py + tests/test_start_spike.py; arm F effort_decay {resets:[1,12,23,33], turns:{low:4, off:54}}; arm E sidecar 49 of 87 turns",
+      "behavior_text": "offset 1 low, 2+ off, resets restart; live: 54 off turns after 4 resets in F",
+      "contract_text": "the decay tail runs 1\u2192low then off after any spike",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "unit tests + artifacts (rows 76-77)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T06:42:10Z",
+        "commit": "44d276ef"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 2
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_effort_decay_wiring.py::TestArtifactField + arm F artifact effort_decay key",
+      "behavior_text": "round-trip + omit-when-empty; present on F; ABSENT on E (mirror missing before 1f0eb2a2)",
+      "contract_text": "the record is present on a decay arm's artifact",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "arm E lacked it (row 76 says so); fixed before F",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-09-02T06:15:34Z",
+        "commit": "44d276ef"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 3
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "uv run pytest -n auto (11,868 passed at 1f0eb2a2) incl. the three boundary tests",
+      "behavior_text": "five pinned points; no effort/rung keyword; loop.py assigns no effort",
+      "contract_text": "no content inspection, closed tables",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "suite run in-session",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T06:40:00Z",
+        "commit": "44d276ef"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "git show bd89f144 -- CLAUDE.md docs/features/thinking-effort.md",
+      "behavior_text": "convention change (8) text present in both",
+      "contract_text": "recorded, never silent",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "diff read",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "rows 74-77; scratchpad/arm-{D0,D,E,F}.verify",
+      "behavior_text": "D0 FAIL, D FAIL, E PASS, F PASS; each verified on its branch; win condition applied in row 77",
+      "contract_text": "four arm rows verified, pre-stated reading applied",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "verify_branch.sh outputs quoted in the rows",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-09-02T06:50:00Z",
+        "commit": "44d276ef"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "rows 74-77 counted",
+      "behavior_text": "4 verdicts, 16 spend figures, 0 trigger voids in D/E/F (D's barrier never fired because no write was requested \u2014 not a trigger void), E resets>=1 (sidecar-evidenced), F resets 4",
+      "contract_text": "the success signal",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "rows read back",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "two enumerated spike points beyond the plan's scope \u2014 stall.no_write (count-keyed, 10 turns, 3/run) and start.first_turn (turn 1) \u2014 after rows 74-75 showed a decision-point spike cannot reach an off-floor run; the drift test re-pinned to five",
+      "caused_by": [
+        "c13",
+        "c14"
+      ],
+      "evidence_refs": [
+        "e1",
+        "e2"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "arm F changed four files: it also bumped pyproject.toml and wrote a CHANGELOG entry the brief never asked for \u2014 correct on the pre-registered measure, wider than asked",
+      "caused_by": [
+        "c7"
+      ],
+      "evidence_refs": [
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

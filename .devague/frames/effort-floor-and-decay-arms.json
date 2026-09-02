@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-02T04:00:57Z",
-  "updated": "2026-09-02T04:49:27Z",
+  "updated": "2026-09-02T06:55:54Z",
   "claims": [
     {
       "id": "c1",
@@ -305,5 +305,69 @@
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "loop_barrier.should_fire + arm F opening",
+      "behavior": "a shell-first survey still reaches the barrier (unit tests; arm F opened shell-first and its barrier fired at step 32)",
+      "source_text": "#487 fix, name-only: loop_barrier.should_fire's precondition becomes 'no prior step named write_file or edit_file' and its trigger 'this turn requests write_file or edit_file' (a FILE_WRITE_TOOLS name set) \u2014 run_command stays mutating for roles and policy; the barrier just stops latching on a shell-first survey",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "acting_turn/decayed_turn on the live config + arm E/F artifacts",
+      "behavior": "after a spike the tail runs 1\u2192low then off; unarmed byte-identical",
+      "source_text": "Effort decay, opt-in (COLLEAGUE_EFFORT_DECAY=1, requires COLLEAGUE_EFFORT_SPIKES=1): after ANY spike point fires (a reset), the acting seat's rung for the following turns comes from a FIXED table keyed by OFFSET since the reset \u2014 DECAY_TABLE = {1: low, rest: off} \u2014 set through the already-sanctioned SeatEscalator push on the live config before each completion, never from turn content; a further reset restarts the offset; unarmed = byte-identical",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "TaskResult.effort_decay",
+      "behavior": "the record round-trips, omits when empty, and is present on a decay arm's artifact",
+      "source_text": "Artifact record TaskResult.effort_decay (omit-when-empty): {resets: [turn indices], turns: {low: n, off: n}} so a row can state how many acting turns ran at each decayed rung",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c5",
+      "seam": "tests/test_thinking_effort_boundary.py + tests/test_effortdecay_boundary.py + tests/test_effortspikes_boundary.py",
+      "behavior": "no content inspection; five pinned points; sanctioned assign set unchanged",
+      "source_text": "Nothing inspects turn content or a model value to choose a rung: the decay is keyed by offset-since-reset from a fixed table, the reset triggers are exactly the three enumerated spike points, and no tool parameter reaches it; the excluded router stays excluded",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c6",
+      "seam": "CLAUDE.md + thinking-effort.md",
+      "behavior": "convention change (8) recorded in both texts in the same PR as the code",
+      "source_text": "Convention change (8), RECORDED not silent: the thinking-effort invariant reads 'never per turn FROM CONTENT \u2014 per enumerated point, or per fixed OFFSET from such a point, from a fixed table'; CLAUDE.md's v0\u2192v1 list and thinking-effort.md line 11 carry it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c7",
+      "seam": "rows 74-77 + verify_branch.sh",
+      "behavior": "four arm rows, each verified on the result branch, with spend figures and the pre-stated win condition applied",
+      "source_text": "Arms on the row-69 brief (task_text 815f5c3f\u20261ac9), MAX_STEPS 90, TIMEOUT 600, gate/fillline pinned low, each verified on the result branch: D0 = off floor, spikes off (control, running now on v1.75.1) \u00b7 D = off floor + barrier medium \u00b7 E = low floor + decay \u00b7 F = off floor + decay; D/E/F on the fixed trigger; primary = correctness, secondary = spend; readings pre-stated: an off floor that loses correctness and a spike/decay arm that recovers it at lower spend than low-floor A (150k chars) is the win condition; equal correctness at higher spend is a miss",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c12",
+      "seam": "rows 74-77 + artifacts",
+      "behavior": "4 verdicts + 16 spend figures; 0 trigger voids in D/E/F; decay resets >= 1 in E and F",
+      "source_text": "4 arm rows each with a correctness verdict and 4 spend figures; 0 arms VOID on the trigger after the fix (the fix's own test); the decay artifact record shows >= 1 reset and the expected low/off turn counts in E and F; unarmed byte-identity test passes",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }
