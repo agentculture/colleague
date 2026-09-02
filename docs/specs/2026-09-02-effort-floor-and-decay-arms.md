@@ -64,3 +64,10 @@
   - seeds: `c2`
 - `s5` — `docs/features/thinking-effort.md:11 + CLAUDE.md convention change (7)`: the invariant was amended once for #484 (per enumerated point); decay keyed by offset needs a second recorded amendment, never a silent one
   - seeds: `c6`
+- `s6` — `rows 74-75 (arms D0/D) + loop_barrier.should_fire`: an off-floor run never requests a file write (D0: 91 turns of survey; D: identical-command loop-guard exit), so a spike that waits for the first write request cannot reach it — the rescue must key on a COUNT of turns without a write
+  - seeds: `c13`
+
+## Decisions
+
+- q-stall: a FOURTH enumerated spike point stall.`no_write` — after `STALL_TURNS`=10 acting turns with no `write_file`/`edit_file` call since the run start, the last spike, or the last file write, the loop interposes the barrier's tools-off decision turn at the table's medium, at most `STALL_MAX_FIRES`=3 per run; a count over tool names, never content; it also resets the decay clock. Arm F = off floor + barrier + stall spike + decay
+- q-start: a FIFTH enumerated point start.`first_turn` — the run's first acting completion (model turn 1, tools on) at the table's medium, keyed by position; recorded as a spike; resets the decay clock at turn 1 so turn 2 = low, turn 3+ = off. Arm F = off floor + start + barrier + stall + decay (the full stack)
