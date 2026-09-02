@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-01T20:45:24Z",
-  "updated": "2026-09-01T23:37:03Z",
+  "updated": "2026-09-02T03:31:02Z",
   "claims": [
     {
       "id": "c1",
@@ -460,5 +460,69 @@
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c3",
+      "seam": "loop_barrier.intercept on a live vLLM turn",
+      "behavior": "an armed run records barrier.pre_mutation at medium with a barrier Step and no effort-spike-barrier warning",
+      "source_text": "Before the arms, ONE pre-flight smoke of the armed barrier on a throwaway repo: t12/row 69 ran spikes OFF and the barrier has never fired live \u2014 proof is unit-level only (tests/test_barrier_pre_mutation.py). The smoke must show a barrier.pre_mutation Step + effort_spikes record on the artifact, chat_template_kwargs reasoning_effort=medium on that one completion, and NO effort-spike-barrier warning",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c2",
+      "seam": "artifact task_text vs brief.txt",
+      "behavior": "every arm artifact's task_text sha256 equals the row-69 brief's",
+      "source_text": "The three arms dispatch FRESH from the row-69 artifact's recorded task_text (39661f2af608, 700 chars, the verbatim dispatch brief) \u2014 NOT via work --continue b702d8249dea: that chain holds zero prior progress (3a87abc231b1 SIGTERM'd at 0 steps, b702 at 2 read_file steps) and b702's task_text is the synthesized continuation SEED (2,943 chars, 'You are CONTINUING\u2026'), recorded by a build predating the Qodo-thread-5 salvage fix, so continuing it would propagate the seed as the arms' brief",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c7",
+      "seam": "result branch in a fresh worktree",
+      "behavior": "import colleague.loop succeeds, the six pins hold, pytest -n auto is green",
+      "source_text": "Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (importcheck_report), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 70-72 cite rows 67-69",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c4",
+      "seam": "arm B/C artifacts: effort_spikes + steps + warnings",
+      "behavior": "B and C carry the barrier Step or are VOID and rerun once",
+      "source_text": "Barrier validity is checked per arm, never assumed: loop_barrier caps the barrier turn at the STANDARD timeout (min(base_timeout, timeout) = COLLEAGUE_TIMEOUT) and on timeout/failure warns effort-spike-barrier and lets the turn proceed unbarriered \u2014 arm C would silently degrade into arm A. An arm whose artifact carries that warning or lacks the barrier.pre_mutation Step is recorded VOID and rerun, not written as a miss",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c14",
+      "seam": "rows 71-73 + #484 comment",
+      "behavior": "3 verdicts + 4 spend figures each; zero arms VOID after at most one rerun; exactly one pre-registered reading named",
+      "source_text": "each of the 3 arms yields a verified correctness verdict (import + 6 pins + affected tests + full suite, checked on the result branch) and 4 spend figures (reasoning chars, wall s, model turns, longest turn); zero arms VOID by barrier degradation after at most 1 rerun each; the disposition names exactly one of the three pre-registered readings",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c8",
+      "seam": "git diff 4405d07b -- colleague/",
+      "behavior": "no code change lands in this arc",
+      "source_text": "The arms MEASURE; they change no code and no default. The only default change the arc licenses is the pre-registered one \u2014 arming a spike by default requires C to beat B \u2014 and a miss is written as a miss. Deliverables: three docs/live-testing.md rows, the effort-spikes.md 'Honest limits' pointer to them, the #484 disposition comment, a patch version bump for the docs PR, the memory file update",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c9",
+      "seam": "tests/test_effortspikes_boundary.py",
+      "behavior": "exactly three spike points, table unchanged",
+      "source_text": "Nothing in the arms inspects turn content to pick a rung and no new spike point is added: the fixed three-point SPIKE_TABLE, the per-point env overrides and the opt-in are the entire surface used; the excluded router stays excluded",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }
