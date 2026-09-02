@@ -92,6 +92,17 @@ like any other against `max_steps`. It appends one `Step` named
 `[truncated: original N chars]` marker `colleague/tasktext.py` uses; timeout is
 the STANDARD (un-escalated) turn timeout, never an escalated one.
 
+**The trigger, after #487.** v0's precondition was "every prior step named a
+read-only tool", and `run_command` is mutating BY NAME (`roles._WRITE_TOOLS`)
+— so a survey that opened with `git status` or `wc -l` latched the barrier
+shut for the whole run; 3 of 5 measured dispatches did exactly that
+(`docs/live-testing.md` rows 72-73). Since the effort-decay arc the
+precondition is "no prior step named a **file-writing** tool"
+(`FILE_WRITE_TOOLS` = `write_file`/`edit_file`) and the trigger is "this turn
+requests one" — still a tool-NAME lookup, never content. `run_command` stays
+a mutating tool for roles and policy; a `sed -i` inside it slips past the
+barrier, and that is documented here rather than inspected.
+
 **Firing:** at most once per run (v0). The barrier's own `TaskResult
 .effort_spikes` entry for `barrier.pre_mutation` IS the already-fired marker —
 no separate state cell. Unarmed, `make_barrier_complete` returns `None` before
@@ -161,6 +172,40 @@ even though the fill line re-arms per crossing (see
 **Unarmed** (`COLLEAGUE_EFFORT_SPIKES` unset): `make_escalator` returns `None`,
 every function is a strict no-op, no attribute on the acting config is ever
 touched.
+
+## Effort decay after a spike (`colleague/effortdecay.py`, opt-in)
+
+The shape the #484 discussion argued for — *decide → medium, then low, then
+none … until the next reset* — built as a FIXED table keyed by an acting
+turn's **offset from the last spike**, not by anything in the turn:
+
+| offset since the last spike | rung |
+|---|---|
+| 1 | `low` |
+| 2 and later | `off` (`DECAY_FLOOR`), until the next spike resets the clock |
+
+**Resets are exactly the three spike points** (`RESET_POINTS` IS
+`SPIKE_POINTS`): the barrier, a repeated-gate escalation, the fill-line
+declaring turn. Each spike record site calls
+`loop_gateescalation.note_reset`, which stamps the run's current model-turn
+count; `loop_gateescalation.decayed_turn` wraps each acting completion in
+`loop.py`, computes `(this turn) − (last reset)`, and pushes the table's rung
+through the SAME `SeatEscalator` the spike points use, popping it the moment
+the completion returns. `loop.py` itself assigns no effort (the AST guard in
+`tests/test_thinking_effort_boundary.py` still holds; `effortdecay.py` never
+touches the attribute either).
+
+**Opt-in:** `COLLEAGUE_EFFORT_DECAY=1` **and** `COLLEAGUE_EFFORT_SPIKES=1` —
+decay without a reset trigger is meaningless, so either unset leaves the
+surface inert and the run byte-identical. **Record:**
+`TaskResult.effort_decay` = `{resets: [model-turn indices], turns: {rung: n}}`,
+omit-when-empty. **This is convention change (8)** — the invariant now reads
+"per enumerated point, or per fixed OFFSET from such a point, from a fixed
+table"; it is recorded in CLAUDE.md and `thinking-effort.md` line 11, never
+silently. **Honest limits:** the decay covers the main loop's acting
+completions only (a gate's bounded fix-turn mini-loop runs at its own
+escalated rung); v0 has one table with one named offset; measured in
+`docs/live-testing.md` rows 74-77 (the off-floor and decay arms).
 
 ## The artifact field — `TaskResult.effort_spikes`
 

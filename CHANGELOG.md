@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.76.0] - 2026-09-02
+
+### Added
+
+- `colleague/effortdecay.py` — opt-in effort DECAY after a spike (`COLLEAGUE_EFFORT_DECAY=1`, requires spikes armed): the acting turns after any spike point run `1 → low`, then `off` until the next spike resets the clock — a FIXED table keyed by offset, never content (convention change (8)); pushed through the existing `SeatEscalator`; `TaskResult.effort_decay` record (omit-when-empty); unarmed byte-identical
+- `docs/live-testing.md` row 74 — arm D0 (off floor, spikes off): budget-exhausted after 91 turns of pure survey, zero files; the off floor alone does not deliver on the row-69 brief
+- spec+plan `effort-floor-and-decay-arms` (D0/D/E/F arms)
+
+### Fixed
+
+- #487 — the pre-mutation barrier keyed its precondition on every mutating tool NAME, so a survey that opened with `run_command` could never reach it (3 of 5 dispatches in rows 72-73); precondition and trigger now key on the file-writing names `write_file`/`edit_file` only (`loop_barrier.FILE_WRITE_TOOLS`)
+
 ## [1.75.1] - 2026-09-02
 
 ### Added

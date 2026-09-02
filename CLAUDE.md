@@ -85,7 +85,15 @@ minds. The architecture, part by part:
   `loop_gateescalation.py`), and `fillline.decision` (delegated to the
   already-shipped `effort.DESIGN_SITE_TABLE['fillline.split']`, same module);
   recorded on `TaskResult.effort_spikes` (omit-when-empty); unarmed =
-  byte-identical to v1.74.0. Doc: `effort-spikes.md`.
+  byte-identical to v1.74.0. **Measured** (`docs/live-testing.md` rows 70-73):
+  the barrier fires and plans correctly but bought nothing on correctness at
+  2.3× a flat-`low` run's reasoning — default stays OFF. **Trigger fix
+  (#487):** the barrier's precondition/trigger key on the file-writing names
+  `write_file`/`edit_file` only, so a shell-first survey still reaches it.
+  **Effort decay (opt-in `COLLEAGUE_EFFORT_DECAY=1`, `colleague/effortdecay.py`):**
+  after any spike the acting turns run `1 → low`, then `off` until the next
+  spike resets the clock (convention change (8)); recorded on
+  `TaskResult.effort_decay` (omit-when-empty). Doc: `effort-spikes.md`.
 - **Per-model sampling defaults + repetition guard (#479)** — every seat's
   completion carries its MODEL CARD's sampling values for the half the
   already-resolved effort rung selects (`off` = the non-thinking half, any rung
@@ -399,7 +407,15 @@ plan `adopt-from-qwen-code`; (7) the thinking-effort invariant **amended**
 opt-in `COLLEAGUE_EFFORT_SPIKES`, unarmed byte-identical) — "resolved where
 each seat is built, never per turn" now reads "never per turn FROM CONTENT —
 per enumerated point from a fixed table," since a spike point keys a rung by
-POINT NAME, never by inspecting turn content or a model-supplied value.
+POINT NAME, never by inspecting turn content or a model-supplied value; (8)
+the same invariant amended ONCE MORE by the effort-decay arc (spec
+`docs/specs/2026-09-02-effort-floor-and-decay-arms.md`): "per enumerated
+point, or per fixed OFFSET from such a point, from a fixed table" —
+`colleague/effortdecay.py` keys the acting turns AFTER a spike by their
+offset from it (`DECAY_TABLE` `1 → low`, then `off` until the next spike
+point resets the clock), pushed through the same sanctioned escalator, opt-in
+`COLLEAGUE_EFFORT_DECAY=1` (and spikes armed), unarmed byte-identical; the
+reset vocabulary is exactly the three spike points, never content.
 Everything else holds.
 
 **In scope:** the runtime + every architecture part listed above (each added via an

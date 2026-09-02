@@ -11,7 +11,12 @@ seats (the senses front door, the Talker, the read-only scouts) turn thinking
 **off** — resolved **where each seat is built**, never per turn **from content**
 (amended #484: *per enumerated point from a fixed table* — the effort-spike
 surface, `colleague/effortspikes.py`, keys a rung by POINT NAME, never by
-inspecting a turn or accepting a model-supplied value), and
+inspecting a turn or accepting a model-supplied value; amended again by the
+effort-decay arc, convention change (8): *per enumerated point, **or per
+fixed OFFSET from such a point**, from a fixed table* — `colleague/effortdecay.py`
+keys the acting turns AFTER a spike by their offset from it, `1 → low`, then
+`off` until the next spike, opt-in `COLLEAGUE_EFFORT_DECAY=1`; see
+[`effort-spikes.md`](effort-spikes.md)), and
 **byte-identical when unset**. The knob is a closed ladder, not a free number:
 
 ```text
