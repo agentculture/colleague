@@ -253,7 +253,15 @@ reads as "did-not-fire"** — there is no separate off/false record.
   escalates once; the fill-line decision escalates once even across multiple
   crossings. Repeated firing within a run is explicitly out of scope for this
   arc.
-- **The measurement contract is the reason this ships opt-in.** Per the spec,
+- **On the `mock` backend the decision turns cannot run** (no one-shot
+  completion seam): with the default ON, a mock run records the
+  `start.first_turn` spike (an escalator push, no seat needed) and warns
+  `pre-mutation barrier unavailable` once per barrier/stall attempt instead
+  of interposing a turn — never a crash, never a divergence in result shape
+  (all-engines rule). The suite's conftest baseline (`=0`) keeps the mock
+  byte-identity tests on the old wire.
+- **The measurement contract was the reason this shipped opt-in; the default
+  flip (row 77, d1) rests on n=1 and #490 carries the debt.** Per the spec,
   #484 is GATED on the four small fixes (#480-#483): the pre-registered
   null-hypothesis arm (low effort + the #482 importability check + the #480
   surfaced gate warning + one bounded fix turn) is compared against a flat
