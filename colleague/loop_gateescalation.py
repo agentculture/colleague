@@ -232,6 +232,7 @@ def note_reset(ctx: "_Work") -> None:
     if decay is None:
         return
     decay.reset(int(getattr(ctx.result.stats, "model_turns", 0)))
+    ctx.result.effort_decay = decay.to_dict()
 
 
 START_POINT = "start.first_turn"
@@ -277,6 +278,7 @@ def acting_turn(ctx: "_Work") -> Iterator[Optional[str]]:
         decay = _decay(ctx)
         if decay is not None:
             decay.reset(1)
+            ctx.result.effort_decay = decay.to_dict()
 
 
 @contextmanager
@@ -302,6 +304,9 @@ def decayed_turn(ctx: "_Work") -> Iterator[Optional[str]]:
         yield None
         return
     decay.note(rung)
+    # Mirror the clock onto the artifact every time it changes, so a cut run
+    # (SIGTERM salvage, budget exit) still carries the record.
+    ctx.result.effort_decay = decay.to_dict()
     escalator.push(rung)
     try:
         yield rung

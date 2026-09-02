@@ -186,7 +186,7 @@
   "colleague/loop_deltaheartbeat.py": 170,
   "colleague/loop_flight.py": 113,
   "colleague/loop_gatebase.py": 117,
-  "colleague/loop_gateescalation.py": 401,
+  "colleague/loop_gateescalation.py": 406,
   "colleague/loop_gates.py": 193,
   "colleague/loop_hooks.py": 114,
   "colleague/loop_memory.py": 261,
