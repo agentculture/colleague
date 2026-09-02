@@ -202,9 +202,12 @@ reads as "did-not-fire"** — there is no separate off/false record.
   (row 70 smoke; row 73 at step 21 after a 20-step survey, a 5,661-char plan
   naming the seams) and the run lands correct — but so did the flat-`low`
   feedback arm, twice, at 44% of the reasoning and 69% of the wall (rows
-  71-72), so C did not beat A, the C-vs-B test could not run (arm B VOID
-  twice), and by the pre-registered reading #480+#482 are the fix; the
-  default stays OFF.** The v0 trigger is the reason B could not run: with
+  71-72), so C did not beat A. Two pre-registered rules apply separately: #482's
+  three-reading rule (feedback arm vs the planning-turn arm — A vs C, which
+  DID run) reads "same correctness at lower spend → #480+#482 are the
+  fix"; the spec's default-arming rule (C must beat B) could NOT run because
+  arm B was VOID twice — so it licenses nothing and the default stays OFF.
+  The C-vs-A figures are #482's comparison, not a substitute for C-vs-B.** The v0 trigger is the reason B could not run: with
   `run_command` a mutating tool BY NAME, a model that opens its survey with a
   shell command (3 of 5 dispatches on that brief) can never reach the barrier
   — a trigger follow-up is filed from the #484 disposition.

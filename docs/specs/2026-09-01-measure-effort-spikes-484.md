@@ -5,8 +5,8 @@
 
 ## Audience
 
-- colleague's operator deciding the #484 disposition, and the next colleague/Claude session that reads docs/live-testing.md rows 70-72 to know whether any spike may arm by default
-  - instruction: rows 70-72 + the #484 comment are readable without this session's context: each names its arm, env, brief source, budget, correctness and spend
+- colleague's operator deciding the #484 disposition, and the next colleague/Claude session that reads docs/live-testing.md rows 70-73 to know whether any spike may arm by default
+  - instruction: rows 70-73 + the #484 comment are readable without this session's context: each names its arm, env, brief source, budget, correctness and spend
 
 ## Before → After
 
@@ -26,7 +26,7 @@
 - Barrier validity is checked per arm, never assumed: `loop_barrier` caps the barrier turn at the STANDARD timeout (min(`base_timeout`, timeout) = `COLLEAGUE_TIMEOUT`) and on timeout/failure warns effort-spike-barrier and lets the turn proceed unbarriered — arm C would silently degrade into arm A. An arm whose artifact carries that warning or lacks the barrier.`pre_mutation` Step is recorded VOID and rerun, not written as a miss
   - instruction: after each B/C arm: python3 reads the artifact; assert 'effort-spike-barrier' not in warnings kinds and a step named barrier.`pre_mutation` exists; else mark VOID and rerun once
   - honesty: arms B and C each carry the barrier.`pre_mutation` Step and record; any arm carrying an effort-spike-barrier warning is marked VOID in its row and rerun once before any comparison is drawn
-- Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (`importcheck_report`), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 70-72 cite rows 67-69
+- Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (`importcheck_report`), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 71-73 cite rows 67-70
   - instruction: git worktree add <tmp> colleague/<id>; cd <tmp>; python -c 'import colleague.loop'; the six pin greps from row 67; uv run pytest -n auto -q; quote outputs in the row
   - honesty: correctness is asserted by commands run on the result branch checked out in a fresh worktree (python -c 'import colleague.loop', the six pin greps, uv run pytest -n auto -q), with their output quoted in the row; never by the run's own summary
 
@@ -58,7 +58,7 @@
 
 - Arm A = the v1.75.0 harness at cortex low with spikes unarmed; its 'feedback' is #480's surfaced gate warnings + #482's import check. Honest limit: importcheck.py ships NO fix-turn (CLAUDE.md: 'runs on EVERY exit outcome, no bounded fix-turn') and the affected-tests fix-turn runs only on a FINISHED outcome — so #482's pre-registered 'wired to feed its failure back as a bounded fix turn' is only partly what shipped, and the row must say so
 - Arm B = `COLLEAGUE_EFFORT_SPIKES`=1 + `COLLEAGUE_EFFORT_SPIKE_BARRIER_PRE_MUTATION`=low; arm C = `COLLEAGUE_EFFORT_SPIKES`=1 with the table's medium. The one switch ALSO arms gate.`repeat_failure` (medium) and fillline.decision (xhigh via `DESIGN_SITE_TABLE`) in both B and C, so B-vs-C isolates the barrier rung but A-vs-B does not isolate the barrier unless those two points are pinned to low by their per-point overrides
-- Rig is ready now: lobes armed at localhost:8001 serving unsloth/Qwen3.8-27B-NVFP4 (cortex ready, context 262144), config show reports cortex low and the matched Qwen3.8 thinking sampling row on the wire, GPU 3% idle with no colleague work running; arms run sequentially with `COLLEAGUE_TIMEOUT`=300 per plan t13
+- Rig is ready now: lobes armed at localhost:8001 serving unsloth/Qwen3.8-27B-NVFP4 (cortex ready, context 262144), config show reports cortex low and the matched Qwen3.8 thinking sampling row on the wire, GPU 3% idle with no colleague work running; arms run sequentially with `COLLEAGUE_TIMEOUT`=600 (decision q5/c19 superseded plan t13's 300)
 
 ## Scope exploration
 
@@ -78,6 +78,14 @@
   - seeds: `c7`, `c8`
 - `s8` — `uv run colleague config show / lobes show / nvidia-smi / pgrep`: lobes armed localhost:8001, cortex Qwen3.8-27B-NVFP4 ready, sampling row matched, cortex low, GPU idle, no colleague work in flight
   - seeds: `c10`
+- `s9` — `colleague/roles.py:78-97 (_WRITE_TOOLS / _READONLY_TOOLS) + arm A trace step 1`: `run_command` ∈ `_WRITE_TOOLS`; the barrier's name-only lookup fires on it; arm A ran 'wc -l' at step 1 so B/C will barrier at step 1 unless the model happens not to shell out
+  - seeds: `c4`
+- `s10` — `arm B first attempt (flight 4f362863a7b5) + loop_barrier.should_fire`: the model's FIRST call was `run_command` (git status); `should_fire` refuses once any prior step is mutating, so the barrier can never fire in that run — VOID under h4, stopped cooperatively at step 4 and rerun once. On this brief the v0 name-only trigger is a coin flip on the model's opening move (arm A opened with `read_file`, its wc -l came second)
+  - seeds: `c4`
+- `s11` — `arm B rerun opening (step 0: run_command wc -l …)`: the h4 rerun ALSO opened with `run_command` — VOID twice; the v0 barrier is unmeasurable on this brief as shipped; the rerun continues as a spikes-armed-never-fired A replicate (wire-identical to arm A, so it feeds park r2's n=1 noise); C runs as shipped per q6; two voids point the disposition at #482's 'neither → reframe' reading plus the trigger follow-up issue
+  - seeds: `c4`
+- `s12` — `arm C attempt 1 opening (flight 1452182d4e80: step 0 run_command wc -l; ls -la)`: shell-first again — 4 openings on this brief, 3 shell-first; VOID under c4, stopped at once and rerun once (the h4 allowance)
+  - seeds: `c4`
 
 ## Decisions
 
@@ -86,6 +94,7 @@
 - q3: arms B and C set `COLLEAGUE_EFFORT_SPIKE_GATE_REPEAT_FAILURE`=low and `COLLEAGUE_EFFORT_SPIKE_FILLLINE_DECISION`=low so only the barrier rung varies (B low via `COLLEAGUE_EFFORT_SPIKE_BARRIER_PRE_MUTATION`=low, C medium from the table)
 - q4: at equal correctness C beats B only by lower total spend; equal correctness at higher spend is a miss for C
 - q5: `COLLEAGUE_TIMEOUT`=600 for the smoke and all three arms
+- q6: arms B and C measure the barrier AS SHIPPED (name-only trigger, `run_command` mutating); rows record the fire position; a step<=2 fire files a follow-up issue on the trigger
 
 ## Open parks
 

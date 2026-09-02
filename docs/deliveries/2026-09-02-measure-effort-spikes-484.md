@@ -50,7 +50,7 @@ operator through the frame's `question` loop and is recorded there.
 - arm B attempt 1 stopped cooperatively at step 8 (`flight stop`) the moment its shell-first opening made the barrier unreachable, to spend the h4 rerun immediately instead of an hour on a void run (frame s10).
 - arm B's rerun, also shell-first, was allowed to complete rather than stopped: with no spike able to fire and the other two points pinned `low`, its payloads are wire-identical to arm A's, so it was kept as an n=2 replicate (frame s11, delta `b2`).
 - arm C attempt 1 stopped the same way at step 9 (frame s12); its relaunch died with the background launcher shell (SIGTERM before step 0, artifact `c46cea837568`) and was relaunched detached via `setsid nohup` — counted as an operational failure, not as a model attempt, so the measured run is still C's single h4 rerun.
-- the pre-registered C-vs-B rule could not be applied (B void); the q4 tie-break (equal correctness → lower spend wins) was applied to C vs A instead, and the disposition says so.
+- two pre-registered rules, kept separate: the spec's default-arming rule (C must beat B) could not be applied because B was void — it licenses nothing; #482's three-reading rule compares the feedback arm with the planning-turn arm (A vs C), which did run, and the q4 tie-break decided it for A. The disposition names both; C-vs-A is #482's comparison, not a stand-in for C-vs-B.
 
 ## Drift From Plan
 
@@ -79,7 +79,7 @@ operator through the frame's `question` loop and is recorded there.
 | the armed barrier fires live and lands on the artifact as `(point, rung, seat)` with a Step | high | row 70 · artifact `2db5bb0ae410` · `e1` |
 | all three measured arms landed a correct branch (import, six pins, green suite) | high | rows 71-73 · `e3` · verify outputs quoted in the rows |
 | arm C's barrier fired at the post-survey point (step 21) and produced the seam-naming plan #484 described | high | row 73 · artifact `7af9b55d66a6` trace · `e4` |
-| C did not beat A: same correctness at 2.3× the reasoning and 1.5× the wall (n=1 vs n=2) | medium | rows 71-73 figures · `e3`/`e4` — n small, one brief |
+| C did not beat A under #482's rule (feedback vs planning-turn): same correctness at 2.3× the reasoning and 1.5× the wall (n=1 vs n=2) | medium | rows 71-73 figures · `e3`/`e4` — n small, one brief |
 | the C-vs-B rule could not be applied; arm B (barrier `low`) is untested, not refuted | high | row 72 · `e5` · `b1` · #487 |
 | no code or default changed in this arc | high | `git diff 4405d07b -- colleague/` empty · `e7` · `e8` |
 | the #484 disposition names exactly one pre-registered reading (close #484 for #480+#482) | high | issue comment `5502727884` · `e6` (the reading half passes; the zero-VOID half fails) |

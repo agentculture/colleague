@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-01T20:45:24Z",
-  "updated": "2026-09-02T03:31:02Z",
+  "updated": "2026-09-02T03:39:20Z",
   "claims": [
     {
       "id": "c1",
@@ -123,7 +123,7 @@
     {
       "id": "c7",
       "kind": "requirement",
-      "text": "Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (importcheck_report), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 70-72 cite rows 67-69",
+      "text": "Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (importcheck_report), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 71-73 cite rows 67-70",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -180,7 +180,7 @@
     {
       "id": "c10",
       "kind": "assumption",
-      "text": "Rig is ready now: lobes armed at localhost:8001 serving unsloth/Qwen3.8-27B-NVFP4 (cortex ready, context 262144), config show reports cortex low and the matched Qwen3.8 thinking sampling row on the wire, GPU 3% idle with no colleague work running; arms run sequentially with COLLEAGUE_TIMEOUT=300 per plan t13",
+      "text": "Rig is ready now: lobes armed at localhost:8001 serving unsloth/Qwen3.8-27B-NVFP4 (cortex ready, context 262144), config show reports cortex low and the matched Qwen3.8 thinking sampling row on the wire, GPU 3% idle with no colleague work running; arms run sequentially with COLLEAGUE_TIMEOUT=600 (decision q5/c19 superseded plan t13's 300)",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [],
@@ -192,7 +192,7 @@
     {
       "id": "c11",
       "kind": "audience",
-      "text": "colleague's operator deciding the #484 disposition, and the next colleague/Claude session that reads docs/live-testing.md rows 70-72 to know whether any spike may arm by default",
+      "text": "colleague's operator deciding the #484 disposition, and the next colleague/Claude session that reads docs/live-testing.md rows 70-73 to know whether any spike may arm by default",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -205,7 +205,7 @@
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "rows 70-72 + the #484 comment are readable without this session's context: each names its arm, env, brief source, budget, correctness and spend",
+      "instruction": "rows 70-73 + the #484 comment are readable without this session's context: each names its arm, env, brief source, budget, correctness and spend",
       "revisions": []
     },
     {
@@ -484,7 +484,7 @@
       "claim_id": "c7",
       "seam": "result branch in a fresh worktree",
       "behavior": "import colleague.loop succeeds, the six pins hold, pytest -n auto is green",
-      "source_text": "Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (importcheck_report), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 70-72 cite rows 67-69",
+      "source_text": "Correctness is the primary measure and is verified by the operator on the result branch, never read off the run summary: the branch imports (importcheck_report), the six source-text pins hold, affected tests pass, full suite green; spend is secondary (cumulative reasoning chars, wall seconds, model turns, longest single turn). n=1 per arm is stated in every row; rows 71-73 cite rows 67-70",
       "origin": "llm",
       "status": "approved"
     },

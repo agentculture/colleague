@@ -14,7 +14,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `docs/features/effort-spikes.md` Honest limits now carries the MEASURED pointer: the default stays OFF; #480+#482 are the fix by the pre-registered reading
+- `docs/features/effort-spikes.md` Honest limits now carries the MEASURED pointer: the default stays OFF — the spec's C-beats-B arming rule could not run (arm B VOID); #480+#482 are the fix by #482's separate A-vs-planning-turn reading, which did run
 
 ## [1.75.0] - 2026-09-01
 
