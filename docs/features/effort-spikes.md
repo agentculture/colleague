@@ -23,16 +23,24 @@ strict no-op and the run is byte-identical to v1.74.0: no `effort_spikes` key
 ever appears on the artifact, no seat is built, no config attribute is ever
 set.
 
-## The three enumerated points (`colleague/effortspikes.py`)
+## The five enumerated points (`colleague/effortspikes.py`)
 
-Exactly three, no more — `SPIKE_POINTS`, a tuple both the table and the drift
-test (`tests/test_effortspikes_boundary.py`) key off:
+Exactly five, no more — `SPIKE_POINTS`, a tuple both the table and the drift
+test (`tests/test_effortspikes_boundary.py`) key off. Three landed with #484;
+the effort-floor-and-decay arc added the two position/count-keyed ones after
+rows 74-75 showed an `off`-floor run never reaches the pre-mutation barrier:
 
-| Point | Rung | Fires in |
-|-------|------|----------|
-| `barrier.pre_mutation` | `"medium"` | `colleague/loop_barrier.py` |
-| `gate.repeat_failure` | `"medium"` | `colleague/loop_gateescalation.py` |
-| `fillline.decision` | delegated (see below) | `colleague/loop_gateescalation.py` |
+| Point | Rung | Keyed by | Fires in |
+|-------|------|----------|----------|
+| `barrier.pre_mutation` | `"medium"` | first `write_file`/`edit_file` request (name) | `colleague/loop_barrier.py` |
+| `gate.repeat_failure` | `"medium"` | a gate's 2nd repair attempt (count) | `colleague/loop_gateescalation.py` |
+| `fillline.decision` | delegated (see below) | the fill-line declaring turn | `colleague/loop_gateescalation.py` |
+| `stall.no_write` | `"medium"` | `STALL_TURNS` (10) acting turns with no file-writing call since start / last spike / last write (count over names); at most `STALL_MAX_FIRES` (3) per run | `colleague/loop_barrier.py` (`intercept_stall`, the barrier's tools-off turn with a stall prompt) |
+| `start.first_turn` | `"medium"` | model turn 1 (position), tools on | `colleague/loop_gateescalation.py` (`acting_turn`) |
+
+Both new points are resets for the effort decay below and stall marks for
+each other: a start spike restarts the stall count at turn 1; a stall or
+barrier firing restarts it again. Neither reads turn content.
 
 `SPIKE_TABLE` maps each point to its rung. Every non-delegated row is a member
 of the closed ladder (`colleague.effort.LADDER`) — `resolve_spike` re-validates
@@ -184,9 +192,10 @@ turn's **offset from the last spike**, not by anything in the turn:
 | 1 | `low` |
 | 2 and later | `off` (`DECAY_FLOOR`), until the next spike resets the clock |
 
-**Resets are exactly the three spike points** (`RESET_POINTS` IS
+**Resets are exactly the enumerated spike points** (`RESET_POINTS` IS
 `SPIKE_POINTS`): the barrier, a repeated-gate escalation, the fill-line
-declaring turn. Each spike record site calls
+declaring turn, the stall decision turn, and the start spike (stamped at
+turn 1). Each spike record site calls
 `loop_gateescalation.note_reset`, which stamps the run's current model-turn
 count; `loop_gateescalation.decayed_turn` wraps each acting completion in
 `loop.py`, computes `(this turn) − (last reset)`, and pushes the table's rung

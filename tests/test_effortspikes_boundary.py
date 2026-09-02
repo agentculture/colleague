@@ -70,6 +70,9 @@ _PINNED_SPIKE_POINTS: tuple[str, ...] = (
     "barrier.pre_mutation",
     "gate.repeat_failure",
     "fillline.decision",
+    # effort-floor-and-decay arc: the count-keyed stall decision turn.
+    "stall.no_write",
+    "start.first_turn",
 )
 
 
@@ -82,12 +85,12 @@ class TestSpikeSurfaceMembership:
     def test_spike_table_keys_equal_pinned_list(self) -> None:
         assert frozenset(effortspikes.SPIKE_TABLE.keys()) == frozenset(_PINNED_SPIKE_POINTS)
 
-    def test_exactly_three_points(self) -> None:
+    def test_exactly_five_points(self) -> None:
         # Spelled out literally (not just len(_PINNED_SPIKE_POINTS)) so a
         # careless edit to the pinned list alongside the table can't silently
         # keep this test green.
-        assert len(effortspikes.SPIKE_POINTS) == 3
-        assert len(effortspikes.SPIKE_TABLE) == 3
+        assert len(effortspikes.SPIKE_POINTS) == 5
+        assert len(effortspikes.SPIKE_TABLE) == 5
 
     def test_a_fourth_point_would_be_caught(self) -> None:
         """Simulates the drift this test exists to catch.

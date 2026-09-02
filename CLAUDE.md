@@ -90,6 +90,13 @@ minds. The architecture, part by part:
   2.3× a flat-`low` run's reasoning — default stays OFF. **Trigger fix
   (#487):** the barrier's precondition/trigger key on the file-writing names
   `write_file`/`edit_file` only, so a shell-first survey still reaches it.
+  **Two more enumerated points (effort-floor-and-decay arc, five total, drift
+  test re-pinned):** `stall.no_write` (after `STALL_TURNS`=10 acting turns
+  with no `write_file`/`edit_file` call since start / last spike / last write,
+  the barrier's tools-off decision turn fires at `medium`, at most 3 per run —
+  a COUNT over tool names, because rows 74-75 showed an `off` floor never
+  reaches the pre-mutation barrier) and `start.first_turn` (model turn 1 at
+  `medium`, tools on, keyed by position).
   **Effort decay (opt-in `COLLEAGUE_EFFORT_DECAY=1`, `colleague/effortdecay.py`):**
   after any spike the acting turns run `1 → low`, then `off` until the next
   spike resets the clock (convention change (8)); recorded on
@@ -410,7 +417,10 @@ per enumerated point from a fixed table," since a spike point keys a rung by
 POINT NAME, never by inspecting turn content or a model-supplied value; (8)
 the same invariant amended ONCE MORE by the effort-decay arc (spec
 `docs/specs/2026-09-02-effort-floor-and-decay-arms.md`): "per enumerated
-point, or per fixed OFFSET from such a point, from a fixed table" —
+point, or per fixed POSITION or OFFSET from such a point, from a fixed table" —
+(the spike vocabulary grew from three to FIVE — `stall.no_write`, a count
+of acting turns without a file write, and `start.first_turn`, model turn 1 —
+each re-pinned in the drift test, never content-keyed) —
 `colleague/effortdecay.py` keys the acting turns AFTER a spike by their
 offset from it (`DECAY_TABLE` `1 → low`, then `off` until the next spike
 point resets the clock), pushed through the same sanctioned escalator, opt-in

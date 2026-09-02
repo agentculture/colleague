@@ -190,7 +190,14 @@ def _record(ctx: "_Work", key: str, point: str, rung: str) -> None:
     ctx.result.effort_spikes.append(
         effortspikes.SpikeRecord(point=point, rung=rung, seat=ctx.seat).to_dict()
     )
+    _note_stall_mark(ctx)
     note_reset(ctx)
+
+
+def _note_stall_mark(ctx: "_Work") -> None:
+    from colleague import loop_barrier as _loopbarrier
+
+    _loopbarrier.note_stall_mark(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +232,51 @@ def note_reset(ctx: "_Work") -> None:
     if decay is None:
         return
     decay.reset(int(getattr(ctx.result.stats, "model_turns", 0)))
+
+
+START_POINT = "start.first_turn"
+
+
+def start_rung() -> Optional[str]:
+    """The first-turn rung, from the fixed spike table and nowhere else."""
+    return effortspikes.resolve_spike(START_POINT)
+
+
+@contextmanager
+def acting_turn(ctx: "_Work") -> Iterator[Optional[str]]:
+    """The ONE wrapper the loop puts around each acting completion.
+
+    Two position-keyed points, both strict no-ops when unarmed:
+
+    * ``start.first_turn`` — the run's first acting completion (model turn
+      count 0 before it) runs at the table's rung with tools on; recorded as
+      a spike, a stall mark, and a decay reset stamped at turn 1 (so, with
+      decay armed, turn 2 is offset 1 → ``low`` and turn 3+ ``off``).
+    * otherwise :func:`decayed_turn` — the decay tail after any spike.
+    """
+    escalator = _escalator(ctx)
+    rung = start_rung() if escalator is not None and not _fired(ctx, START_POINT) else None
+    if rung is None or int(getattr(ctx.result.stats, "model_turns", 0)) != 0:
+        with decayed_turn(ctx) as decayed:
+            yield decayed
+        return
+    ctx._effort_spikes_fired.append(START_POINT)
+    ctx.result.effort_spikes.append(
+        effortspikes.SpikeRecord(point=START_POINT, rung=rung, seat=ctx.seat).to_dict()
+    )
+    escalator.push(rung)
+    try:
+        yield rung
+    finally:
+        escalator.pop()
+        # The completion that just ran IS model turn 1; stamp the marks there
+        # (accounting lands after this wrapper returns, so stamp explicitly).
+        marks = getattr(ctx, "_stall_marks", None)
+        if marks is not None:
+            marks.append(1)
+        decay = _decay(ctx)
+        if decay is not None:
+            decay.reset(1)
 
 
 @contextmanager

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-02T04:00:57Z",
-  "updated": "2026-09-02T04:15:13Z",
+  "updated": "2026-09-02T04:42:08Z",
   "claims": [
     {
       "id": "c1",
@@ -226,6 +226,30 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "q-stall: a FOURTH enumerated spike point stall.no_write \u2014 after STALL_TURNS=10 acting turns with no write_file/edit_file call since the run start, the last spike, or the last file write, the loop interposes the barrier's tools-off decision turn at the table's medium, at most STALL_MAX_FIRES=3 per run; a count over tool names, never content; it also resets the decay clock. Arm F = off floor + barrier + stall spike + decay",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "q-start: a FIFTH enumerated point start.first_turn \u2014 the run's first acting completion (model turn 1, tools on) at the table's medium, keyed by position; recorded as a spike; resets the decay clock at turn 1 so turn 2 = low, turn 3+ = off. Arm F = off floor + start + barrier + stall + decay (the full stack)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [],
@@ -269,6 +293,14 @@
       "finding": "the invariant was amended once for #484 (per enumerated point); decay keyed by offset needs a second recorded amendment, never a silent one",
       "seeds": [
         "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "rows 74-75 (arms D0/D) + loop_barrier.should_fire",
+      "finding": "an off-floor run never requests a file write (D0: 91 turns of survey; D: identical-command loop-guard exit), so a spike that waits for the first write request cannot reach it \u2014 the rescue must key on a COUNT of turns without a write",
+      "seeds": [
+        "c13"
       ]
     }
   ],

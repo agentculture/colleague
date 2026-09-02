@@ -102,6 +102,9 @@ class _Work:
     # ``_fillline_escalated`` marks that a declaring-turn escalation is
     # currently pushed and must be popped when the declaration is recorded.
     _effort_spikes_fired: list[str] = field(default_factory=list)
+    # stall.no_write marks (model-turn counts at which a spike fired) — the
+    # count-keyed stall decision turn measures from the latest of these.
+    _stall_marks: list[int] = field(default_factory=list)
     _fillline_escalated: list[bool] = field(default_factory=list)
     # Recorded seat rungs (effort-v4 t5) — threaded verbatim from the
     # ContextControls fields of the same names; see their contract there.

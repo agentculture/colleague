@@ -116,6 +116,29 @@ BARRIER_PROMPT = (
     "intended, with this plan in context."
 )
 
+#: The stall decision point (effort-floor-and-decay arc): the SAME tools-off
+#: seat as the barrier, a different trigger — a COUNT of acting turns with no
+#: file-writing call (:data:`colleague.effortspikes.STALL_TURNS`), never
+#: content. Rows 74-75 showed an ``off``-floor run surveying its whole budget
+#: away without ever requesting a write, so the pre-mutation barrier — which
+#: waits for that request — could never help it; this point can.
+STALL_POINT = "stall.no_write"
+
+PHASE_STALL = "no file changed for many turns — one bounded decision turn…"
+
+STALL_PROMPT = (
+    "[decision barrier] You have taken many tool turns in this run without "
+    "changing any file. Surveying further will not finish the task. WITHOUT "
+    "calling any tool (none are available on this turn), decide now:\n"
+    "1. the exact files you will create or edit next, and what changes in "
+    "each — commit to a concrete first edit;\n"
+    "2. what you already know that makes that edit safe (the invariants and "
+    "callers you have seen);\n"
+    "3. what you will verify afterwards.\n"
+    "Be concise and concrete. Your next turn should issue the first "
+    "write_file or edit_file call."
+)
+
 #: ``messages -> ModelResponse`` (the loop's ``CompleteFn`` shape, left
 #: untyped here so this module never imports the loop).
 CompleteFn = Callable[[List[dict]], Any]
@@ -196,14 +219,16 @@ def make_barrier_complete(
     the all-engines rule holds because an armed ``mock`` run never crashes, it
     records why.
     """
-    if effortspikes.resolve_spike(BARRIER_POINT) is None:
+    if all(effortspikes.resolve_spike(p) is None for p in (BARRIER_POINT, STALL_POINT)):
         return None
     from colleague import registry
 
     loader = engine_loader if engine_loader is not None else registry.load
 
-    def factory(engine_name: str, warn: Callable[[str], None]) -> Optional[CompleteFn]:
-        rung = effortspikes.resolve_spike(BARRIER_POINT)
+    def factory(
+        engine_name: str, warn: Callable[[str], None], point: str = BARRIER_POINT
+    ) -> Optional[CompleteFn]:
+        rung = effortspikes.resolve_spike(point)
         if rung is None:  # re-checked at fire time: the opt-in is process state
             return None
         try:
@@ -306,6 +331,75 @@ def _warn(ctx: "_Work", detail: str) -> None:
     ctx.result.warnings.append({"kind": "effort-spike-barrier", "detail": detail})
 
 
+# ---------------------------------------------------------------------------
+# stall.no_write — the count-keyed decision turn
+# ---------------------------------------------------------------------------
+
+
+def stall_fires(result: Any) -> int:
+    """How many times ``stall.no_write`` already fired this run (the artifact IS the state)."""
+    return sum(
+        1
+        for entry in getattr(result, "effort_spikes", None) or ()
+        if isinstance(entry, dict) and entry.get("point") == STALL_POINT
+    )
+
+
+def turns_since_last_mark(ctx: "_Work") -> int:
+    """Acting turns since the latest of: run start, any spike firing, any file write.
+
+    Marks are the model-turn counts recorded on ``ctx._stall_marks`` (set by
+    :func:`note_stall_mark`) plus one mark per file-writing STEP (by tool
+    NAME); the count is ``stats.model_turns`` minus the latest mark. Nothing
+    here reads tool arguments or model text.
+    """
+    turns = int(getattr(ctx.result.stats, "model_turns", 0))
+    marks = list(getattr(ctx, "_stall_marks", ()) or ())
+    steps = ctx.result.steps
+    # A file-writing step is a mark at the turn it happened; the step index is
+    # not a turn count, so map it through the steps' own bookkeeping: the
+    # latest write step's position among steps is the closest deterministic
+    # proxy for "how many turns ago" — a conservative under-count is fine.
+    write_positions = [i for i, step in enumerate(steps) if is_file_write_tool(step.tool)]
+    if write_positions:
+        # turns elapsed since that step <= steps elapsed since it
+        marks.append(turns - (len(steps) - 1 - write_positions[-1]))
+    last = max(marks) if marks else 0
+    return max(0, turns - last)
+
+
+def note_stall_mark(ctx: "_Work") -> None:
+    """Record 'a spike fired now' as a stall mark (any spike restarts the count)."""
+    marks = getattr(ctx, "_stall_marks", None)
+    if marks is not None:
+        marks.append(int(getattr(ctx.result.stats, "model_turns", 0)))
+
+
+def should_fire_stall(ctx: "_Work", calls: Any) -> bool:
+    """Whether THIS turn is a stall decision moment (a count over tool names).
+
+    All must hold: the point is armed and a seat factory bound; this turn
+    requests no file-writing tool (a turn that finally writes is not a stall);
+    fewer than :data:`colleague.effortspikes.STALL_MAX_FIRES` firings so far;
+    and at least :data:`colleague.effortspikes.STALL_TURNS` acting turns since
+    the last mark.
+    """
+    if ctx.barrier_complete is None or effortspikes.resolve_spike(STALL_POINT) is None:
+        return False
+    if any(is_file_write_tool(getattr(call, "name", "")) for call in calls or ()):
+        return False
+    if stall_fires(ctx.result) >= effortspikes.STALL_MAX_FIRES:
+        return False
+    return turns_since_last_mark(ctx) >= effortspikes.STALL_TURNS
+
+
+def intercept_stall(ctx: "_Work", calls: Any) -> bool:
+    """Interpose the stall decision turn; ``True`` if it consumed the turn."""
+    if not should_fire_stall(ctx, calls):
+        return False
+    return _interpose(ctx, STALL_POINT, STALL_PROMPT, PHASE_STALL)
+
+
 def intercept(ctx: "_Work", calls: Any) -> bool:
     """Interpose the barrier before this turn's tool calls; ``True`` if it consumed the turn.
 
@@ -318,31 +412,43 @@ def intercept(ctx: "_Work", calls: Any) -> bool:
     """
     if not should_fire(ctx, calls):
         return False
-    rung = cast(str, effortspikes.resolve_spike(BARRIER_POINT))
-    complete = ctx.barrier_complete(ctx.task.engine, lambda text: _warn(ctx, text))
+    return _interpose(ctx, BARRIER_POINT, BARRIER_PROMPT, PHASE_BARRIER)
+
+
+def _interpose(ctx: "_Work", point: str, prompt: str, phase: str) -> bool:
+    """Run one tools-off decision turn for *point* (the barrier's mechanism, shared)."""
+    rung = cast(str, effortspikes.resolve_spike(point))
+    warn = lambda text: _warn(ctx, text)  # noqa: E731 - a one-line sink
+    # The barrier keeps the original two-argument factory call (every bound
+    # seat, and every test double, speaks it); only a non-barrier point passes
+    # its name through, so the seat resolves that point's rung.
+    complete = (
+        ctx.barrier_complete(ctx.task.engine, warn)
+        if point == BARRIER_POINT
+        else ctx.barrier_complete(ctx.task.engine, warn, point)
+    )
     if complete is None:
         return False
-    request = list(ctx.messages) + [{"role": "user", "content": BARRIER_PROMPT}]
-    _emit_phase(ctx, PHASE_BARRIER)
+    request = list(ctx.messages) + [{"role": "user", "content": prompt}]
+    _emit_phase(ctx, phase)
     try:
         resp = complete(request)
     except Exception as exc:  # noqa: BLE001 - a planning turn never aborts the run
-        _warn(ctx, f"pre-mutation barrier turn failed ({type(exc).__name__}: {exc})")
+        _warn(ctx, f"{point} decision turn failed ({type(exc).__name__}: {exc})")
         return False
     # Honest accounting first: the completion HAPPENED, so its usage and its
     # turn count land on WorkStats whether or not it produced a usable plan.
     _account_turn(ctx, resp)
     ctx.result.effort_spikes.append(
-        effortspikes.SpikeRecord(point=BARRIER_POINT, rung=rung, seat=ctx.seat).to_dict()
+        effortspikes.SpikeRecord(point=point, rung=rung, seat=ctx.seat).to_dict()
     )
+    note_stall_mark(ctx)
     _note_decay_reset(ctx)
     plan = (resp.content or "").strip()
     if not plan:
         # No plan to inject: do not swallow the turn the model actually wanted.
         # The spike is still recorded (it fired) and the turn is still counted.
         return False
-    ctx.result.steps.append(
-        Step(len(ctx.result.steps), BARRIER_POINT, {"rung": rung}, plan, ok=True)
-    )
+    ctx.result.steps.append(Step(len(ctx.result.steps), point, {"rung": rung}, plan, ok=True))
     ctx.messages.append({"role": "assistant", "content": plan})
     return True

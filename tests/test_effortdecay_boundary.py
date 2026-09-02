@@ -47,8 +47,8 @@ class TestResetVocabulary:
     def test_reset_points_is_the_spike_points_object(self) -> None:
         assert effortdecay.RESET_POINTS is effortspikes.SPIKE_POINTS
 
-    def test_exactly_three_reset_points(self) -> None:
-        assert len(effortdecay.RESET_POINTS) == 3
+    def test_exactly_five_reset_points(self) -> None:
+        assert len(effortdecay.RESET_POINTS) == 5
 
 
 class TestNoModelReachableParameter:

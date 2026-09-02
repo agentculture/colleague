@@ -11,6 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `colleague/effortdecay.py` — opt-in effort DECAY after a spike (`COLLEAGUE_EFFORT_DECAY=1`, requires spikes armed): the acting turns after any spike point run `1 → low`, then `off` until the next spike resets the clock — a FIXED table keyed by offset, never content (convention change (8)); pushed through the existing `SeatEscalator`; `TaskResult.effort_decay` record (omit-when-empty); unarmed byte-identical
 - `docs/live-testing.md` row 74 — arm D0 (off floor, spikes off): budget-exhausted after 91 turns of pure survey, zero files; the off floor alone does not deliver on the row-69 brief
+- two more enumerated spike points (five total, drift test re-pinned): `stall.no_write` — after `STALL_TURNS`=10 acting turns with no `write_file`/`edit_file` call since start / last spike / last write, the barrier's tools-off decision turn fires at `medium`, at most `STALL_MAX_FIRES`=3 per run (a COUNT over tool names; rows 74-75 showed an `off` floor never reaches the pre-mutation barrier) — and `start.first_turn` (model turn 1 at `medium`, tools on, keyed by position); both reset the decay clock
 - spec+plan `effort-floor-and-decay-arms` (D0/D/E/F arms)
 
 ### Fixed
