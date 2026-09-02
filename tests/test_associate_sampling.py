@@ -89,6 +89,9 @@ def test_cortex_payload_carries_no_associate_leakage(monkeypatch):
     greedy-in-thinking-mode defect #479 exists to remove.
     """
     monkeypatch.delenv("COLLEAGUE_ASSOCIATE_PROFILE", raising=False)
+    monkeypatch.setenv(
+        "COLLEAGUE_REASONING_EFFORT", "low"
+    )  # thinking row; cortex floor is off since row 77
     cfg = _cfg(monkeypatch)
     payload, _ = VllmOpenAIEngine._build_chat_payload(cfg, _MSGS, [])
     # The associate seat is unarmed — that is what this test guards.

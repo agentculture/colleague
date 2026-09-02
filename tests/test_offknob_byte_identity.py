@@ -92,7 +92,7 @@ BASELINE_KEYS = {
 def _all_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(RECORD_TASK_TEXT_ENV, "0")
     monkeypatch.setenv(IMPORT_CHECK_ENV, "0")
-    monkeypatch.delenv(EFFORT_SPIKES_ENV, raising=False)
+    monkeypatch.setenv(EFFORT_SPIKES_ENV, "0")
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +268,7 @@ class TestKnobIndependence:
     ) -> None:
         monkeypatch.setenv(RECORD_TASK_TEXT_ENV, "0" if task_text_off else "1")
         monkeypatch.setenv(IMPORT_CHECK_ENV, "0" if import_check_off else "1")
-        monkeypatch.delenv(EFFORT_SPIKES_ENV, raising=False)
+        monkeypatch.setenv(EFFORT_SPIKES_ENV, "0")
 
         def script(_messages: list[dict]) -> ModelResponse:
             calls = script.calls

@@ -146,6 +146,44 @@ treat ❌-by-staleness the same as never-validated.
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
+## effort-floor-and-decay-arms — arc closing record (2026-09-02, rows 70-77)
+
+Both rounds of the #484 measurement on one preserved brief (row 69's
+`task_text`, sha256 `815f5c3f…1ac9`), one model (`unsloth/Qwen3.8-27B-NVFP4`),
+one target (`sf-arms` at `5a721b8f`), `COLLEAGUE_MAX_STEPS=90`,
+`COLLEAGUE_TIMEOUT=600`. Wall time is dispatch → exit from the launcher's
+stamps (gates and handoff included); run duration is the artifact's own
+`duration_seconds`. Compiled by a read-only subagent from the rows and the
+launcher stamps, checked against the artifacts.
+
+| arm | floor + shape | dispatch → exit | run duration | reasoning chars | outcome |
+|---|---|---|---|---|---|
+| A (row 71) | `low`, no spikes | 00:37 → 01:29 (52 min) | 3,140 s | 150,284 | PASS |
+| A replicate (row 72) | `low`, spikes armed but never fired | 01:46 → 02:34 (48 min) | 2,877 s | 146,083 | PASS |
+| C (row 73) | `low` + barrier `medium` | 02:38 → 03:55 (77 min) | 4,581 s | 341,791 | PASS |
+| D0 (row 74) | `off`, nothing | 07:00 → 07:17 (17 min) | 920 s | 0 | FAIL — zero files |
+| D (row 75) | `off` + barrier | 07:23 → 07:31 (8 min) | 455 s | 0 | FAIL — never requested a write |
+| E (row 76) | `low` + barrier + decay | 07:31 → 09:15 (104 min) | 6,222 s | 368,588 | PASS — the most expensive |
+| F (row 77) | `off` + start + 2 stalls + barrier + decay | 09:20 → 09:42 (22 min) | 1,286 s | 24,279 | PASS |
+
+Voided and stopped attempts also cost rig time: B attempt 1 (~2 min), C
+attempt 1 (~3 min), the killed C launcher (~1 min), F's first launch
+(~1 min); the barrier smoke ~1 min; each correct branch's verification
+(the full suite in a fresh worktree) ~40 s. **About 5 h 28 min of measured
+arms plus ~10 min of voids and smoke — roughly 5.7 h of rig time end to
+end.** The `off`-floor arms are the fast ones (8-22 min: an `off` turn takes
+8-10 s) and the `low` arms run 48-104 min because their survey turns reason
+for minutes at a time. **F is the only run that was both fast and correct.**
+
+**Decision (2026-09-02, operator):** F's shape becomes the default —
+`COLLEAGUE_EFFORT_SPIKES` and `COLLEAGUE_EFFORT_DECAY` default ON (`=0`
+disables), the cortex floor moves `low` → `off` — recorded as a deviation
+on the plan (`devague deviate --list`), with the rigour debt filed as a
+follow-up issue (replicates, a G arm to isolate the lever, a second brief, a
+second model, scope discipline at `off`). The off-knobs stay one environment
+variable away; a miss on the replicates reverts the three defaults in one
+commit.
+
 ## purpose-tools-get-chosen — arc closing record (2026-08-30, plan t15)
 
 The arm matrix of rows **52–58** is complete: 21 runs, all on tip `3b59d24`,

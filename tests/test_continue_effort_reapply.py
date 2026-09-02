@@ -102,7 +102,7 @@ class TestRecordedActingEffort:
 class TestReapplyRecordedEffort:
     def test_mismatch_reapplies_and_warns_with_both_values(self, tmp_path: Path) -> None:
         path = _write_artifact(tmp_path, "m1", effort_block="medium")
-        config = EngineConfig.resolve(model="m")  # v4 default resolves cortex -> "low"
+        config = EngineConfig.resolve(model="m")  # default resolves cortex -> "off" (row 77, d1)
         warnings: list[dict] = []
         warning = reapply_recorded_effort(config, tmp_path, "m1", warnings=warnings)
         assert config.reasoning_effort_seats["cortex"] == "medium"
@@ -110,23 +110,23 @@ class TestReapplyRecordedEffort:
         assert warnings == [warning]
         assert warning["kind"] == EFFORT_WARNING_KIND
         assert warning["recorded"] == "medium"
-        assert warning["resolved"] == "low"
+        assert warning["resolved"] == "off"
         assert warning["artifact"] == str(path)
         assert "medium" in warning["detail"]
-        assert "low" in warning["detail"]
+        assert "off" in warning["detail"]
         assert str(path) in warning["detail"]
         # The warning is staged for the run's TaskResult (drained by
         # _stamp_run_metadata).
         assert config.continuation_warnings == [warning]
 
     def test_equal_reapplies_silently(self, tmp_path: Path) -> None:
-        _write_artifact(tmp_path, "m2", effort_block="low")
+        _write_artifact(tmp_path, "m2", effort_block="off")
         config = EngineConfig.resolve(model="m")
         warnings: list[dict] = []
         assert reapply_recorded_effort(config, tmp_path, "m2", warnings=warnings) is None
         assert warnings == []
         assert getattr(config, "continuation_warnings", []) == []
-        assert config.reasoning_effort_seats["cortex"] == "low"
+        assert config.reasoning_effort_seats["cortex"] == "off"
 
     def test_pre_476_artifact_is_a_no_op(self, tmp_path: Path) -> None:
         _write_artifact(tmp_path, "m3")
@@ -188,7 +188,7 @@ class TestCliContinuePrecedence:
         assert getattr(config, "continuation_warnings", []) == []
 
     def test_recorded_equal_no_warning(self, tmp_path: Path) -> None:
-        _write_artifact(tmp_path, "c3", effort_block="low")
+        _write_artifact(tmp_path, "c3", effort_block="off")
         config = EngineConfig.resolve(model="m")
         args = _make_ns(tmp_path, continue_ref="c3")
         _build_task(args, tmp_path, "mock", config)
@@ -266,7 +266,7 @@ class TestSessionContinue:
         assert getattr(h.session.config, "continuation_warnings", []) == []
 
     def test_equal_recorded_rung_is_silent(self, tmp_path: Path) -> None:
-        _write_artifact(tmp_path, "s3", effort_block="low")
+        _write_artifact(tmp_path, "s3", effort_block="off")
         h = _Harness(tmp_path)
         assert h.session._slash("/continue") is True
         assert not any("recorded" in e for e in h.errors)

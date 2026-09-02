@@ -355,8 +355,8 @@ def test_mock_and_vllm_engines_record_deliberate_finish_states_on_a_clean_run(
         assert main.seat == "main"
         assert main.state == "deliberate"
         assert main.truncated is False
-        assert main.reasoning_effort == "low"  # t5: v4 acting default, identical both engines
-        assert result.effort == {"main": "low"}  # t5: the top-level {seat: rung} block
+        assert main.reasoning_effort == "off"  # t5: v4 acting default, identical both engines
+        assert result.effort == {"main": "off"}  # t5: the top-level {seat: rung} block
 
     # The mock's representative wire value survives verbatim; the un-set vLLM
     # fixture turns degrade to the honest "" default — both still classify

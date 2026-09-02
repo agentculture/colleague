@@ -55,13 +55,19 @@ duplicate it.
 
 | Seat | Default rung |
 |------|--------------|
-| `cortex` | `low` |
+| `cortex` | `off` |
 | `worker` | `low` |
 | `deepthink` | `xhigh` |
 | `evaluator` | `low` |
 | `senses` | `off` |
 | `design` | `xhigh` |
 | `associate` | `low` |
+
+The cortex floor is `off` since the effort-floor-and-decay arc (row 77,
+deviation d1 — it was `low` from effort-v4); the default-ON spike points and
+decay supply the depth at decision points — see
+[`effort-spikes.md`](effort-spikes.md). `COLLEAGUE_REASONING_EFFORT=low`
+restores the previous floor.
 
 The `associate` row is the armed seat's floor (Nemotron needs `low`); the
 unreachable fallback to cortex runs at `off` (`associate_seats.FALLBACK_EFFORT`)

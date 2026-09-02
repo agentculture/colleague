@@ -117,6 +117,12 @@ SPIKE_TABLE = {
 }
 
 
+#: Values of ``COLLEAGUE_EFFORT_SPIKES`` that turn the surface OFF. Default
+#: is ON since the effort-floor-and-decay arc (row 77, operator decision):
+#: unset = armed; ``0`` / ``off`` / ``false`` / ``no`` = the pre-#484 wire.
+SPIKES_DISABLING_VALUES = frozenset({"0", "off", "false", "no"})
+
+
 def spikes_enabled() -> bool:
     """Whether the spike surface is armed.
 
@@ -126,7 +132,7 @@ def spikes_enabled() -> bool:
     strict no-op while it is.
     """
 
-    return os.environ.get("COLLEAGUE_EFFORT_SPIKES", "") == "1"
+    return os.environ.get("COLLEAGUE_EFFORT_SPIKES", "1").strip() not in SPIKES_DISABLING_VALUES
 
 
 def resolve_spike(point: str) -> Optional[str]:

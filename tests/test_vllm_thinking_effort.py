@@ -169,9 +169,9 @@ def test_payload_default_config_sends_the_seat_table_low() -> None:
     test_vllm_openai.py/test_headless_streaming.py pins because none of them
     assert full-payload equality."""
     cfg = _cfg()
-    assert cfg.reasoning_effort_effective == "low"
+    assert cfg.reasoning_effort_effective == "off"
     payload, _streaming = VllmOpenAIEngine._build_chat_payload(cfg, [], [])
-    assert payload["chat_template_kwargs"] == {"reasoning_effort": "low"}
+    assert payload["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_payload_never_carries_both_keys_or_preserve_thinking() -> None:
@@ -206,7 +206,7 @@ def test_existing_pins_do_not_assert_full_payload_equality() -> None:
 def test_effort_for_falls_back_to_acting_seat_when_attribute_absent() -> None:
     cfg = _cfg()
     assert not hasattr(cfg, "reasoning_effort_seat")
-    assert _effort_for(cfg) == cfg.reasoning_effort_effective == "low"  # v4 (#475)
+    assert _effort_for(cfg) == cfg.reasoning_effort_effective == "off"  # v4 (#475)
 
 
 def test_reasoning_effort_seat_attribute_wins_over_acting_effective() -> None:
@@ -232,7 +232,7 @@ def test_reasoning_effort_seat_attribute_dropped_by_dataclasses_replace() -> Non
     cfg.reasoning_effort_seat = "off"
     copy = dataclasses.replace(cfg)
     assert not hasattr(copy, "reasoning_effort_seat")
-    assert _effort_for(copy) == "low"  # v4 seat default (#475)
+    assert _effort_for(copy) == "off"  # v4 seat default (#475)
 
 
 # ── _is_ladder_400 classifier ───────────────────────────────────────────────

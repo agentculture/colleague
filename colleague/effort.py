@@ -60,7 +60,7 @@ DEFAULT_SENTINEL = "default"
 
 # Persistent-seat defaults (v4, #475).
 SEAT_TABLE = {
-    "cortex": "low",
+    "cortex": "off",
     "worker": "low",
     "deepthink": "xhigh",
     "evaluator": "low",

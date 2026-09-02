@@ -71,28 +71,35 @@ class TestNoModelReachableParameter:
 
 
 class TestUnarmedIsInert:
-    def test_both_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_both_unset_is_the_armed_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Default ON since row 77 (deviation d1): both keys deleted = armed."""
         monkeypatch.delenv(effortdecay.DECAY_ENV, raising=False)
         monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKES", raising=False)
+        assert effortdecay.decay_enabled() is True
+        assert isinstance(effortdecay.make_decay(), effortdecay.DecayState)
+
+    def test_both_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(effortdecay.DECAY_ENV, "0")
+        monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "0")
         assert effortdecay.decay_enabled() is False
         assert effortdecay.make_decay() is None
 
     def test_decay_without_spikes_is_inert(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(effortdecay.DECAY_ENV, "1")
-        monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKES", raising=False)
+        monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "0")
         assert effortdecay.decay_enabled() is False
         assert effortdecay.make_decay() is None
 
     def test_spikes_without_decay_is_inert(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv(effortdecay.DECAY_ENV, raising=False)
+        monkeypatch.setenv(effortdecay.DECAY_ENV, "0")
         monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "1")
         assert effortdecay.decay_enabled() is False
 
-    def test_both_armed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv(effortdecay.DECAY_ENV, "1")
+    def test_disabling_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "1")
-        assert effortdecay.decay_enabled() is True
-        assert isinstance(effortdecay.make_decay(), effortdecay.DecayState)
+        for value in sorted(effortdecay.DECAY_DISABLING_VALUES):
+            monkeypatch.setenv(effortdecay.DECAY_ENV, value)
+            assert effortdecay.decay_enabled() is False, value
 
 
 class TestClock:

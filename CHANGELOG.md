@@ -27,6 +27,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Arm F's shape is the default** (operator decision on row 77, deviation d1, rigour follow-up #490): `COLLEAGUE_EFFORT_SPIKES` and `COLLEAGUE_EFFORT_DECAY` default ON (`=0` / `off` / `false` / `no` disarm), and the cortex floor moves `low` → `off` in `effort.SEAT_TABLE` (`COLLEAGUE_REASONING_EFFORT=low` restores it). The test suite pins the previous wire as its baseline in `tests/conftest.py`; the default-ON contract is asserted explicitly.
+
 - `docs/features/effort-spikes.md` Honest limits now carries the MEASURED pointer: the default stays OFF — the spec's C-beats-B arming rule could not run (arm B VOID); #480+#482 are the fix by #482's separate A-vs-planning-turn reading, which did run
 
 ## [1.75.0] - 2026-09-01

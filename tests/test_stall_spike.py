@@ -93,7 +93,7 @@ class TestBounds:
         assert loop_barrier.should_fire_stall(ctx, _calls("read_file")) is False
 
     def test_unarmed_never_fires(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKES", raising=False)
+        monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "0")
         ctx = _ctx(["read_file"] * (3 * K), turns=3 * K)
         assert loop_barrier.should_fire_stall(ctx, _calls("read_file")) is False
 

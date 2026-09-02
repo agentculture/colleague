@@ -17,11 +17,20 @@ enumerated string like `"barrier.pre_mutation"`, never anything read from the
 turn. This doc covers that surface; `thinking-effort.md` line 11 and CLAUDE.md
 carry the amended wording as pointers back here.
 
-**Opt-in, off by default.** `COLLEAGUE_EFFORT_SPIKES=1` arms the surface.
-Unarmed — the default — every function in `colleague/effortspikes.py` is a
-strict no-op and the run is byte-identical to v1.74.0: no `effort_spikes` key
-ever appears on the artifact, no seat is built, no config attribute is ever
-set.
+**Default ON since the effort-floor-and-decay arc (row 77, operator
+decision recorded as deviation d1 on that plan).** `COLLEAGUE_EFFORT_SPIKES`
+unset means armed; `=0` (or `off`/`false`/`no`) disarms it, and then every
+function in `colleague/effortspikes.py` is a strict no-op and the run is
+byte-identical to v1.74.0: no `effort_spikes` key on the artifact, no seat
+built, no config attribute set. The same applies to `COLLEAGUE_EFFORT_DECAY`
+(default ON, `=0` disarms) and to the cortex floor, which moved `low` → `off`
+in `effort.SEAT_TABLE` at the same time (`COLLEAGUE_REASONING_EFFORT=low`
+restores it). **The test suite pins the OLD wire as its baseline** (both
+knobs `=0` in `tests/conftest.py`) so the hundreds of byte-identity tests
+about other features stay meaningful; the default-ON contract is asserted
+explicitly in `tests/test_effortspikes_boundary.py` /
+`tests/test_effortdecay_boundary.py`. The rigour debt behind this default —
+n=1 — is issue #490.
 
 ## The five enumerated points (`colleague/effortspikes.py`)
 

@@ -25,7 +25,7 @@ def test_ladder_constant():
 # effort-v4-rung-observability-rerank arc, #475): acting/associate seats and
 # writer/planner roles drop to "low"; only deepthink/design keep xhigh.
 _TABLE_ROWS = [
-    (effort.SEAT_TABLE, "cortex", "low"),
+    (effort.SEAT_TABLE, "cortex", "off"),
     (effort.SEAT_TABLE, "worker", "low"),
     (effort.SEAT_TABLE, "deepthink", "xhigh"),
     (effort.SEAT_TABLE, "evaluator", "low"),

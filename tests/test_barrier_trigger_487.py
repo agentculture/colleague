@@ -80,7 +80,7 @@ class TestStillNeverFiresWhenItShouldNot:
         assert loop_barrier.should_fire(ctx, _calls("write_file")) is False
 
     def test_unarmed_never_fires(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKES", raising=False)
+        monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "0")
         ctx = _ctx(["run_command", "read_file"])
         assert loop_barrier.should_fire(ctx, _calls("write_file")) is False
 

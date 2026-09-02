@@ -302,6 +302,9 @@ def test_seat_builder_returns_none_when_unarmed(tmp_path: Path) -> None:
 def test_seat_sends_the_role_name_on_the_wire_and_streams_like_cortex(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Pin cortex to a THINKING rung: the test contrasts the associate seat (off)
+    # with cortex; since row 77 the cortex floor itself is off (d1).
+    monkeypatch.setenv("COLLEAGUE_REASONING_EFFORT", "low")
     cfg = _armed_config(tmp_path, monkeypatch)
     seat = associate_mod.associate_engine_config(cfg)
     assert seat is not None

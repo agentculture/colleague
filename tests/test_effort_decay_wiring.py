@@ -47,10 +47,7 @@ def _ctx(config: _Config, *, turns: int = 0) -> SimpleNamespace:
 
 def _arm(monkeypatch: pytest.MonkeyPatch, *, spikes: bool, decay: bool) -> None:
     for key, on in (("COLLEAGUE_EFFORT_SPIKES", spikes), ("COLLEAGUE_EFFORT_DECAY", decay)):
-        if on:
-            monkeypatch.setenv(key, "1")
-        else:
-            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv(key, "1" if on else "0")
 
 
 class TestUnarmed:

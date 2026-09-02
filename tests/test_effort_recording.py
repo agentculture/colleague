@@ -84,8 +84,8 @@ def test_default_run_records_the_v4_table_rung(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     result = registry.load("mock").work(Task.new(str(repo), "do work"), EngineConfig.resolve())
-    assert result.finish_states[0].reasoning_effort == "low"
-    assert result.effort == {"main": "low"}
+    assert result.finish_states[0].reasoning_effort == "off"
+    assert result.effort == {"main": "off"}
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@ def test_delegated_scout_child_lands_in_the_parent_effort_block(tmp_path: Path) 
     assert result.sub_results[0].reasoning_effort == "off"
     assert result.sub_results[0].to_dict()["reasoning_effort"] == "off"
     # … and the parent's top-level block names both seats built during the run.
-    assert result.effort == {"main": "low", "scout": "off"}
+    assert result.effort == {"main": "off", "scout": "off"}
 
 
 def test_distill_launch_records_the_distill_seat(tmp_path: Path) -> None:

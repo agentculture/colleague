@@ -2,8 +2,23 @@
   "plan_slug": "effort-floor-and-decay-arms",
   "schema_version": 2,
   "created": "2026-09-02T06:44:44Z",
-  "updated": "2026-09-02T06:55:54Z",
-  "deviations": [],
+  "updated": "2026-09-02T07:01:58Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Arm F's shape becomes the DEFAULT: COLLEAGUE_EFFORT_SPIKES and COLLEAGUE_EFFORT_DECAY default ON (=0 disables), the cortex floor moves from low to off in SEAT_TABLE; the plan's t6 covered only disposition + PR, and round-1's c8 forbade default changes \u2014 operator decision on the row-77 result (n=1), with a follow-up issue for rigorous replication",
+      "task_ref": "t6",
+      "reason": "operator decision after rows 74-77: F lands a correct branch at 16% of A's reasoning and 41% of its wall; the risk (n=1, one brief) is carried by a filed follow-up and by the off-knobs staying one env var away",
+      "affects": [
+        "c7",
+        "c12"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 8
+    }
+  ],
   "evidence": [
     {
       "id": "e1",

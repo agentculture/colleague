@@ -64,10 +64,10 @@ def test_served_model_listing_distinguishes_none_roster_empty_and_unarmed() -> N
 def test_effort_table_reflects_defaults_overrides_and_kill_switch(tmp_path: Path) -> None:
     cfg = EngineConfig.resolve(repo_path=tmp_path)
     text, payload = effort_table(cfg)
-    assert payload["seats"]["cortex"] == "low"  # v4 seat default (#475)
+    assert payload["seats"]["cortex"] == "off"  # v4 seat default (#475)
     assert payload["seats"]["deepthink"] == "xhigh"
     assert payload["seats"]["senses"] == "off"
-    assert "cortex     low     (table)" in text
+    assert "cortex     off     (table)" in text
     apply_effort(cfg, "xhigh", "cortex")
     assert effort_table(cfg)[1]["seats"]["cortex"] == "xhigh"
     apply_effort(cfg, "default", "all")
@@ -122,7 +122,7 @@ def test_work_bare_model_and_effort_print_and_exit_zero(
     )
     assert code == 0
     payload = json.loads(out)
-    assert payload["effort"]["seats"]["cortex"] == "low"  # v4 seat default (#475)
+    assert payload["effort"]["seats"]["cortex"] == "off"  # v4 seat default (#475)
     assert "models" not in payload
 
 

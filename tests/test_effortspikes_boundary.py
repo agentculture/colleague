@@ -177,17 +177,24 @@ class TestSpikesUnarmedIsByteIdentical:
     """With the opt-in unset in a clean env, the module is fully inert."""
 
     def test_spikes_enabled_false_by_default(self, monkeypatch) -> None:
-        monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKES", raising=False)
+        monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "0")
         assert effortspikes.spikes_enabled() is False
 
-    def test_spikes_enabled_false_on_non_one_values(self, monkeypatch) -> None:
-        for value in ("0", "", "true", "yes", "on"):
+    def test_default_is_armed_and_disabling_values_turn_it_off(self, monkeypatch) -> None:
+        """Default ON since the effort-floor-and-decay arc (row 77, deviation d1):
+        the conftest baseline sets ``=0``; deleting the key is the shipped default."""
+        monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKES", raising=False)
+        assert effortspikes.spikes_enabled() is True
+        for value in ("1", "true", "yes", "on", ""):
             monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", value)
-            assert effortspikes.spikes_enabled() is False
+            assert effortspikes.spikes_enabled() is True, value
+        for value in sorted(effortspikes.SPIKES_DISABLING_VALUES):
+            monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", value)
+            assert effortspikes.spikes_enabled() is False, value
 
     @pytest.mark.parametrize("point", _PINNED_SPIKE_POINTS)
     def test_resolve_spike_none_when_unarmed(self, monkeypatch, point: str) -> None:
-        monkeypatch.delenv("COLLEAGUE_EFFORT_SPIKES", raising=False)
+        monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "0")
         assert effortspikes.resolve_spike(point) is None
 
     def test_resolve_spike_none_for_unknown_point_even_when_armed(self, monkeypatch) -> None:

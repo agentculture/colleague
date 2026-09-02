@@ -146,7 +146,7 @@ def _assert_effort_v4_carveout(captured_kwargs, expected_kwargs):
     exactly that one way. Named and asserted, never normalized silently."""
     if captured_kwargs == expected_kwargs:
         return
-    assert captured_kwargs == {"reasoning_effort": "low"}
+    assert captured_kwargs == {"enable_thinking": False}  # cortex floor off (row 77, d1)
     assert expected_kwargs == {"reasoning_effort": "medium"}
 
 

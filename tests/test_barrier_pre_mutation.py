@@ -113,7 +113,7 @@ def armed(monkeypatch):
 
 @pytest.fixture
 def unarmed(monkeypatch):
-    monkeypatch.delenv(SPIKE_ENV, raising=False)
+    monkeypatch.setenv(SPIKE_ENV, "0")
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +415,7 @@ class TestUnarmedIsByteIdentical:
         """The strongest available form of "byte-identical payloads": drive the
         same script with the opt-in unset and with NO barrier wiring at all,
         and compare every message list the engine was handed."""
-        monkeypatch.delenv(SPIKE_ENV, raising=False)
+        monkeypatch.setenv(SPIKE_ENV, "0")
         repo_a = tmp_path / "a"
         repo_b = tmp_path / "b"
         repo_a.mkdir()
@@ -439,7 +439,7 @@ class TestUnarmedIsByteIdentical:
         assert _scrub(unarmed_script.requests) == _scrub(baseline_script.requests)
 
     def test_no_artifact_key_and_no_barrier_step(self, tmp_path, monkeypatch):
-        monkeypatch.delenv(SPIKE_ENV, raising=False)
+        monkeypatch.setenv(SPIKE_ENV, "0")
         seat = _BarrierSeat()
         result, _ = _drive(tmp_path, self._script(), seat=seat)
         assert seat.requests == []
@@ -448,7 +448,7 @@ class TestUnarmedIsByteIdentical:
         assert [s.tool for s in result.steps] == ["list_dir", "write_file", "write_file", "finish"]
 
     def test_from_config_binds_nothing_unarmed(self, monkeypatch):
-        monkeypatch.delenv(SPIKE_ENV, raising=False)
+        monkeypatch.setenv(SPIKE_ENV, "0")
         assert ContextControls.from_config(EngineConfig()).barrier_complete is None
 
     def test_from_config_binds_the_factory_armed(self, armed):

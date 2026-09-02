@@ -69,10 +69,15 @@ DECAY_FLOOR = "off"
 RESET_POINTS = SPIKE_POINTS
 
 
+#: Values of ``COLLEAGUE_EFFORT_DECAY`` that turn the decay OFF (default ON
+#: since row 77's operator decision; ``0`` / ``off`` / ``false`` / ``no``).
+DECAY_DISABLING_VALUES = frozenset({"0", "off", "false", "no"})
+
+
 def decay_enabled() -> bool:
     """Whether the decay surface is armed: ``COLLEAGUE_EFFORT_DECAY=1`` AND spikes armed."""
 
-    return os.environ.get(DECAY_ENV, "") == "1" and spikes_enabled()
+    return os.environ.get(DECAY_ENV, "1").strip() not in DECAY_DISABLING_VALUES and spikes_enabled()
 
 
 def rung_for_offset(offset: int) -> Optional[str]:
