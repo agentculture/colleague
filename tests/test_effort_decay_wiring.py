@@ -90,14 +90,33 @@ class TestArmed:
             assert getattr(config, _ATTR) == "low"
         assert not hasattr(config, _ATTR)  # popped: absent again, never a None row
         ctx.result.stats.model_turns = 5
+        ge.commit_acting_turn(ctx, {"point": None, "rung": rung})
         with ge.decayed_turn(ctx) as rung:  # turn 6 = offset 2
             assert rung == "off"
             assert getattr(config, _ATTR) == "off"
         assert not hasattr(config, _ATTR)
         ctx.result.stats.model_turns = 6
+        ge.commit_acting_turn(ctx, {"point": None, "rung": rung})
         with ge.decayed_turn(ctx) as rung:  # turn 7 = offset 3
             assert rung == "off"
+        ctx.result.stats.model_turns = 7
+        ge.commit_acting_turn(ctx, {"point": None, "rung": rung})
         assert ctx.effort_decay.to_dict() == {"resets": [4], "turns": {"low": 1, "off": 2}}
+        assert ctx.result.effort_decay == ctx.effort_decay.to_dict()
+
+    def test_a_retry_without_accounting_does_not_inflate_counts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _arm(monkeypatch, spikes=True, decay=True)
+        ctx = _ctx(_Config(), turns=4)
+        ge.note_reset(ctx)
+        with ge.decayed_turn(ctx) as rung:
+            assert rung == "low"
+        # the loop got None back: no commit
+        with ge.decayed_turn(ctx) as rung:
+            assert rung == "low"
+        assert ctx.effort_decay.turns == {}
+        assert ctx.result.effort_decay == {"resets": [4], "turns": {}}
 
     def test_a_second_reset_restarts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _arm(monkeypatch, spikes=True, decay=True)

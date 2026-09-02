@@ -298,6 +298,14 @@ def _effort_spikes_from_dict(data: dict[str, Any]) -> "list[dict[str, str]]":
     return [{str(k): str(v) for k, v in s.items()} for s in raw if isinstance(s, dict)]
 
 
+def _effort_decay_from_dict(data: dict[str, Any]) -> "dict[str, Any]":
+    """Read back the ``effort_decay`` record, tolerantly (S3776 split, like its
+    ``_effort_spikes_from_dict`` sibling): a non-dict value reads as the empty
+    (omitted-when-empty) record."""
+    raw = data.get("effort_decay")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
 def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
     # Local import: the two lazy class getters live on colleague.contract
     # itself (they exist specifically to avoid importing colleague.testintegrity
@@ -327,9 +335,7 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         sub_results=[SubResult.from_dict(s) for s in data.get("sub_results", [])],
         hires=_hires_from_dict(data),
         effort_spikes=_effort_spikes_from_dict(data),
-        effort_decay=(
-            dict(data["effort_decay"]) if isinstance(data.get("effort_decay"), dict) else {}
-        ),
+        effort_decay=_effort_decay_from_dict(data),
         command=data.get("command"),
         destination=data.get("destination"),
         announcement=data.get("announcement"),

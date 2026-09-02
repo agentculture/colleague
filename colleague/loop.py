@@ -438,11 +438,13 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # escalator module — loop.py itself never assigns effort. A strict
         # no-op unless BOTH COLLEAGUE_EFFORT_SPIKES and COLLEAGUE_EFFORT_DECAY
         # are armed.
-        with _gateescalation.acting_turn(ctx):
+        with _gateescalation.acting_turn(ctx) as pushed_rung:
             resp = _complete_turn_or_retry(ctx, complete)
         if resp is None:
             continue
         _account_turn(ctx, resp)
+        # Commit the spike/decay bookkeeping only for an ACCOUNTED completion.
+        _gateescalation.commit_acting_turn(ctx, pushed_rung)
         last_prompt_tokens = resp.prompt_tokens
         # Episode-boundary config lifecycle loop seam (t6): record the pinned
         # effective-config digest for THIS completed model turn. A strict
@@ -686,7 +688,7 @@ def run(
         associate_complete=_context.associate_complete,
         barrier_complete=_context.barrier_complete,
         gate_escalation=_context.gate_escalation,
-        effort_decay=_context.effort_decay,
+        effort_decay=_gateescalation.fresh_decay(_context.effort_decay),
         reasoning_effort_main=_context.reasoning_effort_main,
         reasoning_effort_senses=_context.reasoning_effort_senses,
         reasoning_effort_deepthink=_context.reasoning_effort_deepthink,

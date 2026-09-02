@@ -66,11 +66,26 @@ class TestCount:
         ctx = _ctx(["read_file"] * K, turns=K)
         assert loop_barrier.should_fire_stall(ctx, _calls("write_file")) is False
 
-    def test_a_recent_file_write_step_resets_the_count(self) -> None:
-        steps = ["read_file"] * K + ["edit_file"] + ["read_file"] * 3
-        ctx = _ctx(steps, turns=K + 4)
-        assert loop_barrier.turns_since_last_mark(ctx) <= 3
+    def test_a_file_write_marks_the_turn_it_executed(self) -> None:
+        ctx = _ctx(["read_file"] * K, turns=K + 1)
+        loop_barrier.note_file_write(ctx, "edit_file")  # executed at turn K+1
+        ctx.result.stats.model_turns = K + 4
+        assert loop_barrier.turns_since_last_mark(ctx) == 3
         assert loop_barrier.should_fire_stall(ctx, _calls("read_file")) is False
+
+    def test_a_read_only_call_is_not_a_mark(self) -> None:
+        ctx = _ctx([], turns=5)
+        loop_barrier.note_file_write(ctx, "read_file")
+        loop_barrier.note_file_write(ctx, "run_command")
+        assert ctx._stall_marks == []
+
+    def test_many_calls_in_one_response_do_not_skew_the_clock(self) -> None:
+        # One response issued 8 calls (8 steps) but is ONE model turn: the
+        # clock counts turns, never steps (Qodo #491 t5).
+        ctx = _ctx(["read_file"] * 8, turns=1)
+        loop_barrier.note_file_write(ctx, "write_file")
+        ctx.result.stats.model_turns = 3
+        assert loop_barrier.turns_since_last_mark(ctx) == 2
 
     def test_a_spike_mark_resets_the_count(self) -> None:
         ctx = _ctx(["read_file"] * (2 * K), turns=2 * K, marks=[2 * K - 2])
@@ -127,7 +142,7 @@ class TestInterposeRecordsAndMarks:
         result.stats.model_turns = K
         resp = ModelResponse(content="Plan: edit loop.py")
 
-        def factory(engine_name: str, warn, point: str = "barrier.pre_mutation"):
+        def factory(engine_name: str, warn, *, point: str = "barrier.pre_mutation"):
             assert point == loop_barrier.STALL_POINT
             return lambda messages: resp
 
@@ -149,3 +164,37 @@ class TestInterposeRecordsAndMarks:
         assert ctx.result.steps[-1].tool == "stall.no_write"
         assert ctx.messages[-1] == {"role": "assistant", "content": "Plan: edit loop.py"}
         assert ctx._stall_marks  # the firing is itself a mark
+
+
+class TestFactoryContract:
+    def test_two_argument_factory_still_serves_the_stall_point(self, tmp_path, monkeypatch) -> None:
+        """An injected ``(engine_name, warn)`` factory (the ContextControls
+        contract, every test double) is called as before — no TypeError (t8)."""
+        from colleague.contract import Task
+        from colleague.loop_types import _Work
+
+        monkeypatch.setattr(loop_barrier, "_account_turn", lambda ctx, resp: None)
+        task = Task.new(str(tmp_path), "x")
+        result = TaskResult(task_id=task.id, status="ok")
+        for i in range(K):
+            result.steps.append(Step(i, "read_file", {}, "", ok=True))
+        result.stats.model_turns = K
+        calls: list[tuple] = []
+
+        def two_arg_factory(engine_name, warn):
+            calls.append((engine_name,))
+            return lambda messages: ModelResponse(content="decide")
+
+        ctx = _Work(
+            executor=None,
+            hooks=None,
+            telemetry=None,
+            task=task,
+            result=result,
+            messages=[{"role": "user", "content": "go"}],
+            max_steps=90,
+            barrier_complete=two_arg_factory,
+        )
+        assert loop_barrier.intercept_stall(ctx, _calls("read_file")) is True
+        assert calls == [("mock",)] or len(calls) == 1
+        assert ctx.result.effort_spikes[-1]["point"] == "stall.no_write"

@@ -74,6 +74,7 @@ tool name, no payload changes and the ``effort_spikes`` key never appears.
 from __future__ import annotations
 
 import dataclasses
+import inspect
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, cast
 
 from colleague import effortspikes
@@ -206,9 +207,12 @@ def make_barrier_complete(
     """Bind the barrier's seat-completion factory, or ``None`` when it can never fire.
 
     ``None`` — the strict no-op — whenever
-    :func:`colleague.effortspikes.resolve_spike` declines the point (the
-    ``COLLEAGUE_EFFORT_SPIKES`` opt-in unset, the default). Nothing is built,
-    no engine is loaded, and the loop keeps the pre-#484 path byte for byte.
+    :func:`colleague.effortspikes.resolve_spike` declines BOTH decision
+    points (the barrier and the stall turn; ``COLLEAGUE_EFFORT_SPIKES=0``).
+    Nothing is built, no engine is loaded, and the loop keeps the pre-#484
+    path byte for byte. A partially-armed run (one point overridden to
+    ``off``) still binds the factory, and each point resolves its own rung
+    at fire time.
 
     Armed, the returned ``factory(engine_name, warn)`` loads that engine and
     returns a TOOLS-OFF completion (``make_complete(seat, tools=[])`` — the
@@ -226,7 +230,7 @@ def make_barrier_complete(
     loader = engine_loader if engine_loader is not None else registry.load
 
     def factory(
-        engine_name: str, warn: Callable[[str], None], point: str = BARRIER_POINT
+        engine_name: str, warn: Callable[[str], None], *, point: str = BARRIER_POINT
     ) -> Optional[CompleteFn]:
         rung = effortspikes.resolve_spike(point)
         if rung is None:  # re-checked at fire time: the opt-in is process state
@@ -346,26 +350,28 @@ def stall_fires(result: Any) -> int:
 
 
 def turns_since_last_mark(ctx: "_Work") -> int:
-    """Acting turns since the latest of: run start, any spike firing, any file write.
+    """Acting turns since the latest mark: run start, any spike firing, any file write.
 
-    Marks are the model-turn counts recorded on ``ctx._stall_marks`` (set by
-    :func:`note_stall_mark`) plus one mark per file-writing STEP (by tool
-    NAME); the count is ``stats.model_turns`` minus the latest mark. Nothing
-    here reads tool arguments or model text.
+    Marks are model-turn counts recorded on ``ctx._stall_marks`` — by
+    :func:`note_stall_mark` when a spike fires and by :func:`note_file_write`
+    when a file-writing tool call executes (stamped at the turn it happened,
+    never reconstructed from step positions: one response can carry several
+    calls, Qodo #491 t5). The count is ``stats.model_turns`` minus the latest
+    mark. Nothing here reads tool arguments or model text.
     """
     turns = int(getattr(ctx.result.stats, "model_turns", 0))
-    marks = list(getattr(ctx, "_stall_marks", ()) or ())
-    steps = ctx.result.steps
-    # A file-writing step is a mark at the turn it happened; the step index is
-    # not a turn count, so map it through the steps' own bookkeeping: the
-    # latest write step's position among steps is the closest deterministic
-    # proxy for "how many turns ago" — a conservative under-count is fine.
-    write_positions = [i for i, step in enumerate(steps) if is_file_write_tool(step.tool)]
-    if write_positions:
-        # turns elapsed since that step <= steps elapsed since it
-        marks.append(turns - (len(steps) - 1 - write_positions[-1]))
+    marks = getattr(ctx, "_stall_marks", None) or ()
     last = max(marks) if marks else 0
     return max(0, turns - last)
+
+
+def note_file_write(ctx: "_Work", tool_name: str) -> None:
+    """A file-writing tool call executed now: a stall mark at the current turn (name lookup)."""
+    if not is_file_write_tool(tool_name):
+        return
+    marks = getattr(ctx, "_stall_marks", None)
+    if marks is not None:
+        marks.append(int(getattr(ctx.result.stats, "model_turns", 0)))
 
 
 def note_stall_mark(ctx: "_Work") -> None:
@@ -415,18 +421,34 @@ def intercept(ctx: "_Work", calls: Any) -> bool:
     return _interpose(ctx, BARRIER_POINT, BARRIER_PROMPT, PHASE_BARRIER)
 
 
+def _call_factory(factory: Any, engine_name: str, warn: Any, point: str) -> Optional[CompleteFn]:
+    """Invoke a seat factory under the documented ``(engine_name, warn)`` contract.
+
+    The production factory (:func:`make_barrier_complete`) also accepts an
+    optional ``point`` keyword so a non-barrier decision point resolves ITS
+    rung; an injected two-argument factory (the ``ContextControls``
+    contract, every test double) is called exactly as before and serves the
+    barrier's rung for every point — a compatibility rule, never a
+    ``TypeError`` escaping the loop (Qodo #491 t8).
+    """
+    if point != BARRIER_POINT:
+        try:
+            params = inspect.signature(factory).parameters
+        except (TypeError, ValueError):  # a callable without an inspectable signature
+            params = {}
+        if "point" in params:
+            return factory(engine_name, warn, point=point)
+    return factory(engine_name, warn)
+
+
 def _interpose(ctx: "_Work", point: str, prompt: str, phase: str) -> bool:
     """Run one tools-off decision turn for *point* (the barrier's mechanism, shared)."""
     rung = cast(str, effortspikes.resolve_spike(point))
-    warn = lambda text: _warn(ctx, text)  # noqa: E731 - a one-line sink
-    # The barrier keeps the original two-argument factory call (every bound
-    # seat, and every test double, speaks it); only a non-barrier point passes
-    # its name through, so the seat resolves that point's rung.
-    complete = (
-        ctx.barrier_complete(ctx.task.engine, warn)
-        if point == BARRIER_POINT
-        else ctx.barrier_complete(ctx.task.engine, warn, point)
-    )
+
+    def warn(text: str) -> None:
+        _warn(ctx, text)
+
+    complete = _call_factory(ctx.barrier_complete, ctx.task.engine, warn, point)
     if complete is None:
         return False
     request = list(ctx.messages) + [{"role": "user", "content": prompt}]
