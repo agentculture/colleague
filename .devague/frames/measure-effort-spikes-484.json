@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-01T20:45:24Z",
-  "updated": "2026-09-01T21:39:16Z",
+  "updated": "2026-09-01T23:37:03Z",
   "claims": [
     {
       "id": "c1",
@@ -430,6 +430,30 @@
       "id": "s9",
       "surface": "colleague/roles.py:78-97 (_WRITE_TOOLS / _READONLY_TOOLS) + arm A trace step 1",
       "finding": "run_command \u2208 _WRITE_TOOLS; the barrier's name-only lookup fires on it; arm A ran 'wc -l' at step 1 so B/C will barrier at step 1 unless the model happens not to shell out",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "arm B first attempt (flight 4f362863a7b5) + loop_barrier.should_fire",
+      "finding": "the model's FIRST call was run_command (git status); should_fire refuses once any prior step is mutating, so the barrier can never fire in that run \u2014 VOID under h4, stopped cooperatively at step 4 and rerun once. On this brief the v0 name-only trigger is a coin flip on the model's opening move (arm A opened with read_file, its wc -l came second)",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "arm B rerun opening (step 0: run_command wc -l \u2026)",
+      "finding": "the h4 rerun ALSO opened with run_command \u2014 VOID twice; the v0 barrier is unmeasurable on this brief as shipped; the rerun continues as a spikes-armed-never-fired A replicate (wire-identical to arm A, so it feeds park r2's n=1 noise); C runs as shipped per q6; two voids point the disposition at #482's 'neither \u2192 reframe' reading plus the trigger follow-up issue",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "arm C attempt 1 opening (flight 1452182d4e80: step 0 run_command wc -l; ls -la)",
+      "finding": "shell-first again \u2014 4 openings on this brief, 3 shell-first; VOID under c4, stopped at once and rerun once (the h4 allowance)",
       "seeds": [
         "c4"
       ]
