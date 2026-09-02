@@ -253,6 +253,9 @@ def _extra_fields_run_record(self: "TaskResult", extra: dict[str, Any]) -> dict[
     # an unarmed run (the default) carries no key at all.
     if self.effort_spikes:
         extra["effort_spikes"] = [dict(entry) for entry in self.effort_spikes]
+    # effort_decay: the same omit-when-EMPTY treatment (decay arc).
+    if self.effort_decay:
+        extra["effort_decay"] = dict(self.effort_decay)
     return extra
 
 
@@ -324,6 +327,9 @@ def task_result_from_dict(cls: type, data: dict[str, Any]) -> "TaskResult":
         sub_results=[SubResult.from_dict(s) for s in data.get("sub_results", [])],
         hires=_hires_from_dict(data),
         effort_spikes=_effort_spikes_from_dict(data),
+        effort_decay=(
+            dict(data["effort_decay"]) if isinstance(data.get("effort_decay"), dict) else {}
+        ),
         command=data.get("command"),
         destination=data.get("destination"),
         announcement=data.get("announcement"),

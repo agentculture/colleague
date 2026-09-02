@@ -56,6 +56,7 @@ from colleague import effortrecord
 from colleague import escalation as _escalation  # noqa: F401 - patched as ``loop._escalation``
 from colleague import loop_barrier as _barrier
 from colleague import loop_deltaheartbeat as _deltaheartbeat
+from colleague import loop_gateescalation as _gateescalation
 from colleague import loop_hooks as _loop_hooks
 from colleague import loop_run_stages as _run_stages
 from colleague import loopguards as _loopguards
@@ -425,7 +426,14 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # rather than keep reading serially. No-op when dormant / already offered /
         # under the distinct-folders threshold.
         _maybe_offer_review_fanout(ctx)
-        resp = _complete_turn_or_retry(ctx, complete)
+        # Effort decay (spec 2026-09-02-effort-floor-and-decay-arms): the rung
+        # for THIS acting completion is a pure function of its offset from the
+        # last spike over a fixed table, pushed/popped by the sanctioned
+        # escalator module — loop.py itself never assigns effort. A strict
+        # no-op unless BOTH COLLEAGUE_EFFORT_SPIKES and COLLEAGUE_EFFORT_DECAY
+        # are armed.
+        with _gateescalation.decayed_turn(ctx):
+            resp = _complete_turn_or_retry(ctx, complete)
         if resp is None:
             continue
         _account_turn(ctx, resp)
@@ -672,6 +680,7 @@ def run(
         associate_complete=_context.associate_complete,
         barrier_complete=_context.barrier_complete,
         gate_escalation=_context.gate_escalation,
+        effort_decay=_context.effort_decay,
         reasoning_effort_main=_context.reasoning_effort_main,
         reasoning_effort_senses=_context.reasoning_effort_senses,
         reasoning_effort_deepthink=_context.reasoning_effort_deepthink,

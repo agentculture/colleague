@@ -90,6 +90,10 @@ class _Work:
     # ``None`` = the ``COLLEAGUE_EFFORT_SPIKES`` opt-in is unset, so every
     # function in that module is a strict no-op.
     gate_escalation: Any = None
+    # Effort decay clock (spec 2026-09-02-effort-floor-and-decay-arms): the
+    # bound ``effortdecay.DecayState``; ``None`` = ``COLLEAGUE_EFFORT_DECAY``
+    # (or the spike opt-in) unset, so ``decayed_turn`` is a strict no-op.
+    effort_decay: Any = None
     # Single-element/append-only cells the frozen ``_Work`` flips through the
     # binding (the ``_split_recommended`` pattern): ``_effort_spikes_fired``
     # holds the at-most-once keys of the t9 spikes that already fired
@@ -681,6 +685,10 @@ class ContextControls:
     #: completion closed over, ``None`` unless the ``COLLEAGUE_EFFORT_SPIKES``
     #: opt-in is armed (byte-identical default).
     gate_escalation: Any = field(default=None, compare=False, repr=False)
+    #: The effort-decay clock (spec 2026-09-02-effort-floor-and-decay-arms) —
+    #: ``None`` unless ``COLLEAGUE_EFFORT_DECAY=1`` AND the spike opt-in are
+    #: armed (byte-identical default).
+    effort_decay: Any = field(default=None, compare=False, repr=False)
     #: The acting (main) seat's resolved thinking-effort rung (effort-v4 t5,
     #: c6/h5) — ``effort.effort_of(config)``, exactly what the wire sends
     #: (``vllm_openai._effort_for``'s value), resolved ONCE in ``from_config``
@@ -736,6 +744,8 @@ class ContextControls:
             barrier_complete=_loopbarrier.make_barrier_complete(config),
             # #484 t9: likewise ``None`` unless the SAME opt-in is armed.
             gate_escalation=_gateescalation.make_escalator(config),
+            # decay: likewise ``None`` unless BOTH opt-ins are armed.
+            effort_decay=_gateescalation.make_decay(config),
             budget=config.context_budget_tokens,
             count_tokens=count_tokens,
             agents_run=_agents_runtime.make_agents_run(config),

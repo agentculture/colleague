@@ -230,6 +230,23 @@ def make_barrier_complete(
 # ---------------------------------------------------------------------------
 
 
+#: The tool NAMES whose first appearance in a turn is the barrier's trigger,
+#: and whose earlier appearance in the run cancels it (#487). Narrower than
+#: :func:`is_mutating_tool` on purpose: ``run_command`` stays a mutating tool
+#: for roles and policy, but a survey that opens with ``git status`` or
+#: ``wc -l`` is still a survey — the v0 precondition ("every prior step
+#: read-only") latched shut on that first shell command and could never fire
+#: on 3 of 5 measured dispatches (rows 72-73). Still a name lookup, never
+#: content: a ``sed -i`` inside ``run_command`` slips past, and that is
+#: documented rather than inspected.
+FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file"})
+
+
+def is_file_write_tool(name: str) -> bool:
+    """Whether *name* is one of :data:`FILE_WRITE_TOOLS` (a name lookup only)."""
+    return name in FILE_WRITE_TOOLS
+
+
 def is_mutating_tool(name: str) -> bool:
     """Whether *name* is a mutating tool — the EXISTING read-only classification.
 
@@ -258,23 +275,31 @@ def should_fire(ctx: "_Work", calls: Any) -> bool:
     * the spike surface is armed for this point (rung resolves) AND a barrier
       seat factory was bound;
     * the barrier has not already fired this run (v0: at most once);
-    * the run has completed at least one step and EVERY step so far named a
-      read-only tool — i.e. the run is still in its read-only phase;
-    * this turn asks for at least one mutating tool.
+    * the run has completed at least one step and NO step so far named a
+      file-writing tool (:data:`FILE_WRITE_TOOLS`, #487) — i.e. the tree is
+      still untouched, whatever shell commands the survey ran;
+    * this turn asks for at least one file-writing tool.
     """
     if ctx.barrier_complete is None or effortspikes.resolve_spike(BARRIER_POINT) is None:
         return False
     if barrier_fired(ctx.result):
         return False
     steps = ctx.result.steps
-    if not steps or any(is_mutating_tool(step.tool) for step in steps):
+    if not steps or any(is_file_write_tool(step.tool) for step in steps):
         return False
-    return any(is_mutating_tool(getattr(call, "name", "")) for call in calls or ())
+    return any(is_file_write_tool(getattr(call, "name", "")) for call in calls or ())
 
 
 # ---------------------------------------------------------------------------
 # The firing
 # ---------------------------------------------------------------------------
+
+
+def _note_decay_reset(ctx: "_Work") -> None:
+    """The barrier is a reset point for effort decay (a no-op when decay is unarmed)."""
+    from colleague import loop_gateescalation as _gateescalation
+
+    _gateescalation.note_reset(ctx)
 
 
 def _warn(ctx: "_Work", detail: str) -> None:
@@ -310,6 +335,7 @@ def intercept(ctx: "_Work", calls: Any) -> bool:
     ctx.result.effort_spikes.append(
         effortspikes.SpikeRecord(point=BARRIER_POINT, rung=rung, seat=ctx.seat).to_dict()
     )
+    _note_decay_reset(ctx)
     plan = (resp.content or "").strip()
     if not plan:
         # No plan to inject: do not swallow the turn the model actually wanted.

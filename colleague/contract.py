@@ -425,6 +425,12 @@ class TaskResult:
     ``hires``, the key is OMITTED (not an empty list) when empty, so a run with
     the ``COLLEAGUE_EFFORT_SPIKES`` opt-in unset — the default — serializes
     byte-identically to v1.74.0."""
+    effort_decay: dict[str, Any] = field(default_factory=dict)
+    """The effort-decay record (spec 2026-09-02-effort-floor-and-decay-arms):
+    ``{resets: [model-turn indices], turns: {rung: n}}`` — which spike resets
+    happened and how many acting turns then ran at each decayed rung
+    (:meth:`colleague.effortdecay.DecayState.to_dict`). Like ``effort_spikes``,
+    the key is OMITTED when empty, so an unarmed run serializes byte-identically."""
     command: Optional[str] = None
     """The command-template name that originated this task, or ``None`` for
     an ad-hoc instruction (e.g. plain ``colleague work "<text>"``).

@@ -71,7 +71,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Tuple
 
-from colleague import effortspikes
+from colleague import effortdecay, effortspikes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from colleague.loop_types import _Work
@@ -190,6 +190,71 @@ def _record(ctx: "_Work", key: str, point: str, rung: str) -> None:
     ctx.result.effort_spikes.append(
         effortspikes.SpikeRecord(point=point, rung=rung, seat=ctx.seat).to_dict()
     )
+    note_reset(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Effort decay after a spike (spec 2026-09-02-effort-floor-and-decay-arms, c3)
+# ---------------------------------------------------------------------------
+
+
+def make_decay(config: Any) -> Optional[effortdecay.DecayState]:
+    """Bind the decay clock, or ``None`` — the strict no-op — when unarmed.
+
+    ``COLLEAGUE_EFFORT_DECAY=1`` AND the spike opt-in must both be set
+    (:func:`colleague.effortdecay.decay_enabled`); *config* is accepted for
+    symmetry with :func:`make_escalator` and unused — the clock is per run,
+    not per config.
+    """
+    del config
+    return effortdecay.make_decay()
+
+
+def _decay(ctx: "_Work") -> Optional[effortdecay.DecayState]:
+    return getattr(ctx, "effort_decay", None)
+
+
+def note_reset(ctx: "_Work") -> None:
+    """A spike point fired: restart the decay clock at the run's current model turn.
+
+    Called by every spike record site — the two here and the barrier's — so the
+    reset vocabulary is exactly the enumerated spike points. A no-op when decay
+    is unarmed.
+    """
+    decay = _decay(ctx)
+    if decay is None:
+        return
+    decay.reset(int(getattr(ctx.result.stats, "model_turns", 0)))
+
+
+@contextmanager
+def decayed_turn(ctx: "_Work") -> Iterator[Optional[str]]:
+    """Run the enclosed ACTING completion at the decayed rung, when one applies.
+
+    Yields the rung pushed (``None`` when nothing was: decay unarmed, no reset
+    yet, or the escalator unbound). The rung is a pure function of the
+    completion's OFFSET from the last reset over the fixed
+    :data:`colleague.effortdecay.DECAY_TABLE` — never of turn content. Pushed
+    through the same :class:`SeatEscalator` the spike points use and popped
+    the moment the completion returns, so no later seat inherits it. The turn
+    is counted on the decay record only when a rung was actually pushed.
+    """
+    decay = _decay(ctx)
+    escalator = _escalator(ctx)
+    if decay is None or escalator is None:
+        yield None
+        return
+    next_turn = int(getattr(ctx.result.stats, "model_turns", 0)) + 1
+    rung = decay.rung_for(next_turn)
+    if rung is None:
+        yield None
+        return
+    decay.note(rung)
+    escalator.push(rung)
+    try:
+        yield rung
+    finally:
+        escalator.pop()
 
 
 # ---------------------------------------------------------------------------
