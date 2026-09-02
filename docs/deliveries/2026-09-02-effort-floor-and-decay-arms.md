@@ -1,6 +1,7 @@
 # Delivery Summary — effort-floor-and-decay-arms
 
 plan: `effort-floor-and-decay-arms` · run: `complete` · date: `2026-09-02`
+(amended after `d1`: the default flip landed in the same PR)
 baseline: `devague summary skeleton`
 
 ## Intent
@@ -35,7 +36,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t3` | delivered | convention change (8) in CLAUDE.md + `thinking-effort.md`, `effort-spikes.md` sections, CHANGELOG, v1.76.0 (`bd89f144`, extended at `03dda713`, `c9581e93`) |
 | `t4` | delivered | row 74: arm D0 `569ebacc3790` — budget-exhausted, 91 survey turns, zero files, FAIL (`cfb2b2b0`) |
 | `t5` | delivered | rows 75-77: D `1fe80683ca44` FAIL (loop-guard exit, no write ever requested); E `2e38475f1f1a` PASS at the highest spend of any arm; F `77e350cbffbc` PASS at 24,279 chars / 1,286 s — the pre-stated win condition met at n=1 (`a4803abd`, `1f0d3c6a`, `44d276ef`) |
-| `t6` | partial | ledger o1-o7 / e1-e7 / b1-b2 adjudicated; this summary; the #484 round-2 disposition and the PR follow (cicd next; an `ask-colleague` review of the code diff is in flight) |
+| `t6` | delivered | ledger o1-o7 / e1-e7 / b1-b2 adjudicated; this summary; #484 round-2 disposition (comment `5505730293`); PR #491 via `devex pr open`; an `ask-colleague` review of the code diff runs alongside and is triaged into the PR |
 
 ## Mid-work Decisions
 
@@ -55,7 +56,7 @@ loop or the operator's mid-run answers, recorded as decisions on the frame.
 | `t2` (`e3`) | `TaskResult.effort_decay` was declared but never mirrored from the run state until after arm E — E's artifact carries no record | needs-follow-up (fixed at `1f0eb2a2`; E's evidence is sidecar-based) |
 | `t2` (`b1`) | two spike points beyond the plan's scope (`stall.no_write`, `start.first_turn`) — needed to make the off-floor question answerable at all | acceptable (decisions c13/c14, drift test re-pinned, docs carry them) |
 | `t5` (`b2`) | arm F changed four files: it also bumped `pyproject.toml` and wrote a CHANGELOG entry the brief did not ask for | risky (correct on the pre-registered measure; wider than asked — a scope-discipline signal for `off`-floor runs) |
-| `t6` | PR not yet open when this summary is written | acceptable |
+| `t6` (`d1`) | after the arms, the operator made arm F's shape the DEFAULT (spikes + decay ON, cortex floor `off`) — beyond the plan's measure-only scope; recorded as deviation d1 with follow-up #490 | risky (n=1; reverting is three defaults in one commit) |
 
 ## Evidence
 
@@ -81,7 +82,8 @@ loop or the operator's mid-run answers, recorded as decisions on the frame.
 
 ## Remaining Work / Follow-up
 
-- `t6` — post the #484 round-2 disposition; open the PR via cicd after the `ask-colleague` review returns; triage review threads.
+- PR #491 — triage the `ask-colleague` review and any Qodo threads; human merge.
+- #490 — replicate F (n≥3), G/H arms, a second brief and model, scope discipline at `off`: the readings that keep or revert the default are pre-stated there.
 - G arm (off + stall spikes only, no start spike, no decay) — isolates which of the three levers in F did the work.
 - replicate F (n=2) before any default-arming proposal; the row's win condition is n=1.
 - scope discipline at `off`: F edited `pyproject.toml`/CHANGELOG unasked — worth a row-77-style note in the brief or a gate.
