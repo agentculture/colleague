@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.76.0] - 2026-09-02
+
+### Added
+
+- `colleague/effortdecay.py` — opt-in effort DECAY after a spike (`COLLEAGUE_EFFORT_DECAY=1`, requires spikes armed): the acting turns after any spike point run `1 → low`, then `off` until the next spike resets the clock — a FIXED table keyed by offset, never content (convention change (8)); pushed through the existing `SeatEscalator`; `TaskResult.effort_decay` record (omit-when-empty); unarmed byte-identical
+- `docs/live-testing.md` row 74 — arm D0 (off floor, spikes off): budget-exhausted after 91 turns of pure survey, zero files; the off floor alone does not deliver on the row-69 brief
+- two more enumerated spike points (five total, drift test re-pinned): `stall.no_write` — after `STALL_TURNS`=10 acting turns with no `write_file`/`edit_file` call since start / last spike / last write, the barrier's tools-off decision turn fires at `medium`, at most `STALL_MAX_FIRES`=3 per run (a COUNT over tool names; rows 74-75 showed an `off` floor never reaches the pre-mutation barrier) — and `start.first_turn` (model turn 1 at `medium`, tools on, keyed by position); both reset the decay clock
+- spec+plan `effort-floor-and-decay-arms` (D0/D/E/F arms)
+
+### Fixed
+
+- #487 — the pre-mutation barrier keyed its precondition on every mutating tool NAME, so a survey that opened with `run_command` could never reach it (3 of 5 dispatches in rows 72-73); precondition and trigger now key on the file-writing names `write_file`/`edit_file` only (`loop_barrier.FILE_WRITE_TOOLS`)
+
+## [1.75.1] - 2026-09-02
+
+### Added
+
+- `docs/live-testing.md` rows 70-73 — the #484 effort-spike measurement: barrier smoke (fires live), arm A (`low` + feedback) PASS, arm B (barrier `low`) VOID twice, arm C (barrier `medium`) PASS at 2.3x arm A reasoning; disposition posted on #484, trigger follow-up #487
+- spec `docs/specs/2026-09-01-measure-effort-spikes-484.md` + plan `docs/plans/2026-09-01-measure-effort-spikes-484.md` (devague /scope → /think → /spec-to-plan)
+
+### Changed
+
+- **Arm F's shape is the default** (operator decision on row 77, deviation d1, rigour follow-up #490): `COLLEAGUE_EFFORT_SPIKES` and `COLLEAGUE_EFFORT_DECAY` default ON (`=0` / `off` / `false` / `no` disarm), and the cortex floor moves `low` → `off` in `effort.SEAT_TABLE` (`COLLEAGUE_REASONING_EFFORT=low` restores it). The test suite pins the previous wire as its baseline in `tests/conftest.py`; the default-ON contract is asserted explicitly.
+
+- `docs/features/effort-spikes.md` Honest limits now carries the MEASURED pointer: the default stays OFF — the spec's C-beats-B arming rule could not run (arm B VOID); #480+#482 are the fix by #482's separate A-vs-planning-turn reading, which did run
+
 ## [1.75.0] - 2026-09-01
 
 ### Added

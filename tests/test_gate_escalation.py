@@ -49,7 +49,7 @@ def armed(monkeypatch):
 
 @pytest.fixture
 def unarmed(monkeypatch):
-    monkeypatch.delenv(SPIKE_ENV, raising=False)
+    monkeypatch.setenv(SPIKE_ENV, "0")
 
 
 def _config(**overrides) -> EngineConfig:
@@ -427,7 +427,7 @@ class TestFilllineLoopSeam:
         assert SEAT_ATTR not in config.__dict__
 
     def test_from_config_binds_the_escalator_only_when_armed(self, monkeypatch):
-        monkeypatch.delenv(SPIKE_ENV, raising=False)
+        monkeypatch.setenv(SPIKE_ENV, "0")
         assert ContextControls.from_config(_config()).gate_escalation is None
         monkeypatch.setenv(SPIKE_ENV, "1")
         assert ContextControls.from_config(_config()).gate_escalation is not None

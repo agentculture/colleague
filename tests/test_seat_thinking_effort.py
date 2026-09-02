@@ -242,7 +242,7 @@ def test_agent_seat_talker_operator_override_wins() -> None:
 def test_agent_seat_thinker_coder_carries_cortex_rung() -> None:
     roles = _advert_roles()
     seat = agent_engine_config(_parent_config(), _profile("thinker_coder", roles), roles)
-    assert _effort(seat) == "low"  # v4 cortex rung (#475)
+    assert _effort(seat) == "off"  # v4 cortex rung (#475)
 
 
 def test_agent_seat_thinker_coder_operator_override_wins() -> None:

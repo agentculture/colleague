@@ -13,7 +13,8 @@ pre-mutation decision barrier and the repeated-gate-failure replan escalation
 model or touches the loop.
 
 Spike surface v0 (spec ``docs/specs/2026-09-01-small-fixes-then-effort-balance.md``,
-c18/c8/h5) is the LEAN set of exactly three enumerated points, no more:
+c18/c8/h5) was the LEAN set of exactly three enumerated points; the
+effort-floor-and-decay arc added a FOURTH, ``stall.no_write`` (below):
 
 ``barrier.pre_mutation``
     The bounded, tools-off decision barrier consulted immediately before a
@@ -32,6 +33,22 @@ c18/c8/h5) is the LEAN set of exactly three enumerated points, no more:
     ``colleague.effort.DESIGN_SITE_TABLE['fillline.split']`` instead of this
     table" — and :func:`resolve_spike` refuses to resolve it directly.
     Wiring the existing consumer is t9's job, not this module's.
+
+``stall.no_write``
+    The stall decision turn (effort-floor-and-decay arc, rows 74-75): after
+    :data:`STALL_TURNS` acting turns with no ``write_file``/``edit_file`` call
+    since the run start, the last spike, or the last file write, the loop
+    interposes the same tools-off decision turn the barrier uses, at most
+    :data:`STALL_MAX_FIRES` times per run. The signal is a COUNT over tool
+    NAMES — an ``off``-floor run that surveys forever never reaches the
+    pre-mutation barrier, so this point is the one that can reach it. Rung:
+    ``"medium"``.
+
+``start.first_turn``
+    The run's FIRST acting completion (the orientation turn), tools on, at
+    ``"medium"`` — keyed by position (model turn 1), never content — after
+    which the decay clock starts (turn 2 ``low``, turn 3+ ``off`` when decay
+    is armed). Rung: ``"medium"``.
 
 Every point maps to a rung from the CLOSED ladder validated by
 :func:`colleague.effort.validate_effort` — never a value the model supplies.
@@ -65,14 +82,28 @@ from colleague.effort import validate_effort
 #: rung; :func:`resolve_spike` refuses to return it.
 FILLLINE_DELEGATED = "__delegates_to_design_site_table_fillline_split__"
 
-#: The closed, enumerated spike-point vocabulary (exactly three; c18/c8/h5).
+#: The closed, enumerated spike-point vocabulary (exactly five: three from
+#: #484, c18/c8/h5, plus ``stall.no_write`` and ``start.first_turn`` from the
+#: effort-floor-and-decay arc).
 #: This tuple — not a re-derivation elsewhere — is the single source both
 #: :data:`SPIKE_TABLE` and the drift test key off of.
 SPIKE_POINTS = (
     "barrier.pre_mutation",
     "gate.repeat_failure",
     "fillline.decision",
+    "stall.no_write",
+    "start.first_turn",
 )
+
+#: ``stall.no_write`` (effort-floor-and-decay arc, decision q-stall): the number
+#: of ACTING model turns without any file-writing tool call — counted from the
+#: run start, the last spike, or the last file write, whichever is latest —
+#: after which the stall decision turn fires. A COUNT over tool names, never a
+#: reading of turn content.
+STALL_TURNS = 10
+
+#: The per-run cap on ``stall.no_write`` firings (bounded, like every spike).
+STALL_MAX_FIRES = 3
 
 #: point -> rung (or :data:`FILLLINE_DELEGATED` for the one delegated point).
 #: A FIXED table only — no code path here ever writes to it or accepts a
@@ -81,7 +112,15 @@ SPIKE_TABLE = {
     "barrier.pre_mutation": "medium",
     "gate.repeat_failure": "medium",
     "fillline.decision": FILLLINE_DELEGATED,
+    "stall.no_write": "medium",
+    "start.first_turn": "medium",
 }
+
+
+#: Values of ``COLLEAGUE_EFFORT_SPIKES`` that turn the surface OFF. Default
+#: is ON since the effort-floor-and-decay arc (row 77, operator decision):
+#: unset = armed; ``0`` / ``off`` / ``false`` / ``no`` = the pre-#484 wire.
+SPIKES_DISABLING_VALUES = frozenset({"0", "off", "false", "no"})
 
 
 def spikes_enabled() -> bool:
@@ -93,7 +132,7 @@ def spikes_enabled() -> bool:
     strict no-op while it is.
     """
 
-    return os.environ.get("COLLEAGUE_EFFORT_SPIKES", "") == "1"
+    return os.environ.get("COLLEAGUE_EFFORT_SPIKES", "1").strip() not in SPIKES_DISABLING_VALUES
 
 
 def resolve_spike(point: str) -> Optional[str]:

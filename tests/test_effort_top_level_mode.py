@@ -19,18 +19,18 @@ def _acting(**kw):
 
 
 def test_unset_run_keeps_the_cortex_default():
-    # v4 (#475): the cortex/worker seat default is "low".
-    assert _acting() == "low"
-    assert _acting(mode="work") == "low"
-    assert _acting(mode=None, role=None) == "low"
+    # v4 (#475): the cortex default is "off" since row 77 (d1); worker stays "low".
+    assert _acting() == "off"
+    assert _acting(mode="work") == "off"
+    assert _acting(mode=None, role=None) == "off"
 
 
 def test_top_level_reviewer_and_explorer_reason_low():
     assert _acting(role="reviewer") == "low"
     assert _acting(role="explorer") == "low"
     # other top-level roles keep the seat default ("low" since v4, #475)
-    assert _acting(role="writer") == "low"
-    assert _acting(role="planner") == "low"
+    assert _acting(role="writer") == "off"
+    assert _acting(role="planner") == "off"
 
 
 def test_read_only_modes_reason_low_without_a_role():
@@ -59,7 +59,7 @@ def test_engine_config_property_reads_mode(monkeypatch, tmp_path):
     monkeypatch.delenv("COLLEAGUE_REASONING_EFFORT", raising=False)
     cfg = EngineConfig.resolve(repo_path=tmp_path)
     assert cfg.mode is None
-    assert cfg.reasoning_effort_effective == "low"  # v4 seat default (#475)
+    assert cfg.reasoning_effort_effective == "off"  # v4 seat default (#475)
     cfg.mode = "review"
     assert cfg.reasoning_effort_effective == "low"
     cfg.mode = None

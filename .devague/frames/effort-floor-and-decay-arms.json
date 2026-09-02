@@ -1,0 +1,373 @@
+{
+  "slug": "effort-floor-and-decay-arms",
+  "title": "effort-floor-and-decay-arms",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-09-02T04:00:57Z",
+  "updated": "2026-09-02T06:55:54Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague measures the effort floor question #484 left open: an OFF floor with and without the medium barrier (arms D0/D), and a built, opt-in effort DECAY after a spike (medium \u2192 low \u2192 off until the next spike point) on a low floor (E) and an off floor (F) \u2014 with the #487 trigger fix so a shell-first survey can still reach the barrier; each arm a ledger row, a miss written as a miss",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "every arm artifact records the expected effort {main: off|low}, sampling half matching the rung (non_thinking row at off), task_text sha 815f5c3f\u20261ac9, max_steps 90; read off the artifact",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "order: build (#487 fix + decay + tests + docs) on branch feat/effort-decay-487 \u2192 suite green \u2192 dispatch D (needs the fix) \u2192 E \u2192 F sequentially on a harness worktree at the build tip; D0 already running on v1.75.1; rows 74-77; disposition",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "#487 fix, name-only: loop_barrier.should_fire's precondition becomes 'no prior step named write_file or edit_file' and its trigger 'this turn requests write_file or edit_file' (a FILE_WRITE_TOOLS name set) \u2014 run_command stays mutating for roles and policy; the barrier just stops latching on a shell-first survey",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "a unit test drives a shell-first survey (run_command, read_file) then a write_file turn and asserts the barrier fires; a second asserts a prior edit_file step blocks it; roles._WRITE_TOOLS and is_read_only_tool are byte-identical to 5b163084",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "edit should_fire only; add tests: shell-first survey then write_file fires; a prior edit_file blocks; the roles tuple is untouched",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Effort decay, opt-in (COLLEAGUE_EFFORT_DECAY=1, requires COLLEAGUE_EFFORT_SPIKES=1): after ANY spike point fires (a reset), the acting seat's rung for the following turns comes from a FIXED table keyed by OFFSET since the reset \u2014 DECAY_TABLE = {1: low, rest: off} \u2014 set through the already-sanctioned SeatEscalator push on the live config before each completion, never from turn content; a further reset restarts the offset; unarmed = byte-identical",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "with COLLEAGUE_EFFORT_DECAY unset, tests/test_offknob_byte_identity.py-style comparison shows identical payloads and no attribute writes; armed, a mock-driven test shows turn offsets 1\u2192low, 2+\u2192off after a spike and a restart after a second reset",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "new colleague/effortdecay.py (table + opt-in + DecayState); wiring in loop_gateescalation.py (already in the effort-assign sanctioned set) called from loop.py before _complete_turn_or_retry; the AST guard's sanctioned list gains effortdecay.py only if it assigns",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Artifact record TaskResult.effort_decay (omit-when-empty): {resets: [turn indices], turns: {low: n, off: n}} so a row can state how many acting turns ran at each decayed rung",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "TaskResult.to_dict omits effort_decay when empty; from_dict round-trips it; an unarmed artifact is byte-identical to v1.75.1",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "contract.py field + contract_taskresult_io round-trip, same omit-when-empty pattern as effort_spikes",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "Nothing inspects turn content or a model value to choose a rung: the decay is keyed by offset-since-reset from a fixed table, the reset triggers are exactly the three enumerated spike points, and no tool parameter reaches it; the excluded router stays excluded",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "tests/test_thinking_effort_boundary.py passes with the decay module named in its sanctioned set; a new tests/test_effortdecay_boundary.py pins DECAY_TABLE, the reset vocabulary == SPIKE_POINTS, and that no function accepts an effort/rung keyword",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/test_thinking_effort_boundary.py sanctioned set edited explicitly; a decay boundary test pins the table and the reset vocabulary",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Convention change (8), RECORDED not silent: the thinking-effort invariant reads 'never per turn FROM CONTENT \u2014 per enumerated point, or per fixed OFFSET from such a point, from a fixed table'; CLAUDE.md's v0\u2192v1 list and thinking-effort.md line 11 carry it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "git diff shows the amended sentence in docs/features/thinking-effort.md line ~11 AND a convention change (8) bullet in CLAUDE.md's v0\u2192v1 list, in the same PR as the code",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "edit both texts in the same PR as the code",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Arms on the row-69 brief (task_text 815f5c3f\u20261ac9), MAX_STEPS 90, TIMEOUT 600, gate/fillline pinned low, each verified on the result branch: D0 = off floor, spikes off (control, running now on v1.75.1) \u00b7 D = off floor + barrier medium \u00b7 E = low floor + decay \u00b7 F = off floor + decay; D/E/F on the fixed trigger; primary = correctness, secondary = spend; readings pre-stated: an off floor that loses correctness and a spike/decay arm that recovers it at lower spend than low-floor A (150k chars) is the win condition; equal correctness at higher spend is a miss",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "rows 74-77 each quote import/pins/suite output from a fresh worktree of the result branch and the four spend figures; the barrier fire step is recorded for D/E/F; the decay record (resets, low/off counts) is quoted for E/F",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "run_arm.sh gains D/E/F (HARNESS = a worktree at the build branch tip); rows 74-77",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "assumption",
+      "text": "D0 runs on v1.75.1 (harness-v1751 worktree) because it needs neither the fix nor the decay; D/E/F run on the build branch \u2014 the only harness difference D0 lacks is the #487 precondition, which cannot fire in a spikes-off run, so D0 stays a valid control",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "audience",
+      "text": "the operator deciding whether an off floor is viable and whether decay earns a default, and the next session reading rows 74-77",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "rows 74-77 + the disposition let a reader reproduce each arm's env without this session",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "before_state",
+      "text": "the ladder has one measured floor (low); off has never been run on this brief; decay exists only as a comment on #484; the barrier cannot fire on a shell-first survey (#487)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "before dispatch, no ledger row below 74 carries an off-floor arm and grep effort_decay across colleague/ is empty at 5b163084",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "after_state",
+      "text": "rows 74-77 in the ledger; #487 fixed; effort decay built dark behind COLLEAGUE_EFFORT_DECAY; the invariant amended once more as a recorded convention change; a disposition on #484 (or a successor issue) says whether the off floor holds and whether a spike/decay recovers it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "colleague/effortdecay.py exists behind COLLEAGUE_EFFORT_DECAY (default off); should_fire no longer references is_mutating_tool for the precondition; the disposition comment exists",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "success_signal",
+      "text": "4 arm rows each with a correctness verdict and 4 spend figures; 0 arms VOID on the trigger after the fix (the fix's own test); the decay artifact record shows >= 1 reset and the expected low/off turn counts in E and F; unarmed byte-identity test passes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "counted from the rows: 4 verdicts, 16 spend figures, 0 trigger voids in D/E/F, decay resets >= 1 in E and F; test_offknob_byte_identity passes",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "q-stall: a FOURTH enumerated spike point stall.no_write \u2014 after STALL_TURNS=10 acting turns with no write_file/edit_file call since the run start, the last spike, or the last file write, the loop interposes the barrier's tools-off decision turn at the table's medium, at most STALL_MAX_FIRES=3 per run; a count over tool names, never content; it also resets the decay clock. Arm F = off floor + barrier + stall spike + decay",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "q-start: a FIFTH enumerated point start.first_turn \u2014 the run's first acting completion (model turn 1, tools on) at the table's medium, keyed by position; recorded as a spike; resets the decay clock at turn 1 so turn 2 = low, turn 3+ = off. Arm F = off floor + start + barrier + stall + decay (the full stack)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "colleague/engines/vllm_payload.py:_effort_for + loop_gateescalation.SeatEscalator",
+      "finding": "the rung a completion carries is read from the live config's reasoning_effort_seat attribute at payload time; SeatEscalator already pushes/pops it on the live config from a sanctioned module \u2014 the decay reuses this exact seam",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "colleague/loop.py:_advance_turn + the _complete_turn_or_retry call site",
+      "finding": "the barrier intercepts inside _advance_turn; the per-turn completion is built at one call site before _account_turn \u2014 the decay hook goes immediately before that call, as a CALL into the sanctioned module (loop.py itself may not assign effort)",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "tests/test_thinking_effort_boundary.py:146-215",
+      "finding": "AST guard: effort attributes may be ASSIGNED only in a closed sanctioned set; loop.py/senses_loop.py are hard-forbidden; adding a writer means editing the test explicitly \u2014 the decay must land in a sanctioned module and the test's list must name it",
+      "seeds": [
+        "c5",
+        "c6"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "colleague/loop_barrier.should_fire + colleague/roles.py:78",
+      "finding": "precondition uses is_mutating_tool over ALL prior steps (run_command included) \u2014 the #487 latch; the fix narrows both precondition and trigger to a file-writing name set",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "docs/features/thinking-effort.md:11 + CLAUDE.md convention change (7)",
+      "finding": "the invariant was amended once for #484 (per enumerated point); decay keyed by offset needs a second recorded amendment, never a silent one",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "rows 74-75 (arms D0/D) + loop_barrier.should_fire",
+      "finding": "an off-floor run never requests a file write (D0: 91 turns of survey; D: identical-command loop-guard exit), so a spike that waits for the first write request cannot reach it \u2014 the rescue must key on a COUNT of turns without a write",
+      "seeds": [
+        "c13"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "loop_barrier.should_fire + arm F opening",
+      "behavior": "a shell-first survey still reaches the barrier (unit tests; arm F opened shell-first and its barrier fired at step 32)",
+      "source_text": "#487 fix, name-only: loop_barrier.should_fire's precondition becomes 'no prior step named write_file or edit_file' and its trigger 'this turn requests write_file or edit_file' (a FILE_WRITE_TOOLS name set) \u2014 run_command stays mutating for roles and policy; the barrier just stops latching on a shell-first survey",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "acting_turn/decayed_turn on the live config + arm E/F artifacts",
+      "behavior": "after a spike the tail runs 1\u2192low then off; unarmed byte-identical",
+      "source_text": "Effort decay, opt-in (COLLEAGUE_EFFORT_DECAY=1, requires COLLEAGUE_EFFORT_SPIKES=1): after ANY spike point fires (a reset), the acting seat's rung for the following turns comes from a FIXED table keyed by OFFSET since the reset \u2014 DECAY_TABLE = {1: low, rest: off} \u2014 set through the already-sanctioned SeatEscalator push on the live config before each completion, never from turn content; a further reset restarts the offset; unarmed = byte-identical",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "TaskResult.effort_decay",
+      "behavior": "the record round-trips, omits when empty, and is present on a decay arm's artifact",
+      "source_text": "Artifact record TaskResult.effort_decay (omit-when-empty): {resets: [turn indices], turns: {low: n, off: n}} so a row can state how many acting turns ran at each decayed rung",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c5",
+      "seam": "tests/test_thinking_effort_boundary.py + tests/test_effortdecay_boundary.py + tests/test_effortspikes_boundary.py",
+      "behavior": "no content inspection; five pinned points; sanctioned assign set unchanged",
+      "source_text": "Nothing inspects turn content or a model value to choose a rung: the decay is keyed by offset-since-reset from a fixed table, the reset triggers are exactly the three enumerated spike points, and no tool parameter reaches it; the excluded router stays excluded",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c6",
+      "seam": "CLAUDE.md + thinking-effort.md",
+      "behavior": "convention change (8) recorded in both texts in the same PR as the code",
+      "source_text": "Convention change (8), RECORDED not silent: the thinking-effort invariant reads 'never per turn FROM CONTENT \u2014 per enumerated point, or per fixed OFFSET from such a point, from a fixed table'; CLAUDE.md's v0\u2192v1 list and thinking-effort.md line 11 carry it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c7",
+      "seam": "rows 74-77 + verify_branch.sh",
+      "behavior": "four arm rows, each verified on the result branch, with spend figures and the pre-stated win condition applied",
+      "source_text": "Arms on the row-69 brief (task_text 815f5c3f\u20261ac9), MAX_STEPS 90, TIMEOUT 600, gate/fillline pinned low, each verified on the result branch: D0 = off floor, spikes off (control, running now on v1.75.1) \u00b7 D = off floor + barrier medium \u00b7 E = low floor + decay \u00b7 F = off floor + decay; D/E/F on the fixed trigger; primary = correctness, secondary = spend; readings pre-stated: an off floor that loses correctness and a spike/decay arm that recovers it at lower spend than low-floor A (150k chars) is the win condition; equal correctness at higher spend is a miss",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c12",
+      "seam": "rows 74-77 + artifacts",
+      "behavior": "4 verdicts + 16 spend figures; 0 trigger voids in D/E/F; decay resets >= 1 in E and F",
+      "source_text": "4 arm rows each with a correctness verdict and 4 spend figures; 0 arms VOID on the trigger after the fix (the fix's own test); the decay artifact record shows >= 1 reset and the expected low/off turn counts in E and F; unarmed byte-identity test passes",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
+}

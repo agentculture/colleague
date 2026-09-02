@@ -56,6 +56,7 @@ from colleague import effortrecord
 from colleague import escalation as _escalation  # noqa: F401 - patched as ``loop._escalation``
 from colleague import loop_barrier as _barrier
 from colleague import loop_deltaheartbeat as _deltaheartbeat
+from colleague import loop_gateescalation as _gateescalation
 from colleague import loop_hooks as _loop_hooks
 from colleague import loop_run_stages as _run_stages
 from colleague import loopguards as _loopguards
@@ -326,6 +327,11 @@ def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, st
     # context. A strict no-op (False, no completion) unless armed.
     if _barrier.intercept(ctx, resp.tool_calls):
         return nudges, None
+    # Stall decision turn (effort-floor-and-decay arc): the same tools-off turn,
+    # keyed by a COUNT of acting turns without a file write. Strict no-op unless
+    # the spike surface is armed.
+    if _barrier.intercept_stall(ctx, resp.tool_calls):
+        return nudges, None
     ctx.messages.append(_assistant_message(resp))
     # Run the turn's tool calls; a finish on any of them ends the work item once the
     # turn completes (the remaining calls in the turn still run).
@@ -425,10 +431,20 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # rather than keep reading serially. No-op when dormant / already offered /
         # under the distinct-folders threshold.
         _maybe_offer_review_fanout(ctx)
-        resp = _complete_turn_or_retry(ctx, complete)
+        # Effort decay + start spike (spec 2026-09-02-effort-floor-and-decay-arms):
+        # the rung for THIS acting completion is a pure function of its POSITION
+        # (turn 1, or its offset from the last spike) over a fixed table,
+        # pushed/popped by the sanctioned
+        # escalator module — loop.py itself never assigns effort. A strict
+        # no-op unless BOTH COLLEAGUE_EFFORT_SPIKES and COLLEAGUE_EFFORT_DECAY
+        # are armed.
+        with _gateescalation.acting_turn(ctx) as pushed_rung:
+            resp = _complete_turn_or_retry(ctx, complete)
         if resp is None:
             continue
         _account_turn(ctx, resp)
+        # Commit the spike/decay bookkeeping only for an ACCOUNTED completion.
+        _gateescalation.commit_acting_turn(ctx, pushed_rung)
         last_prompt_tokens = resp.prompt_tokens
         # Episode-boundary config lifecycle loop seam (t6): record the pinned
         # effective-config digest for THIS completed model turn. A strict
@@ -672,6 +688,7 @@ def run(
         associate_complete=_context.associate_complete,
         barrier_complete=_context.barrier_complete,
         gate_escalation=_context.gate_escalation,
+        effort_decay=_gateescalation.fresh_decay(_context.effort_decay),
         reasoning_effort_main=_context.reasoning_effort_main,
         reasoning_effort_senses=_context.reasoning_effort_senses,
         reasoning_effort_deepthink=_context.reasoning_effort_deepthink,

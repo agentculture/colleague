@@ -93,6 +93,16 @@ def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for key in _OPENAI_PROVIDER_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("COLLEAGUE_HOME", str(tmp_path / "isolated-home"))
+    # The suite's effort BASELINE is the pre-arm-F wire (spikes + decay OFF):
+    # since the effort-floor-and-decay arc both default ON (row 77, deviation
+    # d1), which would put ``effort_spikes``/``effort_decay`` keys and a mock
+    # barrier warning onto every "plain drive" the hundreds of byte-identity
+    # tests about OTHER features compare. Those tests keep meaning "this
+    # feature is dormant"; the default-ON contract itself is asserted
+    # explicitly (tests/test_effortspikes_boundary.py,
+    # tests/test_effortdecay_boundary.py) by deleting these two keys.
+    monkeypatch.setenv("COLLEAGUE_EFFORT_SPIKES", "0")
+    monkeypatch.setenv("COLLEAGUE_EFFORT_DECAY", "0")
 
 
 #: The pristine ``shutil.which`` — the real PATH lookup a delegating fake

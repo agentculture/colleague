@@ -11,7 +11,14 @@ seats (the senses front door, the Talker, the read-only scouts) turn thinking
 **off** — resolved **where each seat is built**, never per turn **from content**
 (amended #484: *per enumerated point from a fixed table* — the effort-spike
 surface, `colleague/effortspikes.py`, keys a rung by POINT NAME, never by
-inspecting a turn or accepting a model-supplied value), and
+inspecting a turn or accepting a model-supplied value; amended again by the
+effort-decay arc, convention change (8): *per enumerated point, **or per
+fixed POSITION or OFFSET from such a point**, from a fixed table* — five
+points now, `stall.no_write` (a count of acting turns without a file write)
+and `start.first_turn` (model turn 1) beside #484's three — `colleague/effortdecay.py`
+keys the acting turns AFTER a spike by their offset from it, `1 → low`, then
+`off` until the next spike, opt-in `COLLEAGUE_EFFORT_DECAY=1`; see
+[`effort-spikes.md`](effort-spikes.md)), and
 **byte-identical when unset**. The knob is a closed ladder, not a free number:
 
 ```text
@@ -48,13 +55,19 @@ duplicate it.
 
 | Seat | Default rung |
 |------|--------------|
-| `cortex` | `low` |
+| `cortex` | `off` |
 | `worker` | `low` |
 | `deepthink` | `xhigh` |
 | `evaluator` | `low` |
 | `senses` | `off` |
 | `design` | `xhigh` |
 | `associate` | `low` |
+
+The cortex floor is `off` since the effort-floor-and-decay arc (row 77,
+deviation d1 — it was `low` from effort-v4); the default-ON spike points and
+decay supply the depth at decision points — see
+[`effort-spikes.md`](effort-spikes.md). `COLLEAGUE_REASONING_EFFORT=low`
+restores the previous floor.
 
 The `associate` row is the armed seat's floor (Nemotron needs `low`); the
 unreachable fallback to cortex runs at `off` (`associate_seats.FALLBACK_EFFORT`)

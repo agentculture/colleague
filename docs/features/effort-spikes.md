@@ -17,22 +17,39 @@ enumerated string like `"barrier.pre_mutation"`, never anything read from the
 turn. This doc covers that surface; `thinking-effort.md` line 11 and CLAUDE.md
 carry the amended wording as pointers back here.
 
-**Opt-in, off by default.** `COLLEAGUE_EFFORT_SPIKES=1` arms the surface.
-Unarmed — the default — every function in `colleague/effortspikes.py` is a
-strict no-op and the run is byte-identical to v1.74.0: no `effort_spikes` key
-ever appears on the artifact, no seat is built, no config attribute is ever
-set.
+**Default ON since the effort-floor-and-decay arc (row 77, operator
+decision recorded as deviation d1 on that plan).** `COLLEAGUE_EFFORT_SPIKES`
+unset means armed; `=0` (or `off`/`false`/`no`) disarms it, and then every
+function in `colleague/effortspikes.py` is a strict no-op and the run is
+byte-identical to v1.74.0: no `effort_spikes` key on the artifact, no seat
+built, no config attribute set. The same applies to `COLLEAGUE_EFFORT_DECAY`
+(default ON, `=0` disarms) and to the cortex floor, which moved `low` → `off`
+in `effort.SEAT_TABLE` at the same time (`COLLEAGUE_REASONING_EFFORT=low`
+restores it). **The test suite pins the OLD wire as its baseline** (both
+knobs `=0` in `tests/conftest.py`) so the hundreds of byte-identity tests
+about other features stay meaningful; the default-ON contract is asserted
+explicitly in `tests/test_effortspikes_boundary.py` /
+`tests/test_effortdecay_boundary.py`. The rigour debt behind this default —
+n=1 — is issue #490.
 
-## The three enumerated points (`colleague/effortspikes.py`)
+## The five enumerated points (`colleague/effortspikes.py`)
 
-Exactly three, no more — `SPIKE_POINTS`, a tuple both the table and the drift
-test (`tests/test_effortspikes_boundary.py`) key off:
+Exactly five, no more — `SPIKE_POINTS`, a tuple both the table and the drift
+test (`tests/test_effortspikes_boundary.py`) key off. Three landed with #484;
+the effort-floor-and-decay arc added the two position/count-keyed ones after
+rows 74-75 showed an `off`-floor run never reaches the pre-mutation barrier:
 
-| Point | Rung | Fires in |
-|-------|------|----------|
-| `barrier.pre_mutation` | `"medium"` | `colleague/loop_barrier.py` |
-| `gate.repeat_failure` | `"medium"` | `colleague/loop_gateescalation.py` |
-| `fillline.decision` | delegated (see below) | `colleague/loop_gateescalation.py` |
+| Point | Rung | Keyed by | Fires in |
+|-------|------|----------|----------|
+| `barrier.pre_mutation` | `"medium"` | first `write_file`/`edit_file` request (name) | `colleague/loop_barrier.py` |
+| `gate.repeat_failure` | `"medium"` | a gate's 2nd repair attempt (count) | `colleague/loop_gateescalation.py` |
+| `fillline.decision` | delegated (see below) | the fill-line declaring turn | `colleague/loop_gateescalation.py` |
+| `stall.no_write` | `"medium"` | `STALL_TURNS` (10) acting turns with no file-writing call since start / last spike / last write (count over names); at most `STALL_MAX_FIRES` (3) per run | `colleague/loop_barrier.py` (`intercept_stall`, the barrier's tools-off turn with a stall prompt) |
+| `start.first_turn` | `"medium"` | model turn 1 (position), tools on | `colleague/loop_gateescalation.py` (`acting_turn`) |
+
+Both new points are resets for the effort decay below and stall marks for
+each other: a start spike restarts the stall count at turn 1; a stall or
+barrier firing restarts it again. Neither reads turn content.
 
 `SPIKE_TABLE` maps each point to its rung. Every non-delegated row is a member
 of the closed ladder (`colleague.effort.LADDER`) — `resolve_spike` re-validates
@@ -91,6 +108,17 @@ like any other against `max_steps`. It appends one `Step` named
 8500 chars on the 68000 default) with the same discoverable
 `[truncated: original N chars]` marker `colleague/tasktext.py` uses; timeout is
 the STANDARD (un-escalated) turn timeout, never an escalated one.
+
+**The trigger, after #487.** v0's precondition was "every prior step named a
+read-only tool", and `run_command` is mutating BY NAME (`roles._WRITE_TOOLS`)
+— so a survey that opened with `git status` or `wc -l` latched the barrier
+shut for the whole run; 3 of 5 measured dispatches did exactly that
+(`docs/live-testing.md` rows 72-73). Since the effort-decay arc the
+precondition is "no prior step named a **file-writing** tool"
+(`FILE_WRITE_TOOLS` = `write_file`/`edit_file`) and the trigger is "this turn
+requests one" — still a tool-NAME lookup, never content. `run_command` stays
+a mutating tool for roles and policy; a `sed -i` inside it slips past the
+barrier, and that is documented here rather than inspected.
 
 **Firing:** at most once per run (v0). The barrier's own `TaskResult
 .effort_spikes` entry for `barrier.pre_mutation` IS the already-fired marker —
@@ -162,6 +190,41 @@ even though the fill line re-arms per crossing (see
 every function is a strict no-op, no attribute on the acting config is ever
 touched.
 
+## Effort decay after a spike (`colleague/effortdecay.py`, opt-in)
+
+The shape the #484 discussion argued for — *decide → medium, then low, then
+none … until the next reset* — built as a FIXED table keyed by an acting
+turn's **offset from the last spike**, not by anything in the turn:
+
+| offset since the last spike | rung |
+|---|---|
+| 1 | `low` |
+| 2 and later | `off` (`DECAY_FLOOR`), until the next spike resets the clock |
+
+**Resets are exactly the enumerated spike points** (`RESET_POINTS` IS
+`SPIKE_POINTS`): the barrier, a repeated-gate escalation, the fill-line
+declaring turn, the stall decision turn, and the start spike (stamped at
+turn 1). Each spike record site calls
+`loop_gateescalation.note_reset`, which stamps the run's current model-turn
+count; `loop_gateescalation.decayed_turn` wraps each acting completion in
+`loop.py`, computes `(this turn) − (last reset)`, and pushes the table's rung
+through the SAME `SeatEscalator` the spike points use, popping it the moment
+the completion returns. `loop.py` itself assigns no effort (the AST guard in
+`tests/test_thinking_effort_boundary.py` still holds; `effortdecay.py` never
+touches the attribute either).
+
+**Opt-in:** `COLLEAGUE_EFFORT_DECAY=1` **and** `COLLEAGUE_EFFORT_SPIKES=1` —
+decay without a reset trigger is meaningless, so either unset leaves the
+surface inert and the run byte-identical. **Record:**
+`TaskResult.effort_decay` = `{resets: [model-turn indices], turns: {rung: n}}`,
+omit-when-empty. **This is convention change (8)** — the invariant now reads
+"per enumerated point, or per fixed OFFSET from such a point, from a fixed
+table"; it is recorded in CLAUDE.md and `thinking-effort.md` line 11, never
+silently. **Honest limits:** the decay covers the main loop's acting
+completions only (a gate's bounded fix-turn mini-loop runs at its own
+escalated rung); v0 has one table with one named offset; measured in
+`docs/live-testing.md` rows 74-77 (the off-floor and decay arms).
+
 ## The artifact field — `TaskResult.effort_spikes`
 
 A list of `{"point": ..., "rung": ..., "seat": ...}` dicts
@@ -190,15 +253,48 @@ reads as "did-not-fire"** — there is no separate off/false record.
   escalates once; the fill-line decision escalates once even across multiple
   crossings. Repeated firing within a run is explicitly out of scope for this
   arc.
-- **The measurement contract is the reason this ships opt-in.** Per the spec,
+- **On the `mock` backend the decision turns cannot run** (no one-shot
+  completion seam): with the default ON, a mock run records the
+  `start.first_turn` spike (an escalator push, no seat needed) and warns
+  `pre-mutation barrier unavailable` once per barrier/stall attempt instead
+  of interposing a turn — never a crash, never a divergence in result shape
+  (all-engines rule). The suite's conftest baseline (`=0`) keeps the mock
+  byte-identity tests on the old wire.
+- **The measurement contract was the reason this shipped opt-in; the default
+  flip (row 77, d1) rests on n=1 and #490 carries the debt.** Per the spec,
   #484 is GATED on the four small fixes (#480-#483): the pre-registered
   null-hypothesis arm (low effort + the #482 importability check + the #480
   surfaced gate warning + one bounded fix turn) is compared against a flat
   `low` baseline and the barrier/rung arms. **Arming any spike by default
   requires the spike arm (C) to beat the cheap-feedback arm (B) on the same
   measurement** — this doc records the surface as built and opt-in; it does
-  not itself constitute that evidence. See `docs/live-testing.md` for the
-  recorded arms once run.
+  not itself constitute that evidence. **MEASURED (`docs/live-testing.md` rows
+  70-73, spec `2026-09-01-measure-effort-spikes-484`): the barrier fires live
+  (row 70 smoke; row 73 at step 21 after a 20-step survey, a 5,661-char plan
+  naming the seams) and the run lands correct — but so did the flat-`low`
+  feedback arm, twice, at 44% of the reasoning and 69% of the wall (rows
+  71-72), so C did not beat A. Two pre-registered rules apply separately: #482's
+  three-reading rule (feedback arm vs the planning-turn arm — A vs C, which
+  DID run) reads "same correctness at lower spend → #480+#482 are the
+  fix"; the spec's default-arming rule (C must beat B) could NOT run because
+  arm B was VOID twice — so it licenses nothing and the default stays OFF.
+  The C-vs-A figures are #482's comparison, not a substitute for C-vs-B.** The v0 trigger is the reason B could not run: with
+  `run_command` a mutating tool BY NAME, a model that opens its survey with a
+  shell command (3 of 5 dispatches on that brief) can never reach the barrier
+  — a trigger follow-up is filed from the #484 disposition (#487, fixed in
+  the effort-floor-and-decay arc). **Round 2, rows 74-77 (the off floor and
+  the decay):** an `off` floor alone never crosses from survey to action (row
+  74: 91 turns of reading, zero files; row 75: the same with the barrier armed
+  — a spike that waits for the first write request cannot reach a run that
+  never makes one). `low` + decay (row 76) lands correct but spends the most
+  of any arm, because the spend sits in the pre-spike survey the decay cannot
+  touch. **The full stack on the off floor (row 77: `start.first_turn`, two
+  `stall.no_write` decision turns, the barrier, then the decayed tail) lands
+  a correct branch at 24,279 reasoning chars in 1,286 s — 16% of the
+  flat-`low` arm's reasoning and 41% of its wall — meeting the pre-stated
+  win condition at n=1.** The lever was the count-keyed stall turn forcing
+  the crossing, after which `off` executed the plan. Still opt-in; a G arm
+  (off + stall only) would separate the start spike's share.
 - **`gate.repeat_failure` and `fillline.decision` share one mechanism
   (`SeatEscalator`) that mutates a live config object rather than building a
   seat** — a deliberate deviation from every other effort consumer's pattern,

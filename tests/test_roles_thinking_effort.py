@@ -121,9 +121,9 @@ def test_top_level_explorer_role_off_selectable_via_seat_override() -> None:
 @pytest.mark.parametrize("role_name", ["validator", "writer", "planner"])
 def test_top_level_other_roles_keep_acting_seat_default(role_name: str) -> None:
     config = _config(role=role_name)
-    assert config.reasoning_effort_effective == "low"  # v4 seat default (#475)
+    assert config.reasoning_effort_effective == "off"  # v4 seat default (#475)
 
 
 def test_top_level_no_role_keeps_acting_seat_default() -> None:
     config = _config()
-    assert config.reasoning_effort_effective == "low"  # v4 seat default (#475)
+    assert config.reasoning_effort_effective == "off"  # v4 seat default (#475)

@@ -64,11 +64,11 @@ def test_effort_no_arg_lists_every_seat_and_acting_role(tmp_path: Path) -> None:
         assert f"{seat} " in out, f"seat {seat!r} missing from the table"
     assert "acting role" in out
     # The seat-table defaults are what is sent when nothing is set (v4, #475).
-    assert "cortex low" in out
+    assert "cortex off" in out
     assert "senses off" in out
     assert "deepthink xhigh" in out
     # The acting role (cortex, worker unarmed) resolves to the same rung.
-    assert "acting role (cortex) low" in out
+    assert "acting role (cortex) off" in out
 
 
 def test_effort_no_arg_unset_under_kill_switch(tmp_path: Path) -> None:

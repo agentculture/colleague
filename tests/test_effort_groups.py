@@ -95,7 +95,7 @@ def test_config_show_json_reasoning_effort_resolved_has_three_groups() -> None:
     }
     assert set(resolved["purposes"]) == set(efforttables.PURPOSE_TABLE)
     # table defaults, nothing overridden (v4, #475: all three at "low")
-    assert resolved["seats"]["cortex"] == "low"
+    assert resolved["seats"]["cortex"] == "off"
     assert resolved["associate"]["associate.scout"] == "low"
     assert resolved["purposes"]["web_survey"] == "low"
 

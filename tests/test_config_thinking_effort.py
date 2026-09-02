@@ -238,7 +238,7 @@ def test_config_show_names_kill_switch_layer(monkeypatch: pytest.MonkeyPatch) ->
 def test_acting_seat_effective_defaults_low_cortex() -> None:
     cfg = EngineConfig.resolve()
     assert cfg.worker is None
-    assert cfg.reasoning_effort_effective == "low"  # v4 seat default (#475)
+    assert cfg.reasoning_effort_effective == "off"  # v4 seat default (#475)
 
 
 def test_acting_seat_effective_prefers_worker_when_armed() -> None:
@@ -278,7 +278,7 @@ def test_explorer_role_explicit_global_override_wins() -> None:
 def test_non_explorer_role_keeps_acting_seat_value() -> None:
     cfg = EngineConfig.resolve()
     cfg.role = "writer"
-    assert cfg.reasoning_effort_effective == "low"  # v4 seat default (#475)
+    assert cfg.reasoning_effort_effective == "off"  # v4 seat default (#475)
 
 
 def test_kill_switch_effective_is_none(monkeypatch: pytest.MonkeyPatch) -> None:

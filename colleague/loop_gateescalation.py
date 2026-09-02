@@ -71,7 +71,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Tuple
 
-from colleague import effortspikes
+from colleague import effortdecay, effortspikes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from colleague.loop_types import _Work
@@ -190,6 +190,160 @@ def _record(ctx: "_Work", key: str, point: str, rung: str) -> None:
     ctx.result.effort_spikes.append(
         effortspikes.SpikeRecord(point=point, rung=rung, seat=ctx.seat).to_dict()
     )
+    _note_stall_mark(ctx)
+    note_reset(ctx)
+
+
+def _note_stall_mark(ctx: "_Work") -> None:
+    from colleague import loop_barrier as _loopbarrier
+
+    _loopbarrier.note_stall_mark(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Effort decay after a spike (spec 2026-09-02-effort-floor-and-decay-arms, c3)
+# ---------------------------------------------------------------------------
+
+
+def make_decay(config: Any) -> Optional[effortdecay.DecayState]:
+    """Bind the decay clock, or ``None`` — the strict no-op — when unarmed.
+
+    ``COLLEAGUE_EFFORT_DECAY=1`` AND the spike opt-in must both be set
+    (:func:`colleague.effortdecay.decay_enabled`); *config* is accepted for
+    symmetry with :func:`make_escalator` and unused — the clock is per run,
+    not per config.
+    """
+    del config
+    return effortdecay.make_decay()
+
+
+def _decay(ctx: "_Work") -> Optional[effortdecay.DecayState]:
+    return getattr(ctx, "effort_decay", None)
+
+
+def note_reset(ctx: "_Work") -> None:
+    """A spike point fired: restart the decay clock at the run's current model turn.
+
+    Called by every spike record site — the two here and the barrier's — so the
+    reset vocabulary is exactly the enumerated spike points. A no-op when decay
+    is unarmed.
+    """
+    decay = _decay(ctx)
+    if decay is None:
+        return
+    decay.reset(int(getattr(ctx.result.stats, "model_turns", 0)))
+    ctx.result.effort_decay = decay.to_dict()
+
+
+START_POINT = "start.first_turn"
+
+
+def start_rung() -> Optional[str]:
+    """The first-turn rung, from the fixed spike table and nowhere else."""
+    return effortspikes.resolve_spike(START_POINT)
+
+
+def fresh_decay(bound: Any) -> Optional[effortdecay.DecayState]:
+    """A per-RUN decay clock: a new :class:`DecayState` whenever the controls carry one.
+
+    ``ContextControls`` is reusable across ``run()`` calls (the public
+    ``context=`` path), so the clock it binds is only a marker that decay is
+    armed — the loop builds its own fresh state per work item (Qodo #491 t7),
+    never inheriting another task's resets or counts.
+    """
+    return effortdecay.DecayState() if bound is not None else None
+
+
+@contextmanager
+def acting_turn(ctx: "_Work") -> Iterator[Optional[dict]]:
+    """The ONE wrapper the loop puts around each acting completion — PUSH only.
+
+    Yields ``None`` (nothing pushed) or a small token ``{"point": <name or
+    None>, "rung": <rung>}`` naming what was pushed, which the loop hands to
+    :func:`commit_acting_turn` AFTER the response is accepted and accounted.
+    Nothing is recorded here: a retry-without-accounting path
+    (``_complete_turn_or_retry`` returning ``None``) must neither consume the
+    start spike nor inflate the decay counts (Qodo #491 t4/t6).
+
+    Two position-keyed points, both strict no-ops when unarmed:
+
+    * ``start.first_turn`` — the run's first acting completion (model turn
+      count 0 before it) runs at the table's rung with tools on.
+    * otherwise :func:`decayed_turn` — the decay tail after any spike.
+    """
+    escalator = _escalator(ctx)
+    rung = start_rung() if escalator is not None and not _fired(ctx, START_POINT) else None
+    if rung is None or int(getattr(ctx.result.stats, "model_turns", 0)) != 0:
+        with decayed_turn(ctx) as decayed:
+            yield {"point": None, "rung": decayed} if decayed is not None else None
+        return
+    escalator.push(rung)
+    try:
+        yield {"point": START_POINT, "rung": rung}
+    finally:
+        escalator.pop()
+
+
+def commit_acting_turn(ctx: "_Work", pushed: Optional[dict]) -> None:
+    """Record what :func:`acting_turn` pushed, once the completion is ACCOUNTED.
+
+    Called by the loop right after ``_account_turn`` (so ``model_turns``
+    already counts the completion). For the start spike: the artifact record,
+    a stall mark, and a decay reset stamped at the completion's own turn
+    number. For a decayed turn: the rung count on the decay record. A ``None``
+    token (nothing pushed) is a no-op.
+    """
+    if not pushed:
+        return
+    turn = int(getattr(ctx.result.stats, "model_turns", 0))
+    decay = _decay(ctx)
+    if pushed.get("point") == START_POINT:
+        ctx._effort_spikes_fired.append(START_POINT)
+        ctx.result.effort_spikes.append(
+            effortspikes.SpikeRecord(
+                point=START_POINT, rung=pushed["rung"], seat=ctx.seat
+            ).to_dict()
+        )
+        marks = getattr(ctx, "_stall_marks", None)
+        if marks is not None:
+            marks.append(turn)
+        if decay is not None:
+            decay.reset(turn)
+            ctx.result.effort_decay = decay.to_dict()
+        return
+    if decay is not None:
+        decay.note(pushed["rung"])
+        ctx.result.effort_decay = decay.to_dict()
+
+
+@contextmanager
+def decayed_turn(ctx: "_Work") -> Iterator[Optional[str]]:
+    """Run the enclosed ACTING completion at the decayed rung, when one applies.
+
+    Yields the rung pushed (``None`` when nothing was: decay unarmed, no reset
+    yet, or the escalator unbound). The rung is a pure function of the
+    completion's OFFSET from the last reset over the fixed
+    :data:`colleague.effortdecay.DECAY_TABLE` — never of turn content. Pushed
+    through the same :class:`SeatEscalator` the spike points use and popped
+    the moment the completion returns, so no later seat inherits it. The turn
+    is counted on the decay record by :func:`commit_acting_turn`, after accounting.
+    """
+    decay = _decay(ctx)
+    escalator = _escalator(ctx)
+    if decay is None or escalator is None:
+        yield None
+        return
+    next_turn = int(getattr(ctx.result.stats, "model_turns", 0)) + 1
+    rung = decay.rung_for(next_turn)
+    if rung is None:
+        yield None
+        return
+    # The count lands in ``commit_acting_turn`` once the completion is accepted.
+    escalator.push(rung)
+    try:
+        yield rung
+    finally:
+        escalator.pop()
 
 
 # ---------------------------------------------------------------------------

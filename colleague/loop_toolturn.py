@@ -128,6 +128,9 @@ def _record_execution(
     _tae_close(ctx, call.name, True)
     span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
     ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
+    # stall.no_write clock: a file-writing call executed at THIS model turn
+    # (name lookup; a strict no-op unless the spike surface bound the marks).
+    _note_file_write(ctx, call.name)
     # Keep the executor's live step counter in step with the trace (Qodo #469/4):
     # a hire minted by a handler reads ``created_step`` off it. Guarded — a
     # loop driven without an executor (phase-notice doubles) has none.
@@ -171,3 +174,9 @@ def _run_tool_call(ctx: _Work, call: ToolCall, *, fire_hooks: FireHooksFn) -> bo
         return _record_execution(
             ctx, call, arguments, span, step_index, outcome, exc, fire_hooks=fire_hooks
         )
+
+
+def _note_file_write(ctx: _Work, tool_name: str) -> None:
+    from colleague import loop_barrier as _loopbarrier
+
+    _loopbarrier.note_file_write(ctx, tool_name)

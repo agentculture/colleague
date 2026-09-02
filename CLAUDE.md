@@ -70,7 +70,9 @@ minds. The architecture, part by part:
   (operator-declared, or discovered from the lobes `muse` role) on an
   **enumerated** escalation surface; absent = byte-identical. Doc: `deepthink.md`.
 - **Thinking effort (#416)** — a per-seat reasoning ladder
-  (`off|low|medium|high|xhigh`, plus the `default` kill-switch) resolved
+  (`off|low|medium|high|xhigh`, plus the `default` kill-switch; the cortex
+  floor is `off` since the effort-floor-and-decay arc, depth comes from the
+  default-ON spike points + decay) resolved
   **where each seat is built**, never per turn FROM CONTENT — per enumerated
   point from a fixed table (amended #484): deepthink/design seats keep full
   effort, shallow seats (senses/Talker, read-only scouts) turn thinking off; the
@@ -85,7 +87,30 @@ minds. The architecture, part by part:
   `loop_gateescalation.py`), and `fillline.decision` (delegated to the
   already-shipped `effort.DESIGN_SITE_TABLE['fillline.split']`, same module);
   recorded on `TaskResult.effort_spikes` (omit-when-empty); unarmed =
-  byte-identical to v1.74.0. Doc: `effort-spikes.md`.
+  byte-identical to v1.74.0. **Measured** (`docs/live-testing.md` rows 70-73):
+  the barrier fires and plans correctly but bought nothing on correctness at
+  2.3× a flat-`low` run's reasoning — default stays OFF. **Trigger fix
+  (#487):** the barrier's precondition/trigger key on the file-writing names
+  `write_file`/`edit_file` only, so a shell-first survey still reaches it.
+  **Two more enumerated points (effort-floor-and-decay arc, five total, drift
+  test re-pinned):** `stall.no_write` (after `STALL_TURNS`=10 acting turns
+  with no `write_file`/`edit_file` call since start / last spike / last write,
+  the barrier's tools-off decision turn fires at `medium`, at most 3 per run —
+  a COUNT over tool names, because rows 74-75 showed an `off` floor never
+  reaches the pre-mutation barrier) and `start.first_turn` (model turn 1 at
+  `medium`, tools on, keyed by position).
+  **Effort decay (opt-in `COLLEAGUE_EFFORT_DECAY=1`, `colleague/effortdecay.py`):**
+  after any spike the acting turns run `1 → low`, then `off` until the next
+  spike resets the clock (convention change (8)); recorded on
+  `TaskResult.effort_decay` (omit-when-empty). **Measured (rows 74-77):** an
+  `off` floor alone never crosses survey → action (rows 74-75, zero files);
+  the full stack on the off floor (row 77) lands a correct branch at 16% of
+  the flat-`low` arm's reasoning and 41% of its wall — n=1. **Since that
+  row, arm F's shape IS the default (deviation d1, follow-up #490):**
+  spikes ON, decay ON, cortex floor `off`; `COLLEAGUE_EFFORT_SPIKES=0` /
+  `COLLEAGUE_EFFORT_DECAY=0` / `COLLEAGUE_REASONING_EFFORT=low` restore the
+  v1.75 wire; the test suite pins that old wire as its baseline (conftest).
+  Doc: `effort-spikes.md`.
 - **Per-model sampling defaults + repetition guard (#479)** — every seat's
   completion carries its MODEL CARD's sampling values for the half the
   already-resolved effort rung selects (`off` = the non-thinking half, any rung
@@ -399,7 +424,18 @@ plan `adopt-from-qwen-code`; (7) the thinking-effort invariant **amended**
 opt-in `COLLEAGUE_EFFORT_SPIKES`, unarmed byte-identical) — "resolved where
 each seat is built, never per turn" now reads "never per turn FROM CONTENT —
 per enumerated point from a fixed table," since a spike point keys a rung by
-POINT NAME, never by inspecting turn content or a model-supplied value.
+POINT NAME, never by inspecting turn content or a model-supplied value; (8)
+the same invariant amended ONCE MORE by the effort-decay arc (spec
+`docs/specs/2026-09-02-effort-floor-and-decay-arms.md`): "per enumerated
+point, or per fixed POSITION or OFFSET from such a point, from a fixed table" —
+(the spike vocabulary grew from three to FIVE — `stall.no_write`, a count
+of acting turns without a file write, and `start.first_turn`, model turn 1 —
+each re-pinned in the drift test, never content-keyed) —
+`colleague/effortdecay.py` keys the acting turns AFTER a spike by their
+offset from it (`DECAY_TABLE` `1 → low`, then `off` until the next spike
+point resets the clock), pushed through the same sanctioned escalator, opt-in
+`COLLEAGUE_EFFORT_DECAY=1` (and spikes armed), unarmed byte-identical; the
+reset vocabulary is exactly the three spike points, never content.
 Everything else holds.
 
 **In scope:** the runtime + every architecture part listed above (each added via an
